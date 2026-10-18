@@ -25,25 +25,39 @@
     l'emittente esplicito (`cliente:<uuid>` / `partner:<id>`); `codice_proposto` e `rev_proposta` sono le proiezioni
     importazione-1 (`ProiezioneCodice`, `ProiezioneRev`), anche su ogni lettura del registro (DECA PE-08); i nodi tolti o
     non raggiunti stanno fra i nodi fuori per decisione; relazioni con i due estremi, file e letture citate, diagnostiche
-    per nodo o in testata, contesto e perimetro del §3.8.2. I rifiuti del §6.1 hanno codice e motivo
+    per nodo o in testata, contesto e perimetro del §3.8.2. Una diagnostica dell'ancoraggio o della valutazione entra solo
+    se parla del gruppo: il prodotto, e ogni occorrenza che cita è lo STEP del gruppo o un file attivo del registro, mai
+    un'altra copia dello STEP (il rif di un nodo è uguale su ogni copia) né un file non attivo (contato nella nota
+    `importazione.evidenze_file_non_attivi`). I rifiuti del §6.1 hanno codice e motivo
     (`CORPO_NON_VALIDO`/`gruppo_non_importabile`, `FILE_NON_ATTIVO`, `PROPOSTA_NON_DISPONIBILE` con
     `errore_valutazione` o `registro_incompleto`); il peso lo controlla la foglia;
   - **il confronto fra due registri** (`Confronta`, `ConfrontaCaselle`): `uguale`, `regole_cambiate`,
     `proposta_cambiata`, con le differenze di PE-18 (`{nodi[], archi[]}` più i campi del gruppo) calcolate con la
     proiezione della foglia (`importazione.ImpronteParziali`) su un contenuto ridotto alla voce o al campo: una differenza
-    c'è se e solo se il campo cambia `impronta_contenuto`; con `uguale` le differenze sono vuote per costruzione;
+    c'è se e solo se il campo cambia `impronta_contenuto`; con `uguale` le differenze sono vuote per costruzione. La
+    radice del gruppo serve solo a classificare la voce della radice: non entra nel confronto delle altre voci.
+    `ConfrontaCaselle` (la bozza senza registro) non dà mai «aggiunta» la voce della radice, che il nodo del prodotto
+    rappresenta (P-2), né una voce fuori per decisione;
   - **l'effetto di un cambio della fonte** (`EffettoDelCambioFonte`, cambio-fonte-1 in sola lettura sulla `VistaBozza`):
     gli elenchi della risposta di R2 con i suoi nomi (caselle e archi riscritti, nodi fuori per cambio fonte, identità
     aggiornate, da rivedere con il motivo, decisioni cadute, differenze) e quelli della sola anteprima (nodi che restano
-    ed entrano, preassociazioni nel vassoio);
+    ed entrano, preassociazioni nel vassoio). Un nodo escluso da una `non_includere` lo rappresenta la decisione: la sua
+    voce non rientra, e un arco verso di lui non è fra le differenze. Con la stessa struttura sulla stessa occorrenza il
+    JSON è solo `{"stessa_sorgente": true}`; gli elenchi vuoti dell'effetto, e le differenze vuote, sono assenti;
   - **il contenuto di S6** (`AnteprimaDelloSTEP`): i gruppi dello STEP per il prodotto con l'impronta_contenuto di
-    adesso, la candidata in vista, la proposta (i byte del registro), il confronto del codice della radice, le
-    associazioni previste, lo STEP secondario e, con una bozza, l'effetto del cambio della fonte;
+    adesso, la candidata in vista, la proposta (i byte del registro), il confronto del codice della radice con il codice
+    del componente del prodotto nella working (`IngressoAnteprima.CodiceProdotto`, che passa chi chiama), le associazioni
+    previste, lo STEP secondario e, con una bozza, l'effetto del cambio della fonte. Il confronto e il motivo della scelta
+    della fonte sono una funzione sola con R2 (`ConfrontoDelCodice`, `MotivoFonteObbligatorio`: il motivo serve con
+    «diverso» e, per prudenza, con «non determinabile»);
   - **le aggiunte di V1 al modello di `/dati`** (`Modello`, EM §9.9; PE-01, PE-10, PE-15, PE-16, PE-28): i gruppi con
     l'impronta_contenuto di un'importazione fatta adesso e i nodi, ognuno con la completezza del 2D
     (`{requisito, esito, deroga?}`), le diagnostiche correnti (quelle della voce del registro di adesso) e
     `decisione_esistente.identita_registrata` (`IdentitaDelRegistrato`: la certificazione valida, oppure il cliente
-    presunto); lo STEP secondario; il motivo della mancanza di gruppi.
+    presunto); per gruppo le diagnostiche della testata (quelle di più nodi, MAT PN-07); lo STEP secondario; il motivo
+    della mancanza di gruppi. Le occorrenze non attive non entrano fra i gruppi, nemmeno la BOM di lavoro: se non resta un
+    gruppo con uno STEP il motivo è `step_non_attivo`, con gli allegati (`StepNonAttivi` per il motivo della fonte). Un
+    errore o un panic dell'adattatore restano nel gruppo (`importazione` con `ERRORE_CALCOLO`), e la pagina non cade.
 
 ## Non appartiene qui
 
@@ -74,10 +88,11 @@
 - **`codici_diagnostica.go`** — i codici `importazione.*` dell'adattatore, nell'elenco d'oro.
 - **`confronta.go`** — `Confronto`, `Differenze`, `DifferenzaNodo`, `DifferenzaArco`, `Confronta`, `ConfrontaCaselle`.
 - **`cambio_fonte.go`** — `VistaBozza` e i suoi tipi, `EffettoCambioFonte`, `EffettoDelCambioFonte`.
-- **`anteprima.go`** — `IngressoAnteprima`, `Anteprima`, `AnteprimaDelloSTEP`.
+- **`anteprima.go`** — `IngressoAnteprima`, `Anteprima`, `AnteprimaDelloSTEP`, `ConfrontoDelCodice`,
+  `MotivoFonteObbligatorio`.
 - **`modello.go`** — `IngressoModello`, `ModelloDelProdotto`, `GruppoDelModello`, `NodoDelModello`,
   `CompletezzaDelNodo`, `IdentitaRegistrata`, `IdentitaDelRegistrato`, `StepSecondario`, `MotivoSenzaGruppi`, `Modello`,
-  `StepSecondarioDelProdotto`.
+  `StepSecondarioDelProdotto`, `CodiceErroreCalcolo`, `importaProtetto`.
 
 ## Invarianti
 
@@ -109,12 +124,18 @@
   con un'altra struttura; la forma JSON del gruppo corrente.
 - **`importa_letture_interna_test.go`** — L1 — le proiezioni (A-24: «…_rev_b» → `B`, la rev con spazi o di 11
   caratteri, il token sospeso; i tratti con affissi, NFD, base parziale, token nel tratto, ripetizione discordante,
-  spazio, base ripetuta) e i due campi di una lettura (A-25).
-- Le prove dell'adattatore sulle scene della valutazione (A-01…A-08, A-10…A-19, A-23, A-25, A-26…A-29, T-13 sui campi e sulle proiezioni,
-  il confronto A-18, il cambio della fonte, S6): in `core/valutazione/importazione_*_scena_test.go`, perché usano le
-  scene della valutazione; ogni registro dell'adattatore passa `importazione.Leggi`, `Componi(Leggi(x).Contenuto)` e
+  spazio, base ripetuta) e i due campi di una lettura (A-25: la rev solo con il codice).
+- **`modello_interna_test.go`** — L1 — un errore o un panic dell'adattatore restano nel gruppo (`ERRORE_CALCOLO`) nel
+  modello di `/dati` e in S6.
+- Le prove dell'adattatore sulle scene della valutazione (A-01…A-08, A-10…A-19, A-23, A-25, A-26…A-29, T-13 sui campi,
+  sulle proiezioni e i sottocasi a scena, il confronto A-18 con la quantità, il passaggio fra voci e fuori e le relazioni,
+  `ConfrontaCaselle`, il cambio della fonte con la `non_includere`, S6, i file non attivi, la copia dello STEP, le
+  diagnostiche dell'adattatore): in `core/valutazione/importazione_*_scena_test.go`, perché usano le scene della
+  valutazione; ogni registro dell'adattatore passa `importazione.Leggi`, `Componi(Leggi(x).Contenuto)` e
   `importazione.Rileggi` con le sue colonne.
-- T-09, la sostituzione dello STEP con una radice di riserva: in `core/valutazione/gruppo_corrente_sostituzione_test.go`.
+- T-09, la sostituzione dello STEP con una radice di riserva e il cancello del passo 3 bis («Revoca», due radici, la
+  sostituzione non autorizzata): in `core/valutazione/gruppo_corrente_sostituzione_test.go`; P-4 (a) e (b) con i fatti
+  calcolati in `importazione_modello_scena_test.go` (`TestA28LoSTEPNonAttivo`).
 - A-09, la parità con `Indice.Gruppi`, e A-28 sui nomi JSON di `/dati`: in `transport/web/motore_a`.
 
 ## Leggi anche

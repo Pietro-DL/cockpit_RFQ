@@ -53,6 +53,9 @@ type Differenze struct {
 // Vuote: nessuna differenza.
 func (d Differenze) Vuote() bool { return len(d.Nodi) == 0 && len(d.Archi) == 0 && len(d.Gruppo) == 0 }
 
+// IsZero: nessuna differenza; serve a «omitzero» di encoding/json (l'effetto del cambio della fonte, EffettoCambioFonte).
+func (d Differenze) IsZero() bool { return d.Vuote() }
+
 // DifferenzaNodo: un nodo che cambia (PE-18): la voce del registro, il tipo e i campi del contenuto che cambiano.
 // ChiaveBozza e DecisioneID li mette chi conosce la bozza (R1 ?confronto=1, la risposta di R2); il confronto fra registri
 // dà la voce. Un nodo che passa fra le voci e i nodi fuori per decisione cambia stato_motore.raggiunto (fuori come
@@ -93,11 +96,12 @@ func Confronta(vecchio, nuovo importazione.Contenuto) Confronto {
 	return out
 }
 
-// statoVoce: una voce come la vede il confronto: fra i nodi (con il suo JSON), fuori per decisione (con il segno) o
-// assente.
+// statoVoce: una voce come la vede il confronto: fra i nodi (con il suo JSON e, se è la voce della radice del suo
+// registro, il rif della radice), fuori per decisione (con il segno) o assente.
 type statoVoce struct {
-	nodo  json.RawMessage
-	segno string
+	nodo   json.RawMessage
+	radice string
+	segno  string
 }
 
 func vociDi(c importazione.Contenuto) map[string]statoVoce {
@@ -107,7 +111,11 @@ func vociDi(c importazione.Contenuto) map[string]statoVoce {
 		if err != nil {
 			continue
 		}
-		out[v.Voce] = statoVoce{nodo: b}
+		s := statoVoce{nodo: b}
+		if c.EVoceDellaRadice(v) {
+			s.radice = v.Origine.Rif
+		}
+		out[v.Voce] = s
 	}
 	for _, x := range c.Proposta.FuoriPerDecisione {
 		if _, ok := out[x.Voce]; !ok {
@@ -146,7 +154,7 @@ func differenze(vecchio, nuovo importazione.Contenuto) Differenze {
 			d.Nodi = append(d.Nodi, DifferenzaNodo{Voce: k, Tipo: DifferenzaTolto})
 			continue
 		case a.nodo != nil && b.nodo != nil:
-			campi = campiDiversi(vecchio.Gruppo.Radice, a.nodo, nuovo.Gruppo.Radice, b.nodo)
+			campi = campiDiversi(a.radice, a.nodo, b.radice, b.nodo)
 		default:
 			campi = campiDelloStato(a, b)
 		}
@@ -192,15 +200,24 @@ func campiDelloStato(a, b statoVoce) []string {
 }
 
 // campiDiversi: i campi della voce che entrano in impronta_contenuto e cambiano fra le due voci. Prima l'impronta del
-// contenuto della voce intera; solo se cambia, campo per campo, ognuno con la voce ridotta a voce, origine e quel campo
-// (e la radice del gruppo del suo registro, perché la voce della radice porti fra le evidenze i suoi campi).
+// contenuto della voce intera; solo se cambia, campo per campo, ognuno con la voce ridotta a voce, origine e quel campo.
+// La radice serve solo a classificare la voce: radiceA e radiceB sono il rif della voce quando è la voce della radice
+// del suo registro (così porta fra le evidenze i campi dello stato della RFQ, EM §3.8.1), "" altrimenti. La radice del
+// gruppo non entra nel confronto dei campi: due registri con radici diverse non fanno «cambiata» una voce uguale che
+// non è la radice in nessuno dei due. Una voce che è la radice in un registro e non nell'altro (registri con radici
+// diverse: mai sulla stessa occorrenza, EM §6.4.1) si confronta campo per campo come una voce qualunque, cioè sui
+// valori: il cambio della radice sta in differenze.gruppo.
 func campiDiversi(radiceA string, a json.RawMessage, radiceB string, b json.RawMessage) []string {
 	if improntaVoce(radiceA, a, "") == improntaVoce(radiceB, b, "") {
 		return nil
 	}
+	radice := radiceA
+	if radiceA != radiceB {
+		radice = ""
+	}
 	var out []string
 	for _, campo := range campiDelContenutoDellaVoce() {
-		if improntaVoce(radiceA, a, campo) != improntaVoce(radiceB, b, campo) {
+		if improntaVoce(radice, a, campo) != improntaVoce(radice, b, campo) {
 			out = append(out, campo)
 		}
 	}
@@ -230,7 +247,8 @@ func campiDelContenutoDellaVoce() []string {
 }
 
 // improntaVoce: l'impronta_contenuto di un contenuto con la sola voce (campo "") o con la voce ridotta a voce, origine e
-// quel campo («stato_motore.x» per un campo di stato_motore), con la radice del gruppo data.
+// quel campo («stato_motore.x» per un campo di stato_motore), con la radice data: il rif della voce stessa se è la voce
+// della radice, "" altrimenti (campiDiversi).
 func improntaVoce(radice string, voce json.RawMessage, campo string) string {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(voce, &m); err != nil {
@@ -386,16 +404,21 @@ func canonicoOVuoto(r json.RawMessage) []byte {
 // ConfrontaCaselle: le differenze di una bozza senza registro (da-conferma-1, conversione) con il registro di adesso,
 // sullo stesso gruppo corrente (EM §9.1: «le caselle assenti, da scegliere nel riallineamento, e le voci nuove»): una
 // casella (la voce n:<allegato_id>:<rif>) che il registro non ha né fra i nodi né fra i fuori per decisione è un nodo
-// «tolto»; una voce del registro che nessuna casella rappresenta è un nodo «aggiunto». voci sono le voci delle caselle
-// della bozza; l'ordine non conta.
+// «tolto»; una voce di proposta.nodi[] che nessuna casella rappresenta è un nodo «aggiunto», cioè una voce di
+// nuovi_nodi_proposti (EM §6.5). La voce della radice non è mai «aggiunta»: la rappresenta il nodo del prodotto (P-2),
+// anche quando, in una bozza venuta dal formato 2, il nodo del prodotto non ha caselle (EM §6.4.1, §6.7); importarla
+// sarebbe un doppione del prodotto (la stessa regola di EffettoDelCambioFonte). Le voci fuori per decisione non sono
+// mai «aggiunte»: sono nodi che la proposta lascia fuori. voci sono le voci delle caselle della bozza; l'ordine non
+// conta.
 func ConfrontaCaselle(voci []string, nuovo importazione.Contenuto) Differenze {
 	nella := map[string]bool{}
 	for _, v := range voci {
 		nella[v] = true
 	}
-	registro := map[string]bool{}
+	registro, aggiungibili := map[string]bool{}, map[string]bool{}
 	for _, v := range nuovo.Proposta.Nodi {
 		registro[v.Voce] = true
+		aggiungibili[v.Voce] = !nuovo.EVoceDellaRadice(v)
 	}
 	for _, x := range nuovo.Proposta.FuoriPerDecisione {
 		registro[x.Voce] = true
@@ -412,7 +435,7 @@ func ConfrontaCaselle(voci []string, nuovo importazione.Contenuto) Differenze {
 		switch {
 		case nella[k] && !registro[k]:
 			d.Nodi = append(d.Nodi, DifferenzaNodo{Voce: k, Tipo: DifferenzaTolto})
-		case !nella[k] && registro[k]:
+		case !nella[k] && aggiungibili[k]:
 			d.Nodi = append(d.Nodi, DifferenzaNodo{Voce: k, Tipo: DifferenzaAggiunto})
 		}
 	}

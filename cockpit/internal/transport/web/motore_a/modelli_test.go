@@ -102,6 +102,58 @@ func TestComponiPagina(t *testing.T) {
 	}
 }
 
+// TestComponiPaginaSenzaV1 (revisione della corsia motore, ondata B: i tempi di /dati): con SenzaV1 la pagina non calcola
+// le aggiunte di V1 (un'importazione per gruppo con uno STEP), che la pagina HTML e il suo frammento non leggono; il resto
+// della pagina è lo stesso, e senza SenzaV1 (/dati) le aggiunte ci sono.
+func TestComponiPaginaSenzaV1(t *testing.T) {
+	con := ComponiPagina(maRisultatoACME(), RichiestaPagina{Thread: maUUID(1), Scrive: true})
+	senza := ComponiPagina(maRisultatoACME(), RichiestaPagina{Thread: maUUID(1), Scrive: true, SenzaV1: true})
+	if len(con.Gruppi) == 0 || con.Fonte == nil {
+		t.Fatalf("senza SenzaV1 le aggiunte di V1 mancano: %+v", con.Gruppi)
+	}
+	if senza.Gruppi != nil || senza.Fonte != nil || senza.MotivoSenzaGruppi != nil || senza.BozzaDelProdotto != nil || senza.F8Stato != "" {
+		t.Errorf("con SenzaV1 le aggiunte di V1 ci sono: %+v", senza)
+	}
+	if senza.Prodotto != con.Prodotto || senza.Esito != nil && con.Esito != nil && senza.Esito.ThreadID != con.Esito.ThreadID || senza.Indice == nil {
+		t.Errorf("con SenzaV1 cambia il resto della pagina: %+v", senza)
+	}
+	b, _ := json.Marshal(senza)
+	var chiavi map[string]json.RawMessage
+	if err := json.Unmarshal(b, &chiavi); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"gruppi", "fonte", "bozza_del_prodotto", "motivo_senza_gruppi", "f8_stato"} {
+		if _, ok := chiavi[k]; ok {
+			t.Errorf("con SenzaV1 il JSON porta %q", k)
+		}
+	}
+}
+
+// TestFonteDelProdottoIMotivi (revisione della corsia motore, ondata B): il motivo della fonte di un prodotto senza un
+// componente della RFQ è il suo (non «senza STEP»); con lo STEP del prodotto in «Altri file» la conferma della fonte non
+// è ammessa, e il motivo dice di riattivarlo.
+func TestFonteDelProdottoIMotivi(t *testing.T) {
+	r := maRisultatoACME()
+	p := &Pagina{Prodotto: maP1}
+	m := &propostabom.ModelloDelProdotto{}
+	if f := fonteDelProdotto(r, p, nil, m); f.Motivo != MotivoFonteSenzaComponente || f.ConfermaAmmessa {
+		t.Errorf("senza componente: %+v", f)
+	}
+	// il componente 12 della scena non ha uno STEP autorizzato: senza gruppi con uno STEP, perché l'unico è in Altri file
+	a := maUUID(99)
+	pid := maUUID(12)
+	m = &propostabom.ModelloDelProdotto{StepNonAttivi: []uuid.UUID{a}}
+	r.V1 = DatiV1{NonAttivi: propostabom.NonAttivi{a: "altri_file"}}
+	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != MotivoFonteSTEPNonAttivo || f.ConfermaAmmessa {
+		t.Errorf("lo STEP non attivo fuori dai gruppi: %+v", f)
+	}
+	// lo STEP della bozza aperta del prodotto, non confermato e in Altri file
+	r.V1.Bozze = map[uuid.UUID]BozzaAperta{pid: {BozzaID: maUUID(70), FonteAllegato: &a, FonteSha256: maSha(9)}}
+	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != MotivoFonteSTEPNonAttivo || f.ConfermaAmmessa || f.Confermata {
+		t.Errorf("lo STEP della bozza non attivo: %+v", f)
+	}
+}
+
 // maDatiContratto: la forma del JSON di /dati con le sole chiavi del contratto §2.4 e, riscritta per V1, quelle di EM
 // §9.9 con i nomi di PE-01, PE-15 e PE-16 (A-28). Le forme di gruppi[], fonte e bozza_del_prodotto le controlla anche
 // TestDatiV1INomiDeiCampi, sui tag.
@@ -144,17 +196,19 @@ type maDatiContratto struct {
 			Motivo   string `json:"motivo"`
 		} `json:"struttura"`
 		Segnalati int `json:"segnalati"`
-		// i due nomi in più, per la proposta di emendamento della corsia motore (resoconto dell'ondata B, §5)
+		// i tre nomi in più, per la proposta di emendamento della corsia motore (resoconto dell'ondata B, §5, B-3)
 		Importazione *struct {
 			Codice string `json:"codice"`
 			Motivo string `json:"motivo"`
 			Testo  string `json:"testo"`
 		} `json:"importazione"`
-		Nodi []json.RawMessage `json:"nodi"`
+		Diagnostiche json.RawMessage   `json:"diagnostiche"`
+		Nodi         []json.RawMessage `json:"nodi"`
 	} `json:"gruppi"`
 	MotivoSenzaGruppi *struct {
-		Codice string `json:"codice"`
-		Testo  string `json:"testo"`
+		Codice   string   `json:"codice"`
+		Testo    string   `json:"testo"`
+		Allegati []string `json:"allegati"`
 	} `json:"motivo_senza_gruppi"`
 	Fonte *struct {
 		Voce            *string `json:"voce"`
@@ -234,10 +288,11 @@ func TestDatiJSONNelContratto(t *testing.T) {
 }
 
 // TestDatiV1INomiDeiCampi (A-28; EM §9.9; PE-01, PE-10, PE-15, PE-16, PE-28): i nomi JSON dei tipi che /dati scrive per V1,
-// sui tag. gruppi[] ha i dieci nomi di PE-01 più «importazione» e «nodi» (proposta di emendamento della corsia motore:
-// EM non dice dove stanno i campi per nodo di PE-10 e PE-28, né il rifiuto dell'adattatore); un nodo ha completezza
-// {requisito, esito, deroga?}, diagnostiche[] e decisione_esistente con identita_registrata {emittente,
-// emittente_presunto, namespace?, codice, rev?} (più il modo e la certificazione superata); fonte e step_secondario i
+// sui tag. gruppi[] ha i dieci nomi di PE-01 più «importazione», «diagnostiche» e «nodi» (proposta di emendamento della
+// corsia motore: EM non dice dove stanno i campi per nodo di PE-10 e PE-28, né il rifiuto dell'adattatore, né le
+// diagnostiche di più nodi di MAT PN-07); un nodo ha completezza {requisito, esito, deroga?}, diagnostiche[] e
+// decisione_esistente con identita_registrata {emittente, emittente_presunto, namespace?, codice, rev?} (più il modo e
+// la certificazione superata); motivo_senza_gruppi ha in più gli allegati (step_non_attivo); fonte e step_secondario i
 // nomi di PE-01 e PE-15, senza l'allegato e il nodo, che restano per chi chiama.
 func TestDatiV1INomiDeiCampi(t *testing.T) {
 	nomi := func(v any) []string {
@@ -255,14 +310,14 @@ func TestDatiV1INomiDeiCampi(t *testing.T) {
 		atteso []string
 	}{
 		{propostabom.GruppoDelModello{}, []string{"chiave", "tipo", "allegato_id", "radice", "nome_file", "impronta_contenuto", "radice_letterale",
-			"compatibilita", "struttura", "segnalati", "importazione", "nodi"}},
+			"compatibilita", "struttura", "segnalati", "importazione", "diagnostiche", "nodi"}},
 		{propostabom.StrutturaDelGruppo{}, []string{"versione", "completa", "motivo"}},
 		{propostabom.ErroreImportazione{}, []string{"codice", "motivo", "testo"}},
 		{propostabom.NodoDelModello{}, []string{"rif", "voce", "completezza", "diagnostiche", "decisione_esistente"}},
 		{propostabom.CompletezzaDelNodo{}, []string{"requisito", "esito", "deroga"}},
 		{propostabom.DecisioneEsistenteDelModello{}, []string{"componente_id", "identita_registrata", "certificazione_superata"}},
 		{propostabom.IdentitaRegistrata{}, []string{"emittente", "emittente_presunto", "namespace", "codice", "rev", "modo"}},
-		{propostabom.MotivoSenzaGruppi{}, []string{"codice", "testo"}},
+		{propostabom.MotivoSenzaGruppi{}, []string{"codice", "testo", "allegati"}},
 		{propostabom.StepSecondario{}, []string{"allegato_id", "nome_file", "motivo"}},
 		{FonteDelProdotto{}, []string{"voce", "documento_id", "sha256", "conferma_ammessa", "motivo", "confermata", "autorizzata", "sorgente", "step_secondario"}},
 		{BozzaDelProdotto{}, []string{"bozza_id", "versione", "gruppo_corrente"}},

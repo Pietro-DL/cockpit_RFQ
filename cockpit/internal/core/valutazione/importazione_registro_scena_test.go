@@ -380,7 +380,9 @@ func TestA15GliArchi(t *testing.T) {
 // l'interpretazione dello STEP e degli altri file, l'ancoraggio sul prodotto e sullo STEP del gruppo) stanno tutte
 // nelle voci o nella testata del registro, e nessuna diagnostica del registro viene da altrove, salvo quelle
 // dell'adattatore (importazione.*); una diagnostica che cita un nodo solo sta nella sua voce, una che ne cita più d'uno
-// nella testata, una volta.
+// nella testata, una volta. Una diagnostica dell'ancoraggio è «per quei file» se cita il prodotto e lo STEP o un suo nodo
+// e se ogni occorrenza che cita è lo STEP o un file del registro che non è un'altra copia dello STEP (revisione della
+// corsia, ondata B: il rif di un nodo è lo stesso su ogni copia, e da solo non basta).
 func TestA16LeDiagnosticheNonSiPerdono(t *testing.T) {
 	nodi := []nodoF{{"#1", "7120100A", "1"}, {"#2", "7120200A", "1"}, {"#3", "7120300A", ""}}
 	archi := []arcoF{{"#1", "#2", 1}, {"#1", "#3", 1}}
@@ -429,13 +431,20 @@ func TestA16LeDiagnosticheNonSiPerdono(t *testing.T) {
 	for _, d := range step.Interpretazione.Diagnostiche {
 		attese[norm(diag{d.Codice, string(d.Gravita), string(d.Natura), d.Percorso, d.Messaggio, d.Rif})] = true
 	}
+	shaDi := map[string]string{}
+	for _, f := range c.et.File {
+		shaDi[f.AllegatoID.String()] = f.Documento.Fonte.RiferimentoFatti.Sha256
+	}
 	for _, d := range c.et.Ancoraggi.Diagnostiche {
-		target, gruppo := false, false
+		target, gruppo, occorrenze := false, false, true
 		for _, r := range d.Rif {
 			target = target || r == rifProdB
 			gruppo = gruppo || r == "allegato:"+aStepB.String() || strings.HasPrefix(r, "nodo:"+shaStepB)
+			if a, ok := strings.CutPrefix(r, "allegato:"); ok && a != aStepB.String() {
+				occorrenze = occorrenze && contieneTesto(k.AllegatiCitati, a) && shaDi[a] != shaStepB
+			}
 		}
-		if target && gruppo {
+		if target && gruppo && occorrenze {
 			attese[norm(diag{d.Codice, string(d.Gravita), string(d.Natura), d.Percorso, d.Messaggio, d.Rif})] = true
 		}
 	}

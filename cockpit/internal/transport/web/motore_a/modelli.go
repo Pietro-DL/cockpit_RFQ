@@ -79,11 +79,15 @@ type Fase struct {
 }
 
 // RichiestaPagina: che cosa chiede chi apre la pagina. Scrive lo decide l'adattatore dal ruolo (almeno operatore).
+// SenzaV1: la pagina non vuole le aggiunte di V1 (gruppi, fonte, bozza del prodotto, …), che costano un'importazione per
+// gruppo con uno STEP: la pagina HTML di /motore-a e il suo frammento non le leggono, /dati sì. Il valore zero le
+// calcola, così /dati resta com'è [T].
 type RichiestaPagina struct {
 	Thread   uuid.UUID
 	Vista    string
 	Prodotto string
 	Scrive   bool
+	SenzaV1  bool
 }
 
 // Pagina: il calcolo (Calcola, con i suoi errori) e la pagina composta. La composizione (ComponiPagina, con NuovoIndice)
@@ -116,7 +120,9 @@ func ComponiPagina(r *Risultato, rp RichiestaPagina) *Pagina {
 	p.Indice = NuovoIndice(r.Thread, r.EsitoThread, p.Confronto, &r.Dichiarazioni)
 	p.Prodotto = ProdottoScelto(r.EsitoThread, rp.Prodotto)
 	p.Calcolato = r.Foto.PresaIl
-	componiV1(p, r)
+	if !rp.SenzaV1 {
+		componiV1(p, r)
+	}
 	return p
 }
 

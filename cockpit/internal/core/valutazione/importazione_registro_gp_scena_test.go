@@ -524,7 +524,10 @@ func TestA06LEquivalenteK4(t *testing.T) {
 //   - un nodo sparito: il nodo e il suo arco tolti;
 //   - un segnale cambiato (il grafo diventa non completo: il contro-indizio nei segnali dei cordoni) e i campi del gruppo;
 //   - un campo che viene dallo stato della RFQ sulla voce della radice (la riga della radice decisa con il prodotto) non è
-//     una differenza: uguale, solo le evidenze cambiate.
+//     una differenza: uguale, solo le evidenze cambiate;
+//   - (revisione della corsia, ondata B) la quantità di un arco cambiata (differenze.archi[], il campo quantita); un nodo
+//     che passa fra le voci e i fuori per decisione, tolto (stato_motore.tolto) o non raggiunto (stato_motore.raggiunto);
+//     una relazione con sorgente nodo tolta o cambiata (il campo «relazioni» della voce della sorgente).
 func TestA18IlConfrontoFraDueRegistri(t *testing.T) {
 	t.Run("uguale", func(t *testing.T) {
 		c := calcolaPerIlRegistro(t, scenaCollegamento(t), insiemeACME(t))
@@ -643,6 +646,86 @@ func TestA18IlConfrontoFraDueRegistri(t *testing.T) {
 		x := propostabom.Confronta(vecchio, nuovo)
 		if x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() || !x.EvidenzeCambiate {
 			t.Errorf("la riga della radice decisa: %+v", x)
+		}
+	})
+	// i casi della revisione della corsia (ondata B, secondo passaggio): le differenze che EM §6.5 e PE-18 chiedono
+	nodi3 := []nodoF{{"#1", "7120100A", ""}, {"#2", "7120200A", ""}, {"#3", "7120300A", ""}}
+	archi3 := []arcoF{{"#1", "#2", 1}, {"#1", "#3", 1}}
+	t.Run("la quantità di un arco cambiata", func(t *testing.T) {
+		// EM §6.5: «arco con la quantità cambiata nei fatti: si elenca in differenze.archi[]»
+		a := calcolaPerIlRegistro(t, scenaBOM(t, nodi3, archi3), insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+		b := calcolaPerIlRegistro(t, scenaBOM(t, nodi3, []arcoF{{"#1", "#2", 3}, {"#1", "#3", 1}}), insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+		x := propostabom.Confronta(a, b)
+		if x.Esito != propostabom.EsitoPropostaCambiata || len(x.Differenze.Archi) != 1 || x.Differenze.Archi[0].Figlio != nodoB("#2") ||
+			x.Differenze.Archi[0].Tipo != propostabom.DifferenzaCambiato || !contieneTesto(x.Differenze.Archi[0].Campi, "quantita") || len(x.Differenze.Nodi) != 0 {
+			t.Errorf("la quantità cambiata: %s %+v", x.Esito, x.Differenze)
+		}
+	})
+	t.Run("un nodo che passa fra le voci e i fuori per decisione", func(t *testing.T) {
+		// DifferenzaNodo: fuori come tolto cambia stato_motore.tolto, fuori come non raggiunto stato_motore.raggiunto
+		a := calcolaPerIlRegistro(t, scenaBOM(t, nodi3, archi3), insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+		op := operatore
+		tolto := scenaBOM(t, nodi3, archi3)
+		decidi(t, &tolto, "#3", "scartata", uuid.Nil, &op)
+		b := calcolaPerIlRegistro(t, tolto, insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+		x := propostabom.Confronta(a, b)
+		if len(x.Differenze.Nodi) != 1 || x.Differenze.Nodi[0].Voce != vocePerProva(aStepB, nodoB("#3")) || x.Differenze.Nodi[0].Tipo != propostabom.DifferenzaCambiato ||
+			!contieneTesto(x.Differenze.Nodi[0].Campi, "stato_motore.tolto") || x.Esito != propostabom.EsitoPropostaCambiata {
+			t.Errorf("#3 tolto da una persona: %s %+v", x.Esito, x.Differenze)
+		}
+		staccato := scenaBOM(t, nodi3, archi3)
+		r := arcoDi(t, &staccato, "#1", "#3")
+		r.Stato, r.DecisoDa = "scartata", &op
+		c := calcolaPerIlRegistro(t, staccato, insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+		y := propostabom.Confronta(a, c)
+		if len(y.Differenze.Nodi) != 1 || y.Differenze.Nodi[0].Voce != vocePerProva(aStepB, nodoB("#3")) ||
+			!contieneTesto(y.Differenze.Nodi[0].Campi, "stato_motore.raggiunto") || y.Esito != propostabom.EsitoPropostaCambiata {
+			t.Errorf("#3 non raggiunto per l'arco tolto: %s %+v", y.Esito, y.Differenze)
+		}
+	})
+	t.Run("una relazione con sorgente nodo tolta o cambiata", func(t *testing.T) {
+		// le relazioni con sorgente nodo stanno in impronta_contenuto: la differenza è il campo «relazioni» della voce della
+		// sorgente. Il registro nuovo si ricompone con Componi dal contenuto vero, con la relazione tolta o con un altro stato.
+		_, hash := insiemeConLegami(t, false)
+		r, _ := insiemeConLegami(t, false, contestoDeiLegami(hash, motorea.OccorrenzaContesto{AllegatoID: aStepB.String()}))
+		a := calcolaPerIlRegistro(t, scenaLegame(t), r).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+		var conNodo int = -1
+		for i, rel := range a.Proposta.Relazioni {
+			if rel.Sorgente.Tipo == "nodo" {
+				conNodo = i
+			}
+		}
+		if conNodo < 0 {
+			t.Fatal("la scena del legame non ha una relazione con sorgente nodo")
+		}
+		voce := testoJSON(t, a.Proposta.Relazioni[conNodo].Sorgente.Voce)
+		ricomponi := func(t *testing.T, cambia func([]importazione.Relazione) []importazione.Relazione) importazione.Contenuto {
+			t.Helper()
+			c := a
+			c.Proposta.Relazioni = cambia(append([]importazione.Relazione(nil), a.Proposta.Relazioni...))
+			reg, err := importazione.Componi(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return reg.Contenuto
+		}
+		for nome, b := range map[string]importazione.Contenuto{
+			"tolta": ricomponi(t, func(rr []importazione.Relazione) []importazione.Relazione {
+				return append(rr[:conNodo:conNodo], rr[conNodo+1:]...)
+			}),
+			"cambiata": ricomponi(t, func(rr []importazione.Relazione) []importazione.Relazione {
+				rr[conNodo].Stato = json.RawMessage(`"rifiutata"`)
+				return rr
+			}),
+		} {
+			x := propostabom.Confronta(a, b)
+			if x.Esito != propostabom.EsitoPropostaCambiata || len(x.Differenze.Nodi) != 1 || x.Differenze.Nodi[0].Voce != voce ||
+				!contieneTesto(x.Differenze.Nodi[0].Campi, "relazioni") {
+				t.Errorf("la relazione con sorgente nodo %s: %s %+v", nome, x.Esito, x.Differenze)
+			}
+			if y := propostabom.Confronta(b, a); len(y.Differenze.Nodi) != 1 || !contieneTesto(y.Differenze.Nodi[0].Campi, "relazioni") {
+				t.Errorf("la relazione con sorgente nodo %s, al contrario: %+v", nome, y.Differenze)
+			}
 		}
 	})
 }

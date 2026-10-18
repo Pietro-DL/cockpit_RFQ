@@ -7,8 +7,10 @@ package valutazione_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -68,6 +70,10 @@ func TestA28IGruppiDelModello(t *testing.T) {
 	if len(g.Nodi) != len(reg.Contenuto.Proposta.Nodi) || m.MotivoSenzaGruppi != nil {
 		t.Errorf("nodi %d (voci %d), motivo senza gruppi %+v", len(g.Nodi), len(reg.Contenuto.Proposta.Nodi), m.MotivoSenzaGruppi)
 	}
+	// le diagnostiche del gruppo che non sono di un nodo solo: la testata del registro di adesso (MAT PN-07)
+	if len(reg.Contenuto.Proposta.Diagnostiche) == 0 || string(g.Diagnostiche) != string(reg.Contenuto.Proposta.Diagnostiche) {
+		t.Errorf("le diagnostiche del gruppo: %s, attese quelle della testata del registro %s", g.Diagnostiche, reg.Contenuto.Proposta.Diagnostiche)
+	}
 	// i cordoni segnalati
 	cc := calcolaPerIlRegistro(t, scenaCordoni(t, "Saldatura"), insiemeACME(t))
 	if g := gruppoDelModello(t, modelloDi(t, cc, nil, nil), propostabom.GruppoBOM); g.Segnalati != 3 {
@@ -94,6 +100,98 @@ func TestA28IlProdottoSenzaGruppi(t *testing.T) {
 	b, _ := json.Marshal(m)
 	if !strings.Contains(string(b), `"motivo_senza_gruppi":{"codice":`) {
 		t.Errorf("il nome del motivo: %s", b)
+	}
+}
+
+// TestA28LoSTEPNonAttivo (A-28, PE-16; EM §9.9 «le occorrenze non attive non entrano ... nelle candidate né nelle
+// proposte»; EM §6.4.1, P-4 (a) e (b) con i fatti calcolati dalla valutazione; revisione della corsia, ondata B): lo STEP
+// del prodotto in «Altri file».
+//   - Con la fonte non confermata (la candidata compatibile su quello STEP): nessun gruppo con uno STEP, e il motivo è
+//     step_non_attivo con l'allegato, non il motivo della fonte («il motore non propone una struttura»: falso); una bozza
+//     sulla candidata ha il gruppo corrente assente / occorrenza_non_attiva con l'allegato (P-4 b).
+//   - Con la fonte confermata (la BOM di lavoro su quello STEP): nemmeno il gruppo «bom» sta fra i gruppi del modello, e il
+//     motivo è lo stesso; una bozza sulla BOM ha il gruppo corrente assente / occorrenza_non_attiva (P-4 a).
+func TestA28LoSTEPNonAttivo(t *testing.T) {
+	na := propostabom.NonAttivi{aStepB: "altri_file"}
+	controlla := func(t *testing.T, c calcoloPerIlRegistro, gruppoBozza string) {
+		t.Helper()
+		e, et := c.e, c.et
+		m := propostabom.Modello(propostabom.IngressoModello{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, NonAttivi: na})
+		for _, g := range m.Gruppi {
+			if g.AllegatoID != nil {
+				t.Errorf("un gruppo sullo STEP non attivo: %+v", g)
+			}
+		}
+		if m.MotivoSenzaGruppi == nil || m.MotivoSenzaGruppi.Codice != propostabom.MotivoSenzaGruppiStepNonAttivo || len(m.MotivoSenzaGruppi.Allegati) != 1 ||
+			m.MotivoSenzaGruppi.Allegati[0] != aStepB || m.MotivoSenzaGruppi.Testo != propostabom.TestoStepNonAttivo {
+			t.Errorf("il motivo senza gruppi: %+v", m.MotivoSenzaGruppi)
+		}
+		if len(m.StepNonAttivi) != 1 || m.StepNonAttivi[0] != aStepB {
+			t.Errorf("gli STEP non attivi del modello: %v", m.StepNonAttivi)
+		}
+		pv := prodottoDi(t, c.et, rifProdB)
+		gc := propostabom.GruppoCorrenteDelProdotto(pv, c.et.Ancoraggi.Strutture, na,
+			propostabom.SorgenteBozza{AllegatoID: aStepB, Sha256: shaStepB, Radice: nodoB("#1"), Gruppo: gruppoBozza})
+		if gc.Come != propostabom.ComeAssente || gc.Motivo != propostabom.MotivoOccorrenzaNonAttiva || gc.AllegatoID == nil || *gc.AllegatoID != aStepB {
+			t.Errorf("il gruppo corrente della bozza sullo STEP non attivo: %+v", gc)
+		}
+	}
+	t.Run("la candidata", func(t *testing.T) {
+		th := scenaCollegamento(t)
+		senzaFonte(&th)
+		controlla(t, calcolaPerIlRegistro(t, th, insiemeACME(t)), propostabom.ChiaveCandidata(aStepB, nodoB("#1")))
+	})
+	t.Run("la BOM di lavoro", func(t *testing.T) {
+		controlla(t, calcolaPerIlRegistro(t, scenaCollegamento(t), insiemeACME(t)), propostabom.GruppoBOM)
+	})
+}
+
+// TestA17IlModelloDiDuemilaNodi (T-07 e A-17, i tempi di /dati; revisione della corsia, ondata B): il modello di V1 fa
+// un'importazione per gruppo con uno STEP; su BOM sintetiche di 2000 nodi, piatta e con due copie dello STEP, i tempi di
+// Calcola, di un ImportaGruppo e di Modello vanno nel log (il PC della corsia: misura, non un limite).
+func TestA17IlModelloDiDuemilaNodi(t *testing.T) {
+	if testing.Short() {
+		t.Skip("prova lunga")
+	}
+	nodi := []nodoF{{"#1", "7120100A", ""}}
+	var archi []arcoF
+	for i := 2; i <= 2000; i++ {
+		nodi = append(nodi, nodoF{fmt.Sprintf("#%d", i), fmt.Sprintf("712%04dA", i), "1"})
+		archi = append(archi, arcoF{"#1", fmt.Sprintf("#%d", i), 1})
+	}
+	for _, copie := range []int{0, 2} {
+		th := scenaBOM(t, nodi, archi)
+		for k := 0; k < copie; k++ {
+			conAllegato(&th, allegato(uid(0xe900+k), int16(20+k), fmt.Sprintf("copia-%d.stp", k), "stp", shaStepB), nil)
+		}
+		inizio := time.Now()
+		c := calcolaPerIlRegistro(t, th, insiemeACME(t))
+		dCalcola := time.Since(inizio)
+		inizio = time.Now()
+		if _, err := propostabom.ImportaGruppo(c.ingresso(rifProdB, propostabom.GruppoBOM, nil)); err != nil {
+			t.Fatal(err)
+		}
+		dImporta := time.Since(inizio)
+		inizio = time.Now()
+		m := modelloDi(t, c, nil, nil)
+		dModello := time.Since(inizio)
+		// i gruppi con uno STEP hanno tutti l'impronta (un'importazione ciascuno); con i codici sintetici il nodo #100
+		// (7120100A, come la radice) ha la base del prodotto, quindi ogni copia ha anche la candidata con quella radice
+		conSTEP, conImpronta := 0, 0
+		for _, g := range m.Gruppi {
+			if g.AllegatoID != nil {
+				conSTEP++
+			}
+			if g.ImprontaContenuto != "" {
+				conImpronta++
+			}
+		}
+		b, _ := json.Marshal(m)
+		t.Logf("T-07/A-17: 2000 nodi, %d copie: %d gruppi (%d con l'impronta); Calcola+RegoleDiLettura %s, ImportaGruppo(bom) %s, Modello %s; JSON del modello %d byte",
+			copie, len(m.Gruppi), conImpronta, dCalcola.Round(time.Millisecond), dImporta.Round(time.Millisecond), dModello.Round(time.Millisecond), len(b))
+		if conImpronta != conSTEP || conSTEP < copie+1 {
+			t.Errorf("gruppi con uno STEP %d, con l'impronta %d; attesi almeno %d, tutti con l'impronta", conSTEP, conImpronta, copie+1)
+		}
 	}
 }
 
@@ -206,15 +304,19 @@ func TestA27LaCompletezzaEDiagnosticheDelNodo(t *testing.T) {
 
 // TestS6LAnteprimaDelloSTEP (EM §10.9 S6, il contenuto che si calcola dall'esito; §6.6 «L'anteprima dell'effetto»): con la
 // fonte non confermata lo STEP ha la candidata compatibile del prodotto, in vista, con l'impronta_contenuto di
-// ImportaGruppo; la proposta è quella della candidata, con il confronto del codice della radice e le associazioni
-// previste; con una bozza sulla stessa struttura e la stessa occorrenza l'effetto è un riallineamento (StessaSorgente).
-// Una struttura letta da un worker non aggiornato non si mostra: struttura_non_determinabile, con l'avviso.
+// ImportaGruppo; la proposta è quella della candidata, con il confronto del codice della radice con il codice del
+// componente del prodotto nella working e le associazioni previste; con una bozza sulla stessa struttura e la stessa
+// occorrenza l'effetto è un riallineamento (StessaSorgente). Una struttura letta da un worker non aggiornato non si
+// mostra: struttura_non_determinabile, con l'avviso. Il confronto e il motivo della scelta della fonte vengono da una
+// funzione sola (ConfrontoDelCodice, MotivoFonteObbligatorio), la stessa di R2: con un codice diverso o senza il codice
+// del prodotto il motivo serve.
 func TestS6LAnteprimaDelloSTEP(t *testing.T) {
 	th := scenaCollegamento(t)
 	senzaFonte(&th)
 	c := calcolaPerIlRegistro(t, th, insiemeACME(t))
 	e, et := c.e, c.et
-	a := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, Allegato: aStepB})
+	a := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: "7120100A",
+		Allegato: aStepB})
 	if a.Stato != propostabom.StatoAnteprimaPronta || a.NomeFile != "7120100A_1.stp" || a.Sha256 != shaStepB || a.CodiceProdotto != "7120100A" ||
 		len(a.Gruppi) != 1 || !a.Gruppi[0].InVista || a.Gruppi[0].Compatibilita != propostabom.CompatibilitaCompatibile {
 		t.Fatalf("l'anteprima: %+v", a)
@@ -230,12 +332,23 @@ func TestS6LAnteprimaDelloSTEP(t *testing.T) {
 	if b, _ := json.Marshal(a); !strings.Contains(string(b), `"associazioni_previste":[`) || !strings.Contains(string(b), `"avvisi":[]`) {
 		t.Errorf("gli elenchi di S6 non sono elenchi: %s", b)
 	}
+	if propostabom.MotivoFonteObbligatorio(reg.Contenuto, "7120100A") {
+		t.Error("con il codice che coincide il motivo della scelta della fonte non serve")
+	}
+	for _, cp := range []struct{ codice, confronto string }{{"7120100B", propostabom.ConfrontoCodiceDiverso}, {"", propostabom.ConfrontoCodiceNonDeterminabile}} {
+		x := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: cp.codice,
+			Allegato: aStepB})
+		if x.Confronto != cp.confronto || x.CodiceProdotto != cp.codice || !propostabom.MotivoFonteObbligatorio(reg.Contenuto, cp.codice) ||
+			propostabom.ConfrontoDelCodice(reg.Contenuto, cp.codice) != x.Confronto {
+			t.Errorf("il codice del prodotto %q: confronto %s, codice %q", cp.codice, x.Confronto, x.CodiceProdotto)
+		}
+	}
 	// con una bozza sulla stessa struttura e la stessa occorrenza: un riallineamento
 	vb := propostabom.VistaBozza{Sorgente: propostabom.SorgenteBozza{AllegatoID: aStepB, Sha256: shaStepB, Radice: nodoB("#1"), Gruppo: a.Gruppi[0].Gruppo},
 		NodoProdotto: "k1"}
 	k := reg.Contenuto
-	b := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, Allegato: aStepB,
-		Bozza: &vb, RegistroBozza: &k})
+	b := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: "7120100A",
+		Allegato: aStepB, Bozza: &vb, RegistroBozza: &k})
 	if b.EffettoSullaBozza == nil || !b.EffettoSullaBozza.StessaSorgente {
 		t.Errorf("l'effetto sulla bozza della stessa struttura: %+v", b.EffettoSullaBozza)
 	}

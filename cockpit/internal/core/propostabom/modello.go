@@ -3,6 +3,7 @@ package propostabom
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/google/uuid"
@@ -94,8 +95,10 @@ func IdentitaDelRegistrato(cliente uuid.UUID, k ComponenteDellaWorking, cert *Ce
 // GruppoDelModello: un gruppo del prodotto come lo dà /dati (PE-01; EM §9.9): la chiave dal core, il tipo, l'allegato,
 // la radice, il nome del file, l'impronta_contenuto di un'importazione fatta adesso, il letterale della radice, la
 // compatibilità, la struttura (versione dei fatti, completezza, motivo), i nodi segnalati (LS-02) e i nodi. Se
-// l'adattatore rifiuta il gruppo (un file non attivo, un registro incompleto), l'impronta non c'è e Importazione dice
-// il rifiuto: il gruppo non si importa.
+// l'adattatore rifiuta il gruppo (un registro incompleto, un errore di calcolo), l'impronta non c'è e Importazione dice
+// il rifiuto: il gruppo non si importa. Diagnostiche: le diagnostiche correnti del gruppo che non sono di un nodo solo
+// (la testata del registro di adesso: una diagnostica che cita più nodi, o nessuno, EM §3.8; MAT PN-07), così la pagina
+// le può mostrare accanto ai nodi.
 type GruppoDelModello struct {
 	Chiave            string              `json:"chiave"`
 	Tipo              string              `json:"tipo"`
@@ -108,8 +111,13 @@ type GruppoDelModello struct {
 	Struttura         *StrutturaDelGruppo `json:"struttura,omitempty"`
 	Segnalati         int                 `json:"segnalati"`
 	Importazione      *ErroreImportazione `json:"importazione,omitempty"`
+	Diagnostiche      json.RawMessage     `json:"diagnostiche,omitempty"`
 	Nodi              []NodoDelModello    `json:"nodi,omitempty"`
 }
+
+// CodiceErroreCalcolo: il codice del rifiuto di un gruppo quando l'adattatore non riesce per un difetto suo (un errore
+// senza codice o un panic, contenuti nel gruppo: la pagina resta), lo stesso di avvisi_motore_errore di R4 (EM §8.2).
+const CodiceErroreCalcolo = "ERRORE_CALCOLO"
 
 // StrutturaDelGruppo: lo stato della struttura del gruppo (LS-01): la sottoversione dei fatti STEP, la completezza del
 // grafo e il motivo.
@@ -128,8 +136,10 @@ type ErroreImportazione struct {
 
 // NodoDelModello: un nodo del gruppo (una voce del registro di adesso) con i campi correnti per nodo (PE-28, PE-10): la
 // completezza del 2D del nodo, le diagnostiche correnti (quelle della voce del registro di adesso: le diagnostiche che
-// citano più nodi stanno nella testata del registro, non in un nodo), la decisione esistente con l'identità registrata
-// del componente.
+// citano più nodi stanno nella testata del registro, cioè in GruppoDelModello.Diagnostiche, non in un nodo), la
+// decisione esistente con l'identità registrata del componente. I confermati senza STEP del gruppo «bom» (P-6) non sono
+// voci del registro e non hanno un nodo qui: la loro completezza la pagina la legge nell'esito
+// (prodotti_valutati[].documenti, per componente_id).
 type NodoDelModello struct {
 	Rif                string                        `json:"rif"`
 	Voce               string                        `json:"voce"`
@@ -178,23 +188,30 @@ type StepSecondario struct {
 // MotivoStepSecondarioEsatto: il motivo di StepSecondario.
 const MotivoStepSecondarioEsatto = "corrispondenza esatta e univoca"
 
-// MotivoSenzaGruppi: perché il prodotto non ha gruppi con uno STEP (PE-16; MAT SG-13), con il codice e il testo.
+// MotivoSenzaGruppi: perché il prodotto non ha gruppi con uno STEP (PE-16; MAT SG-13), con il codice e il testo; con il
+// codice step_non_attivo anche gli allegati degli STEP non attivi, che la pagina offre di riattivare.
 type MotivoSenzaGruppi struct {
-	Codice string `json:"codice"`
-	Testo  string `json:"testo"`
+	Codice   string      `json:"codice"`
+	Testo    string      `json:"testo"`
+	Allegati []uuid.UUID `json:"allegati,omitempty"`
 }
 
-// ModelloDelProdotto: le aggiunte di V1 per il prodotto.
+// ModelloDelProdotto: le aggiunte di V1 per il prodotto. StepNonAttivi (fuori dal JSON): gli allegati dei gruppi con uno
+// STEP che il modello lascia fuori perché l'occorrenza è in «Altri file» o scartata, per il motivo della fonte.
 type ModelloDelProdotto struct {
 	Gruppi            []GruppoDelModello `json:"gruppi"`
 	MotivoSenzaGruppi *MotivoSenzaGruppi `json:"motivo_senza_gruppi,omitempty"`
 	StepSecondario    *StepSecondario    `json:"step_secondario,omitempty"`
+	StepNonAttivi     []uuid.UUID        `json:"-"`
 }
 
 // Modello: le aggiunte di V1 per il prodotto (nil per un prodotto che non c'è). I gruppi sono quelli di
-// GruppiDelProdotto senza le candidate delle occorrenze non attive (EM §9.9: le occorrenze non attive non entrano fra le
-// candidate); la BOM di lavoro resta anche su un portatore non attivo, con il rifiuto dell'adattatore. Per ogni gruppo
-// con uno STEP l'adattatore costruisce il registro di adesso: l'impronta_contenuto è quella che R2 ricalcolerà.
+// GruppiDelProdotto senza le occorrenze non attive (EM §9.9: «le occorrenze non attive non entrano ... nelle candidate né
+// nelle proposte»), anche la BOM di lavoro su un portatore non attivo: non si importa (FILE_NON_ATTIVO), e lo dicono
+// motivo_senza_gruppi, se non resta nessun gruppo con uno STEP, e bozza_del_prodotto.gruppo_corrente (occorrenza_non_attiva,
+// EM §6.4.1), che guarda i gruppi della fotografia. Per ogni gruppo con uno STEP l'adattatore costruisce il registro di
+// adesso: l'impronta_contenuto è quella che R2 ricalcolerà; un errore o un panic dell'adattatore restano nel gruppo
+// (Importazione con ERRORE_CALCOLO) e la pagina non cade.
 func Modello(in IngressoModello) *ModelloDelProdotto {
 	et := in.Thread
 	if et == nil || in.Esito == nil {
@@ -215,9 +232,14 @@ func Modello(in IngressoModello) *ModelloDelProdotto {
 		file[et.File[i].AllegatoID] = &et.File[i]
 	}
 	conSTEP := 0
+	nonAttivi := map[uuid.UUID]bool{}
 	for _, g := range GruppiDelProdotto(*pv, et.Ancoraggi.Strutture) {
-		if g.Tipo == GruppoCandidata && g.AllegatoID != nil {
+		if g.Tipo != GruppoSenzaSTEP && g.AllegatoID != nil {
 			if _, no := in.NonAttivi[*g.AllegatoID]; no {
+				if !nonAttivi[*g.AllegatoID] {
+					nonAttivi[*g.AllegatoID] = true
+					out.StepNonAttivi = append(out.StepNonAttivi, *g.AllegatoID)
+				}
 				continue
 			}
 		}
@@ -235,23 +257,43 @@ func Modello(in IngressoModello) *ModelloDelProdotto {
 				}
 				gm.Struttura.Completa, gm.Struttura.Motivo = st.GrafoCompleto, st.MotivoGrafo
 			}
-			reg, err := ImportaGruppo(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave, NonAttivi: in.NonAttivi})
+			reg, err := importaProtetto(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave, NonAttivi: in.NonAttivi})
 			if err != nil {
 				gm.Importazione = erroreDiImportazione(err)
 			} else {
 				gm.ImprontaContenuto = reg.Contenuto.ImprontaContenuto
 				gm.RadiceLetterale = letteraleDellaRadice(reg.Contenuto)
+				gm.Diagnostiche = reg.Contenuto.Proposta.Diagnostiche
 				gm.Segnalati, gm.Nodi = nodiDelGruppo(in, *pv, g, reg.Contenuto)
 			}
 		}
 		out.Gruppi = append(out.Gruppi, gm)
 	}
-	if conSTEP == 0 {
+	sort.Slice(out.StepNonAttivi, func(i, j int) bool { return out.StepNonAttivi[i].String() < out.StepNonAttivi[j].String() })
+	switch {
+	case conSTEP == 0 && len(out.StepNonAttivi) > 0:
+		out.MotivoSenzaGruppi = &MotivoSenzaGruppi{Codice: MotivoSenzaGruppiStepNonAttivo, Testo: TestoStepNonAttivo,
+			Allegati: append([]uuid.UUID(nil), out.StepNonAttivi...)}
+	case conSTEP == 0:
 		out.MotivoSenzaGruppi = motivoSenzaGruppi(*pv, et)
 	}
 	out.StepSecondario = StepSecondarioDelProdotto(et, *pv, in.NonAttivi)
 	return out
 }
+
+// importaProtetto: ImportaGruppo con il suo panic contenuto, come errore di calcolo (un difetto dell'adattatore non fa
+// cadere la pagina né il calcolo di /dati).
+func importaProtetto(in Ingresso) (r importazione.Registro, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			r, err = importazione.Registro{}, fmt.Errorf("l'adattatore del registro si è fermato (panic): %v", v)
+		}
+	}()
+	return importaGruppo(in)
+}
+
+// importaGruppo: l'adattatore che importaProtetto chiama; solo la prova interna del panic lo sostituisce.
+var importaGruppo = ImportaGruppo
 
 // strutturaDi: la struttura del prodotto del gruppo (la BOM di lavoro, o la candidata con quell'allegato e quella
 // radice); nil senza.
@@ -269,13 +311,14 @@ func strutturaDi(pv valutazione.ProdottoValutato, strutture []ancoraggio.Struttu
 	return nil
 }
 
-// erroreDiImportazione: il rifiuto dell'adattatore come lo porta il modello.
+// erroreDiImportazione: il rifiuto dell'adattatore come lo porta il modello. Un errore senza codice (un difetto della
+// forma del registro, cioè dell'adattatore, o un panic contenuto) è ERRORE_CALCOLO.
 func erroreDiImportazione(err error) *ErroreImportazione {
 	var e *importazione.Errore
-	if errors.As(err, &e) {
+	if errors.As(err, &e) && e.Codice != "" {
 		return &ErroreImportazione{Codice: e.Codice, Motivo: e.Motivo, Testo: e.Messaggio}
 	}
-	return &ErroreImportazione{Testo: err.Error()}
+	return &ErroreImportazione{Codice: CodiceErroreCalcolo, Testo: err.Error()}
 }
 
 // letteraleDellaRadice: il letterale dell'identità proposta della voce della radice; "" senza.
@@ -362,8 +405,17 @@ func copiaUUID(v *uuid.UUID) *uuid.UUID {
 	return &x
 }
 
-// I codici di motivo_senza_gruppi che non vengono dalla fonte del prodotto.
-const MotivoSenzaGruppiTargetSenzaStruttura = "target_senza_struttura"
+// I codici di motivo_senza_gruppi che non vengono dalla fonte del prodotto: target_senza_struttura (nessun nodo degli
+// STEP letti ha la base del prodotto) e step_non_attivo (il motore propone una struttura, ma lo STEP sta in «Altri file»
+// o è scartato: il modello lo lascia fuori, EM §9.9, e il rimedio è «Riattiva», non un altro caricamento).
+const (
+	MotivoSenzaGruppiTargetSenzaStruttura = "target_senza_struttura"
+	MotivoSenzaGruppiStepNonAttivo        = "step_non_attivo"
+)
+
+// TestoStepNonAttivo: il testo di motivo_senza_gruppi con il codice step_non_attivo (e del motivo della fonte nello stesso
+// caso).
+const TestoStepNonAttivo = "lo STEP del prodotto è in «Altri file» o scartato: riattivalo dalla Sorgente"
 
 // motivoSenzaGruppi: perché il prodotto non ha gruppi con uno STEP, con un testo per la pagina: il motivo della fonte del
 // prodotto quando dice che uno STEP non c'è o non è letto (nessuna fonte, STEP non analizzato, analisi in corso,

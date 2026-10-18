@@ -46,7 +46,8 @@ markmap:
   (la rev in maiuscole ASCII), la radice del gruppo fra le voci, gli estremi degli archi fra le voci o fra i fuori per
   decisione, ogni lettura con la sua `chiave_lettura` dell'allegato dell'unita' letta e unica nel registro (la stessa
   chiave porta la stessa lettura, byte per byte); i due campi facoltativi `codice_proposto` e `rev_proposta` di una
-  lettura (DECA PE-08) hanno le regole di quelli della voce.
+  lettura (DECA PE-08) hanno le regole di quelli della voce, e in una lettura la rev c'e' solo con il codice (senza una
+  proiezione ammissibile del codice i due campi sono omessi, EM §3.8).
 - **`impronte.go`**: l'elenco chiuso (le tabelle `campi*`, `Classificazione`, `CampiDellaRadiceFraLeEvidenze`) e
   `ImpronteParziali`: impronta_contenuto (struttura e identita'), impronta_evidenze (il resto della proposta, solo
   informativa), impronta_regole. La voce della radice (`origine.rif` = `gruppo.radice`) passa alle evidenze i campi che
@@ -96,7 +97,7 @@ markmap:
     la copia compatta byte per byte (N-01), i segnali, le voci.
 - **L1**, `lettura_codice_proposto_test.go` (DECA PE-08, A-25 la parte della foglia): `codice_proposto` e
   `rev_proposta` di una lettura restituiti da `TrovaLettura`, fuori dalla copia compatta; un codice con uno spazio o di
-  41 byte, una rev minuscola, di 11 byte o con uno spazio sono difetti di forma.
+  41 byte, una rev minuscola, di 11 byte o con uno spazio, una rev senza il codice sono difetti di forma.
 - L'uscita vera dell'adattatore (`propostabom.ImportaGruppo`) passa `Leggi`, `Componi(Leggi(x).Contenuto)` e `Rileggi`
   in ogni prova delle scene di `core/valutazione` (`importazione_*_scena_test.go`; A-29, la parte della corsia motore).
 - Le prove con il database stanno in `distintabozza` (`conservazione_db_test.go`).

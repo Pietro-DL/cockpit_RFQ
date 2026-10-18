@@ -120,7 +120,9 @@ const (
 
 // EffettoCambioFonte: gli elenchi di cambio-fonte-1 (EM §6.6, §9.2 la risposta di cambia_sorgente; §10.9 S6
 // effetto_sulla_bozza). Per lo stesso gruppo della stessa struttura sulla stessa occorrenza c'è solo StessaSorgente
-// (OV-05): il gesto è un riallineamento.
+// (OV-05): il gesto è un riallineamento, e il JSON è solo {"stessa_sorgente": true}. La convenzione del JSON [T]: un
+// elenco vuoto è assente, e così differenze senza differenze, come gli elenchi del modello di /dati (la pagina legge un
+// elenco assente come vuoto); gli elenchi di primo livello di S6 restano array (EM §10.9).
 type EffettoCambioFonte struct {
 	StessaSorgente            bool                 `json:"stessa_sorgente,omitempty"`
 	NodiCheRestano            []string             `json:"nodi_che_restano,omitempty"`
@@ -132,7 +134,7 @@ type EffettoCambioFonte struct {
 	IdentitaAggiornate        []IdentitaAggiornata `json:"identita_aggiornate,omitempty"`
 	DaRivedere                []DaRivedere         `json:"da_rivedere,omitempty"`
 	DecisioniCadute           []string             `json:"decisioni_cadute,omitempty"`
-	Differenze                Differenze           `json:"differenze"`
+	Differenze                Differenze           `json:"differenze,omitzero"`
 	PreassociazioniNelVassoio []string             `json:"preassociazioni_nel_vassoio,omitempty"`
 }
 
@@ -291,12 +293,17 @@ func EffettoDelCambioFonte(b VistaBozza, vecchio *importazione.Contenuto, nuovo 
 	// passo 6: le voci nuove non rappresentate entrano come nella partenza «step», salvo fra due occorrenze della stessa
 	// struttura (e con la regola prudente), dove si elencano fra i nodi proposti; un arco del registro fra due nodi che
 	// restano, che la bozza non ha, non entra e si elenca fra le differenze
-	rappresentate := map[string]bool{}
+	restano := map[string]bool{} // i rif dei nodi della bozza che restano, sull'occorrenza nuova
 	for _, rif := range casellaNuova {
-		rappresentate[rif] = true
+		restano[rif] = true
 	}
 	// una non_includere che resta rappresenta il suo nodo (EM §7.1: «lo rappresenta solo la decisione»): la sua voce non
-	// rientra da sola
+	// rientra da sola. Il nodo escluso però non è un nodo della bozza: un arco verso di lui non è un arco «fra due nodi
+	// che restano» (passo 6) e non sta fra le differenze
+	rappresentate := map[string]bool{}
+	for rif := range restano {
+		rappresentate[rif] = true
+	}
 	for _, d := range b.Decisioni {
 		if c := d.Casella; d.Tipo == TipoDecisioneNonIncludere && c != nil && c.AllegatoID == src.AllegatoID && nelNuovo(c.Rif) {
 			rappresentate[c.Rif] = true
@@ -315,7 +322,7 @@ func EffettoDelCambioFonte(b VistaBozza, vecchio *importazione.Contenuto, nuovo 
 		out.NodiCheEntrano = append(out.NodiCheEntrano, v.Voce)
 	}
 	for _, a := range nuovo.Proposta.Archi {
-		if entrano[a.Padre] || entrano[a.Figlio] || !rappresentate[a.Padre] || !rappresentate[a.Figlio] || nellaBozza[[2]string{a.Padre, a.Figlio}] {
+		if entrano[a.Padre] || entrano[a.Figlio] || !restano[a.Padre] || !restano[a.Figlio] || nellaBozza[[2]string{a.Padre, a.Figlio}] {
 			continue
 		}
 		out.Differenze.Archi = append(out.Differenze.Archi, DifferenzaArco{AllegatoID: a.AllegatoID, Padre: a.Padre, Figlio: a.Figlio, Tipo: DifferenzaAggiunto})

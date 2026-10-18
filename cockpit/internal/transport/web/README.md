@@ -181,8 +181,11 @@ markmap:
 - **`GET /thread/{id}/motore-a/dati`** (`Adm`, dietro il flag)
   - 200: il JSON del contratto §2.4 (`motore_a.Pagina`: `thread_id`, `vista`, `prodotto`, `testa`, `esito`,
     `confronto`, `errore` sempre vuoto, `calcolato`); l'indice non c'è (Q-A1d-11 = A, da confermare). Da V1 (EM
-    §9.9) anche `gruppi` (con i nodi), `motivo_senza_gruppi`, `fonte`, `f8_stato` e `bozza_del_prodotto`, tutti
-    `omitempty`: la pagina composta senza V1 resta byte per byte quella di prima.
+    §9.9) anche `gruppi` (con i nodi e le diagnostiche di più nodi), `motivo_senza_gruppi`, `fonte`, `f8_stato` e
+    `bozza_del_prodotto`, tutti `omitempty`: la pagina composta senza V1 resta byte per byte quella di prima. Le
+    aggiunte di V1 costano un'importazione per gruppo con uno STEP: `RichiestaPagina.SenzaV1` le salta (la pagina HTML
+    e il suo frammento non le leggono; /dati le calcola, il valore zero). Un errore o un panic dell'adattatore restano
+    nel gruppo (`importazione` con `ERRORE_CALCOLO`).
   - 400 id non valido; 404 RFQ inesistente; 503 regole non pronte (testo generico di `Regole.Errore()`, delle regole
     del servizio della richiesta) o troppi calcoli in corso (`ErrOccupato`, testo generico); 504 tempo scaduto
     (`limiti.anteprima.tempo_massimo_ms` dell'indice); 500 ogni altro errore, testo generico e dettaglio nel log, anche

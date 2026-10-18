@@ -104,7 +104,8 @@ func TestProiezioneCodiceITratti(t *testing.T) {
 
 // TestA25ICampiDellaLettura (A-25; DECA PE-08): la lettura del registro porta codice_proposto e rev_proposta quando la
 // proiezione è ammissibile, con i valori delle proiezioni dell'identità proposta; senza proiezione ammissibile i due
-// campi sono vuoti, e la forma canonica del registro li toglie.
+// campi sono vuoti, e la forma canonica del registro li toglie. Una lettura senza un codice di partenza (la base
+// parziale) ma con una revisione letta non porta nemmeno la rev: «il codice, e la sua rev se c'è».
 func TestA25ICampiDellaLettura(t *testing.T) {
 	a := uuid.MustParse("00000000-0000-4000-8000-0000000e8a10")
 	testo := "7120100A_rev_b"
@@ -117,7 +118,15 @@ func TestA25ICampiDellaLettura(t *testing.T) {
 	if l["codice_proposto"] != "7120100A" || l["rev_proposta"] != "B" || l["chiave_lettura"] != a.String()+"/l:1" {
 		t.Errorf("la lettura con le proiezioni: codice %v, rev %v", l["codice_proposto"], l["rev_proposta"])
 	}
+	// la base parziale con una revisione letta e ammissibile: niente codice, quindi niente rev (la voce invece la porta)
 	f.Base.Completa = false
+	l = x.lettura(motorea.LetturaCodice{ID: "l:3", UnitaID: "u:1", Forma: f})
+	if l["codice_proposto"] != "" || l["rev_proposta"] != "" {
+		t.Errorf("la lettura con la rev e senza il codice di partenza: codice %v, rev %v", l["codice_proposto"], l["rev_proposta"])
+	}
+	if r, m := ProiezioneRev(f); r != "B" || m != "" {
+		t.Errorf("la rev della voce resta la sua proiezione: %q %q", r, m)
+	}
 	f.Revisione.Normalizzata = "b 1"
 	l = x.lettura(motorea.LetturaCodice{ID: "l:2", UnitaID: "u:1", Forma: f})
 	if l["codice_proposto"] != "" || l["rev_proposta"] != "" {

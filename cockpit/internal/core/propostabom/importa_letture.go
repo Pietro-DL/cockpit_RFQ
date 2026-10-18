@@ -76,13 +76,18 @@ func (x *lettore) emittente(f motorea.LetturaForma) (string, string) {
 // lettura: la lettura del registro (emendamento di V1 §3.8, «Una lettura»), come oggetto JSON. I vuoti non contano: la
 // forma canonica del registro li toglie. codice_proposto e rev_proposta (DECA PE-08) sono le due proiezioni
 // importazione-1 della lettura (ProiezioneCodice, ProiezioneRev: la stessa funzione dell'identità proposta di una voce):
-// ci sono solo se la proiezione è ammissibile, e dipendono solo dalla lettura e dal testo della sua unità, quindi la
-// stessa chiave_lettura ha gli stessi byte in ogni punto del registro.
+// ci sono solo se la proiezione del codice è ammissibile, la rev solo insieme al codice («il codice proposto, e la sua
+// rev se c'è»: senza un codice di partenza la lettura non ha una proiezione, e i due campi sono omessi; la voce tiene la
+// sua regola, P-4). Dipendono solo dalla lettura e dal testo della sua unità, quindi la stessa chiave_lettura ha gli
+// stessi byte in ogni punto del registro.
 func (x *lettore) lettura(l motorea.LetturaCodice) map[string]any {
 	f := l.Forma
 	em, hash := x.emittente(f)
 	codice, _ := ProiezioneCodice(f, x.unita[l.UnitaID].Testo)
-	rev, _ := ProiezioneRev(f)
+	rev := ""
+	if codice != "" {
+		rev, _ = ProiezioneRev(f)
+	}
 	m := map[string]any{
 		"chiave_lettura":   x.chiave(l.ID),
 		"unita_id":         l.UnitaID,

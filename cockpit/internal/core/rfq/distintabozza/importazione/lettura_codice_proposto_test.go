@@ -2,8 +2,8 @@ package importazione
 
 // L1 — DECA PE-08 (V1, ondata B, corsia motore; EM §3.8, «Una lettura»; prova A-25 di PM23 §10, la parte della foglia):
 // codice_proposto e rev_proposta di una lettura sono facoltativi; con un valore valgono le regole di quelli della voce
-// (il codice ammissibile, la rev in maiuscole ASCII, al più 10 byte); TrovaLettura li restituisce; la copia compatta di
-// V-1 non li porta. I dati sono quelli inventati di contenutoDiProva.
+// (il codice ammissibile, la rev in maiuscole ASCII, al più 10 byte), e la rev c'è solo con il codice; TrovaLettura li
+// restituisce; la copia compatta di V-1 non li porta. I dati sono quelli inventati di contenutoDiProva.
 
 import (
 	"errors"
@@ -61,6 +61,8 @@ func TestPE08IValoriNonAmmessi(t *testing.T) {
 		{"una rev in minuscolo", "400123", "b", "rev_proposta"},
 		{"una rev di 11 byte", "400123", strings.Repeat("A", 11), "rev_proposta"},
 		{"una rev con uno spazio", "400123", "A 1", "rev_proposta"},
+		// senza una proiezione ammissibile del codice i due campi sono omessi: la rev da sola no (revisione del 18/10)
+		{"una rev senza il codice", "", "B", "rev_proposta"},
 	} {
 		t.Run(c.nome, func(t *testing.T) {
 			_, err := Componi(conCodiceProposto(t, c.codice, c.rev))

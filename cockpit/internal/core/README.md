@@ -346,7 +346,8 @@ markmap:
 - `documenti.CartellaThread`, `NomeSicuro`, `ScegliPercorso`, `CopiaSulNas`, `RiprendiContenuto`, `CreaCartellaThread`, `Ricognitore.Giro` / `Avvia`, `AllineaDocumento`, `PercorsoSulNas`, `DentroLaRadice`, `VerificaFileAperto`, `Segnala`;
 - `fascicolo.CongelaBom`, `ApriRevisione`, `AbbandonaBozza`, `LeggiGate`, `ApplicaStruttura`, `RianalizzaRfq`, i gesti di decisione (`AccettaNodo`, `AccettaRelazione`, `AccettaFile`, `ScartaNodo`, `CodiceDelNodo`, …), `CandidatiDellaRfq`, `AggiungiDaCodice`, `NuovoAlbero`, `ModificaComponente`, `Collega` / `Scollega` / `Sposta`, `AssicuraProdottiDellaRichiesta`, `PreparaFile`, `PianoDelFascicolo`, `ApplicaStrutturaVoluta`, `NotaInterna`, `RegistraCaricamento`;
 - `importazione.Componi` / `Leggi` / `Rileggi` / `ImpronteParziali`; `propostabom.GruppiDelProdotto`,
-  `GruppoCorrenteDelProdotto`, `ImportaGruppo`, `Confronta`, `EffettoDelCambioFonte`, `AnteprimaDelloSTEP`, `Modello`;
+  `GruppoCorrenteDelProdotto`, `ImportaGruppo`, `Confronta`, `ConfrontaCaselle`, `EffettoDelCambioFonte`,
+  `AnteprimaDelloSTEP`, `ConfrontoDelCodice` / `MotivoFonteObbligatorio` (S6 e R2), `Modello`;
 - `regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`, `anagrafica.Semina`,
 - `fornitori.Leggi` / `Calcola` / `Applica`.
 

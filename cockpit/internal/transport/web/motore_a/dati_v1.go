@@ -136,9 +136,13 @@ type FonteDelProdotto struct {
 	StepSecondario  *propostabom.StepSecondario `json:"step_secondario,omitempty"`
 }
 
-// I motivi di una conferma della fonte non ammessa.
+// I motivi di una conferma della fonte non ammessa. MotivoFonteSenzaComponente: il prodotto non ha un componente della
+// RFQ (lo stesso testo del motivo della fonte prodotto_senza_componente); MotivoFonteSTEPNonAttivo: lo STEP del prodotto
+// sta in «Altri file» o è scartato (il modello lo lascia fuori dai gruppi, EM §9.9), e il rimedio è «Riattiva».
 const (
 	MotivoFonteSenzaSTEP       = "il prodotto non ha uno STEP fra i gruppi del motore"
+	MotivoFonteSenzaComponente = "il prodotto non ha un componente della RFQ"
+	MotivoFonteSTEPNonAttivo   = propostabom.TestoStepNonAttivo
 	MotivoFonteGiaConfermata   = "la fonte è già confermata"
 	MotivoFonteSenzaProposta   = "lo STEP non ha una proposta aperta da confermare"
 	MotivoFonteNonCad3D        = "la proposta dello STEP non è un 3D"
@@ -195,11 +199,12 @@ func componiV1(p *Pagina, r *Risultato) {
 	p.Fonte = fonteDelProdotto(r, p, pid, m)
 }
 
-// fonteDelProdotto: la fonte del prodotto (FonteDelProdotto).
+// fonteDelProdotto: la fonte del prodotto (FonteDelProdotto). Uno STEP in «Altri file» o scartato non si conferma: con lo
+// STEP scelto non attivo, o senza STEP perché il modello ha lasciato fuori quelli non attivi, il motivo lo dice.
 func fonteDelProdotto(r *Risultato, p *Pagina, pid *uuid.UUID, m *propostabom.ModelloDelProdotto) *FonteDelProdotto {
 	out := &FonteDelProdotto{StepSecondario: m.StepSecondario}
 	if pid == nil {
-		out.Motivo = MotivoFonteSenzaSTEP
+		out.Motivo = MotivoFonteSenzaComponente
 		return out
 	}
 	t := r.Thread
@@ -243,10 +248,14 @@ func fonteDelProdotto(r *Risultato, p *Pagina, pid *uuid.UUID, m *propostabom.Mo
 	}
 	if allegato == nil {
 		out.Motivo = MotivoFonteSenzaSTEP
+		if len(m.StepNonAttivi) > 0 {
+			out.Motivo = MotivoFonteSTEPNonAttivo
+		}
 		return out
 	}
 	a := *allegato
 	out.AllegatoID = &a
+	_, nonAttivo := r.V1.NonAttivi[a]
 	for _, f := range r.EsitoThread.File {
 		if f.AllegatoID == a {
 			out.Sha256 = f.Documento.Fonte.RiferimentoFatti.Sha256
@@ -277,6 +286,8 @@ func fonteDelProdotto(r *Risultato, p *Pagina, pid *uuid.UUID, m *propostabom.Mo
 	switch {
 	case out.Confermata:
 		out.Motivo = MotivoFonteGiaConfermata
+	case nonAttivo:
+		out.Motivo = MotivoFonteSTEPNonAttivo
 	case out.Voce == nil:
 		out.Motivo = MotivoFonteSenzaProposta
 	default:

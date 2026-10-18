@@ -285,7 +285,15 @@ var reEntita = regexp.MustCompile(`entita\[([^\]]+)\]`)
 //   - quelle del documento e dell'interpretazione degli altri file del registro, alla testata;
 //   - quelle dell'ancoraggio sul prodotto e sullo STEP del gruppo o sui suoi nodi, a una voce se citano il suo nodo,
 //     altrimenti alla testata;
-//   - quelle della valutazione del thread che citano un nodo di una voce, a quella voce.
+//   - quelle della valutazione del thread sul prodotto che citano un nodo di una voce, a quella voce.
+//
+// Una diagnostica dell'ancoraggio o della valutazione entra solo se parla di questo gruppo (diagnosticaDelGruppo): il
+// prodotto, e ogni occorrenza che cita (allegato:<id>) è lo STEP del gruppo o un file attivo del registro, mai un'altra
+// occorrenza dello stesso contenuto. Il rif di un nodo (nodo:<sha256>:<chiave>) è uguale su ogni copia dello STEP, e da
+// solo non basta: una diagnostica della struttura di un'altra copia, o della riconciliazione di un 2D non attivo,
+// cambierebbe impronta_contenuto per un caricamento o per «Altri file» (EM §3.8.1, «Perché le evidenze non entrano nel
+// confronto»; §6.11). Una diagnostica lasciata fuori perché cita un'occorrenza non attiva si conta nella nota
+// importazione.evidenze_file_non_attivi.
 //
 // Una diagnostica sta in una voce solo se è riconducibile a quel nodo solo («aggregate per nodo»); una che cita più
 // voci (per esempio un avviso di capacità sulle unità di tutti i nodi) non è riconducibile a un nodo e sta una volta
@@ -360,28 +368,64 @@ func (b *costruttore) diagnostiche(voci []importazione.Voce) {
 	for _, n := range b.st.Nodi {
 		nodiStruttura[n.Rif] = true
 	}
-	allegatoGruppo := "allegato:" + step.String()
+	allegatoGruppo := idAllegato(step)
 	for _, d := range b.et.Ancoraggi.Diagnostiche {
 		target, gruppo := false, false
 		for _, r := range d.Rif {
 			target = target || r == b.pv.Rif
 			gruppo = gruppo || r == allegatoGruppo || nodiStruttura[r]
 		}
-		if target && gruppo {
+		if target && gruppo && b.diagnosticaDelGruppo(d) {
 			assegna(d)
 		}
 	}
 	for _, d := range b.et.Diagnostiche {
+		target, nodo := false, false
 		for _, r := range d.Rif {
-			if nodiDelleVoci[r] {
-				assegna(d)
-				break
-			}
+			target = target || r == b.pv.Rif
+			nodo = nodo || nodiDelleVoci[r]
+		}
+		if target && nodo && b.diagnosticaDelGruppo(d) {
+			assegna(d)
 		}
 	}
 	for i := range voci {
 		voci[i].Diagnostiche = rawDiagnostiche(perVoce[i])
 	}
+}
+
+// idAllegato: il riferimento di un'occorrenza nelle diagnostiche dell'ancoraggio, «allegato:<uuid>».
+func idAllegato(a uuid.UUID) string { return "allegato:" + a.String() }
+
+// diagnosticaDelGruppo: ogni occorrenza che la diagnostica cita (allegato:<id>) è lo STEP del gruppo, oppure un file
+// del registro attivo che non è un'altra occorrenza dello stesso contenuto dello STEP. Una diagnostica che cita
+// un'occorrenza non attiva non entra, e la nota importazione.evidenze_file_non_attivi la conta.
+func (b *costruttore) diagnosticaDelGruppo(d evidenze.Diagnostica) bool {
+	ok := true
+	var nonAttive []uuid.UUID
+	for _, r := range d.Rif {
+		s, cita := strings.CutPrefix(r, "allegato:")
+		if !cita {
+			continue
+		}
+		a, err := uuid.Parse(s)
+		switch {
+		case err != nil:
+			ok = false
+		case a == b.st.AllegatoID:
+		case !b.attiva(a):
+			nonAttive = append(nonAttive, a)
+			ok = false
+		case !b.allegati[a] || b.file[a] == nil || b.file[a].Documento.Fonte.RiferimentoFatti.Sha256 == b.st.Sha256:
+			ok = false
+		}
+	}
+	if !ok {
+		for _, a := range nonAttive {
+			b.escludi(a)
+		}
+	}
+	return ok
 }
 
 // diagnosticheDellAdattatore: le diagnostiche dell'adattatore, nella testata: il thread senza grammatica del cliente,

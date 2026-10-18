@@ -34,19 +34,21 @@ const (
 	motivoFileDocumentoNonLeggibileAnteprima = valutazione.MotivoFileDocumentoNonLeggibile
 )
 
-// IngressoAnteprima: l'esito già calcolato, le regole di lettura, il prodotto, lo STEP, il gruppo chiesto ("" = la
-// candidata in vista), le occorrenze non attive e, per l'effetto sulla bozza, la vista della bozza aperta del prodotto
-// con il registro della sua versione (nil senza).
+// IngressoAnteprima: l'esito già calcolato, le regole di lettura, il prodotto, il codice del suo componente nella
+// working (componente.codice: lo legge chi chiama, dalla fotografia o dal database, come lo leggerà R2), lo STEP, il
+// gruppo chiesto ("" = la candidata in vista), le occorrenze non attive e, per l'effetto sulla bozza, la vista della
+// bozza aperta del prodotto con il registro della sua versione (nil senza).
 type IngressoAnteprima struct {
-	Esito         *valutazione.Esito
-	Thread        *valutazione.EsitoThread
-	Regole        valutazione.RegoleDelThread
-	Prodotto      string
-	Allegato      uuid.UUID
-	Gruppo        string
-	NonAttivi     NonAttivi
-	Bozza         *VistaBozza
-	RegistroBozza *importazione.Contenuto
+	Esito          *valutazione.Esito
+	Thread         *valutazione.EsitoThread
+	Regole         valutazione.RegoleDelThread
+	Prodotto       string
+	CodiceProdotto string
+	Allegato       uuid.UUID
+	Gruppo         string
+	NonAttivi      NonAttivi
+	Bozza          *VistaBozza
+	RegistroBozza  *importazione.Contenuto
 }
 
 // GruppoAnteprima: un gruppo dello STEP per il prodotto (EM §10.9): la chiave, l'identità proposta della radice, la
@@ -114,9 +116,10 @@ type Anteprima struct {
 // AnteprimaDelloSTEP: il contenuto di S6 per lo STEP e il prodotto. I gruppi sono le candidate del prodotto su quello
 // STEP e, se la BOM di lavoro del prodotto sta su quell'allegato, il gruppo «bom»; in vista c'è solo la candidata
 // compatibile, quando è una sola, mai un'incerta. La proposta è quella del gruppo chiesto, altrimenti della candidata in
-// vista; il confronto del codice è fra il codice proposto della radice di quella proposta e il codice del prodotto (il
-// motivo della scelta della fonte è obbligatorio con «diverso», EM §6.3 passo 3). Con la bozza, l'effetto di
-// cambio-fonte-1 verso quel gruppo.
+// vista; il confronto del codice (ConfrontoDelCodice) è fra il codice proposto della radice di quella proposta e il
+// codice del componente del prodotto nella working, codice_prodotto (il motivo della scelta della fonte lo dice
+// MotivoFonteObbligatorio, la stessa funzione di R2, EM §6.3 passo 3). Con la bozza, l'effetto di cambio-fonte-1 verso
+// quel gruppo.
 func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 	out := Anteprima{AllegatoID: in.Allegato, Gruppi: []GruppoAnteprima{}, Associazioni: []AssociazionePrevista{}, Avvisi: []AvvisoAnteprima{},
 		Confronto: ConfrontoCodiceNonDeterminabile, Stato: StatoAnteprimaStrutturaNonDeterminabile}
@@ -150,7 +153,7 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 	if pv.ComponenteID != nil {
 		out.ProdottoID = pv.ComponenteID.String()
 	}
-	out.CodiceProdotto = pv.CodiceRichiesto
+	out.CodiceProdotto = in.CodiceProdotto
 	out.StepSecondario = StepSecondarioDelProdotto(et, *pv, in.NonAttivi)
 
 	var gruppi []Gruppo
@@ -190,7 +193,7 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 		if ga.InVista && scelto == "" {
 			scelto = g.Chiave
 		}
-		reg, err := ImportaGruppo(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave, NonAttivi: in.NonAttivi})
+		reg, err := importaProtetto(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave, NonAttivi: in.NonAttivi})
 		if err != nil {
 			ga.Importazione = erroreDiImportazione(err)
 			out.Avvisi = append(out.Avvisi, AvvisoAnteprima{Gruppo: g.Chiave, Codice: ga.Importazione.Codice + motivoConBarra(ga.Importazione.Motivo), Testo: ga.Importazione.Testo})
@@ -216,7 +219,7 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 	c := reg.Contenuto
 	out.Proposta = &PropostaAnteprima{Gruppo: scelto, ImprontaContenuto: c.ImprontaContenuto, Contenuto: reg.Canonico}
 	out.Versioni = raw(c.Regole.Versioni)
-	out.Confronto = confrontoDelCodice(c, pv.CodiceRichiesto)
+	out.Confronto = ConfrontoDelCodice(c, in.CodiceProdotto)
 	for _, v := range c.Proposta.Nodi {
 		var aa []struct {
 			AllegatoID string `json:"allegato_id"`
@@ -244,21 +247,32 @@ func motivoConBarra(m string) string {
 	return "/" + m
 }
 
-// confrontoDelCodice: il codice proposto della radice contro il codice del prodotto: coincide, diverso, oppure non
-// determinabile senza un codice proposto della radice.
-func confrontoDelCodice(c importazione.Contenuto, codice string) string {
+// ConfrontoDelCodice: il codice proposto della radice del registro contro il codice del componente del prodotto nella
+// working (componente.codice), byte per byte: coincide, diverso, oppure non determinabile senza un codice proposto della
+// radice o senza il codice del prodotto. È il confronto di S6 (confronto) e quello di R2 per il motivo della scelta della
+// fonte (MotivoFonteObbligatorio): una funzione sola, così S6 e R2 non danno risposte diverse.
+func ConfrontoDelCodice(c importazione.Contenuto, codiceProdotto string) string {
 	for _, v := range c.Proposta.Nodi {
 		if !c.EVoceDellaRadice(v) {
 			continue
 		}
 		switch {
-		case v.CodiceProposto == "" || codice == "":
+		case v.CodiceProposto == "" || codiceProdotto == "":
 			return ConfrontoCodiceNonDeterminabile
-		case v.CodiceProposto == codice:
+		case v.CodiceProposto == codiceProdotto:
 			return ConfrontoCodiceCoincide
 		default:
 			return ConfrontoCodiceDiverso
 		}
 	}
 	return ConfrontoCodiceNonDeterminabile
+}
+
+// MotivoFonteObbligatorio: la scelta della fonte (crea con partenza «step», cambia_sorgente, la ripartenza) vuole il
+// motivo (EM §6.3 passo 3: «se la radice letta dallo STEP ha un codice diverso da quello del prodotto»; 422
+// MOTIVO_OBBLIGATORIO) quando il confronto non è «coincide»: con «diverso» per il contratto, e con «non determinabile»
+// per prudenza [T], perché senza un codice proposto della radice non si sa che il codice sia lo stesso. S6 lo mostra
+// con confronto, R2 lo applica con la stessa funzione.
+func MotivoFonteObbligatorio(c importazione.Contenuto, codiceProdotto string) bool {
+	return ConfrontoDelCodice(c, codiceProdotto) != ConfrontoCodiceCoincide
 }

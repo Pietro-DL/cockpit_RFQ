@@ -914,7 +914,8 @@ func (c *Contenuto) valida(can []byte) *Errore {
 // TrovaLettura sarebbero ambigui. L'allegato della chiave e' quello dell'unita' letta: della voce per l'identita'
 // proposta e le alternative, del file per le sue letture, un allegato citato per un riferimento. I due campi facoltativi
 // codice_proposto e rev_proposta di una lettura (DECA PE-08) hanno le regole di quelli della voce: il codice
-// ammissibile, la rev in maiuscole ASCII.
+// ammissibile, la rev in maiuscole ASCII; in piu', in una lettura la rev c'e' solo con il codice: senza una proiezione
+// ammissibile del codice i due campi sono omessi (EM §3.8, «Una lettura»). La voce tiene la sua regola (P-4).
 func (c *Contenuto) validaLetture(citati map[string]bool) *Errore {
 	viste := map[string]string{}
 	una := func(campo string, raw json.RawMessage, allegato string) *Errore {
@@ -931,6 +932,9 @@ func (c *Contenuto) validaLetture(citati map[string]bool) *Errore {
 		}
 		if l.RevProposta != nil && (!RevAmmissibile(*l.RevProposta) || conMinuscoleASCII(*l.RevProposta)) {
 			return forma(campo+".rev_proposta", "la rev proposta di una lettura e' in maiuscole ASCII, senza spazi o controlli, al piu' %d byte", MaxRevProposta)
+		}
+		if l.RevProposta != nil && l.CodiceProposto == nil {
+			return forma(campo+".rev_proposta", "una lettura porta rev_proposta solo con codice_proposto: senza una proiezione ammissibile del codice i due campi sono omessi")
 		}
 		m := reChiaveLettura.FindStringSubmatch(l.ChiaveLettura)
 		if m == nil || haControlli(l.ChiaveLettura) {
