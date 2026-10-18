@@ -1,0 +1,42 @@
+{{/*
+  Distinta unica di V1 (giro 5, A1d, V1): il guscio della pagina nuova, solo per l'admin, dietro [motore_a].
+  Gestore: internal/transport/web/distinta_unica_pagina.go. Comportamento: web/static/distinta_unica.mjs (presentazione,
+  selezione, zoom, pan, interazione con la bozza). Il solo modulo che chiama il server è il ponte di V1,
+  web/static/distinta_unica_ponte.mjs (D23:284; MAT §1.3). Aspetto: web/static/distinta_unica.css (ogni regola sotto .du).
+
+  Regole di questo file:
+  - è un guscio: niente dati del motore, niente bozza, niente esiti. La RFQ e l'utente stanno negli attributi
+    data-du-thread e data-du-utente; tutto il resto lo legge il modulo con il ponte (modello /motore-a/dati, R1, S1,
+    R4, R7), dopo l'apertura. All'apertura nessuna scrittura (D-18 = A [U]; EM §6.10 n. 4);
+  - nessun attributo htmx che chiami il server e nessun gesto legacy (MAT §7): «Conferma l'albero», i gesti strutturali
+    immediati e «Scarta il file» non ci sono;
+  - le zone della pagina (passi, viste, cassetti, pannello del nodo, barra, finestre) le costruisce il modulo con
+    createElement e textContent, mai con HTML del server;
+  - senza JavaScript la pagina lo dice e non mostra stati;
+  - data-du-pdfjs e data-du-pdfjs-worker dicono gli statici di pdf.js (gli stessi della pagina vecchia): il visore dei
+    PDF li carica una volta e legge il PDF dall'indirizzo di S5 che costruisce il ponte (MAT FL-03, PN-04).
+*/}}
+{{define "contenuto"}}{{$d := .Dati}}
+<link rel="stylesheet" href="{{statico "distinta_unica.css"}}">
+<section class="du" id="du" data-du-thread="{{$d.ThreadID}}" data-du-utente="{{$d.UtenteID}}" data-du-pdfjs="{{statico "pdfjs-6.3.289/pdf.min.mjs"}}" data-du-pdfjs-worker="{{statico "pdfjs-6.3.289/pdf.worker.min.mjs"}}" aria-labelledby="du-titolo">
+  <header class="du-testa">
+    <div class="du-testa-t">
+      <h1 id="du-titolo">Distinta unica</h1>
+      <span class="du-testa-rfq">{{with $d.Testata.Oggetto}}<span class="du-testa-ogg">{{.}}</span>{{end}}{{with $d.Testata.Riferimento}} <span class="du-mono">{{.}}</span>{{end}}{{with $d.Testata.Stato}} <span class="du-st du-st--neu">{{.}}</span>{{end}}</span>
+    </div>
+    <div class="du-testa-azioni" id="du-testa-azioni"></div>
+  </header>
+  {{with $d.Errore}}<div class="du-striscia du-striscia--ko" role="alert">{{.}}</div>{{end}}
+  <noscript><div class="du-striscia du-striscia--ko">La Distinta unica funziona solo con JavaScript: senza, la pagina non mostra stati né esiti.</div></noscript>
+  <div class="du-prodotti" id="du-prodotti" aria-label="Prodotti della RFQ"></div>
+  <nav class="du-nav" id="du-nav" aria-label="Passi e viste della Distinta"></nav>
+  <div class="du-avviso" id="du-avviso" role="status" aria-live="polite" hidden></div>
+  <div class="du-strisce" id="du-strisce"></div>
+  <div class="du-corpo" id="du-corpo" aria-busy="true"><p class="du-muto">Lettura della RFQ…</p></div>
+  <div class="du-barra" id="du-barra" role="region" aria-label="Stato della bozza e azioni"></div>
+</section>
+<div class="du-velo" id="du-velo" hidden></div>
+<section class="du-finestra" id="du-finestra" role="dialog" aria-modal="true" aria-labelledby="du-finestra-titolo" hidden></section>
+<section class="du-wizard" id="du-wizard" role="dialog" aria-modal="true" aria-labelledby="du-wizard-titolo" hidden></section>
+<script type="module" src="{{statico "distinta_unica.mjs"}}"></script>
+{{end}}
