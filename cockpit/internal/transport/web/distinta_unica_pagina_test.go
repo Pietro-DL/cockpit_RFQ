@@ -2,7 +2,8 @@ package web
 
 // L1 — giro 5, A1d, V1: il guscio della Distinta unica (distinta_unica_pagina.go, web/templates/distinta_unica.html), con
 // httptest e senza database (direttiva 23 §6; EM §9 regole comuni, §12; MAT TS-01, §1.2):
-//   - registraPaginaDistintaUnica monta proprio conMotoreA(conNoStore(soloAdmin(p.servi))) e la riga gemella;
+//   - registraPaginaDistintaUnica monta proprio conMotoreA(conNoStore(soloAdmin(p.servi))) e la riga gemella, e la chiama
+//     registraMotoreA una volta sola (ondata B, richiesta R-1): con Registra il guscio arriva al suo pattern;
 //   - a flag spento il 404 del router a tutti, prima della sessione; a flag acceso, senza sessione, il login; gli altri
 //     metodi 405 con Allow;
 //   - chi non è admin riceve il 403 di nega; l'admin arriva al gestore;
@@ -106,6 +107,50 @@ func TestDistintaUnicaSiMonta(t *testing.T) {
 	}
 	if percorsoDistintaUnica != "/thread/{id}/distinta-unica" {
 		t.Errorf("percorso del guscio cambiato: %q (il resoconto della corsia dice dove sta e perché)", percorsoDistintaUnica)
+	}
+	// registraMotoreA monta il guscio, una volta sola (richiesta R-1 della corsia, ondata B): la chiamata sta nel corpo di
+	// registraMotoreA, non altrove
+	fm, err := parser.ParseFile(fset, "motore_a.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chiamate := 0
+	for _, d := range fm.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok && types.ExprString(c) == "s.registraPaginaDistintaUnica(mux)" {
+				if fd.Name.Name != "registraMotoreA" {
+					t.Errorf("il guscio è montato da %s, atteso registraMotoreA", fd.Name.Name)
+				}
+				chiamate++
+			}
+			return true
+		})
+	}
+	if chiamate != 1 {
+		t.Errorf("registraMotoreA chiama s.registraPaginaDistintaUnica(mux) %d volte, attesa una", chiamate)
+	}
+	// con Registra intero (il mux del server) il guscio arriva al suo pattern, anche con HEAD; gli altri metodi alla riga
+	// gemella; nessun pattern in conflitto (un conflitto è un panic del mux)
+	s := duServer(t, true)
+	mux := http.NewServeMux()
+	func() {
+		defer func() {
+			if v := recover(); v != nil {
+				t.Fatalf("Registra va in panic con il guscio montato: %v", v)
+			}
+		}()
+		s.Registra(mux)
+	}()
+	indirizzo := "/thread/" + duUUID(9).String() + "/distinta-unica"
+	for metodo, atteso := range map[string]string{http.MethodGet: "GET " + percorsoDistintaUnica, http.MethodHead: "GET " + percorsoDistintaUnica,
+		http.MethodPost: percorsoDistintaUnica, http.MethodDelete: percorsoDistintaUnica} {
+		if _, pat := mux.Handler(httptest.NewRequest(metodo, indirizzo, nil)); pat != atteso {
+			t.Errorf("%s %s: pattern %q, atteso %q", metodo, indirizzo, pat, atteso)
+		}
 	}
 }
 

@@ -281,7 +281,7 @@ neu
 <details class="ma-menu" data-ma-menu>
   <summary class="ma-btn ma-btn--sm">Azioni del thread</summary>
   <div class="ma-menu-corpo" role="group" aria-label="Azioni del thread">
-    <button type="button" class="ma-menu-voce" data-ma-gesto="/thread/{{$d.ThreadID}}/fascicolo/prepara" {{if not $s}}disabled{{end}}>Prepara i file<small>mette in coda scaricamento, estrazione e analisi dei file e rilegge quelli già analizzati</small></button>
+    <button type="button" class="ma-menu-voce" data-ma-gesto="/thread/{{$d.ThreadID}}/fascicolo/prepara" {{if not $s}}disabled{{end}}>Prepara i file<small>mette in coda scaricamento, estrazione e analisi dei file che non le hanno ancora (al più 20 per volta); non rilegge gli STEP già analizzati: per quelli c'è «Rifai l'analisi»</small></button>
     <button type="button" class="ma-menu-voce" data-ma-gesto="/thread/{{$d.ThreadID}}/smistamento/aggiorna" {{if not $s}}disabled{{end}}>Rifai lo smistamento<small>riscrive la destinazione proposta dei file ancora aperti; una RFQ chiusa resta com'è</small></button>
   </div>
 </details>

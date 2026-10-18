@@ -1,42 +1,79 @@
 {
-  "_che_cosa": "Casi di contratto condivisi della Distinta unica di V1 (giro 5, A1d, V1). 'vassoio': la regola del vassoio «Da ricollocare» (EM §3.7; PM23 T-16): dalla stessa sequenza di eventi del giornale (R1 ?eventi=1) il server e la funzione della pagina vassoioDa danno lo stesso vassoio. 'applica': le azioni del vocabolario 2 (EM §9.2) applicate allo snapshot salvato, come le applica la pagina (applica) e come il server le riconcilia (C3 §6.6): uno snapshot diverso dal server = R2 422 azioni_non_riconciliate. Li legge la prova nel browser (e2e/distinta_unica.py, DU-B30); la corsia persistenza puo' leggerli nella sua L1 per l'altra meta' di T-16. Dati inventati.",
+  "_che_cosa": "Casi di contratto condivisi della Distinta unica di V1 (giro 5, A1d, V1). 'vassoio': la regola del vassoio «Da ricollocare» (EM §3.7; PM23 T-16): dalla stessa sequenza di eventi del giornale (R1 ?eventi=1, con il campo chiave) il server e la funzione della pagina vassoioDa danno lo stesso vassoio. 'applica': le azioni del vocabolario 2 applicate allo snapshot salvato, come le applica la pagina (applica) e come il server le riconcilia (C3 §6.6): uno snapshot diverso dal server = R2 422 azioni_non_riconciliate. Le forme sono quelle complete della tabella di EM §9.2, con le regole di forma (EM §3.4, §3.5, §3.6, §7.1): nodi e archi completi, identificativi in forma di UUID (azione_id UUID v4), motivi obbligatori, la chiave_bozza degli eventi delle decisioni dedotta dalla decisione, null per i tipi senza il campo (RPC PD-08, opzione a). Li legge la prova nel browser (e2e/distinta_unica.py, DU-B33) e la L1 TestDistintaUnicaCasiCondivisi; la corsia persistenza puo' leggerli nella sua L1 per l'altra meta' di T-16. Dati inventati.",
   "vassoio": [
     {
       "nome": "uno svincolo per nodo tolto entra nel vassoio",
       "eventi": [
-        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "nodo_tolto"}}
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": "nodo_tolto"}}
       ],
-      "atteso": [{"proposta_id": "p-x", "motivo": "nodo_tolto", "chiave_bozza": "k-1"}]
+      "atteso": [
+        {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": "nodo_tolto", "chiave_bozza": "k-1"}
+      ]
+    },
+    {
+      "nome": "uno svincolo per nodo escluso entra nel vassoio (PE-22)",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d000e", "chiave_bozza": "k-40"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d000e", "motivo": "nodo_escluso"}}
+      ],
+      "atteso": [
+        {"proposta_id": "00000000-0000-4000-8000-0000000d000e", "motivo": "nodo_escluso", "chiave_bozza": "k-40"}
+      ]
+    },
+    {
+      "nome": "l'annullamento del gesto cumulativo «Non includere» (prima = {azione_id}) toglie lo svincolo dal vassoio (PE-05)",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "chiave": "k-31", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d000c", "chiave_bozza": "k-31"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d000c", "motivo": "non_incluso", "azione_id": "00000000-0000-4000-8000-0000000e0109"}},
+        {"n": 2, "azione": "nodo_tolto", "chiave": "k-31", "prima": {"chiave_bozza": "k-31"}, "dopo": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}},
+        {"n": 3, "azione": "annulla", "prima": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}, "dopo": {"n": 2}},
+        {"n": 4, "azione": "annulla", "prima": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}, "dopo": {"n": 1}}
+      ],
+      "atteso": []
+    },
+    {
+      "nome": "la ripetizione del gesto cumulativo (rifai con prima = {azione_id}, nell'ordine del gesto) rimette lo svincolo nel vassoio (PE-05)",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "chiave": "k-31", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d000c", "chiave_bozza": "k-31"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d000c", "motivo": "non_incluso", "azione_id": "00000000-0000-4000-8000-0000000e0109"}},
+        {"n": 2, "azione": "nodo_tolto", "chiave": "k-31", "prima": {"chiave_bozza": "k-31"}, "dopo": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}},
+        {"n": 3, "azione": "annulla", "prima": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}, "dopo": {"n": 2}},
+        {"n": 4, "azione": "annulla", "prima": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}, "dopo": {"n": 1}},
+        {"n": 5, "azione": "rifai", "prima": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}, "dopo": {"n": 1}},
+        {"n": 6, "azione": "rifai", "prima": {"azione_id": "00000000-0000-4000-8000-0000000e0109"}, "dopo": {"n": 2}}
+      ],
+      "atteso": [
+        {"proposta_id": "00000000-0000-4000-8000-0000000d000c", "motivo": "non_incluso", "chiave_bozza": "k-31"}
+      ]
     },
     {
       "nome": "uno svincolo dell'ingegnere non entra",
       "eventi": [
-        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-y", "chiave_bozza": "k-2"}, "dopo": {"proposta_id": "p-y", "motivo": "utente"}}
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0002", "chiave_bozza": "k-2"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0002", "motivo": "utente"}}
       ],
       "atteso": []
     },
     {
       "nome": "«Lascia senza associazione» toglie dal vassoio",
       "eventi": [
-        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "non_incluso"}},
-        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "p-x"}}
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": "non_incluso"}},
+        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001"}}
       ],
       "atteso": []
     },
     {
       "nome": "annullare «Lascia» rimette nel vassoio",
       "eventi": [
-        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "non_incluso"}},
-        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "p-x"}},
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": "non_incluso"}},
+        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001"}},
         {"n": 3, "azione": "annulla", "prima": null, "dopo": {"n": 2}}
       ],
-      "atteso": [{"proposta_id": "p-x", "motivo": "non_incluso", "chiave_bozza": "k-1"}]
+      "atteso": [
+        {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": "non_incluso", "chiave_bozza": "k-1"}
+      ]
     },
     {
       "nome": "ripetere «Lascia» lo toglie di nuovo",
       "eventi": [
-        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "non_incluso"}},
-        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "p-x"}},
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": "non_incluso"}},
+        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001"}},
         {"n": 3, "azione": "annulla", "prima": null, "dopo": {"n": 2}},
         {"n": 4, "azione": "rifai", "prima": null, "dopo": {"n": 2}}
       ],
@@ -45,16 +82,16 @@
     {
       "nome": "una preassociazione nuova ricolloca",
       "eventi": [
-        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-z", "chiave_bozza": "k-3"}, "dopo": {"proposta_id": "p-z", "motivo": "fonte_cambiata"}},
-        {"n": 2, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "p-z", "chiave_bozza": "k-4"}}
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0003", "chiave_bozza": "k-3"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0003", "motivo": "fonte_cambiata"}},
+        {"n": 2, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0003", "chiave_bozza": "k-4"}}
       ],
       "atteso": []
     },
     {
       "nome": "lo svincolo annullato non conta: resta l'ultima azione efficace",
       "eventi": [
-        {"n": 1, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "p-w", "chiave_bozza": "k-5"}},
-        {"n": 2, "azione": "file_svincolato", "prima": {"proposta_id": "p-w", "chiave_bozza": "k-5"}, "dopo": {"proposta_id": "p-w", "motivo": "rif_scaduto"}},
+        {"n": 1, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0004", "chiave_bozza": "k-5"}},
+        {"n": 2, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0004", "chiave_bozza": "k-5"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0004", "motivo": "rif_scaduto"}},
         {"n": 3, "azione": "annulla", "prima": null, "dopo": {"n": 2}}
       ],
       "atteso": []
@@ -62,70 +99,312 @@
     {
       "nome": "piu' proposte, ciascuna con la sua ultima azione",
       "eventi": [
-        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-a", "chiave_bozza": "k-6"}, "dopo": {"proposta_id": "p-a", "motivo": "nodo_tolto"}},
-        {"n": 2, "azione": "file_svincolato", "prima": {"proposta_id": "p-b", "chiave_bozza": "k-7"}, "dopo": {"proposta_id": "p-b", "motivo": "non_incluso"}},
-        {"n": 3, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "p-a", "chiave_bozza": "k-8"}},
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d000a", "chiave_bozza": "k-6"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d000a", "motivo": "nodo_tolto"}},
+        {"n": 2, "azione": "file_svincolato", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d000b", "chiave_bozza": "k-7"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d000b", "motivo": "non_incluso"}},
+        {"n": 3, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d000a", "chiave_bozza": "k-8"}},
         {"n": 4, "azione": "nodo_tolto", "chiave": "k-9", "prima": {"chiave_bozza": "k-9"}, "dopo": null}
       ],
-      "atteso": [{"proposta_id": "p-b", "motivo": "non_incluso", "chiave_bozza": "k-7"}]
+      "atteso": [
+        {"proposta_id": "00000000-0000-4000-8000-0000000d000b", "motivo": "non_incluso", "chiave_bozza": "k-7"}
+      ]
     }
   ],
   "applica": [
     {
       "nome": "nodo_aggiunto e arco_aggiunto (l'azione_id non entra nello snapshot)",
-      "snapshot": {"nodi": [{"chiave_bozza": "k-root", "op": "riusa"}], "archi": [], "decisioni": [], "documenti_preassociati": []},
+      "snapshot": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}}
+        ],
+        "archi": [],
+        "decisioni": [],
+        "documenti_preassociati": []
+      },
       "azioni": [
-        {"azione": "nodo_aggiunto", "chiave_bozza": "k-u1", "prima": null, "dopo": {"chiave_bozza": "k-u1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:c1", "modo": "manuale"}}},
-        {"azione": "arco_aggiunto", "chiave_bozza": "k-u1", "prima": null, "dopo": {"padre": "k-root", "figlio": "k-u1", "qta": 2, "origine": "utente", "azione_id": "a-1"}}
+        {"azione": "nodo_aggiunto", "chiave_bozza": "k-u1", "prima": null, "dopo": {"chiave_bozza": "k-u1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale"}}, "origine": "utente"},
+        {"azione": "arco_aggiunto", "chiave_bozza": "k-u1", "prima": null, "dopo": {"padre": "k-root", "figlio": "k-u1", "qta": 2, "origine": "utente", "azione_id": "00000000-0000-4000-8000-0000000e0101"}, "origine": "utente"}
       ],
-      "atteso": {"nodi": [{"chiave_bozza": "k-root", "op": "riusa"}, {"chiave_bozza": "k-u1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:c1", "modo": "manuale"}}],
-                 "archi": [{"padre": "k-root", "figlio": "k-u1", "qta": 2, "origine": "utente"}], "decisioni": [], "documenti_preassociati": []}
+      "atteso": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-u1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-u1", "qta": 2, "origine": "utente"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": []
+      }
     },
     {
       "nome": "nodo_modificato cambia e toglie campi; qta_modificata",
-      "snapshot": {"nodi": [{"chiave_bozza": "k-1", "op": "crea", "tipo": "sciolto", "descrizione": "vecchia"}], "archi": [{"padre": "k-0", "figlio": "k-1", "qta": 1}], "decisioni": [], "documenti_preassociati": []},
+      "snapshot": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-1", "op": "crea", "tipo": "sciolto", "origine": "utente", "descrizione": "vecchia", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-1", "qta": 1, "origine": "utente"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": []
+      },
       "azioni": [
-        {"azione": "nodo_modificato", "chiave_bozza": "k-1", "prima": {"tipo": "sciolto", "descrizione": "vecchia"}, "dopo": {"tipo": "commerciale", "descrizione": null}},
-        {"azione": "qta_modificata", "chiave_bozza": "k-1", "prima": {"padre": "k-0", "figlio": "k-1", "qta": 1}, "dopo": {"padre": "k-0", "figlio": "k-1", "qta": 5}}
+        {"azione": "nodo_modificato", "chiave_bozza": "k-1", "prima": {"tipo": "sciolto", "descrizione": "vecchia"}, "dopo": {"tipo": "commerciale", "descrizione": null}, "origine": "utente"},
+        {"azione": "qta_modificata", "chiave_bozza": "k-1", "prima": {"padre": "k-root", "figlio": "k-1", "qta": 1}, "dopo": {"padre": "k-root", "figlio": "k-1", "qta": 5}, "origine": "utente"}
       ],
-      "atteso": {"nodi": [{"chiave_bozza": "k-1", "op": "crea", "tipo": "commerciale"}], "archi": [{"padre": "k-0", "figlio": "k-1", "qta": 5}], "decisioni": [], "documenti_preassociati": []}
+      "atteso": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-1", "op": "crea", "tipo": "commerciale", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-1", "qta": 5, "origine": "utente"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": []
+      }
     },
     {
       "nome": "arco_spostato e arco_tolto",
-      "snapshot": {"nodi": [], "archi": [{"padre": "k-a", "figlio": "k-x", "qta": 1}, {"padre": "k-b", "figlio": "k-y", "qta": 3}], "decisioni": [], "documenti_preassociati": []},
+      "snapshot": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-a", "op": "crea", "tipo": "sottoassieme", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "SA-001"}},
+          {"chiave_bozza": "k-b", "op": "crea", "tipo": "sottoassieme", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "SA-002"}},
+          {"chiave_bozza": "k-x", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-010"}},
+          {"chiave_bozza": "k-y", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-011"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-a", "qta": 1, "origine": "utente"},
+          {"padre": "k-root", "figlio": "k-b", "qta": 1, "origine": "utente"},
+          {"padre": "k-a", "figlio": "k-x", "qta": 1, "origine": "utente"},
+          {"padre": "k-b", "figlio": "k-y", "qta": 3, "origine": "utente"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": []
+      },
       "azioni": [
-        {"azione": "arco_spostato", "chiave_bozza": "k-x", "prima": {"padre": "k-a", "figlio": "k-x", "qta": 1}, "dopo": {"padre": "k-b", "figlio": "k-x", "qta": 2, "origine": "utente"}},
-        {"azione": "arco_tolto", "chiave_bozza": "k-y", "prima": {"padre": "k-b", "figlio": "k-y", "qta": 3}, "dopo": {"azione_id": "a-2"}}
+        {"azione": "arco_spostato", "chiave_bozza": "k-x", "prima": {"padre": "k-a", "figlio": "k-x", "qta": 1, "origine": "utente"}, "dopo": {"padre": "k-b", "figlio": "k-x", "qta": 2, "origine": "utente"}, "origine": "utente"},
+        {"azione": "arco_tolto", "chiave_bozza": "k-y", "prima": {"padre": "k-b", "figlio": "k-y", "qta": 3, "origine": "utente"}, "dopo": null, "origine": "utente"}
       ],
-      "atteso": {"nodi": [], "archi": [{"padre": "k-b", "figlio": "k-x", "qta": 2, "origine": "utente"}], "decisioni": [], "documenti_preassociati": []}
+      "atteso": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-a", "op": "crea", "tipo": "sottoassieme", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "SA-001"}},
+          {"chiave_bozza": "k-b", "op": "crea", "tipo": "sottoassieme", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "SA-002"}},
+          {"chiave_bozza": "k-x", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-010"}},
+          {"chiave_bozza": "k-y", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-011"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-a", "qta": 1, "origine": "utente"},
+          {"padre": "k-root", "figlio": "k-b", "qta": 1, "origine": "utente"},
+          {"padre": "k-b", "figlio": "k-x", "qta": 2, "origine": "utente"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": []
+      }
     },
     {
       "nome": "«Non includere»: nodo_tolto, decisione_aggiunta; poi decisione_tolta",
-      "snapshot": {"nodi": [{"chiave_bozza": "k-31", "op": "crea"}, {"chiave_bozza": "k-32", "op": "crea"}], "archi": [], "decisioni": [{"id": "d-0", "tipo": "mono_pezzo"}], "documenti_preassociati": []},
+      "snapshot": {
+        "sorgente": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "gruppo": "bom", "importazione": "6666666666666666666666666666666666666666666666666666666666666666"},
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#1"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-31", "op": "crea", "tipo": "sciolto", "descrizione": "cordone 1", "origine": "step", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#31"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "modo": "da_decidere"}},
+          {"chiave_bozza": "k-32", "op": "crea", "tipo": "sciolto", "descrizione": "cordone 2", "origine": "step", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#32"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "modo": "da_decidere"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-31", "qta": 1, "origine": "step", "step": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom"}},
+          {"padre": "k-root", "figlio": "k-32", "qta": 1, "origine": "step", "step": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom"}}
+        ],
+        "decisioni": [
+          {"id": "d-0", "tipo": "mono_pezzo", "motivo": "pezzo unico"}
+        ],
+        "documenti_preassociati": []
+      },
       "azioni": [
-        {"azione": "nodo_tolto", "chiave_bozza": "k-31", "prima": {"chiave_bozza": "k-31", "op": "crea"}, "dopo": {"azione_id": "a-3"}},
-        {"azione": "decisione_aggiunta", "chiave_bozza": "k-31", "prima": null, "dopo": {"id": "ni-1", "tipo": "non_includere", "azione_id": "a-3"}},
-        {"azione": "decisione_tolta", "chiave_bozza": null, "prima": {"id": "d-0", "tipo": "mono_pezzo"}, "dopo": null}
+        {"azione": "arco_tolto", "chiave_bozza": "k-31", "prima": {"padre": "k-root", "figlio": "k-31", "qta": 1, "origine": "step", "step": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom"}}, "dopo": {"azione_id": "00000000-0000-4000-8000-0000000e0103"}, "origine": "utente"},
+        {"azione": "nodo_tolto", "chiave_bozza": "k-31", "prima": {"chiave_bozza": "k-31", "op": "crea", "tipo": "sciolto", "descrizione": "cordone 1", "origine": "step", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#31"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "modo": "da_decidere"}}, "dopo": {"azione_id": "00000000-0000-4000-8000-0000000e0103"}, "origine": "utente"},
+        {"azione": "decisione_aggiunta", "chiave_bozza": null, "prima": null, "dopo": {"id": "ni-1", "tipo": "non_includere", "casella": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#31"}, "motivo_codice": "elemento_cad", "motivo": "cordone di saldatura", "azione_id": "00000000-0000-4000-8000-0000000e0103", "importazione": "6666666666666666666666666666666666666666666666666666666666666666"}, "origine": "utente"},
+        {"azione": "decisione_tolta", "chiave_bozza": null, "prima": {"id": "d-0", "tipo": "mono_pezzo", "motivo": "pezzo unico"}, "dopo": null, "origine": "utente"}
       ],
-      "atteso": {"nodi": [{"chiave_bozza": "k-32", "op": "crea"}], "archi": [], "decisioni": [{"id": "ni-1", "tipo": "non_includere", "azione_id": "a-3"}], "documenti_preassociati": []}
+      "atteso": {
+        "sorgente": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "gruppo": "bom", "importazione": "6666666666666666666666666666666666666666666666666666666666666666"},
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#1"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-32", "op": "crea", "tipo": "sciolto", "descrizione": "cordone 2", "origine": "step", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#32"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "modo": "da_decidere"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-32", "qta": 1, "origine": "step", "step": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom"}}
+        ],
+        "decisioni": [
+          {"id": "ni-1", "tipo": "non_includere", "casella": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#31"}, "motivo_codice": "elemento_cad", "motivo": "cordone di saldatura", "azione_id": "00000000-0000-4000-8000-0000000e0103", "importazione": "6666666666666666666666666666666666666666666666666666666666666666"}
+        ],
+        "documenti_preassociati": []
+      }
     },
     {
       "nome": "file_preassociato, file_svincolato e file_lasciato (che non cambia lo snapshot)",
-      "snapshot": {"nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": [{"proposta_id": "p-1", "chiave_bozza": "k-1"}]},
+      "snapshot": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-001"}},
+          {"chiave_bozza": "k-2", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-002"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-1", "qta": 1, "origine": "utente"},
+          {"padre": "k-root", "figlio": "k-2", "qta": 1, "origine": "utente"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": [
+          {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-1"}
+        ]
+      },
       "azioni": [
-        {"azione": "file_preassociato", "chiave_bozza": "k-2", "prima": null, "dopo": {"proposta_id": "p-2", "chiave_bozza": "k-2"}},
-        {"azione": "file_svincolato", "chiave_bozza": "k-1", "prima": {"proposta_id": "p-1", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-1", "motivo": "utente"}},
-        {"azione": "file_lasciato", "chiave_bozza": null, "prima": null, "dopo": {"proposta_id": "p-9"}}
+        {"azione": "file_preassociato", "chiave_bozza": "k-2", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0002", "chiave_bozza": "k-2"}, "origine": "utente"},
+        {"azione": "file_svincolato", "chiave_bozza": "k-1", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": "utente"}, "origine": "utente"},
+        {"azione": "file_lasciato", "chiave_bozza": null, "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0009"}, "origine": "utente"}
       ],
-      "atteso": {"nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": [{"proposta_id": "p-2", "chiave_bozza": "k-2"}]}
+      "atteso": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-001"}},
+          {"chiave_bozza": "k-2", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "modo": "manuale", "codice": "PZ-002"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-1", "qta": 1, "origine": "utente"},
+          {"padre": "k-root", "figlio": "k-2", "qta": 1, "origine": "utente"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": [
+          {"proposta_id": "00000000-0000-4000-8000-0000000d0002", "chiave_bozza": "k-2"}
+        ]
+      }
     },
     {
       "nome": "rebase: solo la base e la firma della base",
-      "snapshot": {"sorgente": {"allegato_id": "a-1"}, "versione_bom_base": {"conferma_id": null, "numero": 0, "contatore": 12}, "firma_base": "1111", "nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": []},
+      "snapshot": {
+        "sorgente": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "gruppo": "bom"},
+        "versione_bom_base": {"conferma_id": null, "numero": 0, "contatore": 12},
+        "firma_base": "1111111111111111111111111111111111111111111111111111111111111111",
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#1"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}}
+        ],
+        "archi": [],
+        "decisioni": [],
+        "documenti_preassociati": []
+      },
       "azioni": [
-        {"azione": "rebase", "chiave_bozza": null, "prima": {"base": {"conferma_id": null, "numero": 0, "contatore": 12, "firma_struttura": "1111"}}, "dopo": {"base": {"conferma_id": "c-1", "numero": 1, "contatore": 13, "firma_struttura": "3333"}, "rif_scaduti": []}}
+        {"azione": "rebase", "chiave_bozza": null, "prima": {"base": {"conferma_id": null, "numero": 0, "contatore": 12, "firma_struttura": "1111111111111111111111111111111111111111111111111111111111111111"}}, "dopo": {"base": {"conferma_id": "00000000-0000-4000-8000-0000000f0001", "numero": 1, "contatore": 13, "firma_struttura": "3333333333333333333333333333333333333333333333333333333333333333"}, "rif_scaduti": []}, "origine": "utente", "motivo": "conferma di un collega"}
       ],
-      "atteso": {"sorgente": {"allegato_id": "a-1"}, "versione_bom_base": {"conferma_id": "c-1", "numero": 1, "contatore": 13}, "firma_base": "3333", "nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": []}
+      "atteso": {
+        "sorgente": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "gruppo": "bom"},
+        "versione_bom_base": {"conferma_id": "00000000-0000-4000-8000-0000000f0001", "numero": 1, "contatore": 13},
+        "firma_base": "3333333333333333333333333333333333333333333333333333333333333333",
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#1"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}}
+        ],
+        "archi": [],
+        "decisioni": [],
+        "documenti_preassociati": []
+      }
+    },
+    {
+      "nome": "«Escludi» con «Scollega alla conferma»: file_svincolato con nodo_escluso, escludi e scollega_documento con da_decisione (PE-22, PE-27)",
+      "snapshot": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-40", "componente_id": "00000000-0000-4000-8000-0000000b0040", "op": "riusa", "tipo": "sciolto", "descrizione": "staffa", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PZ-400", "rev": "a", "modo": "registrato"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-40", "qta": 2, "origine": "registrato"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": [
+          {"proposta_id": "00000000-0000-4000-8000-0000000d0008", "chiave_bozza": "k-40"}
+        ]
+      },
+      "azioni": [
+        {"azione": "file_svincolato", "chiave_bozza": "k-40", "prima": {"proposta_id": "00000000-0000-4000-8000-0000000d0008", "chiave_bozza": "k-40"}, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0008", "motivo": "nodo_escluso"}, "origine": "utente"},
+        {"azione": "nodo_modificato", "chiave_bozza": "k-40", "prima": {"op": "riusa"}, "dopo": {"op": "esclude"}, "origine": "utente"},
+        {"azione": "decisione_aggiunta", "chiave_bozza": null, "prima": null, "dopo": {"id": "es-1", "tipo": "escludi", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente"}, "origine": "utente"},
+        {"azione": "decisione_aggiunta", "chiave_bozza": null, "prima": null, "dopo": {"id": "sv-1", "tipo": "scollega_documento", "proposta_id": "00000000-0000-4000-8000-0000000d0007", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente", "da_decisione": "es-1"}, "origine": "utente"}
+      ],
+      "atteso": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-40", "componente_id": "00000000-0000-4000-8000-0000000b0040", "op": "esclude", "tipo": "sciolto", "descrizione": "staffa", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PZ-400", "rev": "a", "modo": "registrato"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-40", "qta": 2, "origine": "registrato"}
+        ],
+        "decisioni": [
+          {"id": "es-1", "tipo": "escludi", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente"},
+          {"id": "sv-1", "tipo": "scollega_documento", "proposta_id": "00000000-0000-4000-8000-0000000d0007", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente", "da_decisione": "es-1"}
+        ],
+        "documenti_preassociati": []
+      }
+    },
+    {
+      "nome": "«↺ Ripristina»: l'op di prima, via l'esclusione e gli svincoli che la citano, la preassociazione torna (PE-27)",
+      "snapshot": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-40", "componente_id": "00000000-0000-4000-8000-0000000b0040", "op": "esclude", "tipo": "sciolto", "descrizione": "staffa", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PZ-400", "rev": "a", "modo": "registrato"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-40", "qta": 2, "origine": "registrato"}
+        ],
+        "decisioni": [
+          {"id": "es-1", "tipo": "escludi", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente"},
+          {"id": "sv-1", "tipo": "scollega_documento", "proposta_id": "00000000-0000-4000-8000-0000000d0007", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente", "da_decisione": "es-1"}
+        ],
+        "documenti_preassociati": []
+      },
+      "azioni": [
+        {"azione": "nodo_modificato", "chiave_bozza": "k-40", "prima": {"op": "esclude"}, "dopo": {"op": "riusa"}, "origine": "utente"},
+        {"azione": "decisione_tolta", "chiave_bozza": null, "prima": {"id": "es-1", "tipo": "escludi", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente"}, "dopo": null, "origine": "utente"},
+        {"azione": "decisione_tolta", "chiave_bozza": null, "prima": {"id": "sv-1", "tipo": "scollega_documento", "proposta_id": "00000000-0000-4000-8000-0000000d0007", "componente_id": "00000000-0000-4000-8000-0000000b0040", "motivo": "fornito dal cliente", "da_decisione": "es-1"}, "dopo": null, "origine": "utente"},
+        {"azione": "file_preassociato", "chiave_bozza": "k-40", "prima": null, "dopo": {"proposta_id": "00000000-0000-4000-8000-0000000d0008", "chiave_bozza": "k-40"}, "origine": "utente"}
+      ],
+      "atteso": {
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}},
+          {"chiave_bozza": "k-40", "componente_id": "00000000-0000-4000-8000-0000000b0040", "op": "riusa", "tipo": "sciolto", "descrizione": "staffa", "origine": "registrato", "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PZ-400", "rev": "a", "modo": "registrato"}}
+        ],
+        "archi": [
+          {"padre": "k-root", "figlio": "k-40", "qta": 2, "origine": "registrato"}
+        ],
+        "decisioni": [],
+        "documenti_preassociati": [
+          {"proposta_id": "00000000-0000-4000-8000-0000000d0008", "chiave_bozza": "k-40"}
+        ]
+      }
+    },
+    {
+      "nome": "sorgente_rifiutata non cambia lo snapshot (informativa, con il motivo)",
+      "snapshot": {
+        "sorgente": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "gruppo": "bom"},
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#1"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}}
+        ],
+        "archi": [],
+        "decisioni": [],
+        "documenti_preassociati": []
+      },
+      "azioni": [
+        {"azione": "sorgente_rifiutata", "chiave_bozza": null, "prima": null, "dopo": {"allegato_id": "00000000-0000-4000-8000-0000000a0002", "gruppo": "bom", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, "origine": "utente", "motivo": "STEP di un'altra variante"}
+      ],
+      "atteso": {
+        "sorgente": {"allegato_id": "00000000-0000-4000-8000-0000000a0001", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "gruppo": "bom"},
+        "nodi": [
+          {"chiave_bozza": "k-root", "componente_id": "00000000-0000-4000-8000-0000000b0001", "op": "riusa", "tipo": "finito", "origine": "registrato", "caselle": [{"allegato_id": "00000000-0000-4000-8000-0000000a0001", "gruppo": "bom", "rif": "nodo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:#1"}], "identita": {"emittente": "cliente:00000000-0000-4000-8000-0000000c1001", "emittente_presunto": true, "codice": "PRD-100", "rev": "C", "modo": "registrato"}}
+        ],
+        "archi": [],
+        "decisioni": [],
+        "documenti_preassociati": []
+      }
     }
   ]
 }

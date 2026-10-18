@@ -137,6 +137,7 @@ const S = {
   tentativi: 0,
   riepilogo: null, // R4 in sottofondo, senza gli avvisi del motore
   riepilogoStato: "",
+  riepilogoVersione: 0, // la versione della bozza di cui è il riepilogo in sottofondo
   selezione: new Set(), // chiavi_bozza scelte per «Non includere»
   segnalatiAperto: false,
   compatte: false,
@@ -146,7 +147,10 @@ const S = {
   filtro: "tutti", // il filtro dell'Elenco (MAT EL-01)
   cerca: "", // la ricerca dell'Elenco (MAT EL-01)
   confronto: false, // «Confronto con la proposta» sulle schede (MAT BZ-25)
-  daParte: null, // le modifiche non salvate tenute da parte dopo un conflitto o un rifiuto: {voci, perche, testo} (MAT §5.1)
+  // le modifiche non salvate tenute da parte dopo un conflitto o un rifiuto (MAT §5.1): {voci, perche, testo, prodotto,
+  // codice, bozza_id, versione}. Ricordano il prodotto e la bozza su cui sono nate: si riapplicano solo lì (decisioni
+  // dell'ondata A, §5 n. 2)
+  daParte: null,
   daRileggere: "", // un gesto registrato dopo il quale la pagina non si è riletta (MAT §1.3, §5.2: «↻ Rileggi»)
   linguettaNodo: "dettaglio", // la linguetta del pannello del nodo: "dettaglio" | "documenti" (MAT PN-02)
   verifiche: new Set(), // le chiavi che la pagina sta verificando da sola con R6 (MAT §5.5 n. 2)
@@ -394,6 +398,7 @@ function impostaBozza(j) {
   S.rifai = [];
   S.riepilogo = null;
   S.riepilogoStato = "";
+  S.riepilogoVersione = 0;
   S.tentativi = 0;
   S.selezione.clear();
   if (j && j.stato === "aperta" && ogg(j.snapshot) && !(j.conversione && j.conversione.necessaria)) {
@@ -558,6 +563,15 @@ function nuovoIdDecisione(pref) {
   contatoreVoci++;
   return pref + "-" + Date.now().toString(36) + contatoreVoci.toString(36);
 }
+// chiaveEvento: la chiave_bozza dell'evento di una decisione (decisione_aggiunta, decisione_tolta) è quella della
+// decisione, se il suo tipo ha il campo (identita, d1_*, senza_padre, riusa_*, da_valutare); altrimenti null (EM §9.2,
+// tabella delle forme: il server la deduce dalla decisione, come nel vocabolario 1, e una chiave dichiarata diversa da
+// quella dedotta non si riconcilia). L'ondata A mandava la chiave del nodo anche per escludi, scollega_documento,
+// togli_arco, non_includere. null è la regola del vocabolario 1 e la raccomandata di RPC PD-08 (opzione a); se si decide
+// l'opzione b (la chiave del nodo), cambia solo questa funzione.
+function chiaveEvento(dec) {
+  return dec && typeof dec.chiave_bozza === "string" && dec.chiave_bozza ? dec.chiave_bozza : null;
+}
 
 // Una conferma in sospeso per il prodotto (R5 con l'esito incerto): finché c'è, la bozza non si modifica, salvo
 // l'abbandono esplicito della chiave (MAT §5.2, «verificato: non registrata»; §5.5 n. 7). Un tentativo «certo» (409
@@ -571,7 +585,8 @@ const BOZZA_NON_LETTA = "la bozza non si legge: ↻ Aggiorna";
 const CONGELATA = "la BOM è congelata: revisione e congelamento non sono in questa pagina";
 // perchéNoModifica: perché un gesto sulla bozza non parte, o "". Con o.riprova una conferma in sospeso già verificata
 // «non registrata» non ferma il wizard: è la strada di «Riprova la conferma», lo stesso corpo con la stessa chiave, anche
-// dopo una ricarica della pagina (MAT §5.2, «verificato: non registrata»; §5.5 n. 4). Le modifiche restano ferme.
+// dopo una ricarica della pagina (MAT §5.2, «verificato: non registrata»; §5.5 n. 4). Le modifiche restano ferme. Con
+// o.daParte le modifiche tenute da parte non fermano: è la strada di «Riapplica», che le decide.
 function perchéNoModifica(o) {
   if (!S.modello || S.erroreModello) return D18;
   if (S.erroreBozza) return BOZZA_NON_LETTA;
@@ -580,7 +595,7 @@ function perchéNoModifica(o) {
   if (S.modello.congelata) return CONGELATA;
   if (S.salvataggio.stato === "conflitto") return "la bozza è cambiata altrove: rileggi la bozza salvata";
   if (S.salvataggio.stato === "rifiutata") return "il server ha rifiutato l'ultimo salvataggio: rileggi la bozza salvata";
-  if (S.daParte) return "prima decidi le modifiche tenute da parte: riapplicale o scartale";
+  if (S.daParte && !(o && o.daParte)) return "prima decidi le modifiche tenute da parte: riapplicale o scartale";
   const sosp = confermaInSospeso();
   if (sosp && !sosp.certo && !(o && o.riprova && sosp.verificato)) return sosp.verificato ? "una conferma è in sospeso (non ancora registrata): riprovala con lo stesso corpo, o abbandona il tentativo" : "una conferma è in sospeso: verificala, o abbandona il tentativo";
   if (S.wizard && S.wizard.stato === "conferma") return "conferma in corso";
@@ -605,22 +620,56 @@ function perchéNoFormaBozza() {
 function ultimaConferma() {
   return arr(S.storico && S.storico.conferme).find((c) => c.ultima) || null;
 }
-// nessunaModifica: la bozza è la conferma di base così come il server l'ha aperta («Modifica la BOM confermata»,
-// da-conferma-1, EM §6.12) e dopo non è cambiato niente: né eventi dell'ingegnere o del server nel giornale (R1
-// ?eventi=1) né gesti in coda. Allora «Rivedi e conferma BOM» e «Conferma BOM» sono spenti con il motivo, perché una
-// conferma n+1 uguale alla n sarebbe un atto in più che non si toglie (MAT WZ-01). La prima conferma resta ammessa anche
-// senza modifiche: la regola vale solo per una bozza aperta dalla conferma. Il segno vero lo darà il server (proposta di
-// emendamento della corsia); quando il giornale non basta a dirlo, la pagina non spegne niente.
-function nessunaModifica() {
-  if (!bozzaLavorabile() || S.coda.length || S.invio || !Array.isArray(S.bozza.eventi)) return "";
+// storicoNonLetto: lo storico delle conferme (R7) non si è letto. Allora la pagina non sa se il prodotto ha una conferma
+// né di che formato: le regole che ne dipendono vanno nel verso sicuro, cioè spengono con STORICO_NON_LETTO (le due
+// partenze, PE-B03, e la regola del giornale di WZ-01, nessunaModifica), e niente dice «nessuna conferma» (MAT §5.4).
+function storicoNonLetto() {
+  return !!S.erroreStorico || !S.storico;
+}
+const STORICO_NON_LETTO = "lo storico delle conferme non si legge: ↻ Aggiorna";
+// confermaFormato3: la conferma è del formato 3. Lo dice R7 (EM §9.7: «formato» di ogni conferma), la pagina non lo
+// calcola. Serve alle regole di PE-23 (decisioni dell'ondata A), che distinguono una conferma di base formato 3 da una
+// formato 1 o 2; non è il formato della bozza, che dice R1 (MAT §1.3).
+function confermaFormato3(c) {
+  return !!(c && c.formato === 3);
+}
+// haConfermaFormato3: il prodotto ha una conferma formato 3 (R7). «Parti dalla BOM registrata» allora non si offre:
+// si parte da quella conferma, con «Modifica la BOM confermata» (PE-23; EM §6.12, «la partenza registrato: working senza
+// una conferma formato 3»).
+function haConfermaFormato3() {
+  return arr(S.storico && S.storico.conferme).some(confermaFormato3);
+}
+const PARTENZA_REGISTRATO_NO = "il prodotto ha già una conferma del formato 3: si parte da quella, con «Modifica la BOM confermata»";
+// nessunaModifica: la bozza è la conferma di base come l'ha aperta il server e dopo non è cambiato niente; allora «Rivedi
+// e conferma BOM» e «Conferma BOM» sono spenti con il motivo, perché una conferma n+1 uguale alla n sarebbe un atto in
+// più che non si toglie (MAT WZ-01; decisioni dell'ondata A, PE-23). r4: il riepilogo da guardare (quello del wizard);
+// senza, quello in sottofondo, se è della versione di adesso.
+//   - Il segno del server vale per primo: R4 dà uguale_alla_base, vero quando lo snapshot canonico della bozza è uguale a
+//     quello della conferma di base formato 3 (e R5 allora rifiuta con NESSUNA_MODIFICA).
+//   - Finché R4 non lo dà (passo 6), la pagina decide dal giornale (R1 ?eventi=1): l'ultimo evento è bozza_aperta con la
+//     partenza «conferma» (da-conferma-1) o «registrato», nessun gesto in coda né in volo, e la base è l'ultima conferma
+//     valida, formato 3. La prima conferma formato 3 di un prodotto resta ammessa anche se è uguale a una conferma formato
+//     1 o 2, perché aggiunge identità e caselle. Quando il giornale non basta (un annullamento netto), la pagina non
+//     spegne niente: decide R4.
+//   - Con la stessa bozza senza gesti e lo storico (R7) che non si legge, la pagina non sa di che formato è la base: nel
+//     dubbio spegne, con «↻ Aggiorna», come le due partenze (PE-B03). L'unica eccezione è R4 che dà uguale_alla_base
+//     falso, perché il segno del server vale per primo. Per la partenza «registrato» il giornale resta l'unica guardia
+//     anche dopo il passo 6 se PD-01 non sceglie il punto 3 (a): R5 ferma NESSUNA_MODIFICA solo quando R4 dice «uguale».
+function nessunaModifica(r4) {
+  if (!bozzaLavorabile() || S.coda.length || S.invio) return "";
+  const base = S.salvato.versione_bom_base;
+  const testo = "nessuna modifica: la v" + (base && base.numero ? base.numero : "?") + " è già confermata";
+  const r = r4 !== undefined ? r4 : S.riepilogoStato === "aggiornato" && S.riepilogoVersione === S.bozza.versione ? S.riepilogo : null;
+  if (r && typeof r.uguale_alla_base === "boolean") return r.uguale_alla_base ? testo : "";
+  if (!Array.isArray(S.bozza.eventi)) return "";
   const ev = S.bozza.eventi.filter((e) => ogg(e) && typeof e.azione === "string").sort((a, b) => (Number(a.n) || 0) - (Number(b.n) || 0));
   if (!ev.length) return "";
   const ultimo = ev[ev.length - 1];
-  if (ultimo.azione !== "bozza_aperta" || !ogg(ultimo.dopo) || ultimo.dopo.partenza !== "conferma") return "";
+  if (ultimo.azione !== "bozza_aperta" || !ogg(ultimo.dopo) || !["conferma", "registrato"].includes(ultimo.dopo.partenza)) return "";
+  if (storicoNonLetto()) return STORICO_NON_LETTO;
   const u = ultimaConferma();
-  const base = S.salvato.versione_bom_base;
-  if (!u || !u.valida || !base || Number(base.numero) !== Number(u.numero)) return "";
-  return "nessuna modifica: la v" + u.numero + " è già confermata";
+  if (!u || !u.valida || !confermaFormato3(u) || !base || Number(base.numero) !== Number(u.numero)) return "";
+  return testo;
 }
 function puoModificare() {
   return !perchéNoModifica();
@@ -695,7 +744,10 @@ function ripeti() {
   if (iAnn >= 0) {
     S.coda.splice(iAnn, 1);
   } else if (voce.numeri && voce.numeri.length) {
-    const inviare = voce.numeri.slice().sort((a, b) => a - b).map((n) => ({ azione: "rifai", chiave_bozza: null, prima: null, dopo: { n }, origine: "utente" }));
+    // la ripetizione di un gesto cumulativo porta il suo azione_id nel «prima», come l'annullamento, e va nell'ordine del
+    // gesto (EM §7.1; DECA PE-05: simmetrico)
+    const id = idGesto(voce);
+    const inviare = voce.numeri.slice().sort((a, b) => a - b).map((n) => ({ azione: "rifai", chiave_bozza: null, prima: id ? { azione_id: id } : null, dopo: { n }, origine: "utente" }));
     S.coda.push({ etichetta: "ripeti: " + passo.etichetta, inviare, locali: voce.locali.slice(), numeri: null });
     programmaSalvataggio(800);
   } else {
@@ -861,12 +913,14 @@ async function riepilogoSfondo() {
     if (bozzaLavorabile() && S.bozza.versione === v && !S.coda.length) {
       S.riepilogo = r;
       S.riepilogoStato = "aggiornato";
+      S.riepilogoVersione = v;
       nuovo = true;
     }
   } catch (e) {
     S.riepilogoStato = "errore";
     S.riepilogoErrore = testoErrore(e);
   }
+  // la barra: i conti e il CTA, che segue uguale_alla_base di R4 quando c'è (PE-23)
   renderBarra();
   // l'Elenco e la linguetta «Documenti del nodo» mostrano gli stati delle preassociazioni che dà R4: si ridisegnano
   if (nuovo && S.passo === "revisione" && (S.vista === "elenco" || (S.nodo && S.linguettaNodo === "documenti"))) renderCorpo();
@@ -1600,6 +1654,10 @@ function renderProdotti() {
 }
 async function scegliProdotto(id) {
   if (id === S.prodotto) return;
+  // le modifiche tenute da parte valgono solo per il prodotto e la bozza su cui sono nate: la scelta si fa prima del
+  // cambio di prodotto (decisioni dell'ondata A, §5 n. 2). Il prodotto non cambia finché non sono riapplicate o
+  // scartate; il dialogo offre di scartarle e cambiare
+  if (S.daParte && S.daParte.prodotto === S.prodotto) return chiediPrimaDiCambiare(id);
   if (S.coda.length || S.invio) {
     const ok = await salvaOra();
     if (!ok) return avvisa("errore", "Il prodotto non cambia: le modifiche di questo prodotto non sono salvate.");
@@ -1612,6 +1670,24 @@ async function scegliProdotto(id) {
   await caricaModello();
   await Promise.all([caricaBozza(), caricaStorico()]);
   render();
+}
+// chiediPrimaDiCambiare: il cambio di prodotto con modifiche tenute da parte (decisioni dell'ondata A, §5 n. 2). Le
+// modifiche portano le chiavi dei nodi di questo prodotto: non passano a un altro. O si resta e si decide dalla
+// striscia («Riapplica alla bozza riletta», «Scartale…»), o si scartano qui e il prodotto cambia.
+function chiediPrimaDiCambiare(id) {
+  const dp = S.daParte;
+  const altro = (S.modello && S.modello.prodotti.find((p) => p.id === id)) || null;
+  const nomeAltro = altro ? altro.codice || altro.rif : "l'altro prodotto";
+  apriFinestra("Prima di passare a " + nomeAltro, h("div", { style: "display:grid;gap:8px" },
+    h("p", {}, dp.voci.length + " modifiche non salvate di " + (dp.codice || "questo prodotto") + " sono tenute da parte: valgono solo per la sua bozza e non passano a " + nomeAltro + "."),
+    h("ul", { class: "du-elenco-p", id: "f-da-parte-cambio" }, dp.voci.map((v) => h("li", {}, v.etichetta))),
+    h("p", { class: "du-nota" }, "Resta e decidi dalla striscia («Riapplica alla bozza riletta» o «Scartale…»), oppure scartale qui: si perdono, e il prodotto cambia.")),
+  [{ testo: "Resta su " + (dp.codice || "questo prodotto"), chiudi: true }, { testo: "Scartale e passa a " + nomeAltro, danger: true, id: "f-ok", fai: async () => {
+    if (S.daParte === dp) S.daParte = null;
+    avvisa("ok", "Modifiche non salvate di " + (dp.codice || "questo prodotto") + " scartate.");
+    chiudiFinestra();
+    await scegliProdotto(id);
+  } }]);
 }
 function chipSorgente() {
   const f = S.modello && S.modello.fonte;
@@ -1979,9 +2055,25 @@ function moduloCarica() {
   modCarica.__esiti = esiti;
   return modCarica;
 }
+// mega: i byte in MB con una cifra decimale, per l'avanzamento del caricamento.
+function mega(n) {
+  return (Math.round((Number(n) || 0) / 104857.6) / 10).toLocaleString("it-IT", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " MB";
+}
+// carica: E1′ dalla coda della risorsa «carica». Il ponte non ha un tempo massimo totale per il caricamento, solo un
+// tempo d'inattività: l'avviso dice quanto è stato inviato, così un caricamento lento si vede avanzare (decisioni
+// dell'ondata A, §5 n. 3).
 async function carica(files, origine) {
   avvisa("ok", "Caricamento in corso…");
-  const r = await inSerie("carica", () => P.carica(files, origine));
+  const progresso = (inviati, totale) => {
+    if (!totale) return;
+    const pct = Math.min(100, Math.floor((100 * inviati) / totale));
+    avvisa("ok", pct >= 100 ? "Caricamento inviato (" + mega(totale) + "): il server scrive i file…" : "Caricamento in corso… " + pct + " % (" + mega(inviati) + " di " + mega(totale) + ")");
+    const el = $("#du-avviso");
+    if (el) el.setAttribute("data-du-caricamento", String(pct));
+  };
+  const r = await inSerie("carica", () => P.carica(files, origine, progresso));
+  const el = $("#du-avviso");
+  if (el) el.removeAttribute("data-du-caricamento");
   const ul = moduloCarica().__esiti;
   ul.replaceChildren();
   for (const f of arr(r.file)) {
@@ -1994,6 +2086,8 @@ async function carica(files, origine) {
   // server»; 422 NESSUN_FILE_CARICATO con i motivi file per file (le righe qui sopra)
   const testi = { TROPPO_GRANDE: "Troppo grande: dividi in più invii.", NON_CONFIGURATO: "Caricamento non configurato su questo server.",
     NESSUN_FILE_CARICATO: "Nessun file è stato caricato: i motivi sono file per file, qui sotto." };
+  // PONTE_INATTIVITA (nessun byte inviato né ricevuto per il tempo d'inattività) ha il testo del ponte, che dice di
+  // rimandare gli stessi file
   if (r.esito === "caricati") avvisa("ok", r.testo || "File caricati.");
   else if (r.esito === "parziale") avvisa("no", "Caricamento parziale: " + (r.testo || "alcuni file non sono stati caricati") + ". Non caricati: " + arr(r.file).filter((f) => f.esito === "rifiutato").map((f) => f.nome_file).join(", ") + ".");
   else avvisa(r.esito === "no" ? "no" : "errore", testi[r.codice] || r.testo || "Il caricamento non è riuscito.");
@@ -2232,7 +2326,8 @@ function destinazioneFile(f) {
 function apriAssegna(f) {
   const g = grafoBozza();
   const proposti = destinazioneFile(f).pa;
-  const pezzi = Object.values(g.nodi).filter((v) => !v.noninc && v.nodo).sort((a, b) => String(a.cod || a.desc).localeCompare(String(b.cod || b.desc)));
+  // i pezzi della bozza, senza i non inclusi e senza gli esclusi: un pezzo escluso non riceve preassociazioni (P-15)
+  const pezzi = Object.values(g.nodi).filter((v) => !v.noninc && v.nodo && !v.escluso).sort((a, b) => String(a.cod || a.desc).localeCompare(String(b.cod || b.desc)));
   const sel = h("select", { id: "f-pezzo" }, h("option", { value: "" }, "— scegli il pezzo —"), pezzi.map((v) => h("option", { value: v.k }, (v.cod || "(senza codice)") + (v.rev ? " rev " + v.rev : "") + " · " + (v.desc || ""))));
   apriFinestra("Assegna «" + f.nome_file + "» a un pezzo", h("div", { style: "display:grid;gap:8px" },
     h("p", { class: "du-nota" }, "È una preassociazione della bozza: la conferma della BOM la applica. Il codice e la rev del file restano quelli letti: se non sono quelli del pezzo, il riepilogo la dirà «in conflitto»."),
@@ -2267,14 +2362,23 @@ function revisioneSenzaBozza() {
       h("p", {}, "Lettura non riuscita: la bozza di " + (codiceProdotto() || "questo prodotto") + " non si legge (" + S.erroreBozza + "). Niente è mostrato come attuale finché la lettura non riesce."),
       h("div", { class: "du-azioni" }, btn("↻ Aggiorna", aggiorna, { cls: "du-btn--sm du-btn--pri", id: "du-aggiorna-bozza", perche: false })));
   }
-  const ultima = ultimaConferma();
   return h("div", { class: "du-vuoto", id: "du-nessuna-bozza" },
     h("p", {}, "Nessuna bozza per " + codiceProdotto() + ". La BOM di lavoro nasce dalla scelta dello STEP nella Sorgente («Usa per la BOM»)."),
     h("div", { class: "du-azioni" },
       btn("Vai alla Sorgente", () => vaiPasso("sorgente"), { cls: "du-btn--sm", perche: false }),
-      btn("Modifica la BOM confermata", () => creaDa("conferma"), { cls: "du-btn--sm", id: "du-da-conferma", no: S.modello && S.modello.congelata ? CONGELATA : ultima ? "" : "il prodotto non ha una conferma" }),
-      btn("Parti dalla BOM registrata", () => creaDa("registrato"), { cls: "du-btn--sm", id: "du-da-registrato", no: S.modello && S.modello.congelata ? CONGELATA : "", perche: false })),
+      btn("Modifica la BOM confermata", () => creaDa("conferma"), { cls: "du-btn--sm", id: "du-da-conferma", no: perchéNoPartenza("conferma") }),
+      btn("Parti dalla BOM registrata", () => creaDa("registrato"), { cls: "du-btn--sm", id: "du-da-registrato", no: perchéNoPartenza("registrato") })),
     S.erroreStorico ? h("p", { class: "du-muto du-piccolo" }, "Lo storico delle conferme non si legge: " + S.erroreStorico) : null);
+}
+// perchéNoPartenza: perché «Modifica la BOM confermata» (partenza «conferma») o «Parti dalla BOM registrata» (partenza
+// «registrato») non partono, o "". Le dice lo storico delle conferme (R7): senza storico letto nessuna delle due, perché
+// non si sa se il prodotto ha una conferma né di che formato; «registrato» non si offre con una conferma formato 3
+// (PE-23; EM §6.12): si parte da quella.
+function perchéNoPartenza(partenza) {
+  if (S.modello && S.modello.congelata) return CONGELATA;
+  if (storicoNonLetto()) return STORICO_NON_LETTO;
+  if (partenza === "conferma") return ultimaConferma() ? "" : "il prodotto non ha una conferma";
+  return haConfermaFormato3() ? PARTENZA_REGISTRATO_NO : "";
 }
 // statoConferma: «vN confermata» e «Verificata» sono due segni distinti, mai fusi (MAT §6.2).
 // verificaNonCalcolata: l'ultima conferma è una conferma di R5 di V1, la cui verifica in V1 non è calcolata (mai
@@ -2291,6 +2395,8 @@ function statoConferma() {
   const out = h("span", { class: "du-azioni", id: "du-stato-conferma" });
   const da = ultima ? ultima.confermato_da_nome || ultima.confermato_da_sigla || (ultima.confermato_da ? String(ultima.confermato_da).slice(0, 8) : "") : "";
   if (ultima) out.append(pill(ultima.valida ? "ok" : "ver", ultima.valida ? "v" + ultima.numero + " confermata il " + dataOra(ultima.confermato_il) + (da ? " da " + da : "") : "v" + ultima.numero + " confermata, poi la struttura è cambiata: serve una conferma nuova", "conferma n. " + ultima.numero));
+  // lo storico che non si legge non è «nessuna conferma» (MAT §5.4: niente si mostra come attuale)
+  else if (storicoNonLetto()) out.append(h("span", { id: "du-conferme-non-lette" }, pill("ver", "conferme: non lette (↻ Aggiorna)", S.erroreStorico || "")));
   else out.append(pill("neu", "nessuna conferma"));
   const p = prodottoScelto();
   if (verificaNonCalcolata(ultima)) out.append(pill("neu", "Verificata: non ancora calcolata (arriva in V2)"));
@@ -2444,12 +2550,13 @@ function passaCerca(v, doc) {
   const nomi = doc.pb.map((pid) => (fileDiProposta(pid) || {}).nome_file).concat(doc.pa.map((x) => nomeFile(x.allegato_id)), doc.ar.map((f) => f.nome_file));
   return [v.cod, v.desc, v.rev ? "rev " + v.rev : ""].concat(nomi).some((t) => String(t || "").toLowerCase().indexOf(q) >= 0);
 }
-// «Accetta le proposte valide (N)» (MAT EL-03): le proposte del motore per i pezzi della bozza, in un solo salvataggio;
-// nessuna preselezione, l'elenco si riduce togliendo le spunte.
+// «Accetta le proposte (N)» (MAT EL-03; il nome di PE-21, decisioni dell'ondata A: la pagina non sa quali proposte sono
+// «valide», lo dice R4 dopo il salvataggio): le proposte del motore per i pezzi della bozza, in un solo salvataggio;
+// nessuna preselezione, l'elenco si riduce togliendo le spunte. Un pezzo escluso non riceve preassociazioni (P-15).
 function proposteDaAccettare(g) {
   const out = [];
   for (const v of Object.values(g.nodi)) {
-    if (v.noninc || !v.nodo) continue;
+    if (v.noninc || !v.nodo || v.escluso) continue;
     for (const pa of documentiNodo(v).pa) out.push({ k: v.k, cod: v.cod || v.desc || v.k, pa });
   }
   return out;
@@ -2457,8 +2564,8 @@ function proposteDaAccettare(g) {
 function apriAccettaProposte(g) {
   const elenco = proposteDaAccettare(g);
   if (!elenco.length) return avvisa("no", "Nessuna proposta del motore da accettare.");
-  apriFinestra("Accetta le proposte valide", h("div", { style: "display:grid;gap:8px" },
-    h("p", { class: "du-nota" }, "Ogni spunta diventa una preassociazione della bozza; nessuna è preselezionata. Le proposte senza spunta restano proposte."),
+  apriFinestra("Accetta le proposte", h("div", { style: "display:grid;gap:8px" },
+    h("p", { class: "du-nota" }, "Ogni spunta diventa una preassociazione della bozza; nessuna è preselezionata. Le proposte senza spunta restano proposte. Se il codice del file non è quello del pezzo, il riepilogo la dirà «in conflitto»."),
     h("div", { class: "du-voci-sel", id: "f-proposte" }, elenco.map((x) => h("label", { class: "du-spunta" }, h("input", { type: "checkbox", "data-pid": x.pa.proposta_id, "data-k": x.k }),
       h("span", {}, h("span", { class: "du-mono" }, nomeFile(x.pa.allegato_id)), " → ", h("span", { class: "du-mono" }, x.cod), x.pa.motivo ? " · " + x.pa.motivo : "", x.pa.livello ? " (" + x.pa.livello + ")" : ""))))),
   [{ testo: "Annulla", chiudi: true }, { testo: "Accetta le proposte scelte", pri: true, id: "f-ok", spento: () => ($("#du-finestra").querySelectorAll("#f-proposte input:checked").length ? "" : "scegli almeno una proposta"), fai: () => {
@@ -2485,7 +2592,7 @@ function filtriElenco(g, righe) {
       S.filtro = k;
       renderCorpo();
     } }, t + " " + conta[k])),
-    btn("Accetta le proposte valide (" + n + ")", () => apriAccettaProposte(g), { cls: "du-btn--sm", id: "du-accetta-valide", no: !n ? "nessuna proposta da accettare" : perchéNoModifica(), perche: false }),
+    btn("Accetta le proposte (" + n + ")", () => apriAccettaProposte(g), { cls: "du-btn--sm", id: "du-accetta-valide", no: !n ? "nessuna proposta da accettare" : perchéNoModifica(), perche: false }),
     // «Scarta» e «Metti in Altri file» stanno nella Sorgente: qui il rimando (MAT §3.6)
     btn("Scarta o metti in Altri file: Gestisci nella Sorgente", () => vaiPasso("sorgente"), { cls: "du-btn--sm du-btn--ghost", id: "du-gestisci-sorgente", perche: false }));
 }
@@ -2515,7 +2622,7 @@ function elencoRighe(g) {
     }
     for (const pa of doc.pa) {
       celleDoc.push(h("span", { class: "du-el-doc" }, pill("prop", "◇ proposto"), h("span", { class: "du-mono" }, nomeFile(pa.allegato_id)),
-        btn("Accetta la proposta", () => preassocia(pa.proposta_id, v.k), { cls: "du-btn--sm", id: "du-accetta-" + sid(pa.proposta_id), no: perchéNoModifica(), perche: false })));
+        btn("Accetta la proposta", () => preassocia(pa.proposta_id, v.k), { cls: "du-btn--sm", id: "du-accetta-" + sid(pa.proposta_id), no: v.escluso ? ESCLUSO_SENZA_PB : perchéNoModifica(), perche: false })));
     }
     const ricod = v.nodo && v.nodo.componente_id && S.lavoro.decisioni.some((d) => d.tipo === "ricodifica" && d.componente_id === v.nodo.componente_id);
     for (const f of doc.ar) {
@@ -2576,15 +2683,26 @@ function vassoioCorrente() {
   if (!Array.isArray(S.bozza && S.bozza.eventi)) return arr(S.bozza && S.bozza.vassoio);
   return vassoioDa(eventi);
 }
+// i motivi di file_svincolato in parole (EM §3.7, §9.2; nodo_escluso: decisioni dell'ondata A, PE-22): il codice resta
+// accanto, perché è quello del giornale
+const MOTIVI_SVINCOLO = { utente: "tolta a mano", nodo_tolto: "pezzo tolto", nodo_escluso: "pezzo escluso", non_incluso: "nodo non incluso",
+  fonte_cambiata: "fonte cambiata", rif_scaduto: "riferimento scaduto" };
+function motivoSvincolo(m) {
+  return MOTIVI_SVINCOLO[m] ? MOTIVI_SVINCOLO[m] + " (" + m + ")" : String(m || "");
+}
+// un pezzo escluso non riceve preassociazioni: lo snapshot non lo ammette (formato 3, regole di forma di P-15)
+const ESCLUSO_SENZA_PB = "il pezzo è escluso: un documento non si preassocia a un pezzo escluso (↺ Ripristina, poi preassocia)";
 function vassoio() {
   const voci = vassoioCorrente();
   if (!voci.length) return null;
   const box = h("div", { class: "du-riq", id: "du-vassoio" }, h("div", { class: "du-riq-testa" }, h("h3", {}, "Da ricollocare (" + voci.length + ")"),
     h("span", { class: "du-muto du-piccolo" }, "File preassociati tolti da un gesto: niente è cancellato.")));
+  const scelto = S.nodo && S.lavoro ? S.lavoro.nodi.find((n) => n.chiave_bozza === S.nodo) : null;
+  const noScelto = !S.nodo || S.nodo.indexOf("ni:") === 0 || !scelto ? "scegli prima un pezzo della bozza" : scelto.op === "esclude" ? ESCLUSO_SENZA_PB : "";
   for (const x of voci) {
     const f = fileDiProposta(x.proposta_id);
-    box.append(h("div", { class: "du-gesto" }, h("span", { class: "du-mono" }, f ? f.nome_file : x.proposta_id.slice(0, 8)), pill("neu", x.motivo),
-      btn("Preassocia al nodo scelto", () => preassocia(x.proposta_id, S.nodo), { cls: "du-btn--sm", no: !S.nodo || S.nodo.indexOf("ni:") === 0 ? "scegli prima un pezzo della bozza" : perchéNoModifica(), perche: false }),
+    box.append(h("div", { class: "du-gesto", "data-du-motivo": x.motivo }, h("span", { class: "du-mono" }, f ? f.nome_file : x.proposta_id.slice(0, 8)), pill("neu", motivoSvincolo(x.motivo)),
+      btn("Preassocia al nodo scelto", () => preassocia(x.proposta_id, S.nodo), { cls: "du-btn--sm", id: "du-ricolloca-" + sid(x.proposta_id), no: noScelto || perchéNoModifica(), perche: false }),
       btn("Lascia senza associazione", () => lascia(x.proposta_id), { cls: "du-btn--sm du-btn--ghost", id: "du-lascia-" + sid(x.proposta_id), no: perchéNoModifica(), perche: false })));
   }
   return box;
@@ -2654,17 +2772,19 @@ function pannelloNodo(g, v) {
   const s2 = h("div", { class: "du-sez", id: "du-sez-riferimenti" }, h("h3", {}, "Riferimenti e relazioni"));
   const rif = [];
   for (const a of arr(voce && voce.alternative)) rif.push(h("li", {}, "alternativa: ", h("span", { class: "du-mono" }, testoLettura(a.lettura || a)), a.motivo ? " · " + a.motivo : ""));
+  const regAdotta = g.modo === "bozza" ? registroBozza() : g.registro;
   for (const r of arr(voce && voce.riferimenti)) {
     const testo = r.tipo + (r.ruolo ? " (" + r.ruolo + ")" : "") + ": " + (r.lettura ? testoLettura(r.lettura) : r.equivalente ? (r.equivalente.base || "") + " · " + (r.equivalente.emittente || "emittente non concorde") : r.valore || "");
-    const proiezione = r.codice_proposto || (r.lettura && r.lettura.codice_proposto) || (r.equivalente && r.equivalente.codice_proposto) || "";
     const k4 = r.tipo === "equivalente_k4" || !!r.equivalente;
-    rif.push(h("li", { "data-du-riferimento": r.tipo || "" }, testo, r.esito ? " · " + r.esito : "", g.modo === "bozza" && v.nodo && (r.lettura || r.equivalente) ? h("span", { class: "du-azioni" },
-      btn("Adotta come codice…", () => apriAdotta(v, r, proiezione), { cls: "du-btn--sm", no: !proiezione ? "il registro non dà la proiezione del codice per questa lettura: la calcola il server (proposta di emendamento della corsia)" : perchéNoModifica() }),
+    const ad = g.modo === "bozza" && v.nodo && (r.lettura || r.equivalente) ? letturaDaAdottare(r, regAdotta) : null;
+    rif.push(h("li", { "data-du-riferimento": r.tipo || "" }, testo, r.esito ? " · " + r.esito : "", ad ? h("span", { class: "du-azioni" },
+      btn("Adotta come codice…", () => apriAdotta(v, r, ad), { cls: "du-btn--sm", no: ad.motivo || (v.escluso ? "il pezzo è escluso: ↺ Ripristina, poi decidi l'identità" : "") || perchéNoModifica() }),
       // il rifiuto esplicito del P/N K4: un'alternativa sulla lettura primaria, con il motivo (MAT PN-08; EM §3.6.1)
       k4 ? btn("Conferma l'identità proposta…", () => apriConfermaIdentita(v, r), { cls: "du-btn--sm", id: "du-conferma-identita", no: perchéNoConfermaIdentita(v) }) : null) : null));
   }
   if (voce && voce.codice_manuale_legacy) rif.push(h("li", {}, "codice corretto a mano nella pagina vecchia (evidenza): ", h("span", { class: "du-mono" }, voce.codice_manuale_legacy.codice),
-    g.modo === "bozza" ? h("span", { class: "du-azioni" }, btn("Adotta come codice…", () => apriAdotta(v, { tipo: "manuale_legacy" }, voce.codice_manuale_legacy.codice), { cls: "du-btn--sm", no: perchéNoModifica() })) : null));
+    g.modo === "bozza" ? h("span", { class: "du-azioni" }, btn("Adotta come codice…", () => apriAdotta(v, { tipo: "manuale_legacy" }, { codice: voce.codice_manuale_legacy.codice, rev: voce.codice_manuale_legacy.rev || "" }),
+      { cls: "du-btn--sm", no: (v.escluso ? "il pezzo è escluso: ↺ Ripristina, poi decidi l'identità" : "") || perchéNoModifica() })) : null));
   const reg = g.modo === "bozza" ? registroBozza() : g.registro;
   for (const r of arr(reg && reg.proposta && reg.proposta.relazioni).filter((x) => voce && x.sorgente && x.sorgente.voce === voce.voce)) {
     rif.push(h("li", {}, "relazione " + r.tipo + " · " + (r.stato || "proposta") + ", non ratificata", h("span", { class: "du-azioni" },
@@ -2722,14 +2842,68 @@ function apriConfermaIdentita(v, r) {
     if (id.rev) identita.rev = id.rev;
     const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "alternativa", importazione: S.bozza.importazione.impronta, chiave_lettura: ip.chiave_lettura,
       lettura: copiaLettura(ip), identita, motivo };
-    fai("confermata l'identità proposta di " + (v.cod || "un pezzo"), [{ azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" },
+    fai("confermata l'identità proposta di " + (v.cod || "un pezzo"), [{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" },
       { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(id) }, dopo: { identita: Object.assign({}, identita, { modo: "decisione", decisione: dec.id }) }, origine: "utente" }]);
   } }]);
 }
-// copiaLettura: la copia compatta di una lettura del registro (EM §3.6.1, «lettura»), byte per byte.
+// copiaLettura: la copia compatta di una lettura del registro (EM §3.6.1, «lettura»), byte per byte, nella forma in cui
+// la rilegge il registro (importazione.LetturaCompatta; R-7 della persistenza): {emittente, hash_grammatica, namespace,
+// letterale, base: {originale, normalizzata}, qualificatori, revisione}, con i membri vuoti (null, "", [], {}) tolti a
+// ogni livello, anche dentro qualificatori e revisione (SenzaVuoti), e qualificatori e revisione assenti se vuoti. Il
+// server confronta le due copie per byte canonici (V-1): i valori non si toccano, mai NFC.
+function senzaVuoti(v) {
+  if (Array.isArray(v)) return v.map(senzaVuoti);
+  if (!ogg(v)) return v;
+  const o = {};
+  for (const k of Object.keys(v)) {
+    const x = senzaVuoti(v[k]);
+    if (x === null || x === undefined || x === "" || (Array.isArray(x) && !x.length) || (ogg(x) && !Object.keys(x).length)) continue;
+    o[k] = x;
+  }
+  return o;
+}
 function copiaLettura(l) {
-  return { emittente: l.emittente, hash_grammatica: l.hash_grammatica, namespace: l.namespace, letterale: l.letterale,
-    base: l.base ? { originale: l.base.originale, normalizzata: l.base.normalizzata } : undefined, qualificatori: l.qualificatori, revisione: l.revisione === undefined ? null : l.revisione };
+  const c = { emittente: l.emittente, letterale: l.letterale };
+  if (typeof l.hash_grammatica === "string" && l.hash_grammatica) c.hash_grammatica = l.hash_grammatica;
+  if (typeof l.namespace === "string" && l.namespace) c.namespace = l.namespace;
+  const base = {};
+  if (l.base && typeof l.base.originale === "string" && l.base.originale) base.originale = l.base.originale;
+  if (l.base && typeof l.base.normalizzata === "string" && l.base.normalizzata) base.normalizzata = l.base.normalizzata;
+  c.base = base;
+  const q = senzaVuoti(l.qualificatori);
+  if (ogg(q) && Object.keys(q).length) c.qualificatori = q;
+  const r = senzaVuoti(l.revisione);
+  if (ogg(r) && Object.keys(r).length) c.revisione = r;
+  return c;
+}
+// letturaDaAdottare: la lettura di un riferimento che «Adotta come codice…» può citare, con il codice e la rev che la
+// decisione porta (MAT PN-08): per una lettura con ruolo (riferimenti[].lettura) è lei; per un P/N equivalente K4 è la
+// lettura del codice della parte nel PDF della prova (<allegato della prova>/<lettura_codice>, in file[].letture[] del
+// registro). Il codice è la proiezione che il registro dà nella lettura stessa (codice_proposto, e rev_proposta se c'è:
+// decisioni dell'ondata A, PE-08), mai il letterale né un campo del riferimento. Senza lettura o senza proiezione il gesto
+// è spento con il motivo: per il P/N K4 la proiezione in file[].letture[] è RPC PD-07, e finché il registro non la dà il
+// gesto resta spento.
+function letturaDaAdottare(r, reg) {
+  let l = r && r.lettura ? r.lettura : null;
+  if (!l && r && r.equivalente) {
+    for (const pr of arr(r.equivalente.prove)) {
+      const k = (pr && pr.allegato_id) + "/" + (pr && pr.lettura_codice);
+      for (const f of arr(reg && reg.proposta && reg.proposta.file)) {
+        const x = arr(f.letture).find((y) => y && y.chiave_lettura === k);
+        if (x) {
+          l = x;
+          break;
+        }
+      }
+      if (l) break;
+    }
+    if (!l) return { motivo: "la lettura del codice della parte nel PDF della prova non è nel registro della bozza" };
+  }
+  if (!l || !l.chiave_lettura) return { motivo: "il riferimento non porta una lettura del registro" };
+  const codice = typeof l.codice_proposto === "string" ? l.codice_proposto : "";
+  if (!codice) return { motivo: r.equivalente ? "il registro non dà la proiezione del codice per la lettura del PDF della prova (codice_proposto in file[].letture[], RPC PD-07)" :
+    "il registro non dà la proiezione del codice per questa lettura (codice_proposto, PE-08)" };
+  return { lettura: l, codice, rev: typeof l.rev_proposta === "string" ? l.rev_proposta : "", motivo: "" };
 }
 // documentiDelNodo: la linguetta «Documenti del nodo» (MAT PN-02, §6.3): i file del nodo con il loro stato (proposto,
 // preassociato con l'esito di R4, associato, da scollegare, confermato, da ricodificare), «Preassocia» e «Carica…»
@@ -2814,7 +2988,7 @@ function gestiNodo(g, v) {
   const conCasella = !!casellaDi(v.nodo);
   const registrato = !!v.nodo.componente_id;
   s.append(btn("✎ Correggi codice, rev e descrizione…", () => apriCorreggi(v), { cls: "du-btn--sm", id: "du-correggi", no }));
-  s.append(btn("◆ Cambia tipo…", () => apriTipo(v), { cls: "du-btn--sm", id: "du-cambia-tipo", no: no || (radice ? "è il prodotto della RFQ: il tipo non cambia (DB7-3)" : registrato ? "il cambio di tipo di un componente registrato vuole la firma dell'effetto, che nessuna rotta di V1 dà (proposta di emendamento della corsia)" : "") }));
+  s.append(btn("◆ Cambia tipo…", () => apriTipo(v), { cls: "du-btn--sm", id: "du-cambia-tipo", no: no || (radice ? "è il prodotto della RFQ: il tipo non cambia (DB7-3)" : "") }));
   s.append(btn("+ Aggiungi un pezzo sotto…", () => apriAggiungi("sciolto", v.k), { cls: "du-btn--sm", id: "du-aggiungi-sotto", no: no || (contenitore(v) ? "" : "un " + (TIPI[v.tipo] || v.tipo).toLowerCase() + " non ha figli (E37)") }));
   s.append(btn("↳ Sposta sotto…", () => apriSposta(v.k, ""), { cls: "du-btn--sm", id: "du-sposta", no: no || (radice ? "il prodotto della RFQ non va sotto un altro pezzo" : "") }));
   s.append(btn("+ Collega anche sotto…", () => apriCollega(v.k), { cls: "du-btn--sm", id: "du-collega", no: no || (radice ? "il prodotto della RFQ non va sotto un altro pezzo" : "") }));
@@ -2869,6 +3043,7 @@ function apriRicollocaFigli(k) {
 // da preassociare a questo pezzo, e «Carica…», che porta al caricamento della Sorgente: caricare non preassocia.
 function sezioneDocumenti(g, v) {
   if (v.noninc || !v.nodo) return null;
+  if (v.escluso) return h("p", { class: "du-nota", id: "du-doc-preassocia" }, "Il pezzo è escluso: non riceve preassociazioni. Con «↺ Ripristina» torna nella BOM, e i file andati in «Da ricollocare» tornano con lui.");
   const no = perchéNoModifica();
   const giaPb = new Set(S.lavoro.documenti_preassociati.map((d) => d.proposta_id));
   const liberi = fileSorgente().filter((f) => (!f.stato || f.stato === "attivo") && f.proposta_id && !giaPb.has(f.proposta_id) && !(f.proposta && f.proposta.componente_id) && !/^(stp|step)$/i.test(f.estensione || ""));
@@ -2969,6 +3144,65 @@ function qtaValida(v) {
   const q = Number(v);
   return v !== "" && Number.isInteger(q) && q >= 1 && q <= 100000 ? q : null;
 }
+// Le regole di forma di codici, rev e descrizioni che la pagina scrive nei nodi e nelle decisioni (EM §3.4, §3.4.2;
+// classificazione.CodiceAmmissibile e RevAmmissibile; P-15 e P-18 della persistenza, accolte nelle decisioni
+// dell'ondata A): la pagina le controlla prima del salvataggio, perché un gesto non finisca in un 422; il server le
+// ricontrolla. Ognuna torna il motivo, o "".
+const RE_SPAZIO_O_CONTROLLO = /[\s\p{Cc}\p{Cf}]/u;
+function byteUtf8(s) {
+  return new TextEncoder().encode(String(s)).length;
+}
+// un codice nuovo (crea, o il codice dopo una ricodifica): non vuoto, al più 40 byte, senza spazi né controlli
+function perchéNoCodiceNuovo(c) {
+  if (!c) return "il codice è vuoto";
+  if (byteUtf8(c) > 40) return "il codice supera i 40 byte";
+  if (RE_SPAZIO_O_CONTROLLO.test(c)) return "il codice ha spazi o caratteri di controllo";
+  return "";
+}
+// una rev: al più 10 byte, senza spazi né controlli (vuota = assente, PE-11)
+function perchéNoRev(r) {
+  if (!r) return "";
+  if (byteUtf8(r) > 10) return "la rev supera i 10 byte";
+  if (RE_SPAZIO_O_CONTROLLO.test(r)) return "la rev ha spazi o caratteri di controllo";
+  return "";
+}
+function perchéNoDescrizione(d) {
+  if ([...String(d || "")].length > 200) return "la descrizione supera i 200 caratteri";
+  if (/\p{Cc}/u.test(String(d || ""))) return "la descrizione ha caratteri di controllo";
+  return "";
+}
+// minuscoleAscii: una rev nuova (che introduce l'ingegnere) non ha minuscole ASCII; una rev copiata dalla working per un
+// riusa o un esclude passa byte per byte (P-18)
+function minuscoleAscii(r) {
+  return /[a-z]/.test(String(r || ""));
+}
+// revMinuscoleAmmesse: la rev del nodo come sarà DOPO il gesto può avere minuscole ASCII solo se resta copiata byte per
+// byte da una fonte che le ammette (P-18 della persistenza, accolta nelle decisioni dell'ondata A; è la regola di
+// revDallaFonte del server): la working per un nodo riusa o esclude, la bozza formato 2 per un nodo formato_2, il codice
+// corretto a mano nella pagina vecchia (decisione identita con riferimento manuale_legacy). Una decisione di correzione,
+// una ricodifica, un crea o una modifica fanno la rev nuova: senza minuscole. op e identita sono quelli del nodo dopo il
+// gesto; un'identità decisa da una decisione nuova si passa con decisione "" (non è mai manuale_legacy).
+function revMinuscoleAmmesse(op, identita) {
+  if (op === "riusa" || op === "esclude") return true;
+  const id = identita || {};
+  if (id.modo === "formato_2") return true;
+  if (id.modo !== "decisione" || !id.decisione) return false;
+  const d = arr(S.lavoro && S.lavoro.decisioni).find((x) => x.id === id.decisione);
+  return !!(d && d.tipo === "identita" && d.riferimento === "manuale_legacy");
+}
+// citaIdentita: l'identità del nodo è decisa da una decisione identita della bozza (modo decisione).
+function citaIdentita(identita) {
+  const id = identita || {};
+  return id.modo === "decisione" && !!id.decisione && arr(S.lavoro && S.lavoro.decisioni).some((d) => d.id === id.decisione && d.tipo === "identita");
+}
+// togliIdentitaPrecedenti: le decisioni identita che il nodo k ha già nella bozza, da togliere nello stesso gesto che ne
+// aggiunge una nuova (decisione_tolta prima della decisione_aggiunta). Una decisione identita è del nodo che la cita
+// (EM §3.6.1), e il server rifiuta quella che il nodo non cita più (validaDecisioni): una sola per nodo, come la regola
+// di PE-B06 per cambia_tipo (proposta PE-B16 della corsia).
+function togliIdentitaPrecedenti(k) {
+  return arr(S.lavoro && S.lavoro.decisioni).filter((d) => d.tipo === "identita" && d.chiave_bozza === k)
+    .map((d) => ({ azione: "decisione_tolta", chiave_bozza: chiaveEvento(d), prima: clona(d), dopo: null, origine: "utente" }));
+}
 // «Riepilogo RFQ» (MAT TS-08): in lettura, dal modello della pagina e dai contatori della Sorgente.
 function apriRiepilogoRfq() {
   const d = $("#du-menu-rfq");
@@ -3018,6 +3252,10 @@ function apriAggiungi(tipo, padre) {
     campo("Quantità sul legame", h("input", { id: "f-qta", type: "number", min: "1", max: "100000", step: "1", inputmode: "numeric" }), "Nessuna quantità implicita: va scritta.")),
   [{ testo: "Annulla", chiudi: true }, { testo: "Aggiungi", pri: true, id: "f-ok", spento: () => {
     const f = $("#du-finestra");
+    // le regole di forma del nodo scritto a mano (P-15): codice nuovo ammissibile o vuoto, rev ammissibile, descrizione
+    const codice = valore(f, "f-codice");
+    const no = (codice ? perchéNoCodiceNuovo(codice) : "") || perchéNoRev(valore(f, "f-rev").toUpperCase()) || perchéNoDescrizione(valore(f, "f-desc"));
+    if (no) return no;
     if (!valore(f, "f-padre")) return "scegli il padre";
     if (!qtaValida(valore(f, "f-qta"))) return "scrivi la quantità (un intero da 1 a 100000)";
     return "";
@@ -3055,13 +3293,13 @@ function togliNodo(v) {
     if (!fai("tolto " + (v.cod || "un pezzo"), azioni)) S.nodo = prima;
   } }]);
 }
-// «Escludi (senza cascata)…» di un registrato (MAT BZ-02; §4.3 riga 3). Le sue preassociazioni vanno nel vassoio come per
-// un nodo tolto (riga 2: file_svincolato con il motivo nodo_tolto, il solo dei motivi di EM §3.7 per un nodo che esce dalla
-// struttura: proposta di emendamento della corsia per un motivo «escluso»). Per le associazioni registrate (AR) la scelta
-// è obbligatoria e senza preselezione: «Mantieni le associazioni» (il riepilogo avvisa ESCLUSO_CON_DOCUMENTI) oppure
-// «Scollega alla conferma», uno svincolo (decisione scollega_documento) per AR. I documenti confermati non si toccano: si
-// elencano. Gli svincoli nati dall'esclusione hanno l'id dell'esclusione come prefisso, così «↺ Ripristina» li ritrova
-// anche dopo una rilettura (riga 4).
+// «Escludi (senza cascata)…» di un registrato (MAT BZ-02; §4.3 riga 3). Le sue preassociazioni vanno nel vassoio con il
+// motivo nodo_escluso (decisioni dell'ondata A, PE-22; non nodo_tolto, che è di un nodo tolto). Per le associazioni
+// registrate (AR) la scelta è obbligatoria e senza preselezione: «Mantieni le associazioni» (il riepilogo avvisa
+// ESCLUSO_CON_DOCUMENTI) oppure «Scollega alla conferma», uno svincolo (decisione scollega_documento) per AR. I documenti
+// confermati non si toccano: si elencano. Gli svincoli nati dall'esclusione citano l'esclusione in da_decisione
+// (decisioni dell'ondata A, PE-27, al posto della convenzione .svN): «↺ Ripristina» li ritrova anche dopo una rilettura
+// (riga 4), e il server rifiuta uno svincolo che cita un'esclusione che lo snapshot non ha.
 function apriEscludi(v) {
   const doc = documentiNodo(v);
   const ar = doc.ar.filter((f) => !f.documento && !svincoloDi(f.proposta_id));
@@ -3087,11 +3325,13 @@ function apriEscludi(v) {
     const scollega = ar.length && fin.querySelector("input[name=f-ar]:checked").value === "scollega";
     const dec = { id: nuovoIdDecisione("es"), tipo: "escludi", componente_id: v.nodo.componente_id, motivo };
     const azioni = [];
-    for (const d of pb) azioni.push({ azione: "file_svincolato", chiave_bozza: v.k, prima: clona(d), dopo: { proposta_id: d.proposta_id, motivo: "nodo_tolto" }, origine: "utente" });
+    for (const d of pb) azioni.push({ azione: "file_svincolato", chiave_bozza: v.k, prima: clona(d), dopo: { proposta_id: d.proposta_id, motivo: "nodo_escluso" }, origine: "utente" });
     azioni.push({ azione: "nodo_modificato", chiave_bozza: v.k, prima: { op: v.nodo.op }, dopo: { op: "esclude" }, origine: "utente" },
-      { azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null, dopo: dec, origine: "utente" });
-    if (scollega) ar.forEach((f, i) => azioni.push({ azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null,
-      dopo: { id: dec.id + ".sv" + (i + 1), tipo: "scollega_documento", proposta_id: f.proposta_id, componente_id: v.nodo.componente_id, motivo: "escluso dalla BOM: " + motivo }, origine: "utente" }));
+      { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
+    // uno svincolo per AR, con il motivo dell'esclusione (lo stesso testo: entra nei 1000 caratteri del motivo) e
+    // da_decisione = l'esclusione, nello stesso salvataggio (PE-27)
+    if (scollega) ar.forEach((f) => azioni.push({ azione: "decisione_aggiunta", chiave_bozza: null, prima: null,
+      dopo: { id: nuovoIdDecisione("sv"), tipo: "scollega_documento", proposta_id: f.proposta_id, componente_id: v.nodo.componente_id, motivo, da_decisione: dec.id }, origine: "utente" }));
     fai("escluso " + v.cod + (scollega ? " (associazioni da scollegare alla conferma)" : ar.length ? " (associazioni mantenute)" : ""), azioni);
   } }]);
 }
@@ -3103,19 +3343,21 @@ function opPrimaDiEscludi(k) {
   for (const a of azioni) if (a.azione === "nodo_modificato" && a.chiave_bozza === k && ogg(a.dopo) && a.dopo.op === "esclude" && ogg(a.prima) && a.prima.op && a.prima.op !== "esclude") op = a.prima.op;
   return op || "riusa";
 }
-// «↺ Ripristina» (MAT BZ-04; §4.3 riga 4): il nodo torna con l'op di prima, l'esclusione e i suoi svincoli si tolgono
-// (decisione_tolta), e le preassociazioni andate nel vassoio per quel nodo tornano, con eventi espliciti (file_preassociato).
+// «↺ Ripristina» (MAT BZ-04; §4.3 riga 4): il nodo torna con l'op di prima; l'esclusione e gli svincoli che la citano in
+// da_decisione si tolgono nello stesso gesto (decisione_tolta; PE-27); le preassociazioni andate nel vassoio per quel
+// nodo (nodo_escluso, PE-22) tornano, con eventi espliciti (file_preassociato). Gli svincoli con la convenzione .svN e le
+// preassociazioni con nodo_tolto di una bozza scritta prima dell'ondata B si ritrovano lo stesso.
 function ripristina(v) {
   const dec = S.lavoro.decisioni.find((d) => d.tipo === "escludi" && d.componente_id === v.nodo.componente_id);
   const azioni = [{ azione: "nodo_modificato", chiave_bozza: v.k, prima: { op: "esclude" }, dopo: { op: opPrimaDiEscludi(v.k) }, origine: "utente" }];
   if (dec) {
-    azioni.push({ azione: "decisione_tolta", chiave_bozza: v.k, prima: clona(dec), dopo: null, origine: "utente" });
-    for (const sv0 of S.lavoro.decisioni.filter((d) => d.tipo === "scollega_documento" && String(d.id).indexOf(dec.id + ".sv") === 0)) {
-      azioni.push({ azione: "decisione_tolta", chiave_bozza: v.k, prima: clona(sv0), dopo: null, origine: "utente" });
+    azioni.push({ azione: "decisione_tolta", chiave_bozza: chiaveEvento(dec), prima: clona(dec), dopo: null, origine: "utente" });
+    for (const sv0 of S.lavoro.decisioni.filter((d) => d.tipo === "scollega_documento" && (d.da_decisione === dec.id || String(d.id).indexOf(dec.id + ".sv") === 0))) {
+      azioni.push({ azione: "decisione_tolta", chiave_bozza: chiaveEvento(sv0), prima: clona(sv0), dopo: null, origine: "utente" });
     }
   }
   let tornano = 0, restano = 0;
-  for (const x of vassoioCorrente().filter((y) => y.chiave_bozza === v.k && y.motivo === "nodo_tolto")) {
+  for (const x of vassoioCorrente().filter((y) => y.chiave_bozza === v.k && (y.motivo === "nodo_escluso" || y.motivo === "nodo_tolto"))) {
     const f = fileDiProposta(x.proposta_id);
     if (f && f.stato && f.stato !== "attivo") {
       restano++;
@@ -3128,28 +3370,54 @@ function ripristina(v) {
     avvisa("ok", "Ripristinato " + v.cod + ": " + tornano + " file tornano preassociati" + (restano ? "; " + restano + " restano in «Da ricollocare» perché il file non è più attivo." : "."));
   }
 }
+// «✎ Correggi codice, rev e descrizione…» (MAT BZ-05), con le regole di forma di P-15 e la rev di P-18 (decisioni
+// dell'ondata A): la rev che non si tocca resta byte per byte com'è (anche con minuscole, se viene dalla working per un
+// riusa o un esclude); una rev scritta dall'ingegnere si scrive in maiuscolo; quando la correzione fa la rev nuova (una
+// modifica del componente registrato, la decisione di correzione di un pezzo importato) una rev rimasta con minuscole
+// ASCII spegne «Salva nella bozza» con il motivo (revMinuscoleAmmesse). Un pezzo importato o registrato ha sempre il codice.
 function apriCorreggi(v) {
   const n = v.nodo;
   const id = n.identita || {};
   const radice = n.componente_id && n.componente_id === S.prodotto;
   const importato = !!casellaDi(n) && !n.componente_id;
   const registrato = !!n.componente_id;
+  const revPrima = id.rev || "";
+  const revDa = (f) => {
+    const r = valore(f, "f-rev");
+    return r === revPrima ? revPrima : r.toUpperCase();
+  };
   apriFinestra("Correggi codice, rev e descrizione", h("div", { style: "display:grid;gap:8px" },
     h("p", { class: "du-nota" }, importato ? "È un pezzo importato: la sua identità proposta resta com'è, e la correzione diventa una decisione motivata (l'identità decisa)." :
       registrato ? "È un componente registrato: un codice nuovo è una ricodifica, con il motivo (fino a 500 caratteri)." : "È un pezzo aggiunto a mano."),
     campo("Codice", h("input", { id: "f-codice", value: id.codice || "", maxlength: 60, disabled: !!radice, title: radice ? "è il prodotto della RFQ: il codice non cambia (DB7-3)" : null })),
     campo("Rev", h("input", { id: "f-rev", value: id.rev || "", maxlength: 10 })),
     campo("Descrizione", h("input", { id: "f-desc", value: n.descrizione || "", maxlength: 200 })),
-    campo("Motivo", area("f-motivo", "obbligatorio per correggere un'identità importata o ricodificare", registrato ? 500 : 1000))),
+    campo("Motivo", area("f-motivo", "obbligatorio per correggere un'identità importata o già decisa, o per ricodificare", registrato ? 500 : 1000))),
   [{ testo: "Annulla", chiudi: true }, { testo: "Salva nella bozza", pri: true, id: "f-ok", spento: () => {
     const f = $("#du-finestra");
-    const cambiaId = valore(f, "f-codice") !== (id.codice || "") || valore(f, "f-rev").toUpperCase() !== (id.rev || "");
-    if (!cambiaId && valore(f, "f-desc") === (n.descrizione || "")) return "niente da cambiare";
-    if (cambiaId && (importato || (registrato && valore(f, "f-codice") !== (id.codice || ""))) && !valore(f, "f-motivo")) return "scrivi il motivo";
+    const codice = valore(f, "f-codice"), rev = revDa(f), desc = valore(f, "f-desc");
+    const cambiaCodice = codice !== (id.codice || ""), cambiaRev = rev !== revPrima;
+    if (!cambiaCodice && !cambiaRev && desc === (n.descrizione || "")) return "niente da cambiare";
+    if ((importato || registrato) && !codice) return "il codice è obbligatorio: un pezzo importato o registrato ha sempre il codice";
+    const no = (cambiaCodice && codice ? perchéNoCodiceNuovo(codice) : "") || (cambiaRev ? perchéNoRev(rev) : "") || perchéNoDescrizione(desc);
+    if (no) return no;
+    // P-18: la rev lasciata com'era può avere minuscole solo se il nodo, dopo la correzione, la copia ancora dalla sua
+    // fonte (revMinuscoleAmmesse). La decisione di correzione di un pezzo importato e la ricodifica di un registrato la
+    // fanno nuova, anche quando veniva dal codice corretto a mano (manuale_legacy): il server la rifiuterebbe (422)
+    const decisioneNuova = importato || (registrato && cambiaCodice) || citaIdentita(id);
+    if ((cambiaCodice || cambiaRev) && minuscoleAscii(rev)) {
+      const opDopo = registrato && (cambiaCodice || n.op === "riusa") ? "modifica" : n.op;
+      const idDopo = decisioneNuova ? { modo: "decisione", decisione: "" } : id;
+      if (!revMinuscoleAmmesse(opDopo, idDopo)) {
+        return "la rev «" + rev + "» ha minuscole: " + (registrato ? "in una modifica del componente la rev è nuova" : importato ?
+          "con la correzione la rev entra nell'identità decisa e non è più copiata dalla sua fonte" : "dopo la correzione la rev non è più copiata dalla sua fonte") + ", scrivila senza minuscole";
+      }
+    }
+    if ((cambiaCodice || cambiaRev) && decisioneNuova && !valore(f, "f-motivo")) return "scrivi il motivo";
     return "";
   }, fai: () => {
     const f = $("#du-finestra");
-    const codice = valore(f, "f-codice"), rev = valore(f, "f-rev").toUpperCase(), desc = valore(f, "f-desc"), motivo = valore(f, "f-motivo");
+    const codice = valore(f, "f-codice"), rev = revDa(f), desc = valore(f, "f-desc"), motivo = valore(f, "f-motivo");
     const azioni = [];
     const prima = {}, dopo = {};
     if (desc !== (n.descrizione || "")) {
@@ -3163,20 +3431,28 @@ function apriCorreggi(v) {
       if (id.namespace && !cambiaCodice) nuova.namespace = id.namespace;
       if (codice) nuova.codice = codice;
       if (rev) nuova.rev = rev;
-      if (importato) {
-        const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: nuova.emittente, codice: codice || undefined, rev: rev || undefined }, motivo };
-        if (nuova.namespace) dec.identita.namespace = nuova.namespace;
-        if (nuova.emittente.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
-        azioni.push({ azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" });
-        prima.identita = clona(id);
-        dopo.identita = Object.assign({}, nuova, { modo: "decisione", decisione: dec.id });
-      } else if (registrato && cambiaCodice) {
+      if (registrato && cambiaCodice) {
+        // la ricodifica: il nodo cita lei, e una decisione identita che citava prima (per esempio «Fissa l'emittente») si
+        // toglie nello stesso gesto (togliIdentitaPrecedenti)
         const dec = { id: nuovoIdDecisione("rc"), tipo: "ricodifica", componente_id: n.componente_id, codice_prima: id.codice || "", codice_dopo: codice, motivo, emittente_dopo: nuova.emittente };
-        azioni.push({ azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null, dopo: dec, origine: "utente" });
+        azioni.push(...togliIdentitaPrecedenti(v.k), { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
         prima.identita = clona(id);
         prima.op = n.op;
         dopo.identita = Object.assign({}, nuova, { modo: "decisione", decisione: dec.id });
         dopo.op = "modifica";
+      } else if (importato || citaIdentita(id)) {
+        // la correzione di un pezzo importato, o di un'identità già decisa da una decisione identita (che deve portare la
+        // stessa identità del nodo): una decisione di correzione nuova, che sostituisce quella di prima nello stesso gesto
+        const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: nuova.emittente, codice: codice || undefined, rev: rev || undefined }, motivo };
+        if (nuova.namespace) dec.identita.namespace = nuova.namespace;
+        if (nuova.emittente.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
+        azioni.push(...togliIdentitaPrecedenti(v.k), { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" });
+        prima.identita = clona(id);
+        dopo.identita = Object.assign({}, nuova, { modo: "decisione", decisione: dec.id });
+        if (registrato && n.op === "riusa") {
+          prima.op = n.op;
+          dopo.op = "modifica";
+        }
       } else {
         prima.identita = clona(id);
         dopo.identita = Object.assign({}, id, { codice: codice || undefined, rev: rev || undefined });
@@ -3192,14 +3468,128 @@ function apriCorreggi(v) {
     fai("corretto " + (codice || v.cod || "un pezzo"), azioni);
   } }]);
 }
+// «◆ Cambia tipo…» (MAT BZ-06; §4.3 riga 8). Per un pezzo della bozza è un nodo_modificato del tipo. Per un componente
+// registrato serve anche la decisione cambia_tipo{componente_id, tipo_nuovo, firma_effetto} (EM §3.6 riga 13; P-7 della
+// persistenza: il tipo nuovo sta in tipo_nuovo), con la firma dell'effetto che dà la variante di lettura di R1
+// (?effetto_cambio_tipo=, decisioni dell'ondata A, PE-09): il dialogo la legge per il tipo scelto, mostra l'effetto e
+// accende «Cambia» solo con l'effetto letto e un cambio che si può fare. Un cambio di tipo già deciso nella bozza per lo
+// stesso componente si sostituisce nello stesso gesto: una decisione sola per componente.
 function apriTipo(v) {
+  const registrato = !!(v.nodo && v.nodo.componente_id);
   const sel = h("select", { id: "f-tipo" }, ["sottoassieme", "sciolto", "commerciale"].map((t) => h("option", { value: t, selected: t === v.tipo }, TIPI[t])));
-  apriFinestra("Cambia tipo di " + (v.cod || "il pezzo"), h("div", { style: "display:grid;gap:8px" }, campo("Tipo", sel),
-    h("p", { class: "du-nota" }, "Un commerciale non ha figli (E37) e il suo 2D non è più richiesto, ma solo dopo la conferma.")),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Cambia", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-tipo") === v.tipo ? "è già di questo tipo" : ""), fai: () => {
-    const t = valore($("#du-finestra"), "f-tipo");
-    fai("tipo di " + (v.cod || "un pezzo") + " → " + TIPI[t], [{ azione: "nodo_modificato", chiave_bozza: v.k, prima: { tipo: v.tipo }, dopo: { tipo: t }, origine: "utente" }]);
+  const box = h("div", { id: "f-effetto", "aria-live": "polite" });
+  const st = { tipo: "", effetto: null, errore: "", calcolo: false, giro: 0 };
+  const scelto = () => valore($("#du-finestra"), "f-tipo");
+  let fin = null;
+  const mostraEffetto = () => {
+    if (!registrato) return;
+    if (st.calcolo) return box.replaceChildren(h("p", { class: "du-muto du-piccolo" }, "Calcolo dell'effetto del cambio…"));
+    if (st.errore) return box.replaceChildren(h("p", { class: "du-err", id: "f-effetto-errore" }, "L'effetto del cambio non si legge: " + st.errore));
+    if (!st.effetto) return box.replaceChildren();
+    box.replaceChildren(h("div", { class: "du-esito du-esito--ver", id: "f-effetto-righe" }, h("b", {}, "Effetto del cambio, calcolato dal server adesso:"),
+      h("ul", { class: "du-elenco-p" }, righeEffetto(st.effetto.effetto, v).map((t) => h("li", {}, t)))));
+  };
+  const leggiEffetto = async () => {
+    if (!registrato) return;
+    const t = scelto();
+    const giro = ++st.giro;
+    st.tipo = t;
+    st.effetto = null;
+    st.errore = "";
+    st.calcolo = t !== v.tipo;
+    mostraEffetto();
+    if (fin) fin.aggiorna();
+    if (t === v.tipo) return;
+    try {
+      const j = await P.leggiBozza(S.prodotto, { effetto_cambio_tipo: v.nodo.componente_id, tipo_nuovo: t });
+      if (giro !== st.giro) return;
+      st.effetto = j;
+    } catch (e) {
+      if (giro !== st.giro) return;
+      st.errore = testoErrore(e) + (e && e.codice === "PONTE_RISPOSTA" ? " (la lettura della bozza non dà ancora l'effetto del cambio di tipo, o non nella forma che la pagina legge)" : "");
+    }
+    st.calcolo = false;
+    mostraEffetto();
+    if (fin) fin.aggiorna();
+  };
+  sel.addEventListener("change", leggiEffetto);
+  // un cambio di tipo già deciso nella bozza per questo componente: si toglie con il suo gesto, che riporta il nodo al
+  // tipo di prima (dal giornale); l'effetto verso il tipo registrato il server non lo firma, perché non c'è un cambio
+  const decise = registrato ? S.lavoro.decisioni.filter((x) => x.tipo === "cambia_tipo" && x.componente_id === v.nodo.componente_id) : [];
+  const tipoPrima = decise.length ? tipoPrimaDelCambio(v.k, decise[decise.length - 1]) : "";
+  const togli = decise.length ? h("div", { class: "du-azioni", id: "f-togli-cambio" }, btn("Togli il cambio di tipo", () => {
+    chiudiFinestra();
+    fai("tolto il cambio di tipo di " + (v.cod || "un pezzo"), decise.map((d) => ({ azione: "decisione_tolta", chiave_bozza: chiaveEvento(d), prima: clona(d), dopo: null, origine: "utente" }))
+      .concat([{ azione: "nodo_modificato", chiave_bozza: v.k, prima: { tipo: v.tipo }, dopo: { tipo: tipoPrima }, origine: "utente" }]));
+  }, { cls: "du-btn--sm", id: "f-togli-tipo", no: tipoPrima ? "" : "il tipo di prima non si ritrova nel giornale della bozza: usa «Annulla»" }),
+  h("span", { class: "du-muto du-piccolo" }, tipoPrima ? "La bozza ha già un cambio di tipo di questo componente: togliendolo, il pezzo torna " + (TIPI[tipoPrima] || tipoPrima) + "." : "")) : null;
+  fin = apriFinestra("Cambia tipo di " + (v.cod || "il pezzo"), h("div", { style: "display:grid;gap:8px" }, campo("Tipo", sel),
+    h("p", { class: "du-nota" }, "Un commerciale non ha figli (E37) e il suo 2D non è più richiesto, ma solo dopo la conferma."),
+    registrato ? h("p", { class: "du-nota" }, "È un componente registrato: il cambio è una decisione della bozza, con la firma dell'effetto che il server calcola adesso. La conferma lo applica; se nel frattempo l'effetto cambia, il riepilogo lo dice (TIPO_EFFETTO_CAMBIATO).") : null,
+    togli, box),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Cambia", pri: true, id: "f-ok", spento: () => {
+    const t = scelto();
+    if (t === v.tipo) return "è già di questo tipo";
+    if (!registrato) return "";
+    if (st.tipo !== t || st.calcolo) return "calcolo dell'effetto del cambio in corso";
+    if (st.errore) return "l'effetto del cambio non si legge: il cambio non parte";
+    if (!st.effetto) return "manca l'effetto del cambio";
+    const e = st.effetto.effetto || {};
+    if (typeof e.spento === "string" && e.spento) return "il cambio non si fa: " + e.spento;
+    return "";
+  }, fai: () => {
+    const t = scelto();
+    const azioni = [];
+    if (registrato) {
+      for (const d of S.lavoro.decisioni.filter((x) => x.tipo === "cambia_tipo" && x.componente_id === v.nodo.componente_id)) {
+        azioni.push({ azione: "decisione_tolta", chiave_bozza: chiaveEvento(d), prima: clona(d), dopo: null, origine: "utente" });
+      }
+      azioni.push({ azione: "decisione_aggiunta", chiave_bozza: null, prima: null, dopo: { id: nuovoIdDecisione("ct"), tipo: "cambia_tipo", componente_id: v.nodo.componente_id,
+        tipo_nuovo: t, firma_effetto: st.effetto.firma_effetto }, origine: "utente" });
+    }
+    azioni.push({ azione: "nodo_modificato", chiave_bozza: v.k, prima: { tipo: v.tipo }, dopo: { tipo: t }, origine: "utente" });
+    fai("tipo di " + (v.cod || "un pezzo") + " → " + TIPI[t], azioni);
   } }]);
+}
+// tipoPrimaDelCambio: il tipo del nodo k prima della decisione cambia_tipo d, dal giornale (R1 ?eventi=1, più i gesti in
+// volo e in coda): il nodo_modificato del gesto che l'ha aggiunta. Se quel gesto sostituiva un cambio di tipo di prima
+// (la sua decisione_tolta subito prima), si risale a quello: il tipo che conta è quello registrato. "" se non si ritrova.
+function tipoPrimaDelCambio(k, d) {
+  const ev = arr(S.bozza && S.bozza.eventi).filter((e) => ogg(e) && typeof e.azione === "string").sort((a, b) => (Number(a.n) || 0) - (Number(b.n) || 0)).map(eventoAzione);
+  const azioni = ev.concat(...(S.invio ? S.invio.voci : []).concat(S.coda).map((x) => x.inviare));
+  let id = d.id;
+  for (let giri = 0; giri < 20 && id; giri++) {
+    const i = azioni.findIndex((a) => a.azione === "decisione_aggiunta" && ogg(a.dopo) && a.dopo.id === id);
+    if (i < 0) return "";
+    const prima = i > 0 ? azioni[i - 1] : null;
+    if (prima && prima.azione === "decisione_tolta" && ogg(prima.prima) && prima.prima.tipo === "cambia_tipo" && prima.prima.componente_id === d.componente_id) {
+      id = prima.prima.id;
+      continue;
+    }
+    const dopo = azioni.slice(i + 1).find((a) => a.azione === "nodo_modificato" && a.chiave_bozza === k);
+    return dopo && ogg(dopo.prima) && typeof dopo.prima.tipo === "string" ? dopo.prima.tipo : "";
+  }
+  return "";
+}
+// righeEffetto: l'effetto del cambio di tipo in parole. La forma di «effetto» non è ancora scritta in EM: la pagina legge
+// i campi dell'anteprima del cambio di tipo che c'è già (EffettoTipo del fascicolo, in minuscolo: spento, sospende,
+// con_lei, rimozioni, resta_sospesa, autorizzabile, step_strutturale, svuota_step, avvisi; proposta di emendamento della
+// corsia PE-B05) e ignora gli altri. Un effetto in un'altra forma non arriva qui: il ponte lo rifiuta (effettoLeggibile,
+// PONTE_RISPOSTA), e «Cambia» resta spento con «l'effetto del cambio non si legge».
+function righeEffetto(e, v) {
+  const o = ogg(e) ? e : {};
+  const out = [];
+  if (typeof o.spento === "string" && o.spento) out.push("Il cambio non si fa: " + o.spento + ".");
+  if (arr(o.sospende).length) out.push("Si sospendono: " + arr(o.sospende).join("; ") + ".");
+  if (arr(o.con_lei).length) out.push("Con loro si sospendono le deleghe di: " + arr(o.con_lei).join(", ") + ".");
+  if (Number(o.rimozioni) > 0) out.push("Rimozioni aperte che si chiudono: " + Number(o.rimozioni) + ".");
+  if (arr(o.resta_sospesa).length) out.push("Restano sospese finché una persona non le riattiva: " + arr(o.resta_sospesa).join("; ") + ".");
+  if (o.autorizzabile === true) out.push("Il suo STEP si potrà autorizzare.");
+  if (typeof o.step_strutturale === "string" && o.step_strutturale) out.push("Diventa il suo STEP strutturale: " + o.step_strutturale + ".");
+  if (typeof o.svuota_step === "string" && o.svuota_step) out.push("Non è più il suo STEP strutturale: " + o.svuota_step + ".");
+  for (const a of arr(o.avvisi)) out.push(String(a));
+  if (!out.length) out.push((v.cod || "Il pezzo") + " cambia tipo: nessun altro effetto.");
+  return out;
 }
 function apriSposta(k, verso) {
   const g = grafoBozza();
@@ -3259,7 +3649,7 @@ function apriScollegaPadre(k) {
     const azioni = [{ azione: "arco_tolto", chiave_bozza: k, prima: clona(a), dopo: null, origine: "utente" }];
     const np = g.nodi[p].nodo, nf = v.nodo;
     if ((a.origine === "registrato" || a.origine === "conferma") && np.componente_id && nf.componente_id) {
-      azioni.push({ azione: "decisione_aggiunta", chiave_bozza: k, prima: null, dopo: { id: nuovoIdDecisione("ta"), tipo: "togli_arco", padre_id: np.componente_id, figlio_id: nf.componente_id }, origine: "utente" });
+      azioni.push({ azione: "decisione_aggiunta", chiave_bozza: null, prima: null, dopo: { id: nuovoIdDecisione("ta"), tipo: "togli_arco", padre_id: np.componente_id, figlio_id: nf.componente_id }, origine: "utente" });
     }
     fai("scollegato " + (v.cod || "un pezzo"), azioni);
   } }]);
@@ -3331,7 +3721,7 @@ function apriNonIncludere(g) {
       const dec = { id: nuovoIdDecisione("ni"), tipo: "non_includere", casella: clona(c), motivo_codice: motivoCodice, motivo, azione_id: azioneId };
       if (imp) dec.importazione = imp;
       if (seg) dec.segnale_visto = { codice: seg.codice, regola: seg.regola, versione_servizio: versioneServizio(reg) };
-      decisioni.push({ azione: "decisione_aggiunta", chiave_bozza: k, prima: null, dopo: dec, origine: "utente" });
+      decisioni.push({ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
     }
     azioni.push(...decisioni);
     S.selezione.clear();
@@ -3379,7 +3769,7 @@ function includiDiNuovo(v) {
   for (const a of tutti) if (a.azione === "nodo_tolto" && a.prima && casellaDi(a.prima) && casellaDi(a.prima).rif === d.casella.rif) k = a.chiave_bozza || a.prima.chiave_bozza;
   if (!k || S.lavoro.nodi.some((n) => n.chiave_bozza === k)) k = nuovaChiaveNodo();
   const nodo = nodoDaVoce(voce, k, d.casella);
-  const azioni = [{ azione: "decisione_tolta", chiave_bozza: k, prima: clona(d), dopo: null, origine: "utente" }, { azione: "nodo_aggiunto", chiave_bozza: k, prima: null, dopo: nodo, origine: "utente" }];
+  const azioni = [{ azione: "decisione_tolta", chiave_bozza: chiaveEvento(d), prima: clona(d), dopo: null, origine: "utente" }, { azione: "nodo_aggiunto", chiave_bozza: k, prima: null, dopo: nodo, origine: "utente" }];
   const perRif = new Map();
   for (const n of S.lavoro.nodi) {
     const c = casellaDi(n);
@@ -3545,14 +3935,17 @@ function apriScollega(f, v) {
     const motivo = valore($("#du-finestra"), "f-motivo");
     const dec = { id: nuovoIdDecisione("sv"), tipo: "scollega_documento", proposta_id: f.proposta_id, componente_id: v.nodo.componente_id };
     if (motivo) dec.motivo = motivo;
-    fai("da scollegare " + f.nome_file, [{ azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null, dopo: dec, origine: "utente" }]);
+    fai("da scollegare " + f.nome_file, [{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" }]);
   } }]);
 }
-function apriAdotta(v, r, proiezione) {
-  const voce = v.voce;
-  const lettura = r.lettura || null;
+// «Adotta come codice…» (MAT PN-08; EM §3.6.1): un'alternativa motivata, che cita la lettura (chiave_lettura e la sua
+// copia compatta) o il codice manuale (riferimento manuale_legacy). Il codice è la proiezione della lettura, la rev è
+// rev_proposta (introdotta dal registro, in maiuscolo) o quella del codice manuale, copiata byte per byte (P-18).
+function apriAdotta(v, r, ad) {
+  const lettura = ad.lettura || null;
+  const proiezione = ad.codice;
   apriFinestra("Adotta come codice", h("div", { style: "display:grid;gap:8px" },
-    h("p", {}, "L'identità decisa di " + (v.cod || "questo pezzo") + " diventa ", h("span", { class: "du-mono" }, proiezione), " (" + (lettura ? lettura.emittente : r.tipo === "manuale_legacy" ? "cliente, presunto" : "?") + "). L'identità proposta resta com'era."),
+    h("p", {}, "L'identità decisa di " + (v.cod || "questo pezzo") + " diventa ", h("span", { class: "du-mono" }, proiezione + (ad.rev ? " rev " + ad.rev : "")), " (" + (lettura ? lettura.emittente : r.tipo === "manuale_legacy" ? "cliente, presunto" : "?") + "). L'identità proposta resta com'era."),
     campo("Motivo", area("f-motivo", "perché adotti questa lettura"))),
   [{ testo: "Annulla", chiudi: true }, { testo: "Adotta", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
     const motivo = valore($("#du-finestra"), "f-motivo");
@@ -3560,35 +3953,43 @@ function apriAdotta(v, r, proiezione) {
     if (r.tipo === "manuale_legacy") {
       dec.riferimento = "manuale_legacy";
       dec.identita = { emittente: emittenteCliente(), codice: proiezione };
-      if (voce.codice_manuale_legacy.rev) dec.identita.rev = voce.codice_manuale_legacy.rev;
     } else {
       dec.chiave_lettura = lettura.chiave_lettura;
       dec.lettura = copiaLettura(lettura);
       dec.identita = { emittente: lettura.emittente, codice: proiezione };
       if (lettura.namespace) dec.identita.namespace = lettura.namespace;
     }
+    if (ad.rev) dec.identita.rev = ad.rev;
     const dopo = Object.assign({}, dec.identita, { modo: "decisione", decisione: dec.id });
     if (r.tipo === "manuale_legacy") dopo.emittente_presunto = true;
-    fai("adottato " + proiezione, [{ azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" },
-      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(v.nodo.identita) }, dopo: { identita: dopo }, origine: "utente" }]);
+    // una decisione identita di prima dello stesso nodo si toglie nello stesso gesto (togliIdentitaPrecedenti)
+    fai("adottato " + proiezione, togliIdentitaPrecedenti(v.k).concat([{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" },
+      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(v.nodo.identita) }, dopo: { identita: dopo }, origine: "utente" }]));
   } }]);
 }
+// «Fissa l'emittente…» di un registrato «cliente, presunto»: una decisione identita di correzione con il codice e la rev
+// del nodo. La rev passa byte per byte solo se il nodo resta riusa o esclude (P-18, revMinuscoleAmmesse): con un altro op
+// la decisione di correzione la fa nuova, e una rev con minuscole ASCII spegne «Fissa» con il motivo invece di finire in
+// un 422 del server.
 function apriFissaEmittente(v) {
   const reg = registroBozza();
   const partner = arr(reg && reg.regole && reg.regole.partner).map((p) => p.emittente).filter(Boolean);
   const sel = h("select", { id: "f-emittente" }, [emittenteCliente()].concat(partner).map((e) => h("option", { value: e }, e)));
+  const rev = (v.nodo.identita && v.nodo.identita.rev) || "";
+  const noRev = minuscoleAscii(rev) && !revMinuscoleAmmesse(v.nodo.op, { modo: "decisione", decisione: "" }) ?
+    "la rev «" + rev + "» ha minuscole: con l'emittente fissato la rev entra in una decisione di correzione e va senza minuscole; correggila prima con «✎ Correggi codice, rev e descrizione…»" : "";
   apriFinestra("Fissa l'emittente di " + v.cod, h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "Il componente è «cliente, presunto»: nessuno ha scelto l'emittente. Se in realtà è un codice del fornitore, fissalo con un motivo: la conferma lo certificherà."),
     campo("Emittente", sel), campo("Motivo", area("f-motivo", ""))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Fissa", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
+  [{ testo: "Annulla", chiudi: true }, { testo: "Fissa", pri: true, id: "f-ok", spento: () => noRev || (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
     const f = $("#du-finestra");
     const em = valore(f, "f-emittente");
     const id = v.nodo.identita || {};
     const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: em, codice: id.codice }, motivo: valore(f, "f-motivo") };
     if (id.rev) dec.identita.rev = id.rev;
     if (em.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
-    fai("emittente fissato per " + v.cod, [{ azione: "decisione_aggiunta", chiave_bozza: v.k, prima: null, dopo: dec, origine: "utente" },
-      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(id) }, dopo: { identita: Object.assign({}, dec.identita, { modo: "decisione", decisione: dec.id }) }, origine: "utente" }]);
+    fai("emittente fissato per " + v.cod, togliIdentitaPrecedenti(v.k).concat([{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" },
+      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(id) }, dopo: { identita: Object.assign({}, dec.identita, { modo: "decisione", decisione: dec.id }) }, origine: "utente" }]));
   } }]);
 }
 function apriRebase() {
@@ -3692,11 +4093,12 @@ function apriUsaPerBom(a, gr) {
 async function rileggiTenendoDaParte() {
   clearTimeout(timerSalva);
   const voci = (S.invio ? S.invio.voci : []).concat(S.coda);
+  const origine = origineDaParte();
   S.coda = [];
   S.invio = null;
   await caricaModello();
   await caricaBozza();
-  if (voci.length) S.daParte = { voci, perche: "conflitto", testo: "" };
+  if (voci.length) mettiDaParte(voci, "conflitto", "", origine);
   render();
 }
 // voceEffetto: un elemento di un elenco dell'effetto di S6 (o della risposta di cambia_sorgente): una chiave della bozza,
@@ -3791,6 +4193,8 @@ async function apriRiallinea() {
   } }]);
 }
 async function creaDa(partenza) {
+  const no = perchéNoPartenza(partenza);
+  if (no) return avvisa("no", "La bozza non parte: " + no + ".");
   const r = await P.creaBozza({ bozza_id: null, versione_attesa: 0, prodotto_id: S.prodotto, vocabolario: 2, crea: { partenza } });
   if (r.esito !== "ok") return esitoFormaKo(r);
   await dopoFormaServer(r, partenza === "conferma" ? "Bozza aperta dalla BOM confermata." : "Bozza aperta dalla BOM registrata.");
@@ -4338,21 +4742,61 @@ async function rileggiBozzaSalvata() {
   const voci = (S.invio ? S.invio.voci : []).concat(S.coda);
   const perche = S.salvataggio.stato;
   const testo = S.salvataggio.testo || "";
+  const origine = origineDaParte();
   S.coda = [];
   S.invio = null;
   await caricaBozza();
-  if (voci.length) S.daParte = { voci, perche, testo };
+  if (voci.length) mettiDaParte(voci, perche, testo, origine);
   render();
+}
+// origineDaParte: il prodotto e la bozza su cui sono nate le modifiche che stanno per andare da parte (prima di rileggere
+// R1, che può portare un'altra bozza).
+function origineDaParte() {
+  return { prodotto: S.prodotto, codice: codiceProdotto(), bozza_id: S.bozza && S.bozza.bozza_id ? S.bozza.bozza_id : "", versione: S.bozza ? S.bozza.versione : 0 };
+}
+// mettiDaParte: le modifiche non salvate tenute da parte (MAT §5.1), con il prodotto e la bozza su cui sono nate
+// (decisioni dell'ondata A, §5 n. 2). Se ce n'erano già da parte della stessa bozza, le nuove si aggiungono in coda.
+function mettiDaParte(voci, perche, testo, origine) {
+  const prima = S.daParte && S.daParte.prodotto === origine.prodotto && S.daParte.bozza_id === origine.bozza_id ? S.daParte.voci : [];
+  S.daParte = Object.assign({ voci: prima.concat(voci), perche, testo }, origine);
 }
 // le voci da parte che si riapplicano: i gesti. Gli annullamenti e le ripetizioni di passi già salvati (annulla{n},
 // rifai{n}) no: portano i numeri degli eventi di prima, e dopo la rilettura si rifanno con «Annulla» e «Ripeti».
 function vociRiapplicabili(voci) {
   return voci.filter((v) => !v.annullaDi && !/^ripeti: /.test(v.etichetta) && !v.inviare.some((a) => a.azione === "annulla" || a.azione === "rifai"));
 }
+// perchéNoRiapplica: perché le modifiche da parte non si riapplicano alla bozza che si vede, o "". Valgono solo per il
+// prodotto su cui sono nate: le loro azioni portano le chiavi dei suoi nodi (decisioni dell'ondata A, §5 n. 2).
+function perchéNoRiapplica(dp) {
+  if (dp.prodotto !== S.prodotto) return "sono di " + (dp.codice || "un altro prodotto") + ": si riapplicano solo alla sua bozza; torna a quel prodotto, o scartale";
+  if (!bozzaLavorabile()) return "la bozza riletta non c'è o non si lavora: si possono solo scartare";
+  return "";
+}
+// riapplicaDaParte: «Riapplica alla bozza riletta». Sulla stessa bozza (lo stesso bozza_id, una versione più avanti) le
+// modifiche tornano in coda e il server le riconcilia al salvataggio. Su un'altra bozza dello stesso prodotto (quella di
+// prima è stata chiusa o sostituita altrove) serve una conferma esplicita, con l'elenco: le modifiche erano pensate per
+// la bozza di prima (decisioni dell'ondata A, §5 n. 2). Su un altro prodotto mai.
 function riapplicaDaParte() {
   const dp = S.daParte;
   if (!dp) return;
-  if (!bozzaLavorabile()) return avvisa("errore", "Le modifiche non si riapplicano: la bozza riletta non c'è o non si lavora (" + (perchéNoModifica() || "nessuna bozza") + ").");
+  const noR = perchéNoRiapplica(dp);
+  if (noR) return avvisa("errore", "Le modifiche non si riapplicano: " + noR + ".");
+  const noM = perchéNoModifica({ daParte: true });
+  if (noM) return avvisa("errore", "Le modifiche non si riapplicano: " + noM + ".");
+  if (dp.bozza_id && dp.bozza_id !== S.bozza.bozza_id) {
+    apriFinestra("Riapplicare a un'altra bozza?", h("div", { style: "display:grid;gap:8px" },
+      h("p", {}, "Le modifiche erano della bozza di " + (dp.codice || "questo prodotto") + " aperta prima (versione " + dp.versione + "); la bozza di adesso è un'altra: quella di prima è stata chiusa o sostituita altrove."),
+      h("ul", { class: "du-elenco-p", id: "f-da-parte-altra" }, dp.voci.map((v) => h("li", {}, v.etichetta))),
+      h("p", { class: "du-nota" }, "Riapplicandole qui, il server le riconcilia con la bozza di adesso, o le rifiuta: i pezzi che non ci sono più non si ricreano da soli.")),
+    [{ testo: "Annulla", chiudi: true }, { testo: "Riapplica a questa bozza", pri: true, id: "f-ok", fai: () => {
+      riapplicaOra(dp);
+    } }]);
+    return;
+  }
+  riapplicaOra(dp);
+}
+function riapplicaOra(dp) {
+  if (S.daParte !== dp) return;
   S.daParte = null;
   const no = perchéNoModifica();
   if (no) {
@@ -4376,7 +4820,7 @@ function scartaDaParte() {
   const dp = S.daParte;
   if (!dp) return;
   apriFinestra("Scartare le modifiche tenute da parte?", h("div", { style: "display:grid;gap:8px" },
-    h("p", {}, "Queste modifiche non sono mai state salvate e si perdono:"),
+    h("p", {}, "Queste modifiche di " + (dp.codice || "questo prodotto") + " non sono mai state salvate e si perdono:"),
     h("ul", { class: "du-elenco-p", id: "f-da-parte" }, dp.voci.map((v) => h("li", {}, v.etichetta)))),
   [{ testo: "Annulla", chiudi: true }, { testo: "Scarta le modifiche", danger: true, id: "f-ok", fai: () => {
     S.daParte = null;
@@ -4384,15 +4828,16 @@ function scartaDaParte() {
     render();
   } }]);
 }
-// la riga delle modifiche tenute da parte (barra della Revisione e strisce)
+// la riga delle modifiche tenute da parte (barra della Revisione e strisce): dice di quale prodotto sono
 function rigaDaParte() {
   const dp = S.daParte;
   if (!dp) return null;
   const dopo = dp.perche === "conflitto" ? "dopo «La bozza è cambiata altrove»" : "dopo «Salvataggio rifiutato»";
-  return h("div", { class: "du-striscia du-striscia--ver", id: "du-da-parte", role: "status" },
-    h("span", {}, dp.voci.length + " modifiche non salvate tenute da parte " + dopo + ": " + dp.voci.map((v) => v.etichetta).join("; ") + ". Non si perdono finché la pagina è aperta."),
+  const di = dp.codice ? " di " + dp.codice : "";
+  return h("div", { class: "du-striscia du-striscia--ver", id: "du-da-parte", role: "status", "data-du-prodotto": dp.prodotto || null },
+    h("span", {}, dp.voci.length + " modifiche non salvate" + di + " tenute da parte " + dopo + ": " + dp.voci.map((v) => v.etichetta).join("; ") + ". Non si perdono finché la pagina è aperta."),
     h("span", { class: "du-azioni" },
-      btn("Riapplica alla bozza riletta", riapplicaDaParte, { cls: "du-btn--sm du-btn--pri", id: "du-riapplica", no: bozzaLavorabile() ? "" : "la bozza riletta non c'è: si possono solo scartare", perche: false }),
+      btn("Riapplica alla bozza riletta", riapplicaDaParte, { cls: "du-btn--sm du-btn--pri", id: "du-riapplica", no: perchéNoRiapplica(dp), perche: false }),
       btn("Scartale…", scartaDaParte, { cls: "du-btn--sm du-btn--ghost", id: "du-scarta-da-parte", perche: false })));
 }
 function perchéNoConferma() {
@@ -4464,8 +4909,9 @@ function renderWizard() {
   const box = $("#du-wizard");
   const w = S.wizard;
   if (!box || !w) return;
-  const testa = h("div", { class: "du-wz-t" }, h("h2", { id: "du-wizard-titolo" }, "Rivedi e conferma BOM · " + codiceProdotto()),
-    h("span", { class: "du-muto du-piccolo" }, "bozza versione " + (S.bozza ? S.bozza.versione : "?")), h("button", { type: "button", class: "du-btn du-btn--sm du-btn--ghost", id: "du-wz-chiudi", onclick: chiudiWizard,
+  const versione = S.bozza && typeof S.bozza.versione === "number" ? "bozza versione " + S.bozza.versione : w.esito && w.esito.tipo === "ok" ? "bozza confermata" : "bozza non letta";
+  const testa = h("div", { class: "du-wz-t" }, h("h2", { id: "du-wizard-titolo" }, "Rivedi e conferma BOM · " + (w.codice || codiceProdotto())),
+    h("span", { class: "du-muto du-piccolo" }, versione), h("button", { type: "button", class: "du-btn du-btn--sm du-btn--ghost", id: "du-wz-chiudi", onclick: chiudiWizard,
       disabled: w.stato === "conferma" }, "Chiudi"));
   const passi = h("div", { class: "du-wz-passi" },
     h("button", { type: "button", class: "du-wz-passo", "aria-current": w.fase === 1 ? "step" : null, id: "du-wz-fase1", onclick: () => {
@@ -4500,10 +4946,13 @@ function perchéNoConfermaWizard(w) {
   if (w.esito && w.esito.tipo === "ok") return "la BOM è confermata";
   if (w.esito && w.esito.tipo === "verifica") return "esito da verificare: aspetta la verifica";
   if (w.esito && w.esito.tipo === "controllo_finale") return "la conferma non è registrata per un errore interno: segnalalo, non riprovare";
+  // R5 ha detto che la bozza è la conferma di base (422 NESSUNA_MODIFICA, PE-23): non c'è niente da confermare
+  if (w.esito && w.esito.codice === "NESSUNA_MODIFICA") return "nessuna modifica rispetto alla conferma di base: niente da confermare";
   if (!w.riepilogo || w.stato !== "pronto") return "il riepilogo non è pronto";
   if (S.coda.length || S.invio) return "ci sono modifiche non salvate: il riepilogo va riletto";
   if (!S.bozza || w.versione !== S.bozza.versione) return "la bozza è cambiata: rileggi il riepilogo";
-  const nm = nessunaModifica();
+  // il riepilogo del wizard decide con uguale_alla_base, se lo dà; altrimenti il giornale (PE-23)
+  const nm = nessunaModifica(w.riepilogo);
   if (nm) return nm;
   if (!w.riepilogo.confermabile) return "la BOM non è confermabile: " + arr(w.riepilogo.blocchi).length + " blocchi";
   if (w.riepilogo.avvisi_motore_calcolati === false && nonInclusiNellaBozza() && !w.presaMotore) return "gli avvisi del motore non sono calcolati: spunta la presa d'atto";
@@ -4596,8 +5045,10 @@ function faseGerarchie(w) {
     } }), "Confermo senza gli avvisi del motore (la bozza ha nodi non inclusi: lo STEP potrebbe essere usato da un altro prodotto)."));
   } else mot.append(h("b", {}, "Avvisi del motore, calcolati adesso e non firmati: "), arr(r.avvisi_motore).length ? arr(r.avvisi_motore).map((a) => a.codice + (a.testo ? " — " + a.testo : "")).join("; ") : "nessuno");
   box.append(mot);
-  // mono_pezzo: casella mai spuntata, motivo obbligatorio (MAT BZ-14)
-  if (avvisi.some((a) => a.codice === "PRODOTTO_SENZA_FIGLI") && !S.salvato.decisioni.some((d) => d.tipo === "mono_pezzo")) {
+  // mono_pezzo: casella mai spuntata, motivo obbligatorio (MAT BZ-14). Dopo la conferma la bozza non c'è più (R1 riletto:
+  // nessuna bozza, S.salvato vuoto): il wizard mostra l'esito e il riepilogo di allora, senza gesti sulla bozza
+  const salvate = S.salvato ? S.salvato.decisioni : [];
+  if (avvisi.some((a) => a.codice === "PRODOTTO_SENZA_FIGLI") && bozzaLavorabile() && !salvate.some((d) => d.tipo === "mono_pezzo")) {
     box.append(h("div", { class: "du-esito du-esito--ver" }, h("b", {}, "Il prodotto non ha figli."), h("span", {}, "Se è un pezzo unico, dichiaralo con il motivo: vale solo con lo STEP autorizzato del prodotto."),
       btn("Dichiara mono_pezzo…", apriMonoPezzo, { cls: "du-btn--sm", perche: false })));
   }
@@ -4632,7 +5083,7 @@ function gestiD1(b) {
   return null;
 }
 async function decisioneWizard(etichetta, dec) {
-  if (!fai(etichetta, [{ azione: "decisione_aggiunta", chiave_bozza: dec.chiave_bozza || null, prima: null, dopo: dec, origine: "utente" }])) return;
+  if (!fai(etichetta, [{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" }])) return;
   const ok = await salvaOra();
   if (!ok) return;
   await rileggiRiepilogo();
@@ -4764,6 +5215,9 @@ function esitoWizard(w) {
     CHIAVE_RIUSATA: "Questo tentativo ha già un esito diverso: ho chiesto l'esito con la chiave e riletto bozza e storico; la prossima conferma userà una chiave nuova.",
     BLOCCHI: "Niente è registrato, la bozza resta: risolvi i blocchi.",
     CONGELATA: "La BOM è congelata: niente è registrato.",
+    // il testo di MAT §5.2 («nessuna modifica»), con il numero della conferma di base
+    NESSUNA_MODIFICA: "La bozza è uguale alla conferma " + (S.salvato && S.salvato.versione_bom_base && S.salvato.versione_bom_base.numero ? "n. " + S.salvato.versione_bom_base.numero : "di base") +
+      ": non c'è niente da confermare, e niente è registrato.",
     PONTE_TENTATIVO_IN_SOSPESO: "La conferma di prima non ha un esito certo e questo corpo è diverso: niente è partito. Verifica il tentativo, o abbandonalo dalla striscia in alto, poi conferma di nuovo.",
   };
   const blocchi = arr(e.dati && e.dati.blocchi);
@@ -4838,8 +5292,10 @@ function installaAscoltatori() {
     if (!$("#du-finestra").hidden) chiudiFinestra();
     else if (S.wizard) chiudiWizard();
   });
+  // uscire dalla pagina con modifiche non salvate (in coda, in volo o tenute da parte, MAT §5.1) chiede conferma: le
+  // modifiche stanno solo in memoria (decisioni dell'ondata A, §5 n. 2)
   window.addEventListener("beforeunload", (e) => {
-    if (S.coda.length || S.invio) {
+    if (S.coda.length || S.invio || S.daParte) {
       e.preventDefault();
       e.returnValue = "";
     }

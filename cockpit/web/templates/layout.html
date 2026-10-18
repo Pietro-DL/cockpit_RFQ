@@ -64,17 +64,50 @@ document.body.addEventListener("htmx:beforeSwap", function (e) {
 
 // Le bozze dell'editor della struttura stanno nel sessionStorage della scheda: all'uscita si buttano,
 // perche' chi entra dopo sulla stessa scheda non deve trovarle (ne' confermarle a nome suo).
+// I tentativi in sospeso della Distinta unica (cockpit.du.*, il ponte distinta_unica_ponte.mjs) invece si
+// tolgono solo a uscita AVVENUTA: finche' la sessione continua sono la guardia contro un secondo invio, e si
+// tolgono solo con un esito certo o con un abbandono esplicito (MAT §5.5 n. 7). Se la pagina chiede conferma
+// prima di lasciarla (modifiche non salvate) e si resta, devono esserci ancora. Il clic su «esci» lascia una
+// marca con l'ora; la pagina d'accesso, dove nessuno e' dentro (niente form «esci»), toglie le chiavi solo se
+// trova la marca di meno di un minuto. Se si resta, la marca si toglie al primo gesto sulla pagina, o alla
+// pagina seguente con qualcuno dentro. Nel dubbio le chiavi restano: portano gia' l'utente, e per un altro
+// utente non valgono. Una sessione scaduta che rimanda al login non lascia la marca: le chiavi restano per
+// la verifica dopo il rientro.
 (function () {
+  var MARCA = "cockpit.uscita";
   var f = document.getElementById("esci");
-  if (!f) return;
+  if (!f) {
+    try {
+      var quando = Number(sessionStorage.getItem(MARCA));
+      sessionStorage.removeItem(MARCA);
+      if (quando > 0 && Math.abs(Date.now() - quando) < 60000) {
+        for (var j = sessionStorage.length - 1; j >= 0; j--) {
+          var d = sessionStorage.key(j);
+          if (d && d.indexOf("cockpit.du.") === 0) sessionStorage.removeItem(d);
+        }
+      }
+    } catch (e) {}
+    return;
+  }
+  var segnata = false;
+  function resta() {
+    if (!segnata) return;
+    segnata = false;
+    try { sessionStorage.removeItem(MARCA); } catch (e) {}
+  }
+  try { sessionStorage.removeItem(MARCA); } catch (e) {}
   f.addEventListener("submit", function () {
     try {
       for (var i = sessionStorage.length - 1; i >= 0; i--) {
         var k = sessionStorage.key(i);
         if (k && k.indexOf("cockpit.editor.") === 0) sessionStorage.removeItem(k);
       }
+      sessionStorage.setItem(MARCA, String(Date.now()));
+      segnata = true;
     } catch (e) {}
   });
+  document.addEventListener("pointerdown", resta, true);
+  document.addEventListener("keydown", resta, true);
 })();
 
 // Il poll dell'Inbox non deve far saltare la lettura (checkpoint 3R §6, UI4).

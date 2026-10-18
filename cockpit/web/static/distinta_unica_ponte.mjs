@@ -35,20 +35,28 @@
 //     si legge, sessione scaduta dopo l'invio: la chiave resta in sospeso e si verifica con esitoIntento. "non_registrato"
 //     = il 500 CONTROLLO_FINALE di R5 (EM §8.4): esito certo, niente «Riprova»;
 //   - E1′ torna {esito: "caricati"|"parziale"|"no"|"errore", file, testo, codice, dati}: "parziale" non è mai un «ok»;
+//     un caricamento fermo per inattività è "errore" con PONTE_INATTIVITA (come una rete caduta: si rimandano gli
+//     stessi file, e quelli già entrati risultano «già presente»);
 //   - gli atti tornano {esito: "ok"|"no"|"errore", testo}.
 // I codici di trasporto: PONTE_RETE, PONTE_SESSIONE, PONTE_RISPOSTA, PONTE_ROTTA_ASSENTE, PONTE_IN_VOLO,
-// PONTE_TENTATIVO_IN_SOSPESO, PONTE_ARGOMENTO, PONTE_NON_CONFIGURATO (MAT §1.3).
+// PONTE_TENTATIVO_IN_SOSPESO, PONTE_ARGOMENTO, PONTE_NON_CONFIGURATO (MAT §1.3), e PONTE_INATTIVITA del caricamento.
 //
-// Vincoli del file: nessun import, nessun await fuori dalle funzioni, nessun setTimeout, solo le globali del DOM
-// (window, document, location, fetch, AbortSignal, DOMParser, URL, URLSearchParams, FormData, sessionStorage, crypto,
-// Uint8Array). Ogni richiesta ha un tempo massimo (AbortSignal.timeout): una richiesta appesa non tiene la risorsa «in
-// volo» per sempre, e scaduto il tempo l'esito è quello di una rete caduta («da verificare» per le scritture con la
-// chiave, «non arrivato» per R2). Indirizzi costruiti solo da UUID controllati (RE_UUID) e dalla RFQ della pagina
-// (D23:234): nessun percorso del disco va al server, nessuno ne torna.
+// Vincoli del file: nessun import, nessun await fuori dalle funzioni, solo le globali del DOM (window, document,
+// location, fetch, XMLHttpRequest, AbortSignal, setTimeout e clearTimeout, DOMParser, URL, URLSearchParams, FormData,
+// sessionStorage, crypto, Uint8Array). Ogni chiamata JSON e ogni atto hanno un tempo massimo (AbortSignal.timeout): una
+// richiesta appesa non tiene la risorsa «in volo» per sempre, e scaduto il tempo l'esito è quello di una rete caduta
+// («da verificare» per le scritture con la chiave, «non arrivato» per R2). Il caricamento (E1′) no: ha un tempo
+// d'inattività, cioè si ferma solo se per INATTIVITA nessun byte va al server e nessuno ne torna; un caricamento lento
+// che avanza arriva in fondo (decisioni dell'ondata A, §5 n. 3). Per contare i byte inviati serve XMLHttpRequest
+// (upload.onprogress: fetch non li dice), ed è il solo uso di setTimeout del file. Indirizzi costruiti solo da UUID
+// controllati (RE_UUID) e dalla RFQ della pagina (D23:234): nessun percorso del disco va al server, nessuno ne torna.
 
 const U = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const RE_UUID = new RegExp("^" + U + "$");
 const RE_FIRMA = /^[0-9a-f]{64}$/;
+// la firma dell'effetto di un cambio di tipo: esadecimale minuscolo di 24-64 cifre (decisioni dell'ondata A, P-16)
+const RE_FIRMA_EFFETTO = /^[0-9a-f]{24,64}$/;
+const TIPI_COMPONENTE = ["finito", "sottoassieme", "sciolto", "commerciale"];
 
 const SESSIONE = "Sessione scaduta: si torna al login.";
 const IN_VOLO = "Un'altra scrittura sulla stessa risorsa è in corso: questa non è partita. Rifalla quando la prima ha un esito.";
@@ -58,6 +66,12 @@ const TEMPO_MASSIMO = 120000;
 function segnale() {
   return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(TEMPO_MASSIMO) : undefined;
 }
+// il tempo d'inattività del caricamento (E1′, commento di testa): nessun byte inviato né ricevuto per tanto, e il
+// caricamento si ferma. Scelta [T] della corsia: non meno del tempo massimo delle chiamate JSON (TEMPO_MASSIMO), che
+// prima valeva per tutto il caricamento. Un server che, ricevuto il corpo, tace mentre scrive i file prima arrivava in
+// fondo entro 120 s, e deve arrivarci ancora: DECA §5 n. 3 toglie un limite, non ne aggiunge uno più stretto. Si ritara
+// quando la corsia file dice il tempo peggiore del server dopo il corpo (RQ-F1); la L1 lo tiene >= TEMPO_MASSIMO
+const INATTIVITA = 120000;
 const FATTO = "Fatto: il server non ha aggiunto altro.";
 const NIENTE = "Niente è cambiato.";
 const SENZA_ESITO =
@@ -127,7 +141,9 @@ const RIFIUTI = {
   convertiBozza: RIFIUTI_R2,
   abbandonaBozza: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
   riepilogoBom: ["CORPO_NON_VALIDO", "FUORI_RFQ"],
-  confermaBom: ["BLOCCHI", "CONGELATA", "CORPO_NON_VALIDO", "FUORI_RFQ"],
+  // NESSUNA_MODIFICA: la bozza è uguale alla conferma di base formato 3 (decisioni dell'ondata A, PE-23); lo stato 422,
+  // come gli altri rifiuti di una regola, è una proposta della corsia finché EM §9.5 non lo scrive
+  confermaBom: ["BLOCCHI", "CONGELATA", "NESSUNA_MODIFICA", "CORPO_NON_VALIDO", "FUORI_RFQ"],
   esitoIntento: ["FUORI_RFQ"],
   storicoConferme: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
   carica: ["NESSUN_FILE_CARICATO", "CORPO_NON_VALIDO"],
@@ -445,12 +461,39 @@ export async function anteprimaAutorizzazione(campi) {
   return leggi("anteprimaAutorizzazione", "", "?" + p.toString(), undefined, null);
 }
 
+// effettoLeggibile: «effetto» della variante di R1 nella forma che la pagina legge (proposta PE-B05; RPC PD-05 ancora
+// aperto): spento stringa, anche vuota, ed elenchi sospende, con_lei, resta_sospesa e avvisi, anche vuoti; rimozioni,
+// autorizzabile, step_strutturale e svuota_step, se ci sono, del loro tipo. Un effetto con altri nomi (per esempio quelli
+// della struct Go EffettoTipo senza tag json: «Spento», «Sospende»…) non si legge: senza questo controllo la pagina
+// vedrebbe «nessun altro effetto» e accenderebbe «Cambia» per un cambio che il server dice spento.
+function effettoLeggibile(e) {
+  if (!oggetto(e) || typeof e.spento !== "string") return false;
+  if (!["sospende", "con_lei", "resta_sospesa", "avvisi"].every((k) => Array.isArray(e[k]))) return false;
+  if (e.rimozioni !== undefined && !(Number.isInteger(e.rimozioni) && e.rimozioni >= 0)) return false;
+  if (e.autorizzabile !== undefined && typeof e.autorizzabile !== "boolean") return false;
+  return ["step_strutturale", "svuota_step"].every((k) => e[k] === undefined || typeof e[k] === "string");
+}
+
 // leggiBozza: R1, GET …/motore-a/bozza?prodotto={uuid}[&eventi=1][&importazione=1][&registro=<impronta>][&confronto=1]
 // (EM §9.1). L'oggetto con stato "aperta" o "nessuna_bozza".
+// Con opz.effetto_cambio_tipo (un componente registrato) e opz.tipo_nuovo è la variante di lettura per l'effetto del
+// cambio di tipo (MAT §1.3, BZ-06; decisioni dell'ondata A, PE-09): …&effetto_cambio_tipo={componente}&tipo_nuovo={tipo}
+// → {componente_id, tipo_nuovo, effetto, firma_effetto}, senza scrivere; una variante come ?confronto=1 ed ?eventi=1,
+// non una rotta nuova. La firma va com'è nella decisione cambia_tipo{componente_id, tipo_nuovo, firma_effetto} (EM §3.6
+// riga 13; P-7, P-16). Una risposta senza la firma dell'effetto (una R1 che la variante non la conosce ancora), o con un
+// «effetto» in una forma che la pagina non legge (effettoLeggibile), è PONTE_RISPOSTA: il gesto non parte.
 export async function leggiBozza(prodotto, opz) {
   if (!uuid(prodotto)) throw erroreDedicata("PONTE_ARGOMENTO", 0, "Il prodotto non è un UUID.");
   const o = opz || {};
   let q = "?prodotto=" + prodotto.toLowerCase();
+  if (o.effetto_cambio_tipo !== undefined) {
+    if (!uuid(o.effetto_cambio_tipo)) throw erroreDedicata("PONTE_ARGOMENTO", 0, "Il componente del cambio di tipo non è un UUID.");
+    if (!TIPI_COMPONENTE.includes(o.tipo_nuovo)) throw erroreDedicata("PONTE_ARGOMENTO", 0, "Il tipo nuovo non è uno dei tipi di componente.");
+    const c = o.effetto_cambio_tipo.toLowerCase();
+    q += "&effetto_cambio_tipo=" + c + "&tipo_nuovo=" + o.tipo_nuovo;
+    return leggi("leggiBozza", "", q, undefined, (j) => typeof j.componente_id === "string" && j.componente_id.toLowerCase() === c && j.tipo_nuovo === o.tipo_nuovo &&
+      typeof j.firma_effetto === "string" && RE_FIRMA_EFFETTO.test(j.firma_effetto) && effettoLeggibile(j.effetto));
+  }
   if (o.eventi) q += "&eventi=1";
   if (o.importazione) q += "&importazione=1";
   if (typeof o.registro === "string" && RE_FIRMA.test(o.registro)) q += "&registro=" + o.registro;
@@ -910,10 +953,75 @@ export async function riallineaDocumenti() {
   return { esito: "errore", codice: codiceDi(r) || "PONTE_ERRORE_" + r.stato, motivo: "", testo: testoDi(r, "Riallineamento dei documenti non riuscito: riprova."), dati: r.json };
 }
 
+// inviaConInattivita: il trasporto del caricamento (E1′, commento di testa). Una POST multipart con XMLHttpRequest, che
+// dice i byte inviati (upload.onprogress) e quelli ricevuti (onprogress): ogni byte che si muove riarma il tempo
+// d'inattività, e solo se per INATTIVITA non se ne muove nessuno la richiesta si ferma, con PONTE_INATTIVITA. Nessun
+// tempo massimo totale: un caricamento lento che avanza arriva in fondo. progresso(inviati, totale), se c'è, riceve
+// l'avanzamento dell'invio. → {stato, testo, tipo, hxRedirect, url}, oppure lancia (rete caduta, inattività).
+function inviaConInattivita(indirizzo, corpo, progresso) {
+  return new Promise((risolvi, rifiuta) => {
+    const x = new XMLHttpRequest();
+    let timer = 0;
+    let chiuso = false;
+    const fine = (fn, v) => {
+      if (chiuso) return;
+      chiuso = true;
+      clearTimeout(timer);
+      fn(v);
+    };
+    const riarma = () => {
+      if (chiuso) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        fine(rifiuta, erroreDedicata("PONTE_INATTIVITA", 0, "nessun byte inviato né ricevuto per " + Math.round(INATTIVITA / 1000) + " s"));
+        try {
+          x.abort();
+        } catch (e) {
+          // già chiusa
+        }
+      }, INATTIVITA);
+    };
+    x.open("POST", indirizzo);
+    x.setRequestHeader("Accept", "application/json");
+    x.upload.addEventListener("loadstart", riarma);
+    x.upload.addEventListener("progress", (e) => {
+      riarma();
+      if (progresso && e.lengthComputable) {
+        try {
+          progresso(e.loaded, e.total);
+        } catch (err) {
+          // l'avanzamento è solo presentazione
+        }
+      }
+    });
+    x.upload.addEventListener("load", riarma);
+    x.addEventListener("readystatechange", () => {
+      if (x.readyState === 2 || x.readyState === 3) riarma();
+    });
+    x.addEventListener("progress", riarma);
+    x.addEventListener("load", () => fine(risolvi, { stato: x.status, testo: x.responseText || "", tipo: x.getResponseHeader("Content-Type") || "",
+      hxRedirect: x.getResponseHeader("HX-Redirect") || "", url: x.responseURL || "" }));
+    x.addEventListener("error", () => fine(rifiuta, new Error("la rete non risponde")));
+    x.addEventListener("abort", () => fine(rifiuta, new Error("richiesta interrotta")));
+    riarma();
+    x.send(corpo);
+  });
+}
+
+// rimandoAlLoginDi: come rimandoAlLogin, per la risposta di inviaConInattivita (XMLHttpRequest segue da sé i
+// rimandi: un 302 verso /login si vede dall'indirizzo finale).
+function rimandoAlLoginDi(r) {
+  if (r.stato === 401) return r.hxRedirect && percorsoDi(r.hxRedirect) === "/login" ? r.hxRedirect : "/login";
+  if (r.hxRedirect && percorsoDi(r.hxRedirect) === "/login") return r.hxRedirect;
+  if (r.url && percorsoDi(r.url) === "/login") return "/login";
+  return "";
+}
+
 // carica: E1′, il ramo JSON di POST /thread/{id}/carica (multipart, Accept: application/json; EM §10.9). origine =
 // "portale" (del cliente) | "interna". Nessuna assegnazione a un componente all'ingresso (D23:276). Il reinvio dopo una
-// risposta persa è idempotente per contenuto: dà «gia_presente».
-export async function carica(files, origine) {
+// risposta persa è idempotente per contenuto: dà «gia_presente». Il trasporto ha il tempo d'inattività, non il tempo
+// massimo delle chiamate JSON (inviaConInattivita); progresso(inviati, totale) riceve l'avanzamento dell'invio.
+export async function carica(files, origine, progresso) {
   if (!RFQ) return { esito: "errore", codice: "PONTE_NON_CONFIGURATO", testo: "Il caricamento non è partito: il ponte non è configurato.", file: [], dati: null };
   const elenco = Array.from(files || []).filter((f) => typeof File !== "undefined" && f instanceof File);
   if (elenco.length === 0) return { esito: "errore", codice: "PONTE_ARGOMENTO", testo: "Nessun file scelto.", file: [], dati: null };
@@ -923,8 +1031,24 @@ export async function carica(files, origine) {
   for (const f of elenco) fd.append("file", f, f.name);
   let r;
   try {
-    r = await inEsclusiva("carica", () => chiama("carica", "", "", fd));
+    r = await inEsclusiva("carica", async () => {
+      const x = await inviaConInattivita(percorso("carica", ""), fd, typeof progresso === "function" ? progresso : null);
+      const login = rimandoAlLoginDi(x);
+      if (login) return { login };
+      let json = null;
+      if (x.tipo.toLowerCase().indexOf("json") >= 0) {
+        try {
+          json = JSON.parse(x.testo);
+        } catch (e) {
+          json = null;
+        }
+      }
+      return { stato: x.stato, json: oggetto(json) ? json : null, testo: x.testo };
+    });
   } catch (err) {
+    if (err && err.codice === "PONTE_INATTIVITA") {
+      return { esito: "errore", codice: "PONTE_INATTIVITA", testo: "Il caricamento si è fermato: " + messaggio(err) + ". Non si sa se i file sono entrati: rimanda gli stessi file (quelli già entrati risulteranno «già presente»).", file: [], dati: null };
+    }
     return { esito: "errore", codice: "PONTE_RETE", testo: "Il caricamento non è arrivato al server, o la risposta non si legge: rimanda gli stessi file (quelli già entrati risulteranno «già presente»). " + messaggio(err), file: [], dati: null };
   }
   if (r === null) return { esito: "errore", codice: "PONTE_IN_VOLO", testo: IN_VOLO, file: [], dati: null };
