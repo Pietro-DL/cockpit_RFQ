@@ -42,7 +42,8 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   20 file: «Scarta...» con le dipendenze (D-6 blocca, D-7 scollega, D-14 unica copia), l'archivio con le voci, «Altri
      file» e «Riattiva», 503 NON_CONFIGURATO
   21 S2 con la risposta persa: «Esito da verificare», R6 con la stessa chiave, «registrato»
-  22 S3 mai arrivata: R6 «non registrato», «Riprova» dalla striscia con lo stesso corpo e la stessa chiave
+  22 S3 mai arrivata: R6 «non registrato», la pagina ricaricata ritrova il tentativo, «Riprova» dalla striscia con lo
+     stesso corpo e la stessa chiave
   23 «+ Aggiungi file» (E1'): esito per file, «parziale», analisi in corso e poi letto, reinvio «gia' presente»
   24 gli atti del menu («Prepara i file» senza «auto», «Rifai l'analisi», «Riprova le copie») e «Revoca» con il motivo;
      R11 «Riallinea i documenti» con F8 in errore; «Apri» e' un link a S5, mai una fetch
@@ -978,7 +979,7 @@ def b21(b):
     expect(p.locator("#du-cartella-scartati")).to_have_text("Scartati (5)", timeout=T_LUNGO)
 
 
-@prova("22", "S3 mai arrivata: R6 «non registrato», «Riprova» dalla striscia con la stessa chiave")
+@prova("22", "S3 mai arrivata: R6 «non registrato», ricarica, «Riprova» dalla striscia con la stessa chiave")
 def b22(b):
     p = b.page
     a3 = b.al["ACM-1120_B.pdf"]
@@ -1002,6 +1003,14 @@ def b22(b):
     sosp = [x for x in b.sospesi() if x[1]["risorsa"] == risorsa]
     verifica(len(sosp) == 1 and sosp[0][1]["chiave"] == k and sosp[0][1].get("verificato") is True, "memoria della scheda: %s" % sosp)
     verifica(b.stato()["file"]["ACM-1120_B.pdf"]["stato"] == "attivo", "una richiesta mai arrivata ha cambiato il file")
+    # la ricarica non perde il tentativo: la chiave e il corpo stanno nella memoria della scheda (EM §10.9)
+    i0 = b.segna()
+    p.reload()
+    b.pronta()
+    b.passo("sorgente")
+    expect(striscia).to_contain_text("il server dice che non è ancora registrato", timeout=T_LUNGO)
+    b.attendi(lambda: [r for r in b.richieste_da(i0, "GET", r"/motore-a/intento/") if r["path"].endswith("/" + k)],
+              "nessun R6 all'apertura per il tentativo in sospeso")
     i = b.segna()
     p.click("#du-riprova-" + sid(risorsa))
     expect(b.avviso()).to_contain_text("File messo in Altri file: il contenuto è conservato.", timeout=T_LUNGO)

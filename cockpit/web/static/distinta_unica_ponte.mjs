@@ -591,8 +591,9 @@ export async function abbandonaBozza(id, corpo, prodotto) {
 // ---------------------------------------------------------------- le scritture con la chiave: R5, S2, S3, S4, S7
 
 // La memoria di sessione della scheda (EM §10.9; MAT §5.5): per ogni risorsa (thread, prodotto o allegato) il tentativo
-// dall'esito incerto {risorsa, nome, chiave, impronta, verificato, quando, etichetta}. La chiave del valore porta
-// l'utente: chi entra dopo sulla stessa scheda non trova il tentativo di un altro.
+// dall'esito incerto {risorsa, nome, chiave, impronta, verificato, quando, etichetta} e, per i gesti dei file, l'allegato
+// (u) e il corpo, per «Riprova» (riprovaSospeso). La chiave del valore porta l'utente: chi entra dopo sulla stessa scheda
+// non trova il tentativo di un altro.
 const PREFISSO = "cockpit.du.sospeso.";
 
 function chiaveMemoria(risorsa) {
@@ -691,8 +692,11 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
   }
   const riusato = prima && prima.impronta === impronta ? prima : null;
   const chiave = riusato ? riusato.chiave : nuovaChiave();
-  // prima dell'invio: la chiave e l'impronta nella memoria di sessione della scheda
-  scriviSospeso(risorsa, { risorsa, nome, chiave, impronta, verificato: false, quando: new Date().toISOString(), etichetta: etichetta || "" });
+  // prima dell'invio: la chiave e l'impronta nella memoria di sessione della scheda; per i gesti dei file anche il corpo,
+  // perché «Riprova» lo rimandi uguale anche dopo una ricarica (riprovaSospeso)
+  const voce = { risorsa, nome, chiave, impronta, verificato: false, quando: new Date().toISOString(), etichetta: etichetta || "" };
+  if (GESTI_FILE.includes(nome)) Object.assign(voce, { u: (u || "").toLowerCase(), corpo });
+  scriviSospeso(risorsa, voce);
   const rimetti = () => {
     if (riusato) scriviSospeso(risorsa, riusato);
     else togliSospeso(risorsa);
@@ -720,7 +724,7 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
     return { esito: "ok", codice: "", motivo: "", testo: testoDi(r, FATTO), chiave, dati: r.json };
   }
   if (r.stato === 409 && (CONFLITTI[nome] || []).includes(codice)) {
-    if (codice === "COPIA_IN_CORSO") scriviSospeso(risorsa, { risorsa, nome, chiave, impronta, verificato: true, certo: true, quando: new Date().toISOString(), etichetta: etichetta || "" });
+    if (codice === "COPIA_IN_CORSO") scriviSospeso(risorsa, Object.assign({}, voce, { verificato: true, certo: true, quando: new Date().toISOString() }));
     else togliSospeso(risorsa);
     return { esito: "conflitto", codice, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
   }
@@ -742,6 +746,22 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
   }
   rimetti();
   return { esito: "errore", codice: codice || "PONTE_ERRORE_" + r.stato, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
+}
+
+// I gesti dei file con la chiave: il loro tentativo in sospeso porta anche il corpo (piccolo: ≤ 64 KiB, EM §10.9).
+const GESTI_FILE = ["scartaFile", "altriFile", "riattivaFile", "associaStep"];
+
+// riprovaSospeso: «Riprova» di un gesto dei file in sospeso, con il corpo e la chiave di allora, anche dopo una ricarica
+// (EM §10.9, «Reinvio e risposta persa»: «non_registrato → si rimanda con la stessa chiave e lo stesso corpo»; MAT §5.5
+// n. 4). Per la conferma della BOM no: si riprova dal wizard, che rilegge il riepilogo, e il ponte riusa la chiave se
+// il corpo è lo stesso.
+export async function riprovaSospeso(risorsa) {
+  if (!RFQ) return Object.assign(nonPartita("Il gesto non è partito: il ponte non è configurato."), { chiave: "" });
+  const s = leggiSospeso(String(risorsa || ""));
+  if (!s || !GESTI_FILE.includes(s.nome) || !oggetto(s.corpo) || !uuid(s.u) || s.risorsa !== risorsa) {
+    return Object.assign(nonPartita("Il tentativo in sospeso non ha un corpo da rimandare: verificalo, o abbandonalo."), { chiave: "" });
+  }
+  return scriviConChiave(s.nome, risorsa, s.u, s.corpo, s.etichetta);
 }
 
 // impronteCorpo: la parte del corpo che decide se è «lo stesso corpo». R5: {firma_anteprima, bozza senza

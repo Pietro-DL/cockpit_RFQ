@@ -200,6 +200,23 @@ func TestDistintaUnicaJSSoloPresentazione(t *testing.T) {
 	}
 }
 
+// «Riprova» dei gesti dei file (EM §10.9, «Reinvio e risposta persa»; MAT §5.5 n. 4): il tentativo in sospeso porta il
+// corpo solo per S2, S3, S4 e S7, piccoli (la conferma della BOM si riprova dal wizard, che rilegge il riepilogo), e
+// riprovaSospeso rimanda il corpo di allora passando da scriviConChiave, che riusa la chiave per lo stesso corpo.
+func TestPonteDistintaUnicaRiprovaDeiFile(t *testing.T) {
+	src := duFile(t, duPonte)
+	if !strings.Contains(src, `const GESTI_FILE = ["scartaFile", "altriFile", "riattivaFile", "associaStep"];`) {
+		t.Error("l'elenco dei gesti dei file che portano il corpo nel tentativo in sospeso non è quello di S2, S3, S4 e S7")
+	}
+	if !regexp.MustCompile(`(?m)^export async function riprovaSospeso\(`).MatchString(src) ||
+		!strings.Contains(src, "return scriviConChiave(s.nome, risorsa, s.u, s.corpo, s.etichetta);") {
+		t.Error("riprovaSospeso non rimanda il corpo di allora con scriviConChiave")
+	}
+	if !strings.Contains(duFile(t, duPagina), "await P.riprovaSospeso(s.risorsa)") {
+		t.Error("la pagina non usa riprovaSospeso per «Riprova» dei gesti dei file")
+	}
+}
+
 // I cataloghi del ponte contro i codici di EM, rotta per rotta (la parte di T-05 che si fa senza l'elenco unico del
 // server): i 409 che ogni funzione legge come conflitto e i 422 che legge come rifiuto.
 func TestPonteDistintaUnicaCataloghi(t *testing.T) {
