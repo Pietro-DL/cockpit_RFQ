@@ -269,22 +269,70 @@ func (c *Cache) interroga(ctx context.Context, q *db.Queries, contenuti []*conte
 			k.ultimoUso = u.UltimoUso
 		}
 	}
-	voci, err := q.ListVociDiArchivio(ctx, sha)
+	figliDi, err := VociDiArchivi(ctx, q, sha)
 	if err != nil {
-		return fmt.Errorf("voci degli archivi: %w", err)
+		return err
 	}
 	daChiedere := sha
+	for _, figli := range figliDi {
+		for _, f := range figli {
+			if _, c := perSha[f]; !c {
+				daChiedere = append(daChiedere, f)
+			}
+		}
+	}
+	motivi, err := PinDiContenuti(ctx, q, daChiedere, c.CopiaNelDeposito)
+	if err != nil {
+		return err
+	}
+	for _, k := range contenuti {
+		k.pin = motivi[k.sha]
+		if k.pin != "" {
+			continue
+		}
+		k.pin = PinDiUnaVoce(figliDi[k.sha], motivi)
+	}
+	return nil
+}
+
+// VociDiArchivi: per ogni archivio fra questi contenuti, gli sha delle voci estratte da lui (ListVociDiArchivio), in
+// ordine. E' la meta' «archivio → voci» della funzione dei pin: la usano la passata qui sopra e il tempo 2 dello scarto
+// (V1, EM §10.4 passo 8: «i pin si calcolano con la stessa funzione della cache, con la regola archivio → voci»).
+func VociDiArchivi(ctx context.Context, q *db.Queries, sha []string) (map[string][]string, error) {
+	voci, err := q.ListVociDiArchivio(ctx, sha)
+	if err != nil {
+		return nil, fmt.Errorf("voci degli archivi: %w", err)
+	}
 	figliDi := map[string][]string{}
 	for _, v := range voci {
 		z, f := strings.TrimSpace(v.Archivio), strings.TrimSpace(v.Voce)
 		figliDi[z] = append(figliDi[z], f)
-		if _, c := perSha[f]; !c {
-			daChiedere = append(daChiedere, f)
+	}
+	for z := range figliDi {
+		sort.Strings(figliDi[z])
+	}
+	return figliDi, nil
+}
+
+// PinDiUnaVoce: il pin di un archivio per la regola archivio → voci: la prima voce (in ordine) con un pin, o "". Un
+// archivio e' pinnato se lo e' una sua voce, anche una voce che sul disco non c'e' piu': da lui si riestrae.
+func PinDiUnaVoce(voci []string, motivi map[string]string) string {
+	for _, f := range voci {
+		if m := motivi[f]; m != "" {
+			return "archivio con una voce ancora in uso (" + m + ")"
 		}
 	}
-	pin, err := q.ListContenutiPinnati(ctx, daChiedere)
+	return ""
+}
+
+// PinDiContenuti: i pin di questi contenuti con la stessa funzione della passata, cioe' ListContenutiPinnati e il pin
+// «proposta aperta in Altri file» che cade quando la copia verificata e' nel deposito (copiaNelDeposito; nil = deposito
+// non configurato: il pin resta). Senza la regola archivio → voci, che applica chi chiama (VociDiArchivi,
+// PinDiUnaVoce). Un contenuto senza pin non sta nella mappa.
+func PinDiContenuti(ctx context.Context, q *db.Queries, sha []string, copiaNelDeposito func(string, uuid.UUID, int64) bool) (map[string]string, error) {
+	pin, err := q.ListContenutiPinnati(ctx, sha)
 	if err != nil {
-		return fmt.Errorf("contenuti pinnati: %w", err)
+		return nil, fmt.Errorf("contenuti pinnati: %w", err)
 	}
 	motivi := make(map[string]string, len(pin))
 	var altriFile []string
@@ -295,30 +343,19 @@ func (c *Cache) interroga(ctx context.Context, q *db.Queries, contenuti []*conte
 			altriFile = append(altriFile, s)
 		}
 	}
-	if err := c.sciogliAltriFile(ctx, q, altriFile, motivi); err != nil {
-		return err
+	if err := sciogliAltriFile(ctx, q, copiaNelDeposito, altriFile, motivi); err != nil {
+		return nil, err
 	}
-	for _, k := range contenuti {
-		k.pin = motivi[k.sha]
-		if k.pin != "" {
-			continue
-		}
-		for _, f := range figliDi[k.sha] {
-			if m := motivi[f]; m != "" {
-				k.pin = "archivio con una voce ancora in uso (" + m + ")"
-				break
-			}
-		}
-	}
-	return nil
+	return motivi, nil
 }
 
 // sciogliAltriFile: per i contenuti il cui unico pin e' una proposta aperta di un'occorrenza in Altri file, il pin
 // cade se OGNI copia verificata di quelle occorrenze c'e' nel deposito con la dimensione attesa (EM §10.5). Se il file
 // del deposito manca, il pin resta: la cache non toglie lo staging di un file in Altri file senza byte nel deposito
 // (PM23 AF-15), e la Sorgente segnala l'anomalia.
-func (c *Cache) sciogliAltriFile(ctx context.Context, q *db.Queries, sha []string, motivi map[string]string) error {
-	if len(sha) == 0 || c.CopiaNelDeposito == nil {
+func sciogliAltriFile(ctx context.Context, q *db.Queries, copiaNelDeposito func(string, uuid.UUID, int64) bool, sha []string,
+	motivi map[string]string) error {
+	if len(sha) == 0 || copiaNelDeposito == nil {
 		return nil
 	}
 	copie, err := q.ListConservazioniCopiatePerSha(ctx, sha)
@@ -330,7 +367,7 @@ func (c *Cache) sciogliAltriFile(ctx context.Context, q *db.Queries, sha []strin
 	for _, cp := range copie {
 		s := strings.TrimSpace(cp.Sha256)
 		trovate[s] = true
-		if !cp.Bytes.Valid || !c.CopiaNelDeposito(cp.PercorsoRelativo, cp.DepositoID, cp.Bytes.Int64) {
+		if !cp.Bytes.Valid || !copiaNelDeposito(cp.PercorsoRelativo, cp.DepositoID, cp.Bytes.Int64) {
 			mancante[s] = true
 		}
 	}

@@ -104,8 +104,11 @@ func (s *Servizio) EseguiRimozione(ctx context.Context, rimozioneID int64, custo
 			}
 			return EsitoPasso{Stato: "non_necessaria_condiviso", Motivo: "condiviso"}, nil
 		}
+		// fuori_cache solo sotto la radice e fuori da _contenuti (lo staging vecchio per messaggio, una cartella a mano);
+		// un percorso dentro _contenuti che non e' il posto di questo contenuto, o fuori dalla radice, e'
+		// percorso_non_valido (EM §10.4 passo 4)
 		motivo := "percorso_non_valido"
-		if sottoRadice(s.Staging, percorso) {
+		if sottoRadice(s.Staging, percorso) && !sottoRadice(filepath.Join(s.Staging, staging.CartellaContenuti), percorso) {
 			motivo = "fuori_cache"
 		}
 		if err := s.passoRimozione(ctx, q, r, "errore", motivo, pgtype.Text{String: "il percorso non è nella cache dello staging", Valid: true}, trovato); err != nil {
@@ -146,10 +149,15 @@ func (s *Servizio) EseguiRimozione(ctx context.Context, rimozioneID int64, custo
 		}
 		return chiudi("non_necessaria_condiviso", "condiviso", nil)
 	}
-	// passo 8: altri pin del file (non e' uno stato finale: si ritenta)
+	// passo 8: altri pin del file (non e' uno stato finale: si ritenta); poi la regola archivio → voci della cache
 	pin, err := q.PinDelFile(ctx, db.PinDelFileParams{Sha256: sha, Escluso: r.AllegatoID, Percorso: percorso})
 	if err != nil {
 		return EsitoPasso{}, err
+	}
+	if pin == "" {
+		if pin, err = s.pinDelleVoci(ctx, q, sha); err != nil {
+			return EsitoPasso{}, err
+		}
 	}
 	if pin != "" {
 		return attendi("pin_transitorio")
@@ -184,6 +192,27 @@ func (s *Servizio) EseguiRimozione(ctx context.Context, rimozioneID int64, custo
 		return EsitoPasso{}, err
 	}
 	return EsitoPasso{Stato: "eseguita", Motivo: "rimosso"}, nil
+}
+
+// pinDelleVoci e' la regola archivio → voci del passo 8 (EM §10.4: «i pin si calcolano con la stessa funzione della
+// cache, con la regola archivio → voci»): un archivio resta nello staging finche' una sua voce ha un pin, anche una voce
+// che sul disco non c'e' piu', perche' da lui si riestrae. Le voci e i loro pin vengono dalla stessa funzione della
+// passata della cache (staging.VociDiArchivi, staging.PinDiContenuti, con il deposito per il pin «proposta aperta in
+// Altri file»). Le voci scartate nello stesso gesto dell'archivio non danno pin: la loro proposta e' chiusa e la loro
+// copia e' in rilascio (i pin nati dal gesto stesso non contano). Senza voci, nessun pin.
+func (s *Servizio) pinDelleVoci(ctx context.Context, q *db.Queries, sha string) (string, error) {
+	if sha == "" {
+		return "", nil
+	}
+	voci, err := staging.VociDiArchivi(ctx, q, []string{sha})
+	if err != nil || len(voci[sha]) == 0 {
+		return "", err
+	}
+	motivi, err := staging.PinDiContenuti(ctx, q, voci[sha], s.CopiaNelDeposito())
+	if err != nil {
+		return "", err
+	}
+	return staging.PinDiUnaVoce(voci[sha], motivi), nil
 }
 
 // passoRimozione scrive un passo della rimozione dallo stato atteso (confronta e scambia) e, per gli stati che hanno un

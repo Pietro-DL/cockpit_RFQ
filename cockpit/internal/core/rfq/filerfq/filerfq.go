@@ -106,6 +106,9 @@ type Agganci struct {
 	DopoLaCancellazione func(rimozioneID int64)
 	// DopoLaCopia: «Metti in Altri file», fra la copia verificata e la fase C.
 	DopoLaCopia func(allegato uuid.UUID)
+	// PrimaDiCopiare: «Metti in Altri file», prima della copia di ogni riga del gesto (fuori transazione): una prova vi
+	// chiude la riga con uno «Scarta» per il 409 tentativo_chiuso nella copia.
+	PrimaDiCopiare func(allegato uuid.UUID)
 	// PrimaDellaFaseC: «Riattiva», fra il controllo dello staging (passo 2) e la fase C.
 	PrimaDellaFaseC func(allegato uuid.UUID)
 	// SaltaTentativi: dopo il COMMIT di un gesto non si fa il tentativo del tempo 2 ne' quello del rilascio: li fa il

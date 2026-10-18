@@ -155,9 +155,79 @@ func erroreLeggibile(err error) string {
 	return "JSON non valido"
 }
 
-// rePercorso: lettere di unita' e percorsi UNC in un testo libero (un errore del sistema operativo, il messaggio di un
-// worker). Nessun percorso esce verso il browser (EM §10.9; T-15): si sostituisce con un segno.
-var rePercorso = regexp.MustCompile(`(?:[A-Za-z]:[\\/]|\\\\)[^\s"'<>|]*`)
+// SegnoPercorso: cio' che prende il posto di un percorso in un testo che va al browser.
+const SegnoPercorso = "‹percorso›"
 
-// SenzaPercorsi toglie i percorsi da un testo che va al browser.
-func SenzaPercorsi(s string) string { return rePercorso.ReplaceAllString(s, "‹percorso›") }
+// SenzaPercorsi toglie i percorsi da un testo che va al browser (un errore del sistema operativo, il messaggio di un
+// worker, l'esito di un evento): nessun percorso esce verso il browser (EM §10.9; T-15). Un percorso comincia con una
+// lettera di unita' a inizio parola («C:\», «C:/»), con «\\» (UNC, anche «\\?\…»), oppure con «/» dopo uno spazio, una
+// virgoletta o una parentesi seguito da un'altra «/» (un percorso assoluto POSIX). Finisce a «: » (due punti seguiti
+// da uno spazio o dalla fine: il separatore dei messaggi d'errore, «open C:\…\x.pdf: Accesso negato»; un percorso di
+// Windows non ha altri due punti, e quelli di una seconda lettera di unita' non lo fermano), a una virgoletta, a «<»,
+// «>», «|», a capo o alla fine del testo: i percorsi con gli spazi («C:\Users\Nome Cognome\…», «\\nas\PREVENTIVI DA
+// FARE\…») escono interi (rilievo della revisione: la versione di prima si fermava al primo spazio). Il prezzo e' che
+// il resto della frase dopo un percorso senza «: » si perde con lui: meglio una frase corta che un pezzo di percorso.
+func SenzaPercorsi(s string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		n := inizioPercorso(s, i)
+		if n == 0 {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		j := i + n
+		for j < len(s) && !fineDelPercorso(s, j) {
+			j++
+		}
+		b.WriteString(SegnoPercorso)
+		i = j
+	}
+	return b.String()
+}
+
+// fineDelPercorso: alla posizione j di s finisce un percorso (vedi SenzaPercorsi).
+func fineDelPercorso(s string, j int) bool {
+	switch s[j] {
+	case '"', '\'', '<', '>', '|', '\r', '\n':
+		return true
+	case ':':
+		return j+1 == len(s) || s[j+1] == ' ' || s[j+1] == '\t'
+	}
+	return false
+}
+
+// inizioPercorso: la lunghezza dell'inizio di un percorso alla posizione i di s («\\?\C:\», «C:\», «\\», «/x/»), o 0.
+func inizioPercorso(s string, i int) int {
+	lettera := func(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+	cifra := func(c byte) bool { return c >= '0' && c <= '9' }
+	barra := func(c byte) bool { return c == '\\' || c == '/' }
+	r := s[i:]
+	switch {
+	case strings.HasPrefix(r, `\\?\`) || strings.HasPrefix(r, `\\.\`):
+		// \\?\C:\…, \\?\UNC\…: il prefisso intero, con la lettera e i suoi due punti
+		if len(r) >= 7 && lettera(r[4]) && r[5] == ':' && barra(r[6]) {
+			return 7
+		}
+		return 4
+	case strings.HasPrefix(r, `\\`):
+		return 2
+	case len(r) >= 3 && lettera(r[0]) && r[1] == ':' && barra(r[2]) && (i == 0 || !(lettera(s[i-1]) || cifra(s[i-1]) || s[i-1] == '_')):
+		return 3
+	case r[0] == '/' && (i == 0 || strings.ContainsRune(" \t\"'([=", rune(s[i-1]))):
+		// /mnt/staging/…: almeno un'altra «/» dopo un nome, prima di uno spazio o della fine
+		for k := 1; k < len(r); k++ {
+			switch {
+			case r[k] == '/':
+				if k > 1 {
+					return 1
+				}
+				return 0
+			case r[k] == ' ' || r[k] == '\t' || fineDelPercorso(r, k):
+				return 0
+			}
+		}
+	}
+	return 0
+}

@@ -495,8 +495,10 @@ func TestPP04CorpoConCampiPercorso(t *testing.T) {
 
 // ---------------------------------------------------------------- PP-05, PP-06: percorsi alterati nel DB
 
-// PP-05: path_staging alterato nel DB (fuori dalla radice, con «..», il posto di un altro contenuto): nessuna
-// cancellazione (errore non ritentabile) e S5 non serve i byte.
+// PP-05: path_staging alterato nel DB (fuori dalla radice, con «..», il posto di un altro contenuto, lo staging vecchio
+// per messaggio): nessuna cancellazione (errore non ritentabile) e S5 non serve i byte. Il motivo e' quello di EM §10.4
+// passo 4: fuori_cache solo sotto la radice e fuori da _contenuti; percorso_non_valido negli altri casi, compreso il
+// posto di un altro contenuto dentro _contenuti (rilievo della revisione).
 func TestPP05PathStagingAlterato(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.sorgente(t, true)
@@ -510,6 +512,11 @@ func TestPP05PathStagingAlterato(t *testing.T) {
 	if err := os.WriteFile(altroP, altroC, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	vecchioP := filepath.Join(s.ws.Staging, "MSG-0005", "vecchio.pdf")
+	_ = os.MkdirAll(filepath.Dir(vecchioP), 0o755)
+	if err := os.WriteFile(vecchioP, byteCasuali("vecchio.pdf", 11, 1_000), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	casi := []struct {
 		nome, percorso string
 		statoS5        int
@@ -517,7 +524,8 @@ func TestPP05PathStagingAlterato(t *testing.T) {
 	}{
 		{"fuori dalla radice", fuori, http.StatusInternalServerError, "percorso_non_valido"},
 		{"con ..", s.ws.Staging + `\` + staging.CartellaContenuti + `\..\..\` + filepath.Base(filepath.Dir(fuori)) + `\fuori.pdf`, http.StatusInternalServerError, "percorso_non_valido"},
-		{"un altro contenuto", altroP, http.StatusGone, "fuori_cache"},
+		{"un altro contenuto", altroP, http.StatusGone, "percorso_non_valido"},
+		{"lo staging vecchio per messaggio", vecchioP, http.StatusGone, "fuori_cache"},
 	}
 	for i, c := range casi {
 		a, _ := s.file(s.thread, fmt.Sprintf("ACME-P05-%d.pdf", i), byteCasuali("x.pdf", int64(20+i), 1_500), db.OrigineAllegatoOutlook)
@@ -546,6 +554,9 @@ func TestPP05PathStagingAlterato(t *testing.T) {
 	}
 	if _, err := os.Stat(altroP); err != nil {
 		t.Error("il file di un altro contenuto e' stato toccato")
+	}
+	if _, err := os.Stat(vecchioP); err != nil {
+		t.Error("il file dello staging vecchio per messaggio e' stato toccato")
 	}
 }
 
@@ -799,6 +810,12 @@ func TestR21IlModelloDellaSorgente(t *testing.T) {
 			if _, ok := v["motivo"].(string); !ok {
 				t.Errorf("azione %s senza motivo: %v", nome, az[nome])
 			}
+		}
+		// contenuto porta sempre richiede[], anche vuoto (EM §10.9 S1; rilievo della revisione)
+		if c, _ := az["contenuto"].(map[string]any); c == nil {
+			t.Errorf("azioni senza contenuto: %v", az)
+		} else if _, ok := c["richiede"].([]any); !ok {
+			t.Errorf("azioni.contenuto senza richiede[]: %v", c)
 		}
 	}
 	d, _ := m["dettaglio"].(map[string]any)

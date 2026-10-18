@@ -339,7 +339,7 @@ func (q *Queries) GetConservazioneSeLibera(ctx context.Context, conservazioneID 
 }
 
 const getDocumentoScrittoPerSha = `-- name: GetDocumentoScrittoPerSha :one
-SELECT d.documento_id, d.path_relativo, d.bytes, d.sha256, t.cartella_relativa
+SELECT d.documento_id, d.path_relativo, d.bytes, d.sha256, d.scritto_il, d.verificato_il, t.cartella_relativa
   FROM documento d JOIN thread_offerta t ON t.thread_id = d.thread_id
  WHERE d.thread_id = $1 AND d.sha256 = $2::char(64) AND d.stato_nas = 'scritto'
    AND NOT EXISTS (SELECT 1 FROM nas_anomalia n WHERE n.documento_id = d.documento_id AND n.risolta_il IS NULL)
@@ -357,11 +357,14 @@ type GetDocumentoScrittoPerShaRow struct {
 	PathRelativo     string      `json:"path_relativo"`
 	Bytes            pgtype.Int8 `json:"bytes"`
 	Sha256           string      `json:"sha256"`
+	ScrittoIl        *time.Time  `json:"scritto_il"`
+	VerificatoIl     *time.Time  `json:"verificato_il"`
 	CartellaRelativa pgtype.Text `json:"cartella_relativa"`
 }
 
 // Il documento della RFQ con questo contenuto scritto sul NAS, senza anomalie aperte, con la cartella della RFQ: una
-// sorgente dei byte in sola lettura (copia di conservazione, S5).
+// sorgente dei byte in sola lettura (copia di conservazione, S5). scritto_il e verificato_il dicono a S5 se il file e'
+// «in dubbio» (toccato dopo l'ultima volta che il server l'ha guardato): allora lo rilegge per lo sha, senza scrivere.
 func (q *Queries) GetDocumentoScrittoPerSha(ctx context.Context, arg GetDocumentoScrittoPerShaParams) (GetDocumentoScrittoPerShaRow, error) {
 	row := q.db.QueryRow(ctx, getDocumentoScrittoPerSha, arg.ThreadID, arg.Sha256)
 	var i GetDocumentoScrittoPerShaRow
@@ -370,6 +373,8 @@ func (q *Queries) GetDocumentoScrittoPerSha(ctx context.Context, arg GetDocument
 		&i.PathRelativo,
 		&i.Bytes,
 		&i.Sha256,
+		&i.ScrittoIl,
+		&i.VerificatoIl,
 		&i.CartellaRelativa,
 	)
 	return i, err
@@ -458,9 +463,10 @@ const listAllegatiDirettiStessoSha = `-- name: ListAllegatiDirettiStessoSha :man
 
 SELECT x.allegato_id, x.nome_file, x.path_staging, mx.thread_id,
        COALESCE(fx.stato, 'attivo')::text AS stato,
-       (fx.stato IS NULL AND EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata'
-                                        AND px.deciso_da IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = x.allegato_id))::bool AS scartato_legacy
+       ((fx.stato IS NULL OR fx.stato = 'attivo')
+        AND EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata'
+                       AND px.deciso_da IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = x.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
   LEFT JOIN file_rfq fx ON fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id
  WHERE x.messaggio_id = $1 AND x.contenitore_id IS NULL AND x.sha256 = $2::char(64)
@@ -515,8 +521,9 @@ func (q *Queries) ListAllegatiDirettiStessoSha(ctx context.Context, arg ListAlle
 const listAltriAllegatiStessoSha = `-- name: ListAltriAllegatiStessoSha :many
 SELECT x.allegato_id, x.path_staging::text AS path_staging, mx.thread_id,
        (EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-        OR EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id)))::bool AS scartata
+        OR (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+            AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta')))::bool AS scartata
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
  WHERE x.path_staging IS NOT NULL AND x.allegato_id <> $1::uuid
    AND (x.sha256 = $2::char(64)
@@ -798,8 +805,9 @@ func (q *Queries) ListCopieConservazioneAllegato(ctx context.Context, allegatoID
 const listCopieStagingPerSha = `-- name: ListCopieStagingPerSha :many
 SELECT x.allegato_id, x.sha256::text AS sha256, x.path_staging::text AS path_staging,
        (EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-        OR EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id)))::bool AS scartata
+        OR (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+            AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta')))::bool AS scartata
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
  WHERE x.sha256 = ANY($1::char(64)[]) AND x.path_staging IS NOT NULL
    AND x.allegato_id <> ALL($2::uuid[])
@@ -848,8 +856,9 @@ func (q *Queries) ListCopieStagingPerSha(ctx context.Context, arg ListCopieStagi
 const listCopieStagingStessoSha = `-- name: ListCopieStagingStessoSha :many
 SELECT x.allegato_id, x.path_staging::text AS path_staging, mx.thread_id,
        (EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-        OR EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id)))::bool AS scartata,
+        OR (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+            AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta')))::bool AS scartata,
        file_rfq_attivo(mx.thread_id, x.allegato_id)::bool AS attiva
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
  WHERE x.sha256 = $1::char(64) AND x.path_staging IS NOT NULL
@@ -969,8 +978,9 @@ dip AS (
       JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
      WHERE x.allegato_id <> ALL($1::uuid[])
        AND NOT EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-       AND NOT EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                          AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id))
+       AND NOT (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+                AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+                AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta'))
      GROUP BY occ.allegato_id
     UNION ALL
     -- D-11: note sui PDF
@@ -1139,8 +1149,8 @@ SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a
        COALESCE(f.stato, 'attivo')::text AS stato, COALESCE(f.versione, 0)::int AS versione,
        p.proposta_id, p.stato AS stato_proposta, p.tipo_proposto, p.codice AS proposta_codice, p.rev AS proposta_rev,
        p.componente_id AS proposta_componente_id, p.deciso_da AS proposta_decisa_da,
-       (f.stato IS NULL AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = a.allegato_id))::bool AS scartato_legacy,
+       ((f.stato IS NULL OR f.stato = 'attivo') AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = a.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy,
        doc.documento_id, doc.stato_nas AS documento_stato_nas, doc.codice AS documento_codice, doc.rev AS documento_rev,
        doc.tipo AS documento_tipo,
        r.rimozione_id, r.stato AS rimozione_stato, r.motivo AS rimozione_motivo, r.tentativi AS rimozione_tentativi,
@@ -1310,21 +1320,24 @@ func (q *Queries) ListFileSorgente(ctx context.Context, threadID uuid.UUID) ([]L
 
 const listIdConservazioniDaRiprendere = `-- name: ListIdConservazioniDaRiprendere :many
 SELECT conservazione_id FROM file_rfq_conservazione
- WHERE (stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= $1::timestamptz))
-    OR (stato = 'in_copia' AND aggiornato_il < $1::timestamptz - interval '15 minutes')
+ WHERE ((stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= $1::timestamptz))
+        OR (stato = 'in_copia' AND aggiornato_il < $1::timestamptz - interval '15 minutes'))
+   AND conservazione_id > $2::bigint
  ORDER BY conservazione_id
- LIMIT $2
+ LIMIT $3
 `
 
 type ListIdConservazioniDaRiprendereParams struct {
 	Adesso time.Time `json:"adesso"`
+	Dopo   int64     `json:"dopo"`
 	Limite int32     `json:"limite"`
 }
 
 // Le copie da riprendere (il custode), senza lucchetto: da rilasciare con il tentativo scaduto, o in copia con il
-// battito fermo da piu' di 15 minuti (aggiornato_il, non l'inizio: giro 1, TR-01).
+// battito fermo da piu' di 15 minuti (aggiornato_il, non l'inizio: giro 1, TR-01). Una pagina alla volta, per chiave
+// (conservazione_id > dopo), come le rimozioni.
 func (q *Queries) ListIdConservazioniDaRiprendere(ctx context.Context, arg ListIdConservazioniDaRiprendereParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, listIdConservazioniDaRiprendere, arg.Adesso, arg.Limite)
+	rows, err := q.db.Query(ctx, listIdConservazioniDaRiprendere, arg.Adesso, arg.Dopo, arg.Limite)
 	if err != nil {
 		return nil, err
 	}
@@ -1347,18 +1360,22 @@ const listIdRimozioniDaRiprendere = `-- name: ListIdRimozioniDaRiprendere :many
 SELECT rimozione_id FROM file_rfq_rimozione
  WHERE stato IN ('in_attesa', 'errore') AND ritentabile
    AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= $1::timestamptz)
- ORDER BY prossimo_tentativo_il NULLS FIRST, rimozione_id
- LIMIT $2
+   AND rimozione_id > $2::bigint
+ ORDER BY rimozione_id
+ LIMIT $3
 `
 
 type ListIdRimozioniDaRiprendereParams struct {
 	Adesso time.Time `json:"adesso"`
+	Dopo   int64     `json:"dopo"`
 	Limite int32     `json:"limite"`
 }
 
-// Le rimozioni da riprendere (il custode), senza lucchetto: ognuna si prende poi nella sua transazione, SKIP LOCKED.
+// Le rimozioni da riprendere (il custode), senza lucchetto: ognuna si prende poi nella sua transazione, SKIP LOCKED. Una
+// pagina alla volta, per chiave (rimozione_id > dopo): il custode le scorre tutte nella stessa passata, e una riga che
+// resta da riprendere (in mano a un altro, o con un errore) non torna nella stessa passata.
 func (q *Queries) ListIdRimozioniDaRiprendere(ctx context.Context, arg ListIdRimozioniDaRiprendereParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, listIdRimozioniDaRiprendere, arg.Adesso, arg.Limite)
+	rows, err := q.db.Query(ctx, listIdRimozioniDaRiprendere, arg.Adesso, arg.Dopo, arg.Limite)
 	if err != nil {
 		return nil, err
 	}
@@ -1379,14 +1396,21 @@ func (q *Queries) ListIdRimozioniDaRiprendere(ctx context.Context, arg ListIdRim
 
 const listIdRimozioniNonRitentabili = `-- name: ListIdRimozioniNonRitentabili :many
 SELECT rimozione_id FROM file_rfq_rimozione
- WHERE stato = 'errore' AND NOT ritentabile
+ WHERE stato = 'errore' AND NOT ritentabile AND rimozione_id > $1::bigint
  ORDER BY rimozione_id
- LIMIT $1
+ LIMIT $2
 `
 
-// Gli errori non ritentabili, per il controllo giornaliero della bonifica (EM §10.4).
-func (q *Queries) ListIdRimozioniNonRitentabili(ctx context.Context, limite int32) ([]int64, error) {
-	rows, err := q.db.Query(ctx, listIdRimozioniNonRitentabili, limite)
+type ListIdRimozioniNonRitentabiliParams struct {
+	Dopo   int64 `json:"dopo"`
+	Limite int32 `json:"limite"`
+}
+
+// Gli errori non ritentabili, per il controllo giornaliero della bonifica (EM §10.4: «ogni riga in errore non
+// ritentabile»). Una pagina alla volta, per chiave (rimozione_id > dopo): la bonifica le scorre tutte, anche quando le
+// prime restano in errore perche' i loro file ci sono ancora (rilievo bloccante della revisione).
+func (q *Queries) ListIdRimozioniNonRitentabili(ctx context.Context, arg ListIdRimozioniNonRitentabiliParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listIdRimozioniNonRitentabili, arg.Dopo, arg.Limite)
 	if err != nil {
 		return nil, err
 	}
@@ -1482,8 +1506,8 @@ SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a
        m.thread_id, m.canale,
        COALESCE(f.stato, 'attivo')::text AS stato, COALESCE(f.versione, 0)::int AS versione,
        p.proposta_id, p.stato AS stato_proposta, p.componente_id AS proposta_componente_id, p.deciso_da AS proposta_decisa_da,
-       (f.stato IS NULL AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = a.allegato_id))::bool AS scartato_legacy
+       ((f.stato IS NULL OR f.stato = 'attivo') AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = a.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy
   FROM allegato a
   JOIN messaggio m ON m.messaggio_id = a.messaggio_id
   LEFT JOIN file_rfq f ON f.thread_id = m.thread_id AND f.allegato_id = a.allegato_id
@@ -1528,9 +1552,12 @@ type ListOccorrenzeSorgenteRow struct {
 // messaggio.thread_id, letta insieme all'allegato.
 // ------------------------------------------------------------------ le occorrenze
 // Le occorrenze del ciclo dei file per id, con lo stato (nessuna riga = attivo, versione 0), la proposta di documento
-// e lo scarto fatto col vecchio «Scarta il file» (proposta scartata da una persona e nessuna riga di stato per
-// l'allegato in nessuna RFQ: uno scarto della Sorgente in un'altra RFQ, prima di un cambio di RFQ del messaggio, non e'
-// un gesto precedente; PM23 CO-14). L'ordine e' quello degli id, per chi blocca e scrive in un ordine fisso.
+// e lo scarto fatto col vecchio «Scarta il file»: proposta scartata da una persona, occorrenza attiva per il ciclo dei
+// file (nessuna riga, o la riga in attivo dopo una «Riattiva») e nessun evento «scarta» del ciclo per l'allegato, in
+// nessuna RFQ. Uno scarto della Sorgente in un'altra RFQ, prima di un cambio di RFQ del messaggio, ha il suo evento e
+// non e' un gesto precedente (PM23 CO-14); il vecchio «Scarta il file» usato dopo una «Riattiva» si' (rilievo della
+// revisione, PF-06). Le stesse condizioni stanno in ogni query di questo file che riconosce lo scarto col gesto
+// precedente. L'ordine e' quello degli id, per chi blocca e scrive in un ordine fisso.
 func (q *Queries) ListOccorrenzeSorgente(ctx context.Context, allegati []uuid.UUID) ([]ListOccorrenzeSorgenteRow, error) {
 	rows, err := q.db.Query(ctx, listOccorrenzeSorgente, allegati)
 	if err != nil {
@@ -1791,9 +1818,10 @@ func (q *Queries) PinDelFile(ctx context.Context, arg PinDelFileParams) (string,
 const statoOccorrenzaAllegato = `-- name: StatoOccorrenzaAllegato :one
 
 SELECT a.allegato_id, m.thread_id, COALESCE(f.stato, 'attivo')::text AS stato,
-       (f.stato IS NULL AND EXISTS (SELECT 1 FROM documento_proposta p WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata'
-                                       AND p.deciso_da IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = a.allegato_id))::bool AS scartato_legacy
+       ((f.stato IS NULL OR f.stato = 'attivo')
+        AND EXISTS (SELECT 1 FROM documento_proposta p WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata'
+                       AND p.deciso_da IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = a.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy
   FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
   LEFT JOIN file_rfq f ON f.thread_id = m.thread_id AND f.allegato_id = a.allegato_id
  WHERE a.allegato_id = $1

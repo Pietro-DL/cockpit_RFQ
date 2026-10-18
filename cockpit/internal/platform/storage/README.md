@@ -152,7 +152,10 @@ markmap:
   - `CartellaParti` (`_parti`), `CartellaContenuti` (`_contenuti`);
   - `PercorsoParte`, `PercorsoContenuto` (`_contenuti/<ab>/<sha256>.<ext>`, `ErrSha256`), `ContenutoGiaPresente` (ricalcola l'hash), `TokenDiParte`, `Promuovi` (`os.Rename`), `RimuoviParte`, `PulisciParti` e `pulisciZipInterrotti`, `PercorsoEstrazione` (`_parti/zip.<token>`)
 - **`cache.go`**
-  - `Cache` (il custode di `_contenuti`) con `Avvia`, `Giro`, `raccogli`, `interroga`, `sciogliAltriFile`, `rimuovi`;
+  - `Cache` (il custode di `_contenuti`) con `Avvia`, `Giro`, `raccogli`, `interroga`, `rimuovi`;
+  - la funzione dei pin, esportata per il tempo 2 dello scarto (V1, EM §10.4 passo 8: «la stessa funzione della cache, con la
+    regola archivio → voci»): `PinDiContenuti` (`ListContenutiPinnati` e `sciogliAltriFile`), `VociDiArchivi`
+    (`ListVociDiArchivio`), `PinDiUnaVoce` (il pin di un archivio per una sua voce);
   - i campi V1 `CopiaNelDeposito` (il file della copia verificata di un file in Altri file c'e' nel deposito?) e
     `PrimaDiRimuovere` (solo per le prove di concorrenza);
   - `EsitoCache`, `MotivoPropostaAltriFile`;
@@ -169,6 +172,7 @@ markmap:
 - **`PercorsoEstrazione`**: `transport/workerapi/archivi.go`
 - **`PulisciParti`**: lo scheduler di `platform/coda`, ogni 15 minuti, con età minima 10 minuti
 - **`Cache.Avvia`**: `app/runtime.CostruisciServizi`, con `RetentionCache()` e `CacheMaxByte()` della configurazione
+- **`PinDiContenuti`, `VociDiArchivi`, `PinDiUnaVoce`**: `core/rfq/filerfq` (il passo 8 del tempo 2, `pinDelleVoci`)
 - **`ToccaContenuto`**: `core/rfq/documenti/copia_nas.go`, dopo una copia
 - **`Staging`, `FileStaging`**: `platform/coda.AccodaStage` e chi lo chiama (`ingest`, `web`, `core/rfq`), `transport/workerapi`
 - **`CartellaStaging`**: `platform/coda/stage.go` (payload di `stage_allegato`)
@@ -182,6 +186,9 @@ markmap:
   - assente = `<cartella di cockpit.toml>\staging`
 - **`<staging>\_parti\<allegato>.parte.<lease_token>`**: trasferimento in corso
 - **`<staging>\_parti\zip.<lease_token>\`**: estrazione in corso
+- **`<staging>\_parti\ciclo.<uuid>`** (V1): i parziali del servizio del ciclo dei file (E1′, «Riattiva»: `core/rfq/filerfq`,
+  `PrefissoParteCiclo`). Non hanno la forma `*.parte.<token>`, e `PulisciParti` non li tocca: li toglie chi li scrive, e quelli
+  rimasti da un processo morto il custode del ciclo dei file, dopo 24 ore
 - **`<staging>\_contenuti\<ab>\<sha256>.<ext>`**: contenuto verificato (estensione dal nome, altrimenti .bin)
 
 #### Database (solo `Cache` e `PulisciParti`)

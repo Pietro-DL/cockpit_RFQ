@@ -47,8 +47,12 @@ import (
 func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Allegato, originale error) error {
 	bersaglio := a
 	// V1 (EM §10.7, G-12): un'occorrenza in Altri file o scartata nella Sorgente non e' mai il bersaglio di una
-	// riestrazione o di un download
-	if attiva, err := occorrenzaAttiva(ctx, q, a.AllegatoID); err != nil || !attiva {
+	// riestrazione o di un download. Un errore del database nel leggerne lo stato e' un errore, non un «non attiva»: il
+	// motivo che va nel log e nel job deve essere quello vero (rilievo della revisione); in tutti e due i casi non si
+	// accoda niente.
+	if attiva, err := occorrenzaAttiva(ctx, q, a.AllegatoID); err != nil {
+		return fmt.Errorf("%w (lo stato del file nella Distinta nuova non si legge: %v)", originale, err)
+	} else if !attiva {
 		return fmt.Errorf("%w (il file è in Altri file o scartato nella Distinta nuova: nessun download né riestrazione)", originale)
 	}
 	if a.ContenitoreID.Valid {
@@ -56,7 +60,9 @@ func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Alleg
 		if err != nil {
 			return originale
 		}
-		if attiva, err := occorrenzaAttiva(ctx, q, z.AllegatoID); err != nil || !attiva {
+		if attiva, err := occorrenzaAttiva(ctx, q, z.AllegatoID); err != nil {
+			return fmt.Errorf("%w (lo stato dell'archivio %q nella Distinta nuova non si legge: %v)", originale, z.NomeFile, err)
+		} else if !attiva {
 			return fmt.Errorf("%w (l'archivio %q è in Altri file o scartato nella Distinta nuova: nessuna riestrazione)", originale, z.NomeFile)
 		}
 		if z.PathStaging.Valid && (staging.FileStaging{}).Presente(z.PathStaging.String) {

@@ -147,10 +147,42 @@ func (d *Deposito) percorsoParte(conservazioneID int64) string {
 	return filepath.Join(d.Radice, CartellaPartiDeposito, strconv.FormatInt(conservazioneID, 10)+"."+hex.EncodeToString(b[:]))
 }
 
-// partiDellaRiga: i parziali di una copia (qualunque suffisso).
+// partiDellaRiga: i parziali di una copia (qualunque suffisso), cioe' i file di <radice>\_parti il cui nome e'
+// <conservazione_id>.<casuale>. Si leggono con os.ReadDir, non con filepath.Glob: la radice non entra in un pattern
+// (una radice con «[» o «]» diventerebbe un pattern, e i parziali si cercherebbero, e si toglierebbero, in un'altra
+// cartella: rilievo della revisione), e ogni percorso si controlla dentro la radice prima di restituirlo.
 func (d *Deposito) partiDellaRiga(conservazioneID int64) []string {
-	m, _ := filepath.Glob(filepath.Join(d.Radice, CartellaPartiDeposito, strconv.FormatInt(conservazioneID, 10)+".*"))
-	return m
+	base := filepath.Clean(d.Radice)
+	cartella := filepath.Join(base, CartellaPartiDeposito)
+	voci, err := os.ReadDir(cartella)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, v := range voci {
+		if v.IsDir() {
+			continue
+		}
+		if id, ok := idDelParziale(v.Name()); !ok || id != conservazioneID {
+			continue
+		}
+		p := filepath.Join(cartella, v.Name())
+		if !documenti.DentroLaRadice(p, base) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// idDelParziale: il conservazione_id nel nome di un parziale del deposito, <conservazione_id>.<casuale>.
+func idDelParziale(nome string) (int64, bool) {
+	punto := strings.IndexByte(nome, '.')
+	if punto <= 0 {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(nome[:punto], 10, 64)
+	return id, err == nil
 }
 
 // CopiaPresente dice se il file di una copia verificata c'e' nel deposito con la dimensione attesa: il custode della

@@ -130,9 +130,10 @@ func conservazioneMancante(o Occorrenza) *Rifiuto {
 		extra("allegato_id", o.AllegatoID))
 }
 
-// parzialeDalDeposito copia il file del deposito in un parziale dello staging, verificando lo sha mentre scrive.
+// parzialeDalDeposito copia il file del deposito in un parziale dello staging, verificando lo sha mentre scrive. Il
+// parziale ha il nome del ciclo dei file (PrefissoParteCiclo), non quello dei tentativi dei worker.
 func (s *Servizio) parzialeDalDeposito(cp *copiaDaRiattivare) (string, error) {
-	parte := staging.PercorsoParte(s.Staging, cp.occ.AllegatoID, uuid.New())
+	parte := percorsoParteCiclo(s.Staging)
 	causa, err := scriviParziale(cp.deposito, parte, cp.occ.Sha())
 	if err != nil {
 		_ = togliFile(parte)
@@ -152,8 +153,13 @@ func (s *Servizio) togliParziali(copie []copiaDaRiattivare) {
 	}
 }
 
-// faseCRiattiva: i ricontrolli sotto BloccaThread, poi BloccaContenuto (sha in ordine crescente) e il controllo che
-// decide sul file dello staging; lo stato attivo, l'evento, la copia in rilascio, la strada d'ingresso, l'intento.
+// faseCRiattiva: i ricontrolli sotto BloccaThread (con le proposte, in prepara), poi le righe delle copie FOR UPDATE,
+// poi BloccaContenuto (sha in ordine crescente) e il controllo che decide sul file dello staging; lo stato attivo,
+// l'evento, la copia in rilascio, la strada d'ingresso, l'intento. L'ordine e' quello di EM §10.6 (la RFQ, le righe,
+// per ultimo il contenuto), con l'eccezione di chi adotta: l'allegato di cui si scrive path_staging si prende dopo il
+// contenuto, nella transazione che lo verifica (EM §10.6, «chi adotta»), come fanno tutti gli scrittori di
+// path_staging (il risultato dello stage, il riuso del gemello, il caricamento, la cache, il tempo 2). Prenderlo prima
+// del contenuto incrocerebbe chi tiene il contenuto e aspetta l'allegato.
 func (s *Servizio) faseCRiattiva(ctx context.Context, q *db.Queries, g gesto, copie []copiaDaRiattivare) (*EsitoGesto, error) {
 	pr, reg, err := s.prepara(ctx, q, g)
 	if err != nil {
@@ -178,6 +184,18 @@ func (s *Servizio) faseCRiattiva(ctx context.Context, q *db.Queries, g gesto, co
 		if cp == nil || cp.copia.ConservazioneID != o.copia.ConservazioneID {
 			return nil, perimetroCambiato(pr.per)
 		}
+	}
+	// le righe delle copie, FOR UPDATE, prima dei lucchetti per contenuto (in ordine di allegato, come le copie)
+	righe := map[int64]db.FileRfqConservazione{}
+	for _, cp := range copie {
+		c, err := q.GetConservazionePerAggiornare(ctx, cp.copia.ConservazioneID)
+		if err != nil {
+			return nil, err
+		}
+		if c.Stato != "copiata" {
+			return nil, conservazioneMancante(cp.occ)
+		}
+		righe[c.ConservazioneID] = c
 	}
 	sha := []string{}
 	visto := map[string]bool{}
@@ -255,11 +273,7 @@ func (s *Servizio) faseCRiattiva(ctx context.Context, q *db.Queries, g gesto, co
 			chiave: uid(g.it.chiave)}); err != nil {
 			return nil, err
 		}
-		cp := perID[o.AllegatoID]
-		c, err := q.GetConservazionePerAggiornare(ctx, cp.copia.ConservazioneID)
-		if err != nil {
-			return nil, err
-		}
+		c := righe[perID[o.AllegatoID].copia.ConservazioneID]
 		if _, err := q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "da_rilasciare", Causa: testo("riattivato"),
 			Tentativi: c.Tentativi, ConservazioneID: c.ConservazioneID, StatoAtteso: c.Stato}); err != nil {
 			return nil, err

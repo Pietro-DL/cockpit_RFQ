@@ -79,9 +79,13 @@ func (s *Servizio) MettiInAltriFile(ctx context.Context, thread, allegato, utent
 		return err
 	})
 	if err != nil {
-		var rf *Rifiuto
-		if errors.As(err, &rf) && rf.Codice != "COPIA_IN_CORSO" {
-			// la fase C rifiutata: le proprie righe ancora in_copia vanno in rilascio (causa rifiutata)
+		if _, ok := ComeRifiuto(err); ok {
+			// la fase C rifiutata (versione, dipendenze, perimetro, o 409 tentativo_chiuso per una riga chiusa da altri):
+			// le proprie righe ANCORA in_copia con la propria chiave vanno in rilascio (causa rifiutata), e si tenta il
+			// rilascio. La riga chiusa da altri non e' piu' in_copia con questa chiave, e rifiutaRighe non la tocca (EM
+			// §10.5: «la fase C non tocca la conservazione» di quella riga); le altre righe del gesto non restano in
+			// copia con il battito fermo (TR-05: «per tutte le righe del gesto»; rilievo della revisione). Un errore che
+			// non e' un rifiuto lascia le righe in copia: il reinvio con la stessa chiave le riprende.
 			s.rifiutaRighe(ctx, g, righe)
 		}
 		return nil, err
@@ -120,6 +124,17 @@ func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *prepar
 				"origine", string(o.Origine)))
 		}
 	}
+	// le righe vive di ogni occorrenza, FOR UPDATE, prima dei lucchetti per contenuto (EM §10.6: la RFQ, le righe, per
+	// ultimo il contenuto), in ordine di allegato; la riga nuova (il pin «conservazione in corso») nasce sotto il
+	// lucchetto per contenuto, come vuole EM §10.5
+	vivePer := map[uuid.UUID][]db.FileRfqConservazione{}
+	for _, o := range daCopiare {
+		vive, err := q.ListConservazioniVive(ctx, db.ListConservazioniViveParams{ThreadID: g.thread, AllegatoID: o.AllegatoID})
+		if err != nil {
+			return nil, err
+		}
+		vivePer[o.AllegatoID] = vive
+	}
 	sort.SliceStable(daCopiare, func(i, j int) bool {
 		if daCopiare[i].Sha() != daCopiare[j].Sha() {
 			return daCopiare[i].Sha() < daCopiare[j].Sha()
@@ -137,10 +152,7 @@ func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *prepar
 	}
 	var righe []rigaCopia
 	for _, o := range daCopiare {
-		vive, err := q.ListConservazioniVive(ctx, db.ListConservazioniViveParams{ThreadID: g.thread, AllegatoID: o.AllegatoID})
-		if err != nil {
-			return nil, err
-		}
+		vive := vivePer[o.AllegatoID]
 		ripresa := false
 		for _, c := range vive {
 			switch {
@@ -279,7 +291,11 @@ func (s *Servizio) dalNas(ctx context.Context, q *db.Queries, thread uuid.UUID, 
 // copia scrive i byte di ogni riga del gesto nel deposito (EM §10.5, «Copia»): un parziale con creazione esclusiva, lo
 // sha calcolato scrivendo, Sync, il confronto con allegato.sha256; poi la rinomina nel definitivo della riga con la riga
 // presa FOR UPDATE e ancora in_copia. Il battito rinfresca la riga ogni minuto. Una copia che non riesce porta TUTTE le
-// righe del gesto a uno stato finale o in rilascio, e risponde 422 CONSERVAZIONE_NON_RIUSCITA.
+// righe del gesto a uno stato finale o in rilascio, e risponde 422 CONSERVAZIONE_NON_RIUSCITA. Una riga chiusa da altri
+// durante la copia (uno «Scarta», un'altra scheda) risponde 409 COPIA_IN_CORSO / tentativo_chiuso, e porta anch'essa le
+// ALTRE righe del gesto a uno stato finale o in rilascio (TR-05: «per tutte le righe del gesto»): la riga chiusa non si
+// tocca, ma l'archivio e le altre voci non restano in copia con il battito fermo, a tenere il pin «conservazione in
+// corso» e a far rispondere copia_viva a un nuovo tentativo per 15-30 minuti (rilievo della revisione).
 func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error {
 	fermaBattito := s.battito(ctx, g, righe)
 	defer fermaBattito()
@@ -288,6 +304,9 @@ func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error 
 	var fallitaID uuid.UUID
 	conDefinitivo := map[int64]bool{}
 	for _, r := range righe {
+		if s.Agganci != nil && s.Agganci.PrimaDiCopiare != nil {
+			s.Agganci.PrimaDiCopiare(r.occ.AllegatoID)
+		}
 		causa, haDefinitivo, err := s.copiaUna(ctx, g, r)
 		conDefinitivo[r.conservazioneID] = haDefinitivo
 		if err == nil {
@@ -296,14 +315,16 @@ func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error 
 		s.log().Warn("ciclo dei file: copia di conservazione non riuscita", "conservazione", r.conservazioneID,
 			"allegato", r.occ.AllegatoID, "causa", causa, "err", err)
 		if causa == "tentativo_chiuso" {
-			// un'altra scheda ha ripreso la copia, o uno «Scarta» l'ha chiusa: le righe non sono piu' di questo tentativo,
-			// e la copia non le tocca (EM §10.5: 409 COPIA_IN_CORSO, tentativo_chiuso)
+			// un'altra scheda ha ripreso la copia, o uno «Scarta» l'ha chiusa: quella riga non e' piu' di questo
+			// tentativo, e la copia toglie solo i suoi parziali (EM §10.5: 409 COPIA_IN_CORSO, tentativo_chiuso)
 			for _, p := range s.Deposito.partiDellaRiga(r.conservazioneID) {
 				_ = togliFile(p)
 			}
-			return rifiuto(http.StatusConflict, "COPIA_IN_CORSO",
+			fallita = rifiuto(http.StatusConflict, "COPIA_IN_CORSO",
 				"Questo tentativo di copia è stato chiuso (un'altra scheda l'ha ripreso, o il file è stato scartato): rileggi la Sorgente.",
 				extra("motivo", "tentativo_chiuso", "allegato_id", r.occ.AllegatoID))
+			causaFallita, fallitaID = "rifiutata", uuid.Nil
+			break
 		}
 		fallita = rifiuto(http.StatusUnprocessableEntity, "CONSERVAZIONE_NON_RIUSCITA",
 			"Niente è cambiato: la copia di conservazione non è riuscita ("+testoCausa(causa)+"). Il file resta fra gli attivi.",
@@ -314,12 +335,15 @@ func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error 
 	if fallita == nil {
 		return nil
 	}
-	// ogni riga del gesto in uno stato finale o in rilascio (EM §10.5; giro 1, TR-05): senza un definitivo la riga
-	// toglie i suoi parziali e va in errore_copia con la causa (le righe non ancora tentate con «rifiutata»); con un
-	// definitivo va in rilascio, e il rilascio lo toglie
+	// ogni riga del gesto ancora in copia con la propria chiave in uno stato finale o in rilascio (EM §10.5; giro 1,
+	// TR-05): senza un definitivo la riga toglie i suoi parziali e va in errore_copia con la causa (le righe non ancora
+	// tentate, e tutte dopo un tentativo chiuso, con «rifiutata»); con un definitivo va in rilascio, e il rilascio lo
+	// toglie. Una riga che non e' piu' in copia con questa chiave (la riga chiusa da altri) non si tocca.
 	for _, r := range righe {
-		_ = s.inTx(context.WithoutCancel(ctx), func(q *db.Queries) error {
-			c, err := q.GetConservazionePerAggiornare(ctx, r.conservazioneID)
+		// la richiesta puo' essere gia' chiusa (il browser se n'e' andato): la pulizia va fino in fondo lo stesso
+		c2 := context.WithoutCancel(ctx)
+		_ = s.inTx(c2, func(q *db.Queries) error {
+			c, err := q.GetConservazionePerAggiornare(c2, r.conservazioneID)
 			if err != nil || c.Stato != "in_copia" || !c.ChiaveIdempotenza.Valid || c.ChiaveIdempotenza.UUID != g.it.chiave {
 				return err
 			}
@@ -331,9 +355,9 @@ func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error 
 				if r.occ.AllegatoID == fallitaID {
 					causa = causaFallita
 				}
-				return s.passoConservazione(ctx, q, c, "errore_copia", testo(causa), testo(testoCausa(causa)))
+				return s.passoConservazione(c2, q, c, "errore_copia", testo(causa), testo(testoCausa(causa)))
 			}
-			return s.passoConservazione(ctx, q, c, "da_rilasciare", testo("rifiutata"), pgtype.Text{})
+			return s.passoConservazione(c2, q, c, "da_rilasciare", testo("rifiutata"), pgtype.Text{})
 		})
 	}
 	for _, r := range righe {
@@ -575,8 +599,9 @@ func (s *Servizio) battito(ctx context.Context, g gesto, righe []rigaCopia) func
 }
 
 // faseC: la propria riga ancora in_copia e con la propria chiave (altrimenti 409 COPIA_IN_CORSO, tentativo_chiuso, e
-// la fase C non tocca la conservazione); occorrenza, versione e dipendenze ricontrollate (altrimenti il 409 o il 422 e
-// le righe in rilascio, causa rifiutata); poi copiata, lo stato altri_file, l'evento, lo scollegamento, l'intento.
+// la fase C non tocca la conservazione); occorrenza, versione e dipendenze ricontrollate (altrimenti il 409 o il 422);
+// poi copiata, lo stato altri_file, l'evento, lo scollegamento, l'intento. Dopo un rifiuto, chi chiama porta le righe
+// del gesto ancora in copia con la propria chiave in rilascio, causa rifiutata (rifiutaRighe).
 func (s *Servizio) faseC(ctx context.Context, q *db.Queries, g gesto, righe []rigaCopia) (*EsitoGesto, error) {
 	// l'ordine della fase C (EM §10.5): sotto BloccaThread prima l'intento (un reinvio arrivato nel frattempo e' gia'
 	// registrato), poi la propria riga, poi i controlli della fase A ripetuti da prepara. La riga viene prima
@@ -687,18 +712,28 @@ func (s *Servizio) faseC(ctx context.Context, q *db.Queries, g gesto, righe []ri
 	return esito, nil
 }
 
-// rifiutaRighe: dopo una fase C rifiutata (versione, dipendenze, perimetro), le proprie righe ancora in_copia vanno in
-// rilascio (causa rifiutata) e si tenta il rilascio.
+// rifiutaRighe: dopo una fase C rifiutata (versione, dipendenze, perimetro, tentativo chiuso), le proprie righe ancora
+// in_copia con la propria chiave vanno in rilascio (causa rifiutata) e si tenta il loro rilascio. Una riga che non e'
+// piu' in copia con questa chiave (chiusa da uno «Scarta», ripresa da un'altra scheda) non si tocca: la rilascia chi
+// l'ha chiusa, o il custode.
 func (s *Servizio) rifiutaRighe(ctx context.Context, g gesto, righe []rigaCopia) {
 	c2 := context.WithoutCancel(ctx)
 	for _, r := range righe {
+		mossa := false
 		_ = s.inTx(c2, func(q *db.Queries) error {
 			c, err := q.GetConservazionePerAggiornare(c2, r.conservazioneID)
 			if err != nil || c.Stato != "in_copia" || !c.ChiaveIdempotenza.Valid || c.ChiaveIdempotenza.UUID != g.it.chiave {
 				return err
 			}
-			return s.passoConservazione(c2, q, c, "da_rilasciare", testo("rifiutata"), pgtype.Text{})
+			if err := s.passoConservazione(c2, q, c, "da_rilasciare", testo("rifiutata"), pgtype.Text{}); err != nil {
+				return err
+			}
+			mossa = true
+			return nil
 		})
+		if !mossa {
+			continue
+		}
 		if _, err := s.RilasciaCopia(c2, r.conservazioneID, false); err != nil {
 			s.log().Warn("ciclo dei file: rilascio dopo una fase C rifiutata", "conservazione", r.conservazioneID, "err", err)
 		}

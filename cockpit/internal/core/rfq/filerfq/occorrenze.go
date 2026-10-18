@@ -109,6 +109,12 @@ func perimetro(ctx context.Context, q *db.Queries, o Occorrenza) (Perimetro, err
 	if err != nil {
 		return Perimetro{}, err
 	}
+	return perimetroDa(ctx, q, o, ids)
+}
+
+// perimetroDa: il perimetro dai discendenti gia' letti (ListDiscendentiArchivio), come lo calcola prepara dopo averne
+// preso le proposte.
+func perimetroDa(ctx context.Context, q *db.Queries, o Occorrenza, ids []uuid.UUID) (Perimetro, error) {
 	if len(ids) == 0 {
 		return Perimetro{}, nil
 	}

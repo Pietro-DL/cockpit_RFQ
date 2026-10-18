@@ -6,8 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,12 +43,58 @@ var (
 	ErrTroppoGrande = errors.New("file oltre il limite")
 )
 
+// PrefissoParteCiclo: i parziali dello staging che scrive il servizio del ciclo dei file (E1′ e «Riattiva») sono
+// <staging>\_parti\ciclo.<uuid>. Non hanno la forma «<x>.parte.<token>» dei tentativi dei worker: quelli li toglie la
+// pulizia della coda (staging.PulisciParti, ogni 15 minuti) dopo 10 minuti se il token non e' il lease di un job vivo,
+// e un caricamento lungo tiene il parziale di un file gia' arrivato finche' non ha letto tutta la richiesta (EM §10.9:
+// la registrazione viene dopo il corpo; rilievo della revisione). Questi li toglie chi li scrive (promossi o buttati);
+// quelli rimasti da un processo morto li toglie il custode del ciclo dei file dopo EtaPartiCiclo.
+const PrefissoParteCiclo = "ciclo."
+
+// EtaPartiCiclo: un parziale del ciclo dei file piu' vecchio di cosi' non e' di una richiesta ancora in corso (otto
+// volte max_upload_mb su un collegamento lento sono qualche ora, non un giorno).
+const EtaPartiCiclo = 24 * time.Hour
+
+// percorsoParteCiclo: un parziale nuovo del ciclo dei file nello staging (creazione esclusiva: il nome e' nuovo).
+func percorsoParteCiclo(radice string) string {
+	return filepath.Join(radice, staging.CartellaParti, PrefissoParteCiclo+uuid.NewString())
+}
+
+// PulisciPartiCiclo toglie i parziali del ciclo dei file piu' vecchi di EtaPartiCiclo, cioe' quelli di una richiesta
+// che il processo non ha finito (chi la finisce toglie i suoi). Restituisce quanti ne ha tolti. Senza staging, niente.
+func PulisciPartiCiclo(radice string, adesso time.Time, log *slog.Logger) int {
+	if strings.TrimSpace(radice) == "" {
+		return 0
+	}
+	cartella := filepath.Join(radice, staging.CartellaParti)
+	voci, err := os.ReadDir(cartella)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, v := range voci {
+		if v.IsDir() || !strings.HasPrefix(v.Name(), PrefissoParteCiclo) {
+			continue
+		}
+		info, err := v.Info()
+		if err != nil || adesso.Sub(info.ModTime()) < EtaPartiCiclo {
+			continue
+		}
+		if err := os.Remove(filepath.Join(cartella, v.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Warn("ciclo dei file: parziale dello staging rimasto non rimosso", "file", v.Name(), "err", err)
+			continue
+		}
+		n++
+	}
+	return n
+}
+
 // ScriviParziale legge un file della richiesta in un parziale dello staging (creazione esclusiva, sha calcolato
 // scrivendo), senza promuoverlo: lo promuove la registrazione sotto il lucchetto per contenuto (EM §10.6; SIC-06).
-// Oltre max byte: ErrTroppoGrande; vuoto: ErrFileVuoto; il parziale si toglie.
+// Oltre max byte: ErrTroppoGrande; vuoto: ErrFileVuoto; il parziale si toglie. Il nome del parziale non e' quello dei
+// tentativi dei worker (PrefissoParteCiclo): la pulizia della coda non lo tocca mentre il resto della richiesta arriva.
 func ScriviParziale(radice string, r io.Reader, nome, tipo string, max int64) (FileArrivato, error) {
-	token := uuid.New()
-	parte := staging.PercorsoParte(radice, token, token)
+	parte := percorsoParteCiclo(radice)
 	if err := os.MkdirAll(filepath.Dir(parte), 0o755); err != nil {
 		return FileArrivato{}, err
 	}
@@ -135,15 +184,24 @@ func SegnaRicaricato(ctx context.Context, q *db.Queries, thread uuid.UUID, scart
 	return nil
 }
 
+// OriginePortale, OrigineInterna: le due origini di un caricamento E1′ (il campo «origine» della richiesta e di ogni file
+// della risposta, EM §10.9). Nella riga dell'allegato diventano portale e manuale.
+const (
+	OriginePortale = "portale"
+	OrigineInterna = "interna"
+)
+
 // RegistraFile registra un file arrivato nella RFQ (E1′), in una transazione sua (EM §10.9). interna: il contenitore
-// dei caricamenti interni (origine manuale); altrimenti quello dei file del cliente (origine portale). Il parziale si
-// promuove o si butta qui; in ogni caso, all'uscita, non resta.
+// dei caricamenti interni (origine dell'allegato manuale); altrimenti quello dei file del cliente (origine portale). La
+// risposta usa il vocabolario della richiesta (portale | interna) per ogni file, come per i file rifiutati e in testa
+// (rilievo della revisione). Il parziale si promuove o si butta qui; in ogni caso, all'uscita, non resta.
 func (s *Servizio) RegistraFile(ctx context.Context, thread uuid.UUID, u db.Utente, interna bool, f FileArrivato) (EsitoFile, error) {
 	origine := string(db.OrigineAllegatoPortale)
+	risposta := OriginePortale
 	if interna {
-		origine = string(db.OrigineAllegatoManuale)
+		origine, risposta = string(db.OrigineAllegatoManuale), OrigineInterna
 	}
-	es := EsitoFile{NomeFile: f.Nome, Sha256: f.Sha256, Origine: origine}
+	es := EsitoFile{NomeFile: f.Nome, Sha256: f.Sha256, Origine: risposta}
 	defer staging.RimuoviParte(f.Parte) // promosso o buttato, il parziale non resta (un file assente non e' un errore)
 	def, err := staging.PercorsoContenuto(s.Staging, f.Sha256, f.Nome)
 	if err != nil {

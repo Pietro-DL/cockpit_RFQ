@@ -9,16 +9,19 @@
 
 -- name: ListOccorrenzeSorgente :many
 -- Le occorrenze del ciclo dei file per id, con lo stato (nessuna riga = attivo, versione 0), la proposta di documento
--- e lo scarto fatto col vecchio «Scarta il file» (proposta scartata da una persona e nessuna riga di stato per
--- l'allegato in nessuna RFQ: uno scarto della Sorgente in un'altra RFQ, prima di un cambio di RFQ del messaggio, non e'
--- un gesto precedente; PM23 CO-14). L'ordine e' quello degli id, per chi blocca e scrive in un ordine fisso.
+-- e lo scarto fatto col vecchio «Scarta il file»: proposta scartata da una persona, occorrenza attiva per il ciclo dei
+-- file (nessuna riga, o la riga in attivo dopo una «Riattiva») e nessun evento «scarta» del ciclo per l'allegato, in
+-- nessuna RFQ. Uno scarto della Sorgente in un'altra RFQ, prima di un cambio di RFQ del messaggio, ha il suo evento e
+-- non e' un gesto precedente (PM23 CO-14); il vecchio «Scarta il file» usato dopo una «Riattiva» si' (rilievo della
+-- revisione, PF-06). Le stesse condizioni stanno in ogni query di questo file che riconosce lo scarto col gesto
+-- precedente. L'ordine e' quello degli id, per chi blocca e scrive in un ordine fisso.
 SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a.path_interno, a.estensione, a.natura,
        a.origine, a.bytes, a.sha256, a.stato AS stato_allegato, a.path_staging, a.errore, a.ricevuto_il, a.caricato_da,
        m.thread_id, m.canale,
        COALESCE(f.stato, 'attivo')::text AS stato, COALESCE(f.versione, 0)::int AS versione,
        p.proposta_id, p.stato AS stato_proposta, p.componente_id AS proposta_componente_id, p.deciso_da AS proposta_decisa_da,
-       (f.stato IS NULL AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = a.allegato_id))::bool AS scartato_legacy
+       ((f.stato IS NULL OR f.stato = 'attivo') AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = a.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy
   FROM allegato a
   JOIN messaggio m ON m.messaggio_id = a.messaggio_id
   LEFT JOIN file_rfq f ON f.thread_id = m.thread_id AND f.allegato_id = a.allegato_id
@@ -45,8 +48,8 @@ SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a
        COALESCE(f.stato, 'attivo')::text AS stato, COALESCE(f.versione, 0)::int AS versione,
        p.proposta_id, p.stato AS stato_proposta, p.tipo_proposto, p.codice AS proposta_codice, p.rev AS proposta_rev,
        p.componente_id AS proposta_componente_id, p.deciso_da AS proposta_decisa_da,
-       (f.stato IS NULL AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = a.allegato_id))::bool AS scartato_legacy,
+       ((f.stato IS NULL OR f.stato = 'attivo') AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = a.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy,
        doc.documento_id, doc.stato_nas AS documento_stato_nas, doc.codice AS documento_codice, doc.rev AS documento_rev,
        doc.tipo AS documento_tipo,
        r.rimozione_id, r.stato AS rimozione_stato, r.motivo AS rimozione_motivo, r.tentativi AS rimozione_tentativi,
@@ -179,8 +182,9 @@ dip AS (
       JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
      WHERE x.allegato_id <> ALL(sqlc.arg(allegati)::uuid[])
        AND NOT EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-       AND NOT EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                          AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id))
+       AND NOT (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+                AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+                AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta'))
      GROUP BY occ.allegato_id
     UNION ALL
     -- D-11: note sui PDF
@@ -217,8 +221,9 @@ SELECT c.componente_id, c.codice FROM componente c
 -- stato della loro occorrenza (uno scarto col gesto precedente conta come scartato). Il Go verifica il file.
 SELECT x.allegato_id, x.path_staging::text AS path_staging, mx.thread_id,
        (EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-        OR EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id)))::bool AS scartata,
+        OR (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+            AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta')))::bool AS scartata,
        file_rfq_attivo(mx.thread_id, x.allegato_id)::bool AS attiva
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
  WHERE x.sha256 = sqlc.arg(sha256)::char(64) AND x.path_staging IS NOT NULL
@@ -230,8 +235,9 @@ SELECT x.allegato_id, x.path_staging::text AS path_staging, mx.thread_id,
 -- occorrenze del gesto in una volta. Il Go verifica il file.
 SELECT x.allegato_id, x.sha256::text AS sha256, x.path_staging::text AS path_staging,
        (EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-        OR EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id)))::bool AS scartata
+        OR (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+            AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta')))::bool AS scartata
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
  WHERE x.sha256 = ANY(sqlc.arg(sha)::char(64)[]) AND x.path_staging IS NOT NULL
    AND x.allegato_id <> ALL(sqlc.arg(esclusi)::uuid[])
@@ -256,8 +262,9 @@ SELECT EXISTS (SELECT 1 FROM documento d WHERE d.thread_id = sqlc.arg(thread_id)
 
 -- name: GetDocumentoScrittoPerSha :one
 -- Il documento della RFQ con questo contenuto scritto sul NAS, senza anomalie aperte, con la cartella della RFQ: una
--- sorgente dei byte in sola lettura (copia di conservazione, S5).
-SELECT d.documento_id, d.path_relativo, d.bytes, d.sha256, t.cartella_relativa
+-- sorgente dei byte in sola lettura (copia di conservazione, S5). scritto_il e verificato_il dicono a S5 se il file e'
+-- «in dubbio» (toccato dopo l'ultima volta che il server l'ha guardato): allora lo rilegge per lo sha, senza scrivere.
+SELECT d.documento_id, d.path_relativo, d.bytes, d.sha256, d.scritto_il, d.verificato_il, t.cartella_relativa
   FROM documento d JOIN thread_offerta t ON t.thread_id = d.thread_id
  WHERE d.thread_id = sqlc.arg(thread_id) AND d.sha256 = sqlc.arg(sha256)::char(64) AND d.stato_nas = 'scritto'
    AND NOT EXISTS (SELECT 1 FROM nas_anomalia n WHERE n.documento_id = d.documento_id AND n.risolta_il IS NULL)
@@ -355,26 +362,33 @@ SELECT * FROM file_rfq_rimozione WHERE rimozione_id = sqlc.arg(rimozione_id) FOR
 SELECT * FROM file_rfq_rimozione WHERE rimozione_id = sqlc.arg(rimozione_id) FOR UPDATE SKIP LOCKED;
 
 -- name: ListIdRimozioniDaRiprendere :many
--- Le rimozioni da riprendere (il custode), senza lucchetto: ognuna si prende poi nella sua transazione, SKIP LOCKED.
+-- Le rimozioni da riprendere (il custode), senza lucchetto: ognuna si prende poi nella sua transazione, SKIP LOCKED. Una
+-- pagina alla volta, per chiave (rimozione_id > dopo): il custode le scorre tutte nella stessa passata, e una riga che
+-- resta da riprendere (in mano a un altro, o con un errore) non torna nella stessa passata.
 SELECT rimozione_id FROM file_rfq_rimozione
  WHERE stato IN ('in_attesa', 'errore') AND ritentabile
    AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= sqlc.arg(adesso)::timestamptz)
- ORDER BY prossimo_tentativo_il NULLS FIRST, rimozione_id
+   AND rimozione_id > sqlc.arg(dopo)::bigint
+ ORDER BY rimozione_id
  LIMIT sqlc.arg(limite);
 
 -- name: ListIdRimozioniNonRitentabili :many
--- Gli errori non ritentabili, per il controllo giornaliero della bonifica (EM §10.4).
+-- Gli errori non ritentabili, per il controllo giornaliero della bonifica (EM §10.4: «ogni riga in errore non
+-- ritentabile»). Una pagina alla volta, per chiave (rimozione_id > dopo): la bonifica le scorre tutte, anche quando le
+-- prime restano in errore perche' i loro file ci sono ancora (rilievo bloccante della revisione).
 SELECT rimozione_id FROM file_rfq_rimozione
- WHERE stato = 'errore' AND NOT ritentabile
+ WHERE stato = 'errore' AND NOT ritentabile AND rimozione_id > sqlc.arg(dopo)::bigint
  ORDER BY rimozione_id
  LIMIT sqlc.arg(limite);
 
 -- name: ListIdConservazioniDaRiprendere :many
 -- Le copie da riprendere (il custode), senza lucchetto: da rilasciare con il tentativo scaduto, o in copia con il
--- battito fermo da piu' di 15 minuti (aggiornato_il, non l'inizio: giro 1, TR-01).
+-- battito fermo da piu' di 15 minuti (aggiornato_il, non l'inizio: giro 1, TR-01). Una pagina alla volta, per chiave
+-- (conservazione_id > dopo), come le rimozioni.
 SELECT conservazione_id FROM file_rfq_conservazione
- WHERE (stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= sqlc.arg(adesso)::timestamptz))
-    OR (stato = 'in_copia' AND aggiornato_il < sqlc.arg(adesso)::timestamptz - interval '15 minutes')
+ WHERE ((stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= sqlc.arg(adesso)::timestamptz))
+        OR (stato = 'in_copia' AND aggiornato_il < sqlc.arg(adesso)::timestamptz - interval '15 minutes'))
+   AND conservazione_id > sqlc.arg(dopo)::bigint
  ORDER BY conservazione_id
  LIMIT sqlc.arg(limite);
 
@@ -450,8 +464,9 @@ SELECT COALESCE((
 -- percorso. Il confronto dei percorsi (pulito, senza maiuscole) lo fa il Go.
 SELECT x.allegato_id, x.path_staging::text AS path_staging, mx.thread_id,
        (EXISTS (SELECT 1 FROM file_rfq fx WHERE fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id AND fx.stato = 'scartato')
-        OR EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.allegato_id = x.allegato_id)))::bool AS scartata
+        OR (EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata' AND px.deciso_da IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM file_rfq fy WHERE fy.thread_id = mx.thread_id AND fy.allegato_id = x.allegato_id AND fy.stato <> 'attivo')
+            AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ey WHERE ey.allegato_id = x.allegato_id AND ey.azione = 'scarta')))::bool AS scartata
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
  WHERE x.path_staging IS NOT NULL AND x.allegato_id <> sqlc.arg(escluso)::uuid
    AND (x.sha256 = sqlc.narg(sha256)::char(64)
@@ -470,9 +485,10 @@ UPDATE allegato SET path_staging = NULL WHERE allegato_id = sqlc.arg(allegato_id
 -- nella transazione della registrazione (EM §10.9, E1′; giro 1, TR-10).
 SELECT x.allegato_id, x.nome_file, x.path_staging, mx.thread_id,
        COALESCE(fx.stato, 'attivo')::text AS stato,
-       (fx.stato IS NULL AND EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata'
-                                        AND px.deciso_da IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = x.allegato_id))::bool AS scartato_legacy
+       ((fx.stato IS NULL OR fx.stato = 'attivo')
+        AND EXISTS (SELECT 1 FROM documento_proposta px WHERE px.allegato_id = x.allegato_id AND px.stato = 'scartata'
+                       AND px.deciso_da IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = x.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy
   FROM allegato x JOIN messaggio mx ON mx.messaggio_id = x.messaggio_id
   LEFT JOIN file_rfq fx ON fx.thread_id = mx.thread_id AND fx.allegato_id = x.allegato_id
  WHERE x.messaggio_id = sqlc.arg(messaggio_id) AND x.contenitore_id IS NULL AND x.sha256 = sqlc.arg(sha256)::char(64)
@@ -484,9 +500,10 @@ SELECT x.allegato_id, x.nome_file, x.path_staging, mx.thread_id,
 -- Lo stato dell'occorrenza di un allegato nella RFQ del suo messaggio, per le guardie degli scrittori e dei gesti
 -- legacy: attivo (nessuna riga), altri_file o scartato; scartato_legacy per uno scarto col vecchio «Scarta il file».
 SELECT a.allegato_id, m.thread_id, COALESCE(f.stato, 'attivo')::text AS stato,
-       (f.stato IS NULL AND EXISTS (SELECT 1 FROM documento_proposta p WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata'
-                                       AND p.deciso_da IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM file_rfq fz WHERE fz.allegato_id = a.allegato_id))::bool AS scartato_legacy
+       ((f.stato IS NULL OR f.stato = 'attivo')
+        AND EXISTS (SELECT 1 FROM documento_proposta p WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata'
+                       AND p.deciso_da IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM file_rfq_evento ez WHERE ez.allegato_id = a.allegato_id AND ez.azione = 'scarta'))::bool AS scartato_legacy
   FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
   LEFT JOIN file_rfq f ON f.thread_id = m.thread_id AND f.allegato_id = a.allegato_id
  WHERE a.allegato_id = sqlc.arg(allegato_id);

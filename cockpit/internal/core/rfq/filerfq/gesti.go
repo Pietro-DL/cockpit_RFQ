@@ -40,9 +40,18 @@ type preparato struct {
 }
 
 // prepara fa i controlli comuni dei gesti sotto il lucchetto della RFQ, nell'ordine fisso del contratto (EM §10.4 tempo
-// 1 passi 1-4; §10.5 fase A; §10.6): BloccaThread, l'intento, la RFQ unita, l'occorrenza della RFQ e la sua natura, lo
-// stato e la versione attesa, il perimetro di un archivio, le dipendenze per ogni occorrenza del gesto. Un esito gia'
-// registrato con la stessa chiave torna in registrato.
+// 1 passi 1-4; §10.5 fase A; §10.6): BloccaThread, l'intento, la RFQ unita, l'occorrenza della RFQ e la sua natura, le
+// proposte dell'occorrenza e delle sue voci FOR UPDATE, lo stato e la versione attesa (riletti dopo quel lucchetto), il
+// perimetro di un archivio, le dipendenze per ogni occorrenza del gesto. Un esito gia' registrato con la stessa chiave
+// torna in registrato.
+//
+// Le proposte si prendono PRIMA di leggere gli stati e di calcolare le dipendenze, non dopo: un gesto legacy che tiene
+// una proposta senza la RFQ (il vecchio «Scarta il file», «Documentazione generale») o che la tiene mentre il gesto
+// aspetta la RFQ finisce prima, e il gesto legge quello che ha scritto (una provenienza nuova che porta D-1, una
+// proposta scartata che fa lo scarto col gesto precedente). Controllo e azione stanno cosi' sotto gli stessi lucchetti
+// (rilievo della revisione); le prese successive, in tempo1 e nella fase C, sono gia' di questa transazione. L'ordine
+// resta quello di EM §10.6: la RFQ, le righe (proposte in ordine di proposta_id, come il risultato dello stage), per
+// ultimo il contenuto.
 func (s *Servizio) prepara(ctx context.Context, q *db.Queries, g gesto) (*preparato, *EsitoGesto, error) {
 	t, err := q.BloccaThread(ctx, g.thread)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -68,6 +77,21 @@ func (s *Servizio) prepara(ctx context.Context, q *db.Queries, g gesto) (*prepar
 	if !o.gestibile() {
 		return nil, nil, nonGestito(string(o.Natura))
 	}
+	discendenti, err := q.ListDiscendentiArchivio(ctx, o.AllegatoID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := q.BloccaPropostaDiAllegato(ctx, append([]uuid.UUID{o.AllegatoID}, discendenti...)); err != nil {
+		return nil, nil, err
+	}
+	// riletta dopo il lucchetto delle proposte: lo stato della proposta (e con lui lo scarto col gesto precedente) e'
+	// quello di adesso; lo stato del ciclo dei file non poteva cambiare (lo scrive solo chi tiene la RFQ)
+	if o, err = leggiOccorrenza(ctx, q, g.thread, g.allegato); err != nil {
+		return nil, nil, err
+	}
+	if o == nil {
+		return nil, nil, fuoriRFQ("")
+	}
 	vista := *g.corpo.VersioneAttesa
 	switch g.nome {
 	case GestoScarta:
@@ -89,7 +113,7 @@ func (s *Servizio) prepara(ctx context.Context, q *db.Queries, g gesto) (*prepar
 			return nil, nil, fileVersione(o.StatoCiclo(), o.Versione)
 		}
 	}
-	p, err := perimetro(ctx, q, *o)
+	p, err := perimetroDa(ctx, q, *o, discendenti)
 	if err != nil {
 		return nil, nil, err
 	}

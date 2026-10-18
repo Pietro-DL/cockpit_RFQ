@@ -1,7 +1,9 @@
 package filerfq
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // I testi degli stati della rimozione (EM §10.4, «Gli stati della rimozione e i testi esatti»). «File eliminato»
@@ -148,8 +151,10 @@ type RimozioneFile struct {
 	Tentativi int32  `json:"tentativi"`
 }
 
-// ConservazioneFile: l'ultima copia di conservazione. In errore (errore_copia, o un rilascio che non riesce) porta
-// «stato: errore» con la causa o il motivo (PE-06).
+// ConservazioneFile: l'ultima copia di conservazione. Una copia non riuscita (errore_copia) porta «stato: errore» con
+// la causa; una copia verificata il cui file manca nel deposito porta «stato: errore» con il motivo (PE-06). Un rilascio
+// che non riesce lascia lo stato da_rilasciare, con il motivo (l'errore in parole, senza percorsi): la copia non e' in
+// errore, si ritenta.
 type ConservazioneFile struct {
 	Stato        string     `json:"stato"`
 	Causa        string     `json:"causa,omitempty"`
@@ -165,18 +170,27 @@ type TracciaGesto struct {
 	Motivo string    `json:"motivo"`
 }
 
-// Azione: un'azione della Sorgente su un file, sempre visibile, spenta con il motivo (PE-06; MAT §6.1).
+// Azione: un'azione della Sorgente su un file, sempre visibile, spenta con il motivo: {disponibile, motivo} (PE-06; MAT
+// §6.1).
 type Azione struct {
+	Disponibile bool   `json:"disponibile"`
+	Motivo      string `json:"motivo"`
+}
+
+// AzioneContenuto: l'apertura dei byte (S5), con in piu' richiede[] (EM §10.9 S1: «contenuto: {disponibile, motivo,
+// richiede[]}»): che cosa serve per riaverli («scarica», «ricarica»), un elenco vuoto quando non serve niente. Il campo
+// c'e' sempre, anche vuoto (rilievo della revisione: con omitempty spariva).
+type AzioneContenuto struct {
 	Disponibile bool     `json:"disponibile"`
 	Motivo      string   `json:"motivo"`
-	Richiede    []string `json:"richiede,omitempty"`
+	Richiede    []string `json:"richiede"`
 }
 
 type AzioniFile struct {
-	Scarta    Azione `json:"scarta"`
-	AltriFile Azione `json:"altri_file"`
-	Riattiva  Azione `json:"riattiva"`
-	Contenuto Azione `json:"contenuto"`
+	Scarta    Azione          `json:"scarta"`
+	AltriFile Azione          `json:"altri_file"`
+	Riattiva  Azione          `json:"riattiva"`
+	Contenuto AzioneContenuto `json:"contenuto"`
 }
 
 // StepSorgente: uno STEP attivo della RFQ (MAT SG-01): le proposte del motore per STEP le da' /dati.
@@ -380,14 +394,17 @@ func (s *Servizio) fileDaRiga(r db.ListFileSorgenteRow, pendenti map[string]bool
 	}
 	f.Analisi = statoAnalisi(r.StatoAllegato, r.Errore.String, pendenti)
 	f.Analisi.Motivo = SenzaPercorsi(f.Analisi.Motivo) // il messaggio di un worker puo' citare un percorso (T-15)
-	// i byte, in stati
+	// i byte, in stati. Lo staging si guarda sul disco solo nel posto del contenuto (EContenuto), che e' anche l'unico
+	// posto da cui S5 serve (PF-09): un path_staging dello staging vecchio per messaggio, uno fuori dalla radice (anche
+	// un UNC rimasto da una configurazione vecchia) o uno senza sha e' «non_verificato», senza toccare il disco (S1 si
+	// rilegge ogni 5 secondi) e senza accendere l'apertura (rilievo della revisione)
 	f.Byte = ByteFile{Staging: "assente", Conservazione: "assente", NAS: "assente"}
 	if r.PathStaging.Valid && r.PathStaging.String != "" {
 		switch {
 		case presenteNelloStaging(s.Staging, r.PathStaging.String, sha):
 			f.Byte.Staging = "presente"
-		case s.Staging != "" && sha != "" && !esiste(r.PathStaging.String):
-			f.Byte.Staging = "assente"
+		case s.Staging != "" && staging.EContenuto(s.Staging, r.PathStaging.String, sha):
+			f.Byte.Staging = "assente" // il posto del contenuto, e il file non c'e' (la cache l'ha tolto)
 		default:
 			f.Byte.Staging = "non_verificato"
 		}
@@ -442,6 +459,36 @@ func esiste(p string) bool {
 	return err == nil
 }
 
+// esitoSenzaPercorsi: l'esito di un evento per S1, con ogni testo passato da SenzaPercorsi (i numeri restano numeri:
+// json.Number). Un esito che non si legge non si mostra.
+func esitoSenzaPercorsi(grezzo json.RawMessage) any {
+	dec := json.NewDecoder(bytes.NewReader(grezzo))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil
+	}
+	return testiSenzaPercorsi(v)
+}
+
+func testiSenzaPercorsi(v any) any {
+	switch x := v.(type) {
+	case string:
+		return SenzaPercorsi(x)
+	case map[string]any:
+		for k, y := range x {
+			x[k] = testiSenzaPercorsi(y)
+		}
+		return x
+	case []any:
+		for i, y := range x {
+			x[i] = testiSenzaPercorsi(y)
+		}
+		return x
+	}
+	return v
+}
+
 // azioni: le azioni della Sorgente su un file, sempre presenti, spente con il motivo (PE-06).
 func (s *Servizio) azioni(f FileSorgente, natura db.NaturaAllegato, unita bool) AzioniFile {
 	no := func(motivo string) Azione { return Azione{Motivo: motivo} }
@@ -485,16 +532,20 @@ func (s *Servizio) azioni(f FileSorgente, natura db.NaturaAllegato, unita bool) 
 			a.Riattiva = no("il file è già fra gli attivi")
 		}
 	}
+	// l'apertura dei byte e' disponibile solo per le sorgenti che S5 serve davvero: il posto del contenuto nello staging,
+	// la copia nel deposito, il documento scritto sul NAS; «non_verificato» non basta (S5 non serve da li': rilievo
+	// della revisione)
 	switch {
 	case f.Stato == StatoScartato:
-		a.Contenuto = Azione{Motivo: "il file è scartato in questa RFQ: per riaverlo, ricaricalo", Richiede: []string{"ricarica"}}
-	case f.Byte.Staging == "presente" || f.Byte.Conservazione == "presente" || f.Byte.NAS == "presente" ||
-		f.Byte.Staging == "non_verificato" || f.Byte.Conservazione == "non_verificato":
-		a.Contenuto = Azione{Disponibile: true}
+		a.Contenuto = AzioneContenuto{Motivo: "il file è scartato in questa RFQ: per riaverlo, ricaricalo", Richiede: []string{"ricarica"}}
+	case f.Byte.Staging == "presente" || f.Byte.Conservazione == "presente" || f.Byte.NAS == "presente":
+		a.Contenuto = AzioneContenuto{Disponibile: true}
+	case f.Stato == StatoAltriFile:
+		a.Contenuto = AzioneContenuto{Motivo: "la copia di conservazione non si apre su questo server: è un'anomalia, segnalala"}
 	case f.Origine == string(db.OrigineAllegatoOutlook):
-		a.Contenuto = Azione{Motivo: "il file non è nello staging: scaricalo dalla mail con «Scarica»", Richiede: []string{"scarica"}}
+		a.Contenuto = AzioneContenuto{Motivo: "il file non è nello staging: scaricalo dalla mail con «Scarica»", Richiede: []string{"scarica"}}
 	default:
-		a.Contenuto = Azione{Motivo: "il file non è più nello staging: ricaricalo", Richiede: []string{"ricarica"}}
+		a.Contenuto = AzioneContenuto{Motivo: "il file non è più nello staging: ricaricalo", Richiede: []string{"ricarica"}}
 	}
 	if a.Contenuto.Richiede == nil {
 		a.Contenuto.Richiede = []string{}
@@ -542,7 +593,8 @@ func (s *Servizio) dettaglio(ctx context.Context, q *db.Queries, thread, allegat
 		x := EventoFile{Azione: e.Azione, StatoPrima: e.StatoPrima.String, StatoDopo: e.StatoDopo.String, Motivo: e.Motivo.String,
 			Origine: e.Origine, Autore: e.Autore.String, Quando: e.Quando}
 		if e.Esito != nil {
-			x.Esito = e.Esito
+			// i testi dell'esito passano da SenzaPercorsi, come gli altri testi liberi di S1 (PF-16; T-15)
+			x.Esito = esitoSenzaPercorsi(*e.Esito)
 		}
 		if e.AltroAllegatoID.Valid {
 			a := e.AltroAllegatoID.UUID

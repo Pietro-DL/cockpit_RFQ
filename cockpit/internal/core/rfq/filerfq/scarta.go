@@ -41,7 +41,8 @@ func (s *Servizio) Scarta(ctx context.Context, thread, allegato, utente uuid.UUI
 }
 
 // tempo1: le scritture della decisione, dopo i controlli di prepara (EM §10.4, tempo 1 passo 5). L'ordine dei lucchetti
-// e' fisso: i job (SKIP LOCKED), le proposte, gli allegati FOR SHARE, poi le righe del ciclo dei file.
+// e' fisso: le proposte (gia' prese da prepara, prima dei controlli: qui la presa e' di questa transazione), i job (SKIP
+// LOCKED: non si aspetta mai), gli allegati FOR SHARE, poi le righe del ciclo dei file.
 func (s *Servizio) tempo1(ctx context.Context, q *db.Queries, g gesto, pr *preparato) (*EsitoGesto, error) {
 	ids := idDi(pr.tutte)
 	chiavi := make([]string, 0, 2*len(ids))
