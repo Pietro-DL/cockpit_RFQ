@@ -52,12 +52,18 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   26 secondo prodotto: lo STEP che non propone una struttura per il prodotto non inventa niente
   27 D-18: il modello che non si calcola (200 con «errore»): striscia, niente tela; «Aggiorna» lo rifa'
   28 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
-  29 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
-  30 i casi di contratto condivisi (e2e/distinta_unica_casi.json): il vassoio «Da ricollocare» (PM23 T-16, la meta'
+  29 la Sorgente dice dove va ogni file (SG-06: preassociato, proposto per un pezzo); «Assegna a un pezzo...» (FL-12) e
+     «Togli la preassociazione»; «Scarica» (FL-03); senza bozza «Assegna» e' spento con il motivo
+  30 l'Elenco: filtri e ricerca (EL-01), «Accetta le proposte valide (N)» senza preselezione (EL-03); «Confronto con la
+     proposta» sulle schede (BZ-25)
+  31 il pannello del nodo: la sezione «Documenti» (EL-08) e «⤴ Ricolloca i figli...» in un salvataggio (BZ-11)
+  32 «Riepilogo RFQ» (TS-08), «STEP secondario disponibile» (SG-12) e «nessuna candidata» (SG-13)
+  33 i casi di contratto condivisi (e2e/distinta_unica_casi.json): il vassoio «Da ricollocare» (PM23 T-16, la meta'
      della pagina) e le azioni del vocabolario 2 applicate allo snapshot, con le funzioni esportate dalla pagina,
      caricata in una scheda senza il guscio (l'avvio della pagina non parte senza #du)
 
 I clienti, i codici e i nomi dei file sono inventati (ACME, BETA, ACM-xxxx).
+  34 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
 """
 import argparse
 import json
@@ -1232,6 +1238,184 @@ def b28(b):
         p.set_viewport_size({"width": 1440, "height": 900})
 
 
+@prova("29", "Sorgente: dove va il file (SG-06), «Assegna a un pezzo…» (FL-12), «Scarica» (FL-03)")
+def b29(b):
+    p = b.page
+    a2 = b.al["ACM-1100_A.pdf"]
+    b.passo("sorgente")
+    p.click("#du-cartella-attivi")
+    riga = p.locator("#du-file-" + sid(a2))
+    expect(riga).to_contain_text("◇ proposto per ACM-1100", timeout=T_LUNGO)
+    sc = p.locator("#du-scarica-" + sid(a2))
+    verifica(sc.get_attribute("href") == "/thread/%s/sorgente/file/%s/contenuto?modo=scarica" % (b.thread, a2) and sc.get_attribute("download") == "ACM-1100_A.pdf",
+             "«Scarica»: %s %s" % (sc.get_attribute("href"), sc.get_attribute("download")))
+    i = b.segna()
+    p.click("#du-assegna-" + sid(a2))
+    expect(p.locator("#f-proposti")).to_contain_text("ACM-1100")
+    verifica(p.locator("#f-pezzo").input_value() == "", "«Assegna» ha un pezzo preselezionato")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.select_option("#f-pezzo", "k-7")
+    b.ok_finestra()
+    expect(riga).to_contain_text("◈ preassociato a ACM-1100", timeout=T_LUNGO)
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Assegna»")
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"proposta_id": b.pr["ACM-1100_A.pdf"], "chiave_bozza": "k-7"})], "«Assegna»: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    i = b.segna()
+    p.click("#du-togli-pb-" + sid(a2))
+    expect(riga).to_contain_text("◇ proposto per ACM-1100", timeout=T_LUNGO)
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Togli la preassociazione»")
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([a["azione"] for a in az] == ["file_svincolato"] and az[0]["dopo"]["motivo"] == "utente", "«Togli la preassociazione»: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    # senza bozza (il secondo prodotto) «Assegna» è spento con il motivo
+    p.locator('.du-ptab[data-prodotto="%s"]' % b.p2).click()
+    expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    bt = p.locator("#du-assegna-" + sid(a2))
+    expect(bt).to_be_disabled()
+    verifica("Usa per la BOM" in (bt.get_attribute("title") or ""), "«Assegna» spento senza il motivo")
+    p.locator('.du-ptab[data-prodotto="%s"]' % b.p1).click()
+    expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+
+
+@prova("30", "Elenco: filtri e ricerca (EL-01), «Accetta le proposte valide» (EL-03), «Confronto con la proposta» (BZ-25)")
+def b30(b):
+    p = b.page
+    b.passo("revisione")
+    b.vista("elenco")
+    righe = p.locator("#du-elenco [role=row][data-k]")
+    expect(righe).to_have_count(10)
+    p.click("#du-filtro-prop")
+    expect(p.locator("#du-filtro-prop")).to_have_attribute("aria-pressed", "true")
+    n = righe.count()
+    verifica(n >= 1 and all(righe.nth(j).get_attribute("data-du-esito") == "prop" for j in range(n)), "filtro «Proposti da verificare»: %d righe" % n)
+    p.click("#du-filtro-tutti")
+    p.fill("#du-el-cerca", "ACM-14")
+    expect(righe).to_have_count(2)
+    verifica(sorted(righe.nth(j).get_attribute("data-k") for j in range(2)) == ["k-40", "k-41"], "ricerca «ACM-14»")
+    p.fill("#du-el-cerca", "zzz-nessuno")
+    expect(righe).to_have_count(0)
+    p.click("#du-filtro-azzera")
+    expect(righe).to_have_count(10)
+    i = b.segna()
+    p.click("#du-accetta-valide")
+    elenco = p.locator("#f-proposte input")
+    verifica(elenco.count() >= 1 and p.locator("#f-proposte input:checked").count() == 0, "«Accetta le proposte valide»: %d proposte, preselezioni presenti" % elenco.count())
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.locator("#f-proposte label", has_text="ACM-1100_A.pdf").locator("input").check()
+    b.ok_finestra()
+    expect(p.locator("#el-k-7")).to_contain_text("◈ preassociato", timeout=T_LUNGO)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([(a["azione"], a["dopo"]["chiave_bozza"]) for a in az] == [("file_preassociato", "k-7")], "accettazione cumulativa: %s" % az)
+    # «Confronto con la proposta»: il codice corretto a mano si vede sulla scheda, le altre schede no
+    b.vista("org")
+    b.scheda("k-12")
+    p.click("#du-correggi")
+    p.fill("#f-codice", "ACM-1130")
+    p.fill("#f-motivo", "codice dal disegno del cliente")
+    b.ok_finestra()
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    verifica("≠ proposta" not in p.locator("#du-vp").inner_text(), "«≠ proposta» senza il confronto acceso")
+    p.click("#du-confronto")
+    expect(p.locator("#du-confronto")).to_have_attribute("aria-pressed", "true")
+    expect(p.locator("#nc-k-12")).to_contain_text("≠ proposta")
+    expect(p.locator("#du-vp .du-nc", has_text="≠ proposta")).to_have_count(1)
+    p.click("#du-confronto")
+
+
+@prova("31", "pannello: «Documenti» (EL-08), «⤴ Ricolloca i figli…» (BZ-11)")
+def b31(b):
+    p = b.page
+    b.passo("revisione")
+    b.vista("org")
+    b.scheda("k-40")
+    expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-40")
+    i = b.segna()
+    p.click("#du-ricolloca")
+    expect(b.finestra()).to_contain_text("Ricolloca i figli di ACM-1400")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.select_option("#f-a", "k-7")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.locator("#f-stesse-qta").check()
+    b.ok_finestra()
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica(len(az) == 1 and az[0]["azione"] == "arco_spostato" and az[0]["prima"]["padre"] == "k-40" and az[0]["dopo"] == {"padre": "k-7", "figlio": "k-41", "qta": 2, "origine": "utente"},
+             "«Ricolloca i figli»: %s" % az)
+    # la sezione «Documenti» del pannello: un file da smistare preassociato a questo pezzo
+    b.scheda("k-41")
+    expect(p.locator("#du-sez-documenti")).to_be_visible()
+    opz = p.locator("#du-pannello-file option").all_inner_texts()
+    verifica("PIASTRA_400123.dxf" in opz and "ACM-1100_A.pdf" not in opz and not [x for x in opz if x.endswith(".stp")], "file da smistare nel pannello: %s" % opz)
+    i = b.segna()
+    p.select_option("#du-pannello-file", label="PIASTRA_400123.dxf")
+    p.click("#du-pannello-preassocia")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dalla sezione «Documenti»")
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"proposta_id": b.pr["PIASTRA_400123.dxf"], "chiave_bozza": "k-41"})], "preassociazione dal pannello: %s" % az)
+    p.click("#du-pannello-carica")
+    expect(p.locator("#du-passo-sorgente")).to_have_attribute("aria-current", "step")
+    b.attendi(lambda: p.evaluate("() => document.activeElement && document.activeElement.id") == "du-carica-file", "«Carica…» non porta al caricamento")
+
+
+@prova("32", "«Riepilogo RFQ» (TS-08), «STEP secondario disponibile» (SG-12), «nessuna candidata» (SG-13)")
+def b32(b):
+    p = b.page
+    p.click("#du-menu-rfq summary")
+    p.click("#du-riepilogo-rfq")
+    expect(p.locator("#f-riepilogo-rfq")).to_contain_text("ACME Macchine")
+    expect(p.locator("#f-riepilogo-prodotti")).to_contain_text("ACM-1000")
+    expect(p.locator("#f-riepilogo-prodotti")).to_contain_text("ACM-2000")
+    b.chiudi_finestra()
+    b.passo("sorgente")
+    expect(p.locator("#du-step-secondario")).to_contain_text("STEP secondario disponibile")
+    expect(p.locator("#du-step-secondario")).to_contain_text("ACM-1000_rev2.stp")
+    expect(p.locator("#du-step-secondario")).to_contain_text("V5")
+    verifica(p.locator("#du-nessuna-candidata").count() == 0, "«nessuna candidata» per un prodotto con candidate")
+    p.locator('.du-ptab[data-prodotto="%s"]' % b.p2).click()
+    expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    expect(p.locator("#du-nessuna-candidata")).to_contain_text("Nessuna candidata per ACM-2000")
+    expect(p.locator("#du-nessuna-candidata")).to_contain_text("+ Aggiungi file")
+    verifica(p.locator("#du-step-secondario").count() == 0, "STEP secondario per un prodotto senza")
+    p.locator('.du-ptab[data-prodotto="%s"]' % b.p1).click()
+    expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+
+
+JS_CASI = r"""async (casi) => {
+  const M = await import("/static/distinta_unica.mjs");
+  const can = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x)) ?
+    Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x);
+  const out = [];
+  for (const c of casi.vassoio) {
+    const avuto = M.vassoioDa(c.eventi);
+    out.push({ nome: c.nome, ok: can(avuto) === can(c.atteso), avuto });
+  }
+  for (const c of casi.applica) {
+    const s = JSON.parse(JSON.stringify(c.snapshot));
+    for (const a of c.azioni) M.applica(s, a);
+    out.push({ nome: c.nome, ok: can(s) === can(c.atteso), avuto: s });
+  }
+  return out;
+}"""
+
+
+@prova("33", "casi condivisi: vassoio «Da ricollocare» (T-16, lato pagina) e azioni del vocabolario 2")
+def b33(b):
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "distinta_unica_casi.json"), encoding="utf-8") as f:
+        casi = json.load(f)
+    p2 = b.page.context.new_page()
+    try:
+        p2.goto(b.url + "/login")
+        esiti = p2.evaluate(JS_CASI, casi)
+        verifica(p2.locator("#du").count() == 0, "la scheda dei casi ha il guscio della pagina")
+    finally:
+        p2.close()
+    falliti = [(e["nome"], e["avuto"]) for e in esiti if not e["ok"]]
+    verifica(len(esiti) == len(casi["vassoio"]) + len(casi["applica"]) and not falliti, "casi falliti: %s" % falliti)
+
+
 GUSCIO = [("GET", r"/thread/{T}/distinta-unica"), ("GET", r"/static/[A-Za-z0-9_.\-/]+"), ("GET", r"/stato/worker"), ("GET", r"/favicon\.ico")]
 DEDICATE = [
     ("GET", r"/thread/{T}/motore-a/dati"), ("GET", r"/thread/{T}/motore-a/anteprima/step-strutturale"),
@@ -1249,8 +1433,8 @@ ATTI = [
 ]
 
 
-@prova("29", "richieste della pagina: guscio, statici, rotte del ponte, sei atti; nessun legacy")
-def b29(b):
+@prova("34", "richieste della pagina: guscio, statici, rotte del ponte, sei atti; nessun legacy")
+def b34(b):
     def compila(elenco):
         return [(m, re.compile("^" + r.replace("{T}", re.escape(b.thread)).replace("{U}", UUID) + "$")) for m, r in elenco]
     guscio, dedicate, atti = compila(GUSCIO), compila(DEDICATE), compila(ATTI)
@@ -1276,39 +1460,6 @@ def b29(b):
     verifica(not b.stato()["legacy"], "il banco ha visto rotte legacy: %s" % b.stato()["legacy"])
     usate = {r["metodo"] + " " + r["path"] for r in b.richieste}
     verifica(len(usate) > 20, "troppo poche rotte nella sessione: %d" % len(usate))
-
-
-JS_CASI = r"""async (casi) => {
-  const M = await import("/static/distinta_unica.mjs");
-  const can = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x)) ?
-    Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x);
-  const out = [];
-  for (const c of casi.vassoio) {
-    const avuto = M.vassoioDa(c.eventi);
-    out.push({ nome: c.nome, ok: can(avuto) === can(c.atteso), avuto });
-  }
-  for (const c of casi.applica) {
-    const s = JSON.parse(JSON.stringify(c.snapshot));
-    for (const a of c.azioni) M.applica(s, a);
-    out.push({ nome: c.nome, ok: can(s) === can(c.atteso), avuto: s });
-  }
-  return out;
-}"""
-
-
-@prova("30", "casi condivisi: vassoio «Da ricollocare» (T-16, lato pagina) e azioni del vocabolario 2")
-def b30(b):
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "distinta_unica_casi.json"), encoding="utf-8") as f:
-        casi = json.load(f)
-    p2 = b.page.context.new_page()
-    try:
-        p2.goto(b.url + "/login")
-        esiti = p2.evaluate(JS_CASI, casi)
-        verifica(p2.locator("#du").count() == 0, "la scheda dei casi ha il guscio della pagina")
-    finally:
-        p2.close()
-    falliti = [(e["nome"], e["avuto"]) for e in esiti if not e["ok"]]
-    verifica(len(esiti) == len(casi["vassoio"]) + len(casi["applica"]) and not falliti, "casi falliti: %s" % falliti)
 
 
 def main():

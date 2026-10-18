@@ -131,7 +131,9 @@ const S = {
   camere: {},
   compressi: {},
   wizard: null,
-  filtro: "tutti",
+  filtro: "tutti", // il filtro dell'Elenco (MAT EL-01)
+  cerca: "", // la ricerca dell'Elenco (MAT EL-01)
+  confronto: false, // «Confronto con la proposta» sulle schede (MAT BZ-25)
 };
 let L = null; // la tela in vista: {lay, chiave, vp, mondo, g}
 
@@ -1099,8 +1101,24 @@ function layout(g, larghezza) {
 
 // ---------------------------------------------------------------- le schede e la tela
 
+// diversaDallaProposta: in che cosa la scheda non è come l'ha importata la bozza (MAT BZ-25): codice, rev e tipo contro la
+// voce del registro della bozza (R1 ?importazione=1), mai contro la proposta di oggi. "" se è uguale o non c'è la voce.
+function diversaDallaProposta(v) {
+  const voce = v.voce;
+  if (!voce || !v.nodo || v.noninc) return "";
+  const id = v.nodo.identita || {};
+  if (id.modo === "registrato") return "";
+  const diff = [];
+  if ((id.codice || "") !== (voce.codice_proposto || "")) diff.push("codice " + (voce.codice_proposto || "(vuoto)") + " → " + (id.codice || "(vuoto)"));
+  if ((id.rev || "") !== (voce.rev_proposta || "")) diff.push("rev " + (voce.rev_proposta || "(vuota)") + " → " + (id.rev || "(vuota)"));
+  const tipo = voce.tipo_proposto && voce.tipo_proposto.valore;
+  if (tipo && v.tipo !== tipo) diff.push("tipo " + (TIPI[tipo] || tipo) + " → " + (TIPI[v.tipo] || v.tipo));
+  return diff.join("; ");
+}
 function segniScheda(g, v) {
   const out = [];
+  const diff = g.modo === "bozza" && S.confronto ? diversaDallaProposta(v) : "";
+  if (diff) out.push(h("span", { class: "du-segno du-segno--bozza", title: "Diverso dalla proposta importata: " + diff }, "≠ proposta"));
   if (v.cad) out.push(h("span", { class: "du-segno du-segno--cad", title: "Segnale del motore (LS-02): possibile elemento CAD, non un articolo. È solo un segnale: il nodo resta e il suo 2D resta richiesto finché non decidi." }, "possibile elemento CAD"));
   if (v.fornitore) out.push(h("span", { class: "du-segno du-segno--fornitore", title: "L'emittente del codice non è il cliente" }, "fornitore"));
   if (v.rivedere && v.rivedere.length) out.push(h("span", { class: "du-segno du-segno--rivedere", title: "Da rivedere: " + v.rivedere.join(", ") }, "da rivedere"));
@@ -1431,6 +1449,7 @@ function renderTestaAzioni() {
       h("div", { class: "du-gesto" }, btn("Riprova le copie sul NAS", () => atto("riprovaCopie", {}, "", "Riprova le copie sul NAS"), { cls: "du-btn--sm", id: "du-riprova-copie", perche: false })),
       f8 ? h("div", { class: "du-gesto" }, btn("Riallinea i documenti", riallineaDocumenti, { cls: "du-btn--sm", id: "du-riallinea-documenti", perche: false }),
         h("span", { class: "du-perche" }, "Il riallineamento dei documenti dopo l'ultima conferma è in errore (F8): rifallo.")) : null,
+      btn("Riepilogo RFQ", apriRiepilogoRfq, { cls: "du-btn--sm du-btn--ghost", id: "du-riepilogo-rfq", perche: false }),
       btn("Limiti di questa versione", apriLimiti, { cls: "du-btn--sm du-btn--ghost", id: "du-limiti", perche: false })));
   box.replaceChildren(btn("↻ Aggiorna", aggiorna, { cls: "du-btn--sm", id: "du-aggiorna", perche: false }), h("span", { style: "position:relative" }, menu));
 }
@@ -1622,7 +1641,17 @@ function riquadroFonte() {
       btn("Conferma la fonte…", apriConfermaFonte, { cls: "du-btn--sm", id: "du-conferma-fonte", no: noConf }),
       btn("Autorizza lo STEP strutturale…", apriAutorizza, { cls: "du-btn--sm", id: "du-autorizza", no: noAut }),
       f && f.autorizzata ? btn("Revoca l'autorizzazione…", apriRevoca, { cls: "du-btn--sm du-btn--danger", id: "du-revoca", perche: false }) : null,
-      btn("Rifiuta la candidata…", null, { cls: "du-btn--sm", no: "Il rifiuto motivato di una candidata arriva in V5: intanto si sceglie un altro STEP" })));
+      btn("Rifiuta la candidata…", null, { cls: "du-btn--sm", no: "Il rifiuto motivato di una candidata arriva in V5: intanto si sceglie un altro STEP" })),
+    secondario(f));
+}
+// secondario: l'avviso «STEP secondario disponibile» (MAT SG-12): una riga, senza gesti; l'accettazione degli archi
+// arriva in V5. La forma di step_secondario la dice il modello (nome del file, oppure l'allegato).
+function secondario(f) {
+  const s2 = f && f.step_secondario;
+  if (!s2) return null;
+  const nome = typeof s2 === "string" ? s2 : s2.nome_file || nomeFile(s2.allegato_id) || "uno STEP";
+  return h("p", { class: "du-nota", id: "du-step-secondario" }, pill("info", "STEP secondario disponibile"), " ", h("span", { class: "du-mono" }, nome),
+    typeof s2 === "object" && s2.motivo ? " · " + s2.motivo : "", ". L'accettazione dei suoi archi arriva in V5.");
 }
 function stepDellaRfq() {
   const st = arr(S.sorgente && S.sorgente.step);
@@ -1636,6 +1665,10 @@ function riquadroStep() {
   if (!elenco.length) {
     box.append(h("p", { class: "du-muto du-piccolo" }, "Nessuno STEP fra i file attivi: carica lo STEP del prodotto con «+ Aggiungi file»."));
     return box;
+  }
+  // «nessuna candidata» (MAT SG-13): ci sono STEP, ma il modello non dà strutture per il prodotto
+  if (S.modello && !S.erroreModello && prodottoScelto() && !S.modello.gruppi.length) {
+    box.append(h("p", { class: "du-nota", id: "du-nessuna-candidata" }, "Nessuna candidata per " + codiceProdotto() + " fra gli STEP della RFQ: «Guarda» dice il motivo per ciascuno; se manca lo STEP del prodotto, caricalo con «+ Aggiungi file»."));
   }
   const ul = h("ul", { class: "du-fl" });
   for (const s of elenco) {
@@ -1696,6 +1729,11 @@ function riquadroAnteprima(g) {
   if (gruppi.length > 1) {
     box.append(h("div", { class: "du-cartelle", role: "group", "aria-label": "Strutture dello STEP" }, gruppi.map((x) => h("button", { type: "button", "aria-pressed": x.gruppo === S.anteprimaGruppo ? "true" : "false",
       title: "compatibilità: " + (x.compatibilita || "?"), onclick: () => guarda(a.allegato_id, x.gruppo) }, (x.radice && x.radice.identita_proposta && x.radice.identita_proposta.letterale) || x.gruppo.slice(0, 18), " · ", x.compatibilita || ""))));
+  }
+  if (!gruppi.length) {
+    box.append(h("div", { class: "du-striscia du-striscia--ver", id: "du-anteprima-nessuna" }, "Nessuna candidata per " + codiceProdotto() + " in questo STEP" +
+      (a.testo ? ": " + a.testo : a.struttura && a.struttura.motivo ? ": " + a.struttura.motivo : "") + ". Se lo STEP del prodotto è un altro file, caricalo con «+ Aggiungi file»."));
+    return box;
   }
   const gr = gruppi.find((x) => x.gruppo === S.anteprimaGruppo) || null;
   box.append(h("p", { class: "du-nota" }, "Codice del prodotto: ", h("span", { class: "du-mono" }, a.codice_prodotto || codiceProdotto()), ". Radice letta: ",
@@ -1797,12 +1835,23 @@ function rigaFile(f) {
   const meta = [pill("neu", f.origine === "interna" ? "interna" : f.canale === "posta" ? "posta" : "del cliente"), pill(f.analisi && f.analisi.stato === "errore" ? "ko" : "neu", testoAnalisi(f))];
   if (f.proposta && f.proposta.codice) meta.push(h("span", { class: "du-mono" }, f.proposta.codice + (f.proposta.rev ? " rev " + f.proposta.rev : "")));
   if (f.scartato_legacy) meta.push(pill("neu", "Scartato (gesto precedente)"));
+  // dove va il file nella BOM di lavoro (MAT SG-06): preassociato nella bozza, oppure proposto dal motore per un pezzo
+  const dove = destinazioneFile(f);
+  if (dove.pb) meta.push(pill("bozza", "◈ preassociato a " + dove.pb));
+  for (const x of dove.pa) meta.push(pill("prop", "◇ proposto per " + x));
   const az = h("div", { class: "du-azioni du-fr-az" });
   const url = P.urlContenuto(f.allegato_id, "anteprima");
   const contenuto = f.azioni && f.azioni.contenuto;
   if (f.stato !== "scartato") {
-    az.append(contenuto && contenuto.disponibile === false ? btn("Apri", null, { cls: "du-btn--sm", no: "contenuto non disponibile: " + (contenuto.motivo || "") }) :
-      h("a", { class: "du-btn du-btn--sm", href: url, target: "_blank", rel: "noopener", id: "du-apri-" + sid(f.allegato_id) }, "Apri"));
+    if (contenuto && contenuto.disponibile === false) az.append(btn("Apri", null, { cls: "du-btn--sm", no: "contenuto non disponibile: " + (contenuto.motivo || "") }));
+    else az.append(h("a", { class: "du-btn du-btn--sm", href: url, target: "_blank", rel: "noopener", id: "du-apri-" + sid(f.allegato_id) }, "Apri"),
+      h("a", { class: "du-btn du-btn--sm du-btn--ghost", href: P.urlContenuto(f.allegato_id, "scarica"), download: f.nome_file || "", id: "du-scarica-" + sid(f.allegato_id) }, "Scarica"));
+  }
+  // associare il file a un pezzo dalla Sorgente (MAT FL-12, come EL-02…EL-04): una preassociazione della bozza
+  if ((!f.stato || f.stato === "attivo") && f.proposta_id && !/^(stp|step)$/i.test(f.estensione || "")) {
+    if (dove.pbChiave) az.append(btn("Togli la preassociazione", () => togliPreassociazione(f.proposta_id, dove.pbChiave), { cls: "du-btn--sm du-btn--ghost", id: "du-togli-pb-" + sid(f.allegato_id), no: perchéNoModifica() }));
+    else az.append(btn("Assegna a un pezzo…", () => apriAssegna(f), { cls: "du-btn--sm", id: "du-assegna-" + sid(f.allegato_id),
+      no: !bozzaAperta() ? "prima crea la BOM dalla proposta (Usa per la BOM)" : perchéNoModifica() }));
   }
   const sc = azioneFile(f, "scarta"), af = azioneFile(f, "altri_file"), ri = azioneFile(f, "riattiva");
   if (f.stato !== "scartato" || f.scartato_legacy) az.append(btn("Scarta…", () => apriScarta(f), { cls: "du-btn--sm du-btn--danger", id: "du-scarta-" + sid(f.allegato_id), no: sc.ok ? "" : sc.motivo }));
@@ -1824,6 +1873,43 @@ function rigaFile(f) {
     h("div", {}),
     traccia.join("").trim() ? h("div", { class: "du-fr-traccia", "data-du-traccia": "1" }, traccia.join("").trim()) : null,
     az);
+}
+
+// destinazioneFile: la preassociazione del file nella bozza che si vede (codice del pezzo e chiave) e i pezzi per cui il
+// registro della bozza lo propone (associazioni_proposte delle voci). Solo presentazione: lo stato vero lo dà R4.
+function destinazioneFile(f) {
+  const out = { pb: "", pbChiave: "", pa: [] };
+  if (!S.lavoro || !f.proposta_id) return out;
+  const nodoDi = (k) => S.lavoro.nodi.find((n) => n.chiave_bozza === k);
+  const cod = (n) => (n && n.identita && n.identita.codice) || (n && n.descrizione) || (n && n.chiave_bozza) || "?";
+  const pb = S.lavoro.documenti_preassociati.find((d) => d.proposta_id === f.proposta_id);
+  if (pb) {
+    out.pbChiave = pb.chiave_bozza;
+    out.pb = cod(nodoDi(pb.chiave_bozza));
+    return out;
+  }
+  const reg = registroBozza();
+  for (const v of arr(reg && reg.proposta && reg.proposta.nodi)) {
+    if (!arr(v.associazioni_proposte).some((a) => a.allegato_id === f.allegato_id)) continue;
+    const n = S.lavoro.nodi.find((x) => casellaDi(x) && casellaDi(x).rif === (v.origine && v.origine.rif));
+    if (n) out.pa.push(cod(n));
+  }
+  return out;
+}
+// «Assegna a un pezzo…» (MAT FL-12, EL-04): la preassociazione del file a un pezzo della bozza, con un salvataggio. La
+// proposta del motore, se c'è, si mostra accanto: non si sceglie da sola.
+function apriAssegna(f) {
+  const g = grafoBozza();
+  const proposti = destinazioneFile(f).pa;
+  const pezzi = Object.values(g.nodi).filter((v) => !v.noninc && v.nodo).sort((a, b) => String(a.cod || a.desc).localeCompare(String(b.cod || b.desc)));
+  const sel = h("select", { id: "f-pezzo" }, h("option", { value: "" }, "— scegli il pezzo —"), pezzi.map((v) => h("option", { value: v.k }, (v.cod || "(senza codice)") + (v.rev ? " rev " + v.rev : "") + " · " + (v.desc || ""))));
+  apriFinestra("Assegna «" + f.nome_file + "» a un pezzo", h("div", { style: "display:grid;gap:8px" },
+    h("p", { class: "du-nota" }, "È una preassociazione della bozza: la conferma della BOM la applica. Il codice e la rev del file restano quelli letti: se non sono quelli del pezzo, il riepilogo la dirà «in conflitto»."),
+    proposti.length ? h("p", { class: "du-nota", id: "f-proposti" }, "Il motore lo propone per: ", h("span", { class: "du-mono" }, proposti.join(", ")), ".") : null,
+    campo("Pezzo", sel)),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Assegna", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-pezzo") ? "" : "scegli il pezzo"), fai: () => {
+    preassocia(f.proposta_id, valore($("#du-finestra"), "f-pezzo"));
+  } }]);
 }
 
 // ---------------------------------------------------------------- Revisione
@@ -1874,6 +1960,10 @@ function strumentiOrg(g) {
       btn("+ Assieme", () => apriAggiungi("sottoassieme"), { cls: "du-btn--sm", id: "du-nuovo-ass", no, perche: false }),
       btn("+ Particolare", () => apriAggiungi("sciolto"), { cls: "du-btn--sm", id: "du-nuovo-par", no, perche: false }),
       btn("+ Commerciale", () => apriAggiungi("commerciale"), { cls: "du-btn--sm", id: "du-nuovo-com", no, perche: false })));
+    parti.push(btn("Confronto con la proposta", () => {
+      S.confronto = !S.confronto;
+      renderCorpo();
+    }, { cls: "du-btn--sm", id: "du-confronto", pressed: S.confronto, perche: false, t: "Segna le schede che non sono come le ha importate la bozza (il registro della bozza, non la proposta di oggi)" }));
     parti.push(btn("Nodi segnalati (" + Object.values(g.nodi).filter((x) => x.cad && !x.noninc).length + ")", () => {
       S.segnalatiAperto = !S.segnalatiAperto;
       render();
@@ -1971,9 +2061,87 @@ function esitoPreassociazione(pid) {
   const e = r && arr(r.documenti_preassociati).find((x) => x.proposta_id === pid);
   return e ? e.esito : "";
 }
+// I filtri dell'Elenco (MAT EL-01, mockup v3): solo nel browser, sul modello che la pagina ha già. L'esito documentale di un
+// pezzo: «conflitto» (una preassociazione che R4 dice in conflitto o orfana), «associato» (preassociato o associato),
+// «proposto» (solo proposte del motore), «manca» (nessun documento, e non è un commerciale).
+const FILTRI_EL = [["tutti", "Tutti"], ["manca", "Mancanti"], ["prop", "Proposti da verificare"], ["assoc", "Associati"], ["smistare", "Da smistare"], ["conflitti", "Conflitti"]];
+function esitoDocumentale(v, doc) {
+  if (doc.pb.some((pid) => ["in_conflitto", "orfana"].includes(esitoPreassociazione(pid)))) return "conflitto";
+  if (doc.pb.length || doc.ar.length) return "assoc";
+  if (doc.pa.length) return "prop";
+  return v.tipo === "commerciale" ? "nessuno" : "manca";
+}
+function passaFiltro(es, filtro) {
+  switch (filtro) {
+    case "manca": return es === "manca";
+    case "prop": return es === "prop";
+    case "assoc": return es === "assoc";
+    case "smistare": return es === "manca" || es === "conflitto";
+    case "conflitti": return es === "conflitto";
+    default: return true;
+  }
+}
+function passaCerca(v, doc) {
+  const q = String(S.cerca || "").trim().toLowerCase();
+  if (!q) return true;
+  const nomi = doc.pb.map((pid) => (fileDiProposta(pid) || {}).nome_file).concat(doc.pa.map((x) => nomeFile(x.allegato_id)), doc.ar.map((f) => f.nome_file));
+  return [v.cod, v.desc, v.rev ? "rev " + v.rev : ""].concat(nomi).some((t) => String(t || "").toLowerCase().indexOf(q) >= 0);
+}
+// «Accetta le proposte valide (N)» (MAT EL-03): le proposte del motore per i pezzi della bozza, in un solo salvataggio;
+// nessuna preselezione, l'elenco si riduce togliendo le spunte.
+function proposteDaAccettare(g) {
+  const out = [];
+  for (const v of Object.values(g.nodi)) {
+    if (v.noninc || !v.nodo) continue;
+    for (const pa of documentiNodo(v).pa) out.push({ k: v.k, cod: v.cod || v.desc || v.k, pa });
+  }
+  return out;
+}
+function apriAccettaProposte(g) {
+  const elenco = proposteDaAccettare(g);
+  if (!elenco.length) return avvisa("no", "Nessuna proposta del motore da accettare.");
+  apriFinestra("Accetta le proposte valide", h("div", { style: "display:grid;gap:8px" },
+    h("p", { class: "du-nota" }, "Ogni spunta diventa una preassociazione della bozza; nessuna è preselezionata. Le proposte senza spunta restano proposte."),
+    h("div", { class: "du-voci-sel", id: "f-proposte" }, elenco.map((x) => h("label", { class: "du-spunta" }, h("input", { type: "checkbox", "data-pid": x.pa.proposta_id, "data-k": x.k }),
+      h("span", {}, h("span", { class: "du-mono" }, nomeFile(x.pa.allegato_id)), " → ", h("span", { class: "du-mono" }, x.cod), x.pa.motivo ? " · " + x.pa.motivo : "", x.pa.livello ? " (" + x.pa.livello + ")" : ""))))),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Accetta le proposte scelte", pri: true, id: "f-ok", spento: () => ($("#du-finestra").querySelectorAll("#f-proposte input:checked").length ? "" : "scegli almeno una proposta"), fai: () => {
+    const scelte = [...$("#du-finestra").querySelectorAll("#f-proposte input:checked")].map((x) => ({ pid: x.dataset.pid, k: x.dataset.k }));
+    fai("accettate " + scelte.length + " proposte", scelte.map((x) => ({ azione: "file_preassociato", chiave_bozza: x.k, prima: null, dopo: { proposta_id: x.pid, chiave_bozza: x.k }, origine: "utente" })));
+  } }]);
+}
+function filtriElenco(g, righe) {
+  const conta = {};
+  for (const [k] of FILTRI_EL) conta[k] = righe.filter((r) => passaFiltro(r.es, k)).length;
+  const n = proposteDaAccettare(g).length;
+  const cerca = h("input", { type: "search", id: "du-el-cerca", value: S.cerca, placeholder: "Cerca codice, rev o nome file", "aria-label": "Cerca per codice, revisione o nome file", autocomplete: "off" });
+  cerca.addEventListener("input", (e) => {
+    S.cerca = e.target.value;
+    renderCorpo();
+    const c = $("#du-el-cerca");
+    if (c) {
+      c.focus();
+      c.setSelectionRange(c.value.length, c.value.length);
+    }
+  });
+  return h("div", { class: "du-strumenti", role: "toolbar", "aria-label": "Filtri dell'elenco", id: "du-el-filtri" }, cerca,
+    FILTRI_EL.map(([k, t]) => h("button", { type: "button", class: "du-btn du-btn--sm", id: "du-filtro-" + k, "aria-pressed": S.filtro === k ? "true" : "false", onclick: () => {
+      S.filtro = k;
+      renderCorpo();
+    } }, t + " " + conta[k])),
+    btn("Accetta le proposte valide (" + n + ")", () => apriAccettaProposte(g), { cls: "du-btn--sm", id: "du-accetta-valide", no: !n ? "nessuna proposta da accettare" : perchéNoModifica(), perche: false }));
+}
 function elencoRighe(g) {
-  const righe = ordineAlbero(g);
+  let righe = ordineAlbero(g);
   const box = h("div", { class: "du-el", id: "du-elenco", role: "table", "aria-label": "Elenco dei pezzi" });
+  let filtri = null;
+  if (g.modo === "bozza") {
+    righe = righe.map((r) => {
+      const doc = documentiNodo(g.nodi[r.k]);
+      return Object.assign({}, r, { doc, es: esitoDocumentale(g.nodi[r.k], doc) });
+    });
+    filtri = filtriElenco(g, righe);
+    righe = righe.filter((r) => passaFiltro(r.es, S.filtro) && passaCerca(g.nodi[r.k], r.doc));
+  }
   box.append(h("div", { class: "du-el-r du-el-r--testa", role: "row" }, h("span", { role: "columnheader" }, "Pezzo"), h("span", { role: "columnheader" }, "Tipo · qtà"),
     h("span", { role: "columnheader" }, "Documenti"), h("span", { role: "columnheader" }, "Azioni")));
   for (const r of righe) {
@@ -1996,14 +2164,21 @@ function elencoRighe(g) {
         sv0 ? null : btn("Scollega dal componente…", () => apriScollega(f, v), { cls: "du-btn--sm du-btn--ghost", no: perchéNoModifica(), perche: false })));
     }
     if (!celleDoc.length) celleDoc.push(h("span", { class: "du-muto du-piccolo" }, v.tipo === "commerciale" ? "2D non richiesto" : "nessun documento"));
-    box.append(h("div", { class: "du-el-r" + (S.nodo === r.k ? " du-el-r--scelta" : "") + (v.escluso || v.noninc ? " du-el-r--escl" : ""), role: "row", id: "el-" + sid(r.k), "data-k": r.k },
+    // fra le righe della bozza: l'esito documentale per i filtri (data-du-esito)
+    box.append(h("div", { class: "du-el-r" + (S.nodo === r.k ? " du-el-r--scelta" : "") + (v.escluso || v.noninc ? " du-el-r--escl" : ""), role: "row", id: "el-" + sid(r.k), "data-k": r.k, "data-du-esito": r.es || null },
       h("button", { type: "button", class: "du-el-nodo", style: "--du-d:" + r.d, onclick: () => scegli(r.k) }, h("span", { class: "du-el-cod" }, (v.cod || "(senza codice)") + (v.rev ? " rev " + v.rev : "")),
         h("span", { class: "du-el-desc" }, v.desc || "—")),
       h("span", { class: "du-el-celle" }, h("span", { class: "du-tipo du-tipo--" + v.tipo }, TIPI[v.tipo] || v.tipo), r.q ? h("span", { class: "du-q" }, "×" + r.q) : null, pill(v.stato.c === "reg" ? "ok" : v.stato.c, v.stato.t)),
       h("span", { class: "du-el-celle" }, celleDoc),
       h("span", { class: "du-el-celle" }, btn("Conferma il documento", null, { cls: "du-btn--sm", no: "I documenti si confermano solo con «Rivedi e conferma fascicolo» (V3)", perche: false }))));
   }
-  return box;
+  if (!righe.length && filtri) box.append(h("div", { class: "du-el-r", role: "row" }, h("span", { role: "cell" }, "Nessuna riga con questo filtro o questa ricerca."),
+    btn("Mostra tutto", () => {
+      S.filtro = "tutti";
+      S.cerca = "";
+      renderCorpo();
+    }, { cls: "du-btn--sm", id: "du-filtro-azzera", perche: false })));
+  return filtri ? h("div", { style: "display:grid;gap:8px;min-width:0" }, filtri, box) : box;
 }
 // il vassoio «Da ricollocare»: dal giornale con la regola scritta (EM §3.7), più le azioni non ancora salvate
 export function vassoioDa(eventi) {
@@ -2134,7 +2309,7 @@ function pannelloNodo(g, v) {
   } else s3.append(h("p", { class: "du-muto du-piccolo" }, "Pezzo senza casella dello STEP."));
   box.append(s3);
   // 4 · decisione dell'ingegnere (solo nella Revisione)
-  if (g.modo === "bozza") box.append(sezioneDecisione(g, v), gestiNodo(g, v));
+  if (g.modo === "bozza") box.append(sezioneDecisione(g, v), gestiNodo(g, v), sezioneDocumenti(g, v));
   return box;
 }
 function autoreDi(chiave) {
@@ -2177,6 +2352,7 @@ function gestiNodo(g, v) {
   s.append(btn("+ Collega anche sotto…", () => apriCollega(v.k), { cls: "du-btn--sm", id: "du-collega", no: no || (radice ? "il prodotto della RFQ non va sotto un altro pezzo" : "") }));
   s.append(btn("− Scollega da un padre…", () => apriScollegaPadre(v.k), { cls: "du-btn--sm", id: "du-scollega-padre", no: no || (padriA(g, v.k).length ? "" : "il pezzo non ha padri") }));
   s.append(btn("× Quantità…", () => apriQuantita(v.k, ""), { cls: "du-btn--sm", id: "du-quantita", no: no || (padriA(g, v.k).length ? "" : "il pezzo non ha padri") }));
+  s.append(btn("⤴ Ricolloca i figli…", () => apriRicollocaFigli(v.k), { cls: "du-btn--sm", id: "du-ricolloca", no: no || (figliA(g, v.k).length ? "" : "il pezzo non ha figli") }));
   if (v.escluso) s.append(btn("↺ Ripristina", () => ripristina(v), { cls: "du-btn--sm", id: "du-ripristina", no }));
   else if (registrato && !radice) s.append(btn("Escludi (senza cascata)…", () => apriEscludi(v), { cls: "du-btn--sm du-btn--danger", id: "du-escludi", no }));
   if (!radice && conCasella && !registrato) s.append(btn("Non includere nella BOM…", () => {
@@ -2186,6 +2362,64 @@ function gestiNodo(g, v) {
   if (!radice && !conCasella && !registrato) s.append(btn("Non crearlo (togli dalla bozza)…", () => togliNodo(v), { cls: "du-btn--sm du-btn--danger", id: "du-togli", no }));
   if (registrato && v.nodo.identita && v.nodo.identita.emittente_presunto) s.append(btn("Fissa l'emittente…", () => apriFissaEmittente(v), { cls: "du-btn--sm", id: "du-fissa-emittente", no }));
   return s;
+}
+
+// «⤴ Ricolloca i figli…» (MAT BZ-11): tutti i legami dei figli verso un altro padre, in un solo salvataggio; la quantità
+// si scrive, oppure si sceglie esplicitamente di usare quelle di prima.
+function apriRicollocaFigli(k) {
+  const g = grafoBozza();
+  const v = g.nodi[k];
+  const figli = figliA(g, k);
+  const verso = Object.values(g.nodi).filter((x) => !x.noninc && !x.escluso && contenitore(x) && x.k !== k && figli.every((a) => !vietatoSotto(a.f, x.k)));
+  const sel = h("select", { id: "f-a" }, h("option", { value: "" }, "— scegli il padre nuovo —"), verso.map((x) => h("option", { value: x.k }, (x.cod || "(senza codice)") + " · " + (x.desc || ""))));
+  const righe = figli.map((a) => campo((g.nodi[a.f].cod || g.nodi[a.f].desc || a.f) + " (ora ×" + a.qta + ")", h("input", { "data-f": a.f, type: "number", min: "1", max: "100000", step: "1", inputmode: "numeric", class: "f-qta-figlio" })));
+  apriFinestra("Ricolloca i figli di " + (v.cod || "il pezzo"), h("div", { style: "display:grid;gap:8px" },
+    h("p", { class: "du-nota" }, figli.length + " legami vanno sotto il padre nuovo, in un solo salvataggio. Nessuna quantità implicita: scrivila per ogni figlio, oppure scegli di usare quelle di prima."),
+    campo("Padre nuovo", sel), h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-stesse-qta" }), "Usa le quantità di prima"), h("div", { id: "f-qta-figli", style: "display:grid;gap:6px" }, righe)),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Ricolloca", pri: true, id: "f-ok", spento: () => {
+    const f = $("#du-finestra");
+    if (!valore(f, "f-a")) return "scegli il padre nuovo";
+    if (f.querySelector("#f-stesse-qta").checked) return "";
+    return [...f.querySelectorAll(".f-qta-figlio")].every((x) => qtaValida(String(x.value || "").trim())) ? "" : "scrivi la quantità di ogni figlio, o usa quelle di prima";
+  }, fai: () => {
+    const f = $("#du-finestra");
+    const a2 = valore(f, "f-a");
+    const stesse = f.querySelector("#f-stesse-qta").checked;
+    const qta = {};
+    for (const x of f.querySelectorAll(".f-qta-figlio")) qta[x.dataset.f] = qtaValida(String(x.value || "").trim());
+    const azioni = [];
+    for (const a of figli) {
+      const vecchio = S.lavoro.archi.find((y) => y.padre === k && y.figlio === a.f);
+      if (!vecchio) continue;
+      azioni.push({ azione: "arco_spostato", chiave_bozza: a.f, prima: clona(vecchio), dopo: { padre: a2, figlio: a.f, qta: stesse ? vecchio.qta : qta[a.f], origine: "utente" }, origine: "utente" });
+    }
+    if (!azioni.length) return false;
+    fai("ricollocati " + azioni.length + " figli di " + (v.cod || "un pezzo"), azioni);
+  } }]);
+}
+// La sezione «Documenti» del pannello (MAT EL-08): i file da smistare (attivi, non STEP, non preassociati né associati)
+// da preassociare a questo pezzo, e «Carica…», che porta al caricamento della Sorgente: caricare non preassocia.
+function sezioneDocumenti(g, v) {
+  if (v.noninc || !v.nodo) return null;
+  const no = perchéNoModifica();
+  const giaPb = new Set(S.lavoro.documenti_preassociati.map((d) => d.proposta_id));
+  const liberi = fileSorgente().filter((f) => (!f.stato || f.stato === "attivo") && f.proposta_id && !giaPb.has(f.proposta_id) && !(f.proposta && f.proposta.componente_id) && !/^(stp|step)$/i.test(f.estensione || ""));
+  const sel = h("select", { id: "du-pannello-file", "aria-label": "File da smistare" }, h("option", { value: "" }, "— scegli fra i file da smistare —"), liberi.map((f) => h("option", { value: f.proposta_id }, f.nome_file)));
+  return h("div", { class: "du-sez", id: "du-sez-documenti" }, h("h3", {}, "Documenti"),
+    h("div", { class: "du-azioni" }, sel,
+      btn("Preassocia", () => {
+        const pid = $("#du-pannello-file") && $("#du-pannello-file").value;
+        if (!pid) return avvisa("no", "Scegli prima un file da smistare.");
+        preassocia(pid, v.k);
+      }, { cls: "du-btn--sm", id: "du-pannello-preassocia", no: no || (liberi.length ? "" : "nessun file da smistare"), perche: false }),
+      btn("Carica…", () => {
+        S.passo = "sorgente";
+        S.cartella = "attivi";
+        render();
+        const c = $("#du-carica-file");
+        if (c) c.focus();
+      }, { cls: "du-btn--sm du-btn--ghost", id: "du-pannello-carica", perche: false })),
+    h("p", { class: "du-muto du-piccolo" }, "Il caricamento non preassocia: preassociare è un gesto dopo."));
 }
 
 // ---------------------------------------------------------------- finestre
@@ -2266,6 +2500,22 @@ function valore(f, id) {
 function qtaValida(v) {
   const q = Number(v);
   return v !== "" && Number.isInteger(q) && q >= 1 && q <= 100000 ? q : null;
+}
+// «Riepilogo RFQ» (MAT TS-08): in lettura, dal modello della pagina e dai contatori della Sorgente.
+function apriRiepilogoRfq() {
+  const d = $("#du-menu-rfq");
+  if (d) d.open = false;
+  const m = S.modello;
+  const t = (m && m.testa) || {};
+  const c = (S.sorgente && S.sorgente.contatori) || {};
+  const prodotti = m ? m.prodotti : [];
+  apriFinestra("Riepilogo RFQ", h("div", { style: "display:grid;gap:8px" },
+    h("dl", { class: "du-dl", id: "f-riepilogo-rfq" }, riga("Cliente", t.cliente || ""), riga("Oggetto", t.oggetto || ""), riga("Riferimento", t.riferimento_cliente || ""), riga("Stato", t.stato_thread || ""),
+      riga("File", c.attivi !== undefined ? c.attivi + " attivi, " + (c.altri_file || 0) + " in Altri file, " + (c.scartati || 0) + " scartati, " + (c.in_analisi || 0) + " in analisi" : ""),
+      riga("Rismistamento F8", (m && m.f8) || "")),
+    h("ul", { class: "du-elenco-p", id: "f-riepilogo-prodotti" }, prodotti.map((x) => h("li", {}, h("span", { class: "du-mono" }, x.codice || x.rif), x.descrizione ? " · " + x.descrizione : "",
+      " · Verificata (calcolo di oggi): " + (x.verificato ? "sì" : "no") + (arr(x.motivi).length ? " (" + arr(x.motivi).map((mm) => (mm && (mm.codice || mm.motivo)) || mm).join(", ") + ")" : ""))))),
+  [{ testo: "Chiudi", chiudi: true }]);
 }
 function apriLimiti() {
   const voci = [
@@ -3336,7 +3586,10 @@ function renderBarra() {
   const box = $("#du-barra");
   if (!box) return;
   if (S.passo !== "revisione") {
-    box.replaceChildren(h("div", { class: "du-salva du-salva--sorg" }, h("span", { class: "du-salva-conti" }, "Sorgente: la BOM non si modifica qui."),
+    // nella Sorgente la struttura non si modifica, ma le preassociazioni dei file sì (MAT FL-12): con una bozza, la barra
+    // dice anche qui lo stato del salvataggio (D23:286)
+    box.replaceChildren(h("div", { class: "du-salva du-salva--sorg" }, bozzaLavorabile() ? statoSalvataggio() : null,
+      h("span", { class: "du-salva-conti" }, bozzaLavorabile() ? "Sorgente: qui si preassociano i file; la struttura si modifica nella Revisione." : "Sorgente: la BOM non si modifica qui."),
       btn("Vai alla Revisione", () => vaiPasso("revisione"), { cls: "du-btn--sm", id: "du-vai-revisione", no: S.prodotto ? "" : "nessun prodotto valutato" })));
     return;
   }
@@ -3344,6 +3597,23 @@ function renderBarra() {
     box.replaceChildren();
     return;
   }
+  const r = S.riepilogo;
+  const conti = h("span", { class: "du-salva-conti", id: "du-conti" }, S.riepilogoStato === "aggiornato" && r ?
+    [h("span", {}, "blocchi ", h("b", {}, String(arr(r.blocchi).length))), h("span", {}, "avvisi ", h("b", {}, String(arr(r.avvisi).length))),
+      h("span", {}, "documenti irrisolti ", h("b", {}, String(arr(r.documenti_preassociati).filter((d) => d.esito && d.esito !== "applicabile").length)))] :
+    h("span", {}, S.riepilogoStato === "errore" ? "riepilogo non letto: " + (S.riepilogoErrore || "") : "conti da aggiornare"));
+  const noCta = perchéNoConferma();
+  box.replaceChildren(h("div", { class: "du-salva", id: "du-salva" }, statoSalvataggio(), conti,
+    h("span", { class: "du-azioni" },
+      btn("Annulla", annulla, { cls: "du-btn--sm", id: "du-annulla", no: !S.pila.length ? "niente da annullare" : perchéNoModifica(), perche: false }),
+      btn("Ripeti", ripeti, { cls: "du-btn--sm", id: "du-ripeti", no: !S.rifai.length ? "niente da ripetere" : perchéNoModifica(), perche: false }),
+      btn("Abbandona la bozza…", apriAbbandona, { cls: "du-btn--sm du-btn--ghost", id: "du-abbandona", perche: false })),
+    h("span", { class: "du-cta" }, btn("Rivedi e conferma BOM", apriWizard, { cls: "du-btn--pri", id: "du-cta-bom", no: noCta })),
+    h("span", { class: "du-cta" }, btn("Rivedi e conferma fascicolo", null, { cls: "du-btn--sm", id: "du-cta-fascicolo", no: "Arriva in V3: i documenti si confermano con il lotto, dopo una BOM confermata e verificata" }))));
+}
+// statoSalvataggio: lo stato del salvataggio della bozza (MAT §5.1; D23:286), con «Riprova ora» dopo tre tentativi e
+// «Rileggi la bozza salvata» dopo un conflitto o un rifiuto.
+function statoSalvataggio() {
   const st = S.salvataggio;
   const nMod = S.coda.reduce((n, v) => n + (v.annullaDi ? 0 : 1), 0) + (S.invio ? S.invio.voci.length : 0);
   const testi = {
@@ -3368,19 +3638,7 @@ function renderBarra() {
       render();
     }, { cls: "du-btn--sm du-btn--pri", id: "du-rileggi-bozza", perche: false }));
   }
-  const r = S.riepilogo;
-  const conti = h("span", { class: "du-salva-conti", id: "du-conti" }, S.riepilogoStato === "aggiornato" && r ?
-    [h("span", {}, "blocchi ", h("b", {}, String(arr(r.blocchi).length))), h("span", {}, "avvisi ", h("b", {}, String(arr(r.avvisi).length))),
-      h("span", {}, "documenti irrisolti ", h("b", {}, String(arr(r.documenti_preassociati).filter((d) => d.esito && d.esito !== "applicabile").length)))] :
-    h("span", {}, S.riepilogoStato === "errore" ? "riepilogo non letto: " + (S.riepilogoErrore || "") : "conti da aggiornare"));
-  const noCta = perchéNoConferma();
-  box.replaceChildren(h("div", { class: "du-salva", id: "du-salva" }, statoEl, extra, conti,
-    h("span", { class: "du-azioni" },
-      btn("Annulla", annulla, { cls: "du-btn--sm", id: "du-annulla", no: !S.pila.length ? "niente da annullare" : perchéNoModifica(), perche: false }),
-      btn("Ripeti", ripeti, { cls: "du-btn--sm", id: "du-ripeti", no: !S.rifai.length ? "niente da ripetere" : perchéNoModifica(), perche: false }),
-      btn("Abbandona la bozza…", apriAbbandona, { cls: "du-btn--sm du-btn--ghost", id: "du-abbandona", perche: false })),
-    h("span", { class: "du-cta" }, btn("Rivedi e conferma BOM", apriWizard, { cls: "du-btn--pri", id: "du-cta-bom", no: noCta })),
-    h("span", { class: "du-cta" }, btn("Rivedi e conferma fascicolo", null, { cls: "du-btn--sm", id: "du-cta-fascicolo", no: "Arriva in V3: i documenti si confermano con il lotto, dopo una BOM confermata e verificata" }))));
+  return [statoEl].concat(extra);
 }
 function perchéNoConferma() {
   if (S.vista !== "org") return "il riepilogo della BOM si apre dall'Organigramma";

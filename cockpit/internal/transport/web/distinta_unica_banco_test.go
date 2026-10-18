@@ -160,8 +160,10 @@ func (b *bancoDU) partenza() {
 		nuovo(bdA10, "ACM-1000_rev2.stp", "stp", bdShaStep2, "portale", "portale", "ACM-1000", "D"),
 	}
 	b.file[7].Contenitore, b.file[8].Contenitore = bdA7, bdA7
+	// lo STEP secondario della fonte (EM §9.9): la forma è quella proposta nel resoconto della corsia
 	b.fonte = m{"voce": bdProposta(bdA1), "documento_id": "00000000-0000-4000-8000-0000000f0d01", "sha256": bdShaStep, "conferma_ammessa": false,
-		"motivo": "lo STEP non è associato al prodotto: associalo dalla Sorgente", "confermata": false, "autorizzata": false}
+		"motivo": "lo STEP non è associato al prodotto: associalo dalla Sorgente", "confermata": false, "autorizzata": false,
+		"step_secondario": m{"allegato_id": bdA10, "nome_file": "ACM-1000_rev2.stp", "motivo": "corrispondenza esatta e univoca"}}
 }
 
 func (b *bancoDU) fileDi(id string) *fileBanco {
