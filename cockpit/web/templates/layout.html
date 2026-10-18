@@ -63,7 +63,9 @@ document.body.addEventListener("htmx:beforeSwap", function (e) {
 });
 
 // Le bozze dell'editor della struttura stanno nel sessionStorage della scheda: all'uscita si buttano,
-// perche' chi entra dopo sulla stessa scheda non deve trovarle (ne' confermarle a nome suo).
+// perche' chi entra dopo sulla stessa scheda non deve trovarle (ne' confermarle a nome suo). Lo stesso per
+// i tentativi in sospeso della Distinta unica (cockpit.du.*, il ponte distinta_unica_ponte.mjs): la chiave
+// porta gia' l'utente, e all'uscita non resta niente di suo nella scheda.
 (function () {
   var f = document.getElementById("esci");
   if (!f) return;
@@ -71,7 +73,7 @@ document.body.addEventListener("htmx:beforeSwap", function (e) {
     try {
       for (var i = sessionStorage.length - 1; i >= 0; i--) {
         var k = sessionStorage.key(i);
-        if (k && k.indexOf("cockpit.editor.") === 0) sessionStorage.removeItem(k);
+        if (k && (k.indexOf("cockpit.editor.") === 0 || k.indexOf("cockpit.du.") === 0)) sessionStorage.removeItem(k);
       }
     } catch (e) {}
   });

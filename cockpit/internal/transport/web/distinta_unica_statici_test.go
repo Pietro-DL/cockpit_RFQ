@@ -206,6 +206,34 @@ func TestDistintaUnicaJSSoloPresentazione(t *testing.T) {
 	}
 }
 
+// Le richieste R-2 e R-3 della corsia, fatte nell'ondata B sui due template autorizzati: all'uscita (il form «esci» del
+// layout) le chiavi cockpit.du. della memoria di sessione della scheda si tolgono insieme a quelle dell'editor, e il
+// prefisso del ponte è uno di quelli; il menu della pagina vecchia non dice più che «Prepara i file» rilegge gli STEP
+// già analizzati (lo fa «Rifai l'analisi»).
+func TestDistintaUnicaUscitaETestoDellaPaginaVecchia(t *testing.T) {
+	layout := duFile(t, "web/templates/layout.html")
+	i := strings.Index(layout, `getElementById("esci")`)
+	if i < 0 {
+		t.Fatal("layout.html non ha più il form «esci»")
+	}
+	uscita := layout[i:]
+	if j := strings.Index(uscita, "})();"); j > 0 {
+		uscita = uscita[:j]
+	}
+	for _, v := range []string{`k.indexOf("cockpit.editor.") === 0`, `k.indexOf("cockpit.du.") === 0`, "sessionStorage.removeItem(k)"} {
+		if !strings.Contains(uscita, v) {
+			t.Errorf("all'uscita il layout non toglie le chiavi della scheda: manca %s", v)
+		}
+	}
+	if !strings.Contains(duFile(t, duPonte), `const PREFISSO = "cockpit.du.`) {
+		t.Error("il prefisso dei tentativi in sospeso del ponte non comincia con cockpit.du.: l'uscita non lo toglierebbe")
+	}
+	vecchia := duFile(t, "web/templates/motore_a.html")
+	if strings.Contains(vecchia, "rilegge quelli già analizzati") || !strings.Contains(vecchia, "non rilegge gli STEP già analizzati") {
+		t.Error("il menu della pagina vecchia dice ancora che «Prepara i file» rilegge gli STEP già analizzati")
+	}
+}
+
 // «Riprova» dei gesti dei file (EM §10.9, «Reinvio e risposta persa»; MAT §5.5 n. 4): il tentativo in sospeso porta il
 // corpo solo per S2, S3, S4 e S7, piccoli (la conferma della BOM si riprova dal wizard, che rilegge il riepilogo), e
 // riprovaSospeso rimanda il corpo di allora passando da scriviConChiave, che riusa la chiave per lo stesso corpo.

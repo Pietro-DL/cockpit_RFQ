@@ -25,10 +25,11 @@ package web
 //   - nessun percorso del disco, nessun dato del motore nel guscio: solo UUID e testi della testata.
 //
 // Dove si monta [T]. La matrice (MAT TS-01) mette il guscio su GET /thread/{id}/motore-a, dove oggi sta la pagina di
-// A1d-P4 (motore_a_pagina.go, fuori da questa corsia). Finché l'integratore non la sostituisce, la pagina di V1 sta su
-// percorsoDistintaUnica; il modulo prende la RFQ dall'attributo data-du-thread del guscio, non dall'indirizzo, quindi
-// lo stesso guscio vale su tutti e due i percorsi. Il montaggio (s.registraPaginaDistintaUnica(mux) in registraMotoreA)
-// è una richiesta alla corsia che possiede motore_a.go, scritta nel resoconto della corsia.
+// A1d-P4 (motore_a_pagina.go, fuori da questa corsia). Finché il passo 9 non la sostituisce (decisioni dell'ondata A,
+// PE-12), la pagina di V1 sta su percorsoDistintaUnica; il modulo prende la RFQ dall'attributo data-du-thread del
+// guscio, non dall'indirizzo, quindi lo stesso guscio vale su tutti e due i percorsi. La monta registraMotoreA
+// (motore_a.go), con s.registraPaginaDistintaUnica(mux) dopo la pagina di A1d-P4 (richiesta R-1 della corsia, fatta
+// nell'ondata B).
 //
 // Il template si compone qui, non in Init (server.go, fuori dalla corsia): registraPaginaDistintaUnica lo compone una
 // volta, al montaggio, con le funzioni di tutte le pagine e statico. Un template che non si compone va nel log e la
@@ -95,7 +96,7 @@ type datiDistintaUnica struct {
 }
 
 // registraPaginaDistintaUnica monta il guscio e la sua riga gemella. Stessa catena delle rotte di motore-a: prima il
-// flag, poi il no-store, poi soloAdmin. La chiama chi possiede registraMotoreA (richiesta della corsia, commento di testa).
+// flag, poi il no-store, poi soloAdmin. La chiama registraMotoreA (motore_a.go; commento di testa).
 func (s *Server) registraPaginaDistintaUnica(mux *http.ServeMux) {
 	p := s.nuovaPaginaDistintaUnica(s.testataDistintaUnicaDalDB)
 	mux.HandleFunc("GET "+percorsoDistintaUnica, s.conMotoreA(conNoStore(s.soloAdmin(p.servi))))

@@ -81,7 +81,8 @@ type erroreMotoreA struct {
 }
 
 // registraMotoreA monta le due rotte JSON della Distinta nuova (A1d-P2) e le loro righe gemelle, poi la pagina (A1d-P4,
-// B5.1: registraPaginaMotoreA). Prima il flag, poi il no-store, poi soloAdmin: la protezione sta nel punto di montaggio.
+// B5.1: registraPaginaMotoreA) e il guscio della Distinta unica di V1 (registraPaginaDistintaUnica). Prima il flag, poi
+// il no-store, poi soloAdmin: la protezione sta nel punto di montaggio.
 func (s *Server) registraMotoreA(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thread/{id}/motore-a/dati", s.conMotoreA(conNoStore(s.soloAdmin(s.motoreADati))))
 	mux.HandleFunc("GET /thread/{id}/motore-a/anteprima/step-strutturale", s.conMotoreA(conNoStore(s.soloAdmin(s.motoreAAnteprimaStep))))
@@ -91,6 +92,10 @@ func (s *Server) registraMotoreA(mux *http.ServeMux) {
 	mux.HandleFunc("/thread/{id}/motore-a/anteprima/step-strutturale", s.conMotoreA(conNoStore(metodoNonAmmessoMotoreA)))
 	// A1d-P4, B5.1: la pagina e la sua riga gemella, con la stessa catena (motore_a_pagina.go)
 	s.registraPaginaMotoreA(mux)
+	// V1 (direttiva 23), ondata B: il guscio della Distinta unica e la sua riga gemella, con la stessa catena
+	// (distinta_unica_pagina.go). Resta su /thread/{id}/distinta-unica finché la pagina di A1d-P4 tiene
+	// /thread/{id}/motore-a: lo scambio è del passo 9 (decisioni dell'ondata A, PE-12)
+	s.registraPaginaDistintaUnica(mux)
 }
 
 // conMotoreA è la porta: a flag spento il 404 standard del router (http.NotFound) a tutti, anonimi compresi, PRIMA della

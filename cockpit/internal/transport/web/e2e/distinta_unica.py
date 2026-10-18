@@ -85,7 +85,9 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   45 «Verifica ora» di un gesto dei file in sospeso non butta le modifiche della bozza in volo
   46 con una conferma in sospeso «Aggiorna alla proposta di oggi...», «Abbandona la bozza...» e i gesti sono spenti
   47 «Converti...», mono_pezzo, R5 da verificare con il wizard chiuso, «Parti dalla BOM registrata»
-  34 (per ultima) le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
+  34 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
+  49 (per ultima, dopo la 34: esce dalla sessione) all'uscita («esci» del layout) le chiavi cockpit.du. della memoria
+     della scheda si tolgono, le altre restano (richiesta R-3 della corsia)
 
 Gli esiti che il banco non sa provocare li danno risposte finte di questo script (rispondi_json, page.route), dichiarate
 tali come il banco. I clienti, i codici e i nomi dei file sono inventati (ACME, BETA, ACM-xxxx).
@@ -2624,6 +2626,23 @@ def b34(b):
     verifica(not b.stato()["legacy"], "il banco ha visto rotte legacy: %s" % b.stato()["legacy"])
     usate = {r["metodo"] + " " + r["path"] for r in b.richieste}
     verifica(len(usate) > 20, "troppo poche rotte nella sessione: %d" % len(usate))
+
+
+@prova("49", "all'uscita («esci» del layout) le chiavi cockpit.du. della memoria della scheda si tolgono, le altre restano (R-3)")
+def b49(b):
+    p = b.page
+    # un tentativo in sospeso della Distinta unica (come lo scrive il ponte) e una chiave che non è della pagina
+    chiave = "cockpit.du.sospeso.%s.%s.bozza:%s" % (b.dati["utente"], b.thread, b.p1)
+    p.evaluate("([k, v]) => { sessionStorage.setItem(k, JSON.stringify(v)); sessionStorage.setItem('prova.altra.chiave', '1'); }",
+               [chiave, {"risorsa": "bozza:" + b.p1, "nome": "confermaBom", "chiave": "00000000-0000-4000-8000-0000000e0f02", "impronta": "x",
+                         "verificato": True, "quando": "2026-10-18T08:00:00Z", "etichetta": "Conferma BOM"}])
+    verifica(any(k.startswith("cockpit.du.") for k in p.evaluate("() => Object.keys(sessionStorage)")), "la chiave di prova non è nella memoria della scheda")
+    with p.expect_navigation():
+        p.click("#esci button")
+    b.attendi(lambda: urllib.parse.urlsplit(p.url).path == "/login", "l'uscita non porta al login: %s" % p.url)
+    chiavi = p.evaluate("() => Object.keys(sessionStorage)")
+    verifica(not [k for k in chiavi if k.startswith("cockpit.du.")], "dopo l'uscita restano chiavi della Distinta unica: %s" % chiavi)
+    verifica("prova.altra.chiave" in chiavi, "l'uscita ha tolto anche una chiave che non è della pagina: %s" % chiavi)
 
 
 def main():

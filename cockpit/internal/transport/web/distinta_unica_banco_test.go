@@ -373,6 +373,9 @@ func (b *bancoDU) monta(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET "+percorsoDistintaUnica, b.s.conMotoreA(conNoStore(admin(b.s.soloRuolo(db.RuoloUtenteAdmin, p.servi)))))
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "login") })
+	// l'uscita del layout (il form «esci»): la prova nel browser guarda che cosa resta nella memoria della scheda
+	// (richiesta R-3 della corsia); il banco non ha sessioni, rimanda solo al login
+	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/login", http.StatusSeeOther) })
 	// il poll dello stato dei worker è del layout (frammenti.html, stato_worker), non della pagina: il banco risponde con
 	// lo span vuoto, senza hx-get, e il poll si ferma
 	mux.HandleFunc("GET /stato/worker", func(w http.ResponseWriter, _ *http.Request) {
