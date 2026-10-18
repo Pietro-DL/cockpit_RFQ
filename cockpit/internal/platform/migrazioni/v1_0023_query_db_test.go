@@ -186,7 +186,9 @@ func TestV1LeQueryDella0023(t *testing.T) {
 	if err != nil || len(ni) != 1 || ni[0].DecisioneID != "ni-1" || ni[0].Numero != 2 {
 		t.Errorf("ListNonInclusiConferma: %+v %v", ni, err)
 	}
-	rip, err := q.ListNonInclusiPerRif(ctx, db.ListNonInclusiPerRifParams{ThreadID: T, ProdottoID: P, Shas: []string{sha("b"), sha("b")}, Chiavi: []string{"#31", "#99"}})
+	// senza conferma di base (NULL); la base e il ripristino con piu' conferme sono in TestV1OT06IlRipristinoDiUnNodoNonIncluso
+	rip, err := q.ListNonInclusiPerRif(ctx, db.ListNonInclusiPerRifParams{ThreadID: T, ProdottoID: P, Shas: []string{sha("b"), sha("b")},
+		Chiavi: []string{"#31", "#99"}})
 	if err != nil || len(rip) != 1 || rip[0].ConfermaID != conf.ConfermaID || rip[0].Gruppo != "bom" {
 		t.Errorf("ListNonInclusiPerRif: %+v %v", rip, err)
 	}
@@ -374,6 +376,67 @@ func TestV1LeQueryDella0023(t *testing.T) {
 	// dopo la conferma B3 non e' piu' aperta: nessuna dipendenza D-6 su A dalle bozze
 	if dip, err := q.ListDipendenzeBozzaPerFile(ctx, T); err != nil || len(dip) != 0 {
 		t.Errorf("ListDipendenzeBozzaPerFile dopo la conferma: %+v %v", dip, err)
+	}
+}
+
+// TestV1OT06IlRipristinoDiUnNodoNonIncluso (PM23 §6 e §7 riga R4, terzo giro su O-01, OT-06; EM §7.6 punto 3; MAT
+// NI-07, BZ-20): #31 non incluso nella conferma n. 2 di P (C3), reincluso e confermato nella n. 3 (C4). Per una bozza
+// nata dalla n. 3 il nodo non e' un ripristino (sta fra i nodi della conferma di base): ListNonInclusiPerRif non da'
+// righe, quindi R4 non dice «ripristino» e R5 non riapre niente. Con la base n. 2, o senza base, la riga e' quella della
+// n. 2.
+func TestV1OT06IlRipristinoDiUnNodoNonIncluso(t *testing.T) {
+	p := schema23ConStoria(t)
+	ctx := context.Background()
+	q := db.New(p)
+	riuscita23(t, p, "conferma n. 2 di P: #31 non incluso", nuovaC3().istruzioni(t)...)
+
+	// la bozza formato 3 B4 di P nata dalla n. 2, con #31 reincluso (un nodo con la casella del suo rif)
+	s4 := snapshot3()
+	s4["versione_bom_base"] = map[string]any{"conferma_id": u23("{C3}"), "numero": 2, "contatore": 0}
+	s4["decisioni"] = []any{}
+	s4["nodi"] = append(s4["nodi"].([]any), map[string]any{"chiave_bozza": "k-31", "op": "crea", "tipo": "sciolto", "origine": "step",
+		"caselle":  []any{map[string]any{"allegato_id": u23("{A}"), "gruppo": "bom", "rif": rifB("#31")}},
+		"identita": map[string]any{"emittente": "cliente:" + u23("{C}"), "codice": "ACM-1310", "modo": "proposta"}})
+	esegui23(t, p, `INSERT INTO distinta_bozza (bozza_id, thread_id, prodotto_id, formato, base_conferma_id, base_numero, base_contatore, firma_base,
+			fonte_allegato_id, fonte_sha256, fonte_gruppo, creata_da, aggiornata_da)
+		 VALUES ('{B4}', '{T}', '{P}', 3, '{C3}', 2, 0, repeat('1', 64), '{A}', repeat('b', 64), 'bom', '{U}', '{U}');
+		 INSERT INTO distinta_bozza_versione (bozza_id, versione, snapshot, impronta, base_conferma_id, base_numero, base_contatore, firma_base,
+			fonte_allegato_id, fonte_sha256, fonte_gruppo, salvata_da, importazione_id, chiave_salvataggio, impronta_richiesta)
+		 VALUES ('{B4}', 1, `+jsonSQL(t, s4)+`, repeat('d', 64), '{C3}', 2, 0, repeat('1', 64), '{A}', repeat('b', 64), 'bom', '{U}',
+			'{R1}', gen_random_uuid(), repeat('4', 64))`)
+	// la conferma n. 3 (C4) che la chiude: #31 e' fra i suoi nodi, nessun nodo non incluso
+	c4 := nuovaC3()
+	c4.snap = s4
+	c4.nonInclusi = nil
+	for k, v := range map[string]string{"conferma_id": "'{C4}'", "numero": "3", "precedente_id": "'{C3}'", "base_conferma_id": "'{C3}'",
+		"bozza_id": "'{B4}'", "impronta_snapshot": "repeat('d', 64)", "chiave_idempotenza": "'{K4}'"} {
+		c4.testata[k] = v
+	}
+	for i := range c4.componenti {
+		c4.componenti[i] = strings.Replace(c4.componenti[i], "'{C3}'", "'{C4}'", 1)
+	}
+	c4.archi = []string{strings.Replace(arcoC3, "'{C3}'", "'{C4}'", 1)}
+	c4.nonChiude = true
+	c4.dopo = []string{`UPDATE distinta_bozza SET stato = 'confermata', chiusa_da = '{U}' WHERE bozza_id = '{B4}'`}
+	riuscita23(t, p, "conferma n. 3 di P: #31 reincluso", c4.istruzioni(t)...)
+
+	ripristino := func(base uuid.NullUUID) []db.ListNonInclusiPerRifRow {
+		t.Helper()
+		righe, err := q.ListNonInclusiPerRif(ctx, db.ListNonInclusiPerRifParams{ThreadID: uuid23("{T}"), ProdottoID: uuid23("{P}"),
+			Shas: []string{sha("b")}, Chiavi: []string{"#31"}, BaseConfermaID: base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return righe
+	}
+	if r := ripristino(nullUUID23("{C4}")); len(r) != 0 {
+		t.Errorf("bozza nata dalla n. 3, dove #31 e' un nodo: nessun ripristino atteso, righe %+v", r)
+	}
+	for nome, base := range map[string]uuid.NullUUID{"base n. 2": nullUUID23("{C3}"), "senza base": {}} {
+		r := ripristino(base)
+		if len(r) != 1 || r[0].ConfermaID != uuid23("{C3}") || r[0].Numero != 2 || r[0].Chiave != "#31" || r[0].DecisioneID != "ni-1" {
+			t.Errorf("%s: atteso il ripristino di #31 non incluso nella n. 2, righe %+v", nome, r)
+		}
 	}
 }
 

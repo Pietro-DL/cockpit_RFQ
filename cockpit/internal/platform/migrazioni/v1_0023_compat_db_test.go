@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -330,9 +331,12 @@ func TestV1LaConversioneFormato2InFormato3(t *testing.T) {
 			map[string]any{"chiave_bozza": "k-p3", "componente_id": u23("{P3}"), "op": "riusa", "tipo": "finito", "origine": "registrato",
 				"identita": map[string]any{"emittente": cliente, "emittente_presunto": true, "codice": "ACM-3000", "modo": "formato_2"}}},
 		"archi": []any{}, "decisioni": []any{}, "documenti_preassociati": []any{}}
-	motivo := "conversione al formato 3 (conversione-1): " + strings.Repeat("m", 900)
+	// il motivo dell'ingegnere al limite di 1000 caratteri: intero e senza prefissi nell'evento bozza_aperta della bozza
+	// nuova; la formato 2 si chiude con il solo prefisso, che sta sempre nei 1000 caratteri (EM §6.7 passi 1 e 3; MIG-12)
+	motivo := strings.Repeat("m", 1000)
+	chiusura := "convertita nel formato 3 nella bozza " + u23("{B4}")
 	riuscita23(t, p, "U-05 conversione in una transazione",
-		`UPDATE distinta_bozza SET stato = 'abbandonata', chiusa_da = '{U}', motivo_chiusura = 'convertita al formato 3' WHERE bozza_id = '{BR}'`,
+		`UPDATE distinta_bozza SET stato = 'abbandonata', chiusa_da = '{U}', motivo_chiusura = '`+chiusura+`' WHERE bozza_id = '{BR}'`,
 		`INSERT INTO distinta_bozza (bozza_id, thread_id, prodotto_id, formato, base_numero, base_contatore, firma_base, creata_da, aggiornata_da)
 		 VALUES ('{B4}', '{T}', '{P3}', 3, 0, 0, repeat('1', 64), '{U}', '{U}')`,
 		`INSERT INTO distinta_bozza_versione (bozza_id, versione, snapshot, impronta, base_numero, base_contatore, firma_base, salvata_da,
@@ -350,6 +354,12 @@ func TestV1LaConversioneFormato2InFormato3(t *testing.T) {
 	}
 	if s := uno23[string](t, p, `SELECT formato || ' ' || stato || ' ' || versione FROM distinta_bozza WHERE bozza_id = '{B4}'`); s != "3 aperta 1" {
 		t.Errorf("bozza formato 3 nuova: %s", s)
+	}
+	if m := uno23[string](t, p, `SELECT motivo FROM distinta_bozza_evento WHERE bozza_id = '{B4}' AND azione = 'bozza_aperta'`); m != motivo {
+		t.Errorf("l'evento bozza_aperta non porta il motivo intero (%d caratteri invece di %d)", len(m), len(motivo))
+	}
+	if m := uno23[string](t, p, `SELECT motivo_chiusura FROM distinta_bozza WHERE bozza_id = '{BR}'`); m != chiusura {
+		t.Errorf("motivo di chiusura della formato 2: %q, atteso il solo prefisso %q", m, chiusura)
 	}
 	if n := uno23[int](t, p, `SELECT count(*) FROM fonte_step_evento WHERE chiave_bozza = 'k-n' AND azione = 'scelta'`); n != 2 {
 		t.Errorf("scelte della fonte secondaria su k-n (vecchia e nuova bozza): %d", n)
@@ -378,24 +388,33 @@ func TestV1UnBinarioDella22SiFermaSullaVentitre(t *testing.T) {
 	}
 }
 
-// indietro23 legge lo script di ritorno com'e', con i fine riga della 0022 che il binario ha applicato: lo script rimette
-// i corpi delle funzioni e i commenti byte per byte, e un checkout Windows (core.autocrlf) ha CRLF in tutti e due i file.
-// Lanciato a mano, lo script va preso dallo stesso checkout del binario (intestazione dello script).
+// indietro23 legge lo script di ritorno com'e' sul disco, fine riga compresi: lo stesso testo che l'utente lancerebbe
+// con psql. I fine riga possono non essere quelli della 0022 che il binario ha incorporato (core.autocrlf scrive CRLF
+// nei file presi dal repository e lascia LF in quelli nati sul posto): per questo il catalogo si confronta a meno dei
+// CR (senzaCR).
 func indietro23(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "0023_indietro.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := strings.ReplaceAll(string(b), "\r\n", "\n")
-	if strings.Contains(migrazioneNumero(t, 22).SQL, "\r\n") {
-		s = strings.ReplaceAll(s, "\n", "\r\n")
-	}
-	return s
+	return string(b)
 }
 
-// U-09: 22 → 23 → 22 con scripts/0023_indietro.sql: il catalogo torna quello della 22, le righe della 22 restano
-// intatte, schema_versione torna a 22 e la 0023 si riapplica sopra il ritorno.
+// senzaCR: le righe del catalogo (impronta18) senza i CR, che stanno solo nei corpi delle funzioni e nei commenti, in
+// ordine: la garanzia del ritorno manuale e' «uguale alla 22 a meno dei fine riga».
+func senzaCR(righe []string) []string {
+	out := make([]string, len(righe))
+	for i, r := range righe {
+		out[i] = strings.ReplaceAll(r, "\r", "")
+	}
+	sort.Strings(out)
+	return out
+}
+
+// U-09: 22 → 23 → 22 con scripts/0023_indietro.sql eseguito com'e' sul disco: il catalogo torna quello della 22 a meno
+// dei CR (le sole righe diverse, se ci sono, differiscono per i soli CR), le righe della 22 restano intatte,
+// schema_versione torna a 22 e la 0023 si riapplica sopra il ritorno.
 func TestV1IlRitornoManualeDalla23Alla22(t *testing.T) {
 	p := testutil.Pool(t)
 	t.Cleanup(func() { testutil.SchemaPulito(t, p) })
@@ -413,8 +432,12 @@ func TestV1IlRitornoManualeDalla23Alla22(t *testing.T) {
 	if _, err := p.Exec(ctx, indietro23(t)); err != nil {
 		t.Fatalf("0023_indietro.sql: %v", err)
 	}
-	if d := differenze(catalogo22, impronta18(t, p)); d != "" {
-		t.Errorf("lo schema dopo 22 → 23 → 22 non e' quello della 22:\n%s", d)
+	dopo := impronta18(t, p)
+	if d := differenze(senzaCR(catalogo22), senzaCR(dopo)); d != "" {
+		t.Errorf("lo schema dopo 22 → 23 → 22 non e' quello della 22, nemmeno a meno dei fine riga:\n%s", d)
+	}
+	if d := differenze(catalogo22, dopo); d != "" {
+		t.Logf("ritorno uguale alla 22 a meno dei CR: le righe con fine riga diversi (checkout dello script e binario della 0022) sono\n%s", d)
 	}
 	if v := uno23[int32](t, p, `SELECT max(versione) FROM schema_versione`); v != 22 {
 		t.Errorf("schema_versione e' a %d dopo il ritorno: doveva tornare a 22", v)
@@ -479,7 +502,7 @@ func TestV1IlRitornoDalla23SiRifiuta(t *testing.T) {
 		VALUES ('{B4}', '{T2}', '{Q}', 3, 0, 0, repeat('1', 64), '{U}', '{U}')`+";"+`
 		INSERT INTO distinta_bozza_versione (bozza_id, versione, snapshot, impronta, base_numero, base_contatore, firma_base, salvata_da,
 			chiave_salvataggio, impronta_richiesta)
-		VALUES ('{B4}', 1, '{"formato": 3, "prodotto_id": "{Q}", "nodi": [{"chiave_bozza": "k-q", "identita": {"codice": "ACM-9000"}}]}',
+		VALUES ('{B4}', 1, '{"formato": 3, "prodotto_id": "{Q}", "nodi": [{"chiave_bozza": "k-q", "identita": {"codice": "ACM-9000"}}], "archi": [], "decisioni": []}',
 			repeat('d', 64), 0, 0, repeat('1', 64), '{U}', gen_random_uuid(), repeat('4', 64))`)
 	rifiutato("una bozza formato 3", "righe formato 3")
 }

@@ -198,8 +198,10 @@ var variantiNote = map[int]struct {
 }{
 	22: {"0022-p4-dir11-20261013b", "b4974dc5a0068421ead99b9fb8d261f4cee9c38befd6d86c89dfb57868b74f66",
 		map[string]string{"0022-p4-dir11-20261013a": "ddf3e2d2351791d050a4f132c63268c3f693863d4627f08dd20ac47ad58f794c"}},
-	// V1 (piano della 0023, §2): variante 0023-v1-formato3-file-<aaaammgg><lettera>
-	23: {"0023-v1-formato3-file-20261018a", "6a315baf5d825916731146399ae52052aca64b812dd2e8ad35caa760921c9b58", map[string]string{}},
+	// V1 (piano della 0023, §2): variante 0023-v1-formato3-file-<aaaammgg><lettera>; la «a» e' il testo del primo
+	// passaggio della corsia persistenza, la «b» quello dopo la sua revisione (mai spinti, solo database di prova)
+	23: {"0023-v1-formato3-file-20261018b", "37c698df889d4539cdedee29d3da17cc52ae804f1abb4e81fb9d459777056e9b",
+		map[string]string{"0023-v1-formato3-file-20261018a": "6a315baf5d825916731146399ae52052aca64b812dd2e8ad35caa760921c9b58"}},
 }
 
 // controllaVariante: la migrazione m dichiara la variante nota e ha la sua impronta.

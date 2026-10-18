@@ -155,11 +155,16 @@ ALTER TABLE distinta_bozza_versione
     -- con snapshot = '[]' da' ancora ck_dbv_snapshot
     ADD CONSTRAINT ck_dbv_snapshot_formato CHECK (COALESCE(snapshot ->> 'formato' IN ('2', '3'), false)
         AND (importazione_id IS NULL OR snapshot ->> 'formato' = '3')
-        -- formato 3: i nodi sono un array (anche assenti: rifiutati) e ognuno ha la sua identita' (niente nodi di forma
-        -- formato 2 sotto un «3»)
+        -- formato 3: nodi, archi e decisioni sono array (anche assenti: rifiutati), e ogni nodo e' un oggetto con la sua
+        -- identita' oggetto (niente nodi di forma formato 2 sotto un «3»). In modo lax il filtro ? (...) scarta un livello
+        -- di array: il tipo del nodo e quello dell'identita' si guardano con .type(), che non lo scarta
         AND (snapshot ->> 'formato' <> '3'
              OR (COALESCE(jsonb_typeof(snapshot -> 'nodi') = 'array', false)
-                 AND NOT jsonb_path_exists(snapshot, '$.nodi[*] ? (!exists(@.identita))')))),
+                 AND COALESCE(jsonb_typeof(snapshot -> 'archi') = 'array', false)
+                 AND COALESCE(jsonb_typeof(snapshot -> 'decisioni') = 'array', false)
+                 AND NOT jsonb_path_exists(snapshot, '$.nodi[*] ? (!exists(@.identita))')
+                 AND NOT jsonb_path_exists(snapshot, '$.nodi[*].type() ? (@ != "object")')
+                 AND NOT jsonb_path_exists(snapshot, '$.nodi[*].identita.type() ? (@ != "object")')))),
     ADD CONSTRAINT ck_dbv_chiave_salvataggio CHECK ((chiave_salvataggio IS NULL) = (impronta_richiesta IS NULL)
         AND (impronta_richiesta IS NULL OR impronta_richiesta ~ '^[0-9a-f]{64}$')
         AND (snapshot ->> 'formato' <> '3' OR chiave_salvataggio IS NOT NULL));
@@ -243,13 +248,18 @@ ALTER TABLE conferma_strutturale
     ADD CONSTRAINT ck_conferma_bozza CHECK ((bozza_id IS NULL) = (bozza_versione IS NULL)
         AND (formato IN (2, 3) OR bozza_id IS NULL)
         AND (formato <> 3 OR bozza_id IS NOT NULL)),
-    -- formato 2: snapshot «2»; formato 3: snapshot «3», con nodi che hanno l'identita'. Mai dati formato 3 sotto una
-    -- conferma formato 2, ne' nodi di forma formato 2 sotto un «3»
+    -- formato 2: snapshot «2» dello stesso prodotto; il CHECK non guarda dentro (che una conferma formato 2 non porti dati
+    -- formato 3 lo garantisce il Go, prova T-12b). Formato 3: snapshot «3» con nodi, archi e decisioni in array e ogni nodo
+    -- un oggetto con la sua identita' oggetto, come ck_dbv_snapshot_formato (niente nodi di forma formato 2 sotto un «3»)
     ADD CONSTRAINT ck_conferma_snapshot CHECK (impronta_snapshot ~ '^[0-9a-f]{64}$'
         AND (formato = 1 OR (COALESCE(snapshot ->> 'formato' = formato::text, false)
                              AND COALESCE(snapshot ->> 'prodotto_id' = prodotto_id::text, false)))
         AND (formato <> 3 OR (COALESCE(jsonb_typeof(snapshot -> 'nodi') = 'array', false)
-                              AND NOT jsonb_path_exists(snapshot, '$.nodi[*] ? (!exists(@.identita))')))),
+                              AND COALESCE(jsonb_typeof(snapshot -> 'archi') = 'array', false)
+                              AND COALESCE(jsonb_typeof(snapshot -> 'decisioni') = 'array', false)
+                              AND NOT jsonb_path_exists(snapshot, '$.nodi[*] ? (!exists(@.identita))')
+                              AND NOT jsonb_path_exists(snapshot, '$.nodi[*].type() ? (@ != "object")')
+                              AND NOT jsonb_path_exists(snapshot, '$.nodi[*].identita.type() ? (@ != "object")')))),
     ADD CONSTRAINT ck_conferma_chiave CHECK ((formato IN (2, 3)) = (chiave_idempotenza IS NOT NULL));
 -- ck_conferma_firme, ck_conferma_base, ck_conferma_mono_pezzo_snapshot: invariati, valgono anche per il 3.
 -- jsonb_path_exists senza _tz e' IMMUTABLE, quindi ammessa in un CHECK.
@@ -386,16 +396,22 @@ ALTER TABLE conferma_strutturale_componente
 -- minuscolo senza spazi, «:» o «/» (internal/core/registro/regole/grammatica/partner.go). Il tetto di 200 caratteri
 -- dell'id e quello di 500 del namespace sono solo di sicurezza: la grammatica non ne ha, e la stessa regola la
 -- applica il Go in R2, R4 e R5 (EmittenteAmmissibile), cosi' un valore oltre il tetto e' un 422 leggibile e mai un
--- 23514 al COMMIT. La prova T-14 tiene le due regole uguali.
+-- 23514 al COMMIT. La prova T-14 tiene le due regole uguali. «Non vuoto» e' quello di strings.TrimSpace della grammatica
+-- e del Go: senza i bianchi Unicode (White_Space: tab, a capo, NBSP, gli spazi tipografici), non solo lo spazio ASCII.
+-- Resta una differenza, dichiarata: lower() del database conosce le maiuscole non ASCII solo con una LC_CTYPE che le
+-- conosce (resoconto della corsia persistenza di V1, P-17).
 ALTER TABLE conferma_strutturale_componente ADD CONSTRAINT ck_csc_identita CHECK (
     (emittente IS NULL
      OR emittente ~ '^cliente:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
      OR (left(emittente, 8) = 'partner:'
          AND char_length(emittente) BETWEEN 9 AND 208
+         AND btrim(substr(emittente, 9), E' \t\n\r\f\u000b\u0085               　') <> ''
          AND strpos(substr(emittente, 9), ' ') = 0 AND strpos(substr(emittente, 9), ':') = 0
          AND strpos(substr(emittente, 9), '/') = 0
          AND substr(emittente, 9) = lower(substr(emittente, 9))))
-    AND (namespace IS NULL OR (btrim(namespace) <> '' AND char_length(namespace) <= 500))
+    AND (namespace IS NULL
+         OR (btrim(namespace, E' \t\n\r\f\u000b\u0085               　') <> ''
+             AND char_length(namespace) <= 500))
     AND (namespace IS NULL OR emittente IS NOT NULL)
     AND ((emittente IS NULL) = (emittente_presunto IS NULL)));
 CREATE INDEX ix_csc_emittente ON conferma_strutturale_componente (componente_id, conferma_id) WHERE emittente IS NOT NULL;
@@ -626,7 +642,7 @@ BEGIN
            AND (n.chiave IS NULL                                                                      -- (0023)
                 OR (NEW.mappa ->> k.chiave_bozza) IS DISTINCT FROM k.componente_id::text              -- (0023)
                 OR n.id ->> 'codice' IS DISTINCT FROM k.codice                                        -- (0023)
-                OR n.id ->> 'rev' IS DISTINCT FROM k.rev                                              -- (0023)
+                OR NULLIF(n.id ->> 'rev', '') IS DISTINCT FROM NULLIF(k.rev, '')                      -- (0023: '' = senza rev)
                 OR n.id ->> 'emittente' IS DISTINCT FROM k.emittente                                  -- (0023)
                 OR COALESCE((n.id ->> 'emittente_presunto')::boolean, false) IS DISTINCT FROM k.emittente_presunto  -- (0023)
                 OR n.id ->> 'namespace' IS DISTINCT FROM k.namespace)                                 -- (0023)
@@ -669,8 +685,7 @@ BEGIN
                           x ->> 'motivo_codice' AS motivo_codice,                                     -- (0023)
                           x ->> 'motivo' AS motivo,                                                   -- (0023)
                           x -> 'segnale_visto' AS segnale                                             -- (0023)
-                     FROM jsonb_array_elements(CASE WHEN jsonb_typeof(NEW.snapshot -> 'decisioni') = 'array'  -- (0023)
-                                                    THEN NEW.snapshot -> 'decisioni' ELSE '[]'::jsonb END) x  -- (0023)
+                     FROM jsonb_array_elements(NEW.snapshot -> 'decisioni') x  -- un array: ck_conferma_snapshot  -- (0023)
                     WHERE x ->> 'tipo' = 'non_includere'),                                            -- (0023)
              r AS (SELECT * FROM conferma_strutturale_non_incluso WHERE conferma_id = NEW.conferma_id)  -- (0023)
         SELECT COALESCE(r.decisione_id, d.id) AS id INTO manca                                        -- (0023)
@@ -1440,6 +1455,7 @@ vera. Lo usano le cinque viste ridefinite dalla 0023 e le query delle proposte.'
 
 -- ============================================================ 12. VARIANTE E VERSIONE
 -- La variante lega il testo di questo file al database (platform/migrazioni, ControllaVarianti): ogni cambio del testo
--- prima della spinta cambia anche la variante (la prova L1 lega variante e impronta del file).
-INSERT INTO schema_variante (versione, variante) VALUES (23, '0023-v1-formato3-file-20261018a');
+-- prima della spinta cambia anche la variante (la prova L1 lega variante e impronta del file). 20261018a: il testo del
+-- primo passaggio della corsia; 20261018b: dopo la revisione (CHECK del formato 3, identita' certificata, controllo (i)).
+INSERT INTO schema_variante (versione, variante) VALUES (23, '0023-v1-formato3-file-20261018b');
 INSERT INTO schema_versione (versione) VALUES (23);

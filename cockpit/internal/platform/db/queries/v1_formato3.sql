@@ -239,12 +239,18 @@ SELECT DISTINCT x.prodotto_id, x.come FROM (
 -- Il ripristino di un nodo non incluso (R4 «ripristino di un nodo non incluso nella conferma n», R5 riapertura; EM
 -- §7.6): per ogni (sha256, chiave) del rif delle caselle reincluse, la riga della conferma piu' recente del prodotto.
 -- Mai per gruppo o allegato: dopo un riallineamento la casella ha un altro gruppo, e dopo un cambio di copia un altro
--- allegato.
+-- allegato. Un nodo che sta fra i nodi della conferma di base (base_conferma_id = versione_bom_base.conferma_id, NULL
+-- senza conferme) non e' un ripristino: l'ha gia' reincluso una conferma successiva, che ne ha riaperto e deciso le
+-- righe (PM23 §6, terzo giro su O-01, OT-06; EM §7.6 punto 3).
 SELECT DISTINCT ON (n.sha256, n.chiave) n.sha256, n.chiave, n.conferma_id, n.decisione_id, n.allegato_id, n.gruppo, n.righe_chiuse,
        n.archi_chiusi, c.firma_anteprima, c.numero
   FROM conferma_strutturale_non_incluso n JOIN conferma_strutturale c ON c.conferma_id = n.conferma_id
  WHERE n.thread_id = sqlc.arg(thread_id) AND c.prodotto_id = sqlc.arg(prodotto_id)
    AND (n.sha256, n.chiave) IN (SELECT unnest(sqlc.arg(shas)::text[]), unnest(sqlc.arg(chiavi)::text[]))
+   AND NOT EXISTS (SELECT 1
+         FROM conferma_strutturale b
+         CROSS JOIN LATERAL jsonb_path_query(b.snapshot, '$.nodi[*].caselle[*].rif') AS r
+        WHERE b.conferma_id = sqlc.narg(base_conferma_id)::uuid AND r #>> '{}' = 'nodo:' || n.sha256 || ':' || n.chiave)
  ORDER BY n.sha256, n.chiave, c.numero DESC;
 
 -- ------------------------------------------------------------------ R6, R7

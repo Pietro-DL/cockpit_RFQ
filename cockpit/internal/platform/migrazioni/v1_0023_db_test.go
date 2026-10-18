@@ -37,6 +37,7 @@ var sost23 = strings.NewReplacer(
 	"{R1}", "00000000-0000-4000-8000-0000002301a1",
 	"{R2}", "00000000-0000-4000-8000-0000002301a2",
 	"{R3}", "00000000-0000-4000-8000-0000002301a3",
+	"{R4}", "00000000-0000-4000-8000-0000002301a4",
 	"{RX}", "00000000-0000-4000-8000-0000002301af",
 	"{B3}", "00000000-0000-4000-8000-0000002301b3",
 	"{B4}", "00000000-0000-4000-8000-0000002301b4",
@@ -215,8 +216,9 @@ const allegati23 = `INSERT INTO allegato (allegato_id, messaggio_id, indice, nom
    ('{AX}', '{M2}', 1, 'ACM-1000.stp', 'stp', repeat('b', 64), now());`
 
 // righe23: gli allegati della 0023 (A3, A4, A5 della RFQ T; un allegato inline AI; un messaggio M2 della RFQ T2 con un
-// allegato AX che ha lo stesso sha256 di A), i tre registri (R1 e R2 di P, R3 di P2) e la bozza formato 3 B3 di P alla
-// versione 1 con il registro R1.
+// allegato AX che ha lo stesso sha256 di A), i quattro registri (R1 e R2 di P; R3 di P2 senza fonte; R4 di P2 con la
+// stessa fonte, la stessa radice e lo stesso gruppo di R1, cosi' che da R1 lo distingua solo il prodotto: due prodotti
+// sullo stesso STEP) e la bozza formato 3 B3 di P alla versione 1 con il registro R1.
 func righe23(t *testing.T) []string {
 	radice := "'" + rifB("#1") + "'"
 	registro := func(id, prodotto, impronta, impronte, gruppo string, conFonte bool) string {
@@ -237,7 +239,8 @@ func righe23(t *testing.T) []string {
 		   VALUES ('{T}', '{A2}', 'conservazione_errore', 'server', '{"causa": "prova del catalogo"}');`,
 		registro("{R1}", "{P}", "6", "7", "bom", true) + ";" +
 			registro("{R2}", "{P}", "e", "e", "cand:{A}:"+rifB("#1"), true) + ";" +
-			registro("{R3}", "{P2}", "f", "f", "bom", false),
+			registro("{R3}", "{P2}", "f", "f", "bom", false) + ";" +
+			registro("{R4}", "{P2}", "9", "9", "bom", true),
 		`INSERT INTO distinta_bozza (bozza_id, thread_id, prodotto_id, formato, base_conferma_id, base_numero, base_contatore, firma_base,
 			fonte_allegato_id, fonte_sha256, fonte_gruppo, creata_da, aggiornata_da)
 		 VALUES ('{B3}', '{T}', '{P}', 3, '{C1}', 1, 0, repeat('1', 64), '{A}', repeat('b', 64), 'bom', '{U}', '{U}');
@@ -393,9 +396,34 @@ var cambiF3 = map[string]string{
 	"snapshot": snap3Compatto,
 }
 
-// snap3Compatto: lo snapshot formato 3 piu' piccolo che passa i CHECK (nodi con l'identita').
+// snap3Compatto: lo snapshot formato 3 piu' piccolo che passa i CHECK (nodi, archi e decisioni in array, nodi oggetto
+// con l'identita' oggetto).
 const snap3Compatto = `jsonb_build_object('formato', 3, 'prodotto_id', '{P}'::text, 'nodi', jsonb_build_array(jsonb_build_object('chiave_bozza', 'k-p',
-	'identita', jsonb_build_object('codice', 'ACM-1000'))))`
+	'identita', jsonb_build_object('codice', 'ACM-1000'))), 'archi', '[]'::jsonb, 'decisioni', '[]'::jsonb)`
+
+// snap3Con: lo snapshot formato 3 della versione per i casi del catalogo, con i nodi dati (testo JSON) e, se non vuoti,
+// archi e decisioni dati; vuoti = assenti.
+func snap3Con(nodi, archi, decisioni string) string {
+	s := `'{"formato": 3, "nodi": ` + nodi
+	if archi != "" {
+		s += `, "archi": ` + archi
+	}
+	if decisioni != "" {
+		s += `, "decisioni": ` + decisioni
+	}
+	return s + `}'`
+}
+
+// confSnap3Con: come snap3Con, per lo snapshot di una conferma (con il prodotto P).
+func confSnap3Con(nodi, archi, decisioni string) string {
+	return strings.Replace(snap3Con(nodi, archi, decisioni), `{"formato": 3, `, `{"formato": 3, "prodotto_id": "{P}", `, 1)
+}
+
+// La versione formato 3 con la chiave del salvataggio, che passa ck_dbv_chiave_salvataggio (i casi del catalogo su
+// ck_dbv_snapshot_formato la portano tutti, cosi' il solo vincolo violato e' quello).
+func versioneF3(snapshot string) map[string]string {
+	return map[string]string{"snapshot": snapshot, "chiave_salvataggio": "gen_random_uuid()", "impronta_richiesta": "repeat('4', 64)"}
+}
 
 func con(base map[string]string, cambi map[string]string) map[string]string {
 	out := map[string]string{}
@@ -450,19 +478,28 @@ var casiVincoli23 = []casoVincolo{
 	// M-01: la testata accetta 2 e 3, non 1 (caso della 22) ne' 4
 	{"distinta_bozza", map[string]string{"formato": "4"}, "ck_distinta_bozza_formato", nil, false},
 
-	// M-02, M-03, M-30: versioni della bozza
+	// M-02, M-03, M-30: versioni della bozza. Ogni caso formato 3 viola una sola condizione di ck_dbv_snapshot_formato:
+	// gli altri campi passano (nodi, archi e decisioni in array, nodi oggetto con l'identita' oggetto)
 	{"distinta_bozza_versione", map[string]string{"snapshot": `'{"formato": 4}'`}, "ck_dbv_snapshot_formato", nil, false},
 	{"distinta_bozza_versione", map[string]string{"importazione_id": "'{R1}'"}, "ck_dbv_snapshot_formato", nil, false},
-	{"distinta_bozza_versione", map[string]string{"snapshot": `'{"formato": 3, "nodi": [{"chiave_bozza": "k-p"}]}'`,
-		"chiave_salvataggio": "gen_random_uuid()", "impronta_richiesta": "repeat('4', 64)"}, "ck_dbv_snapshot_formato", nil, false},
-	{"distinta_bozza_versione", map[string]string{"snapshot": `'{"formato": 3, "nodi": {"k-p": {"identita": {}}}}'`,
-		"chiave_salvataggio": "gen_random_uuid()", "impronta_richiesta": "repeat('4', 64)"}, "ck_dbv_snapshot_formato", nil, false},
-	// (proposta di emendamento: nodi assenti in uno snapshot formato 3 rifiutati, non solo nodi che non sono un array)
-	{"distinta_bozza_versione", map[string]string{"snapshot": `'{"formato": 3}'`,
-		"chiave_salvataggio": "gen_random_uuid()", "impronta_richiesta": "repeat('4', 64)"}, "ck_dbv_snapshot_formato", nil, false},
-	{"distinta_bozza_versione", map[string]string{"snapshot": `'{"formato": 3, "nodi": [{"chiave_bozza": "k-p", "identita": {}}]}'`,
-		"chiave_salvataggio": "gen_random_uuid()", "impronta_richiesta": "repeat('4', 64)", "importazione_id": uuidNuovo23}, "fk_dbv_importazione", nil, false},
-	{"distinta_bozza_versione", map[string]string{"snapshot": `'{"formato": 3, "nodi": [{"chiave_bozza": "k-p", "identita": {}}]}'`},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"chiave_bozza": "k-p"}]`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`{"k-p": {"identita": {}}}`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	// (proposte di emendamento del resoconto della corsia persistenza: nodi, archi o decisioni assenti o non array; un
+	// nodo che non e' un oggetto, anche un array che ne avvolge uno; un'identita' che non e' un oggetto)
+	{"distinta_bozza_versione", versioneF3(`'{"formato": 3, "archi": [], "decisioni": []}'`), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": {}}]`, "", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": {}}]`, "{}", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": {}}]`, "[]", "")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": {}}]`, "[]", "{}")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[[{"identita": {}}]]`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": {}}, []]`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`["k-p"]`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": null}]`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": "x"}]`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", versioneF3(snap3Con(`[{"identita": [{}]}]`, "[]", "[]")), "ck_dbv_snapshot_formato", nil, false},
+	{"distinta_bozza_versione", con(versioneF3(snap3Con(`[{"chiave_bozza": "k-p", "identita": {}}]`, "[]", "[]")),
+		map[string]string{"importazione_id": uuidNuovo23}), "fk_dbv_importazione", nil, false},
+	{"distinta_bozza_versione", map[string]string{"snapshot": snap3Con(`[{"chiave_bozza": "k-p", "identita": {}}]`, "[]", "[]")},
 		"ck_dbv_chiave_salvataggio", nil, false},
 	{"distinta_bozza_versione", map[string]string{"chiave_salvataggio": "gen_random_uuid()"}, "ck_dbv_chiave_salvataggio", nil, false},
 	{"distinta_bozza_versione", map[string]string{"chiave_salvataggio": "gen_random_uuid()", "impronta_richiesta": "'x'"}, "ck_dbv_chiave_salvataggio", nil, false},
@@ -480,10 +517,17 @@ var casiVincoli23 = []casoVincolo{
 		"ck_conferma_snapshot", nil, false},
 	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": strings.Replace(snap3Compatto, "'{P}'::text", "'{P2}'::text", 1)}),
 		"ck_conferma_snapshot", nil, false},
-	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": `'{"formato": 3, "prodotto_id": "{P}", "nodi": [{"chiave_bozza": "k-p"}]}'`}),
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnap3Con(`[{"chiave_bozza": "k-p"}]`, "[]", "[]")}),
 		"ck_conferma_snapshot", nil, false},
-	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": "jsonb_build_object('formato', 3, 'prodotto_id', '{P}'::text)"}),
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": `'{"formato": 3, "prodotto_id": "{P}", "archi": [], "decisioni": []}'`}),
 		"ck_conferma_snapshot", nil, false},
+	// (le stesse proposte di emendamento della versione: archi e decisioni in array, nodi e identita' oggetti)
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnap3Con(`[{"identita": {}}]`, "", "[]")}), "ck_conferma_snapshot", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnap3Con(`[{"identita": {}}]`, "[]", "")}), "ck_conferma_snapshot", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnap3Con(`[{"identita": {}}]`, "[]", "{}")}), "ck_conferma_snapshot", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnap3Con(`[[{"identita": {}}]]`, "[]", "[]")}), "ck_conferma_snapshot", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnap3Con(`[{"identita": null}]`, "[]", "[]")}), "ck_conferma_snapshot", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnap3Con(`[{"identita": "x"}]`, "[]", "[]")}), "ck_conferma_snapshot", nil, false},
 	{"conferma_strutturale", con(cambiF3, map[string]string{"chiave_idempotenza": "NULL"}), "ck_conferma_chiave", nil, false},
 	{"conferma_strutturale", map[string]string{"formato": "1", "senza_riepilogo_v2": "true"}, "ck_conferma_chiave", nil, false},
 	{"conferma_strutturale", con(cambiF3, map[string]string{"importazione_id": uuidNuovo23, "importazioni_citate": "ARRAY[" + uuidNuovo23 + "]::uuid[]"}),
@@ -511,6 +555,10 @@ var casiVincoli23 = []casoVincolo{
 		"ck_csc_identita", nil, false},
 	{"conferma_strutturale_componente", map[string]string{"emittente": "'partner:beta'", "emittente_presunto": "false",
 		"namespace": "repeat('n', 501)"}, "ck_csc_identita", nil, false},
+	// un id o un namespace di soli bianchi Unicode (tab, NBSP): vuoti per strings.TrimSpace della grammatica e del Go
+	{"conferma_strutturale_componente", map[string]string{"emittente": `E'partner:\t'`, "emittente_presunto": "false"}, "ck_csc_identita", nil, false},
+	{"conferma_strutturale_componente", map[string]string{"emittente": "'cliente:{C}'", "emittente_presunto": "true", "namespace": `E' \t'`},
+		"ck_csc_identita", nil, false},
 
 	// M-16: i gesti
 	{"esito_intento", map[string]string{"gesto": "'conferma_bom_v3'"}, "ck_esito_intento_conferma", nil, false},

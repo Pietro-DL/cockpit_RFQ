@@ -1875,14 +1875,19 @@ SELECT DISTINCT ON (n.sha256, n.chiave) n.sha256, n.chiave, n.conferma_id, n.dec
   FROM conferma_strutturale_non_incluso n JOIN conferma_strutturale c ON c.conferma_id = n.conferma_id
  WHERE n.thread_id = $1 AND c.prodotto_id = $2
    AND (n.sha256, n.chiave) IN (SELECT unnest($3::text[]), unnest($4::text[]))
+   AND NOT EXISTS (SELECT 1
+         FROM conferma_strutturale b
+         CROSS JOIN LATERAL jsonb_path_query(b.snapshot, '$.nodi[*].caselle[*].rif') AS r
+        WHERE b.conferma_id = $5::uuid AND r #>> '{}' = 'nodo:' || n.sha256 || ':' || n.chiave)
  ORDER BY n.sha256, n.chiave, c.numero DESC
 `
 
 type ListNonInclusiPerRifParams struct {
-	ThreadID   uuid.UUID `json:"thread_id"`
-	ProdottoID uuid.UUID `json:"prodotto_id"`
-	Shas       []string  `json:"shas"`
-	Chiavi     []string  `json:"chiavi"`
+	ThreadID       uuid.UUID     `json:"thread_id"`
+	ProdottoID     uuid.UUID     `json:"prodotto_id"`
+	Shas           []string      `json:"shas"`
+	Chiavi         []string      `json:"chiavi"`
+	BaseConfermaID uuid.NullUUID `json:"base_conferma_id"`
 }
 
 type ListNonInclusiPerRifRow struct {
@@ -1901,13 +1906,16 @@ type ListNonInclusiPerRifRow struct {
 // Il ripristino di un nodo non incluso (R4 «ripristino di un nodo non incluso nella conferma n», R5 riapertura; EM
 // §7.6): per ogni (sha256, chiave) del rif delle caselle reincluse, la riga della conferma piu' recente del prodotto.
 // Mai per gruppo o allegato: dopo un riallineamento la casella ha un altro gruppo, e dopo un cambio di copia un altro
-// allegato.
+// allegato. Un nodo che sta fra i nodi della conferma di base (base_conferma_id = versione_bom_base.conferma_id, NULL
+// senza conferme) non e' un ripristino: l'ha gia' reincluso una conferma successiva, che ne ha riaperto e deciso le
+// righe (PM23 §6, terzo giro su O-01, OT-06; EM §7.6 punto 3).
 func (q *Queries) ListNonInclusiPerRif(ctx context.Context, arg ListNonInclusiPerRifParams) ([]ListNonInclusiPerRifRow, error) {
 	rows, err := q.db.Query(ctx, listNonInclusiPerRif,
 		arg.ThreadID,
 		arg.ProdottoID,
 		arg.Shas,
 		arg.Chiavi,
+		arg.BaseConfermaID,
 	)
 	if err != nil {
 		return nil, err

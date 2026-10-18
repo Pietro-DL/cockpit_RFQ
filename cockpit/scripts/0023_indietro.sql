@@ -19,9 +19,11 @@
 --   - c'e' un esito d'intento con un gesto che la 22 non conosce.
 -- Tornare indietro in quei casi perderebbe dati della 23: si ferma.
 --
--- Fine riga. Le quattro funzioni e i tre commenti si rimettono byte per byte, fine riga compresi: lo script va preso dallo
--- stesso checkout del binario che ha applicato la 0022 (un checkout Windows con core.autocrlf ha CRLF in tutti e due).
--- Con fine riga diversi il ritorno riesce lo stesso, ma i corpi rimessi differiscono da quelli della 22 per i soli CR.
+-- Fine riga. Le quattro funzioni e i tre commenti si rimettono con il testo della 22 e con i fine riga di questo file
+-- com'e' sul disco. Il binario che ha applicato la 0022 puo' averla incorporata con altri fine riga (un checkout con
+-- core.autocrlf scrive CRLF nei file presi dal repository, LF in quelli nati sul posto): allora il catalogo torna quello
+-- della 22 a meno dei CR nei corpi delle quattro funzioni e nei tre commenti, con lo stesso comportamento. La prova U-09
+-- esegue il file com'e' sul disco e confronta il catalogo con quello della 22 a meno dei CR.
 --
 -- Poi toglie colonne, tabelle, funzioni e trigger della 0023, rimette i vincoli, le quattro funzioni, le cinque viste
 -- e i tre commenti com'erano alla 22 (testi copiati dalla 0018, dalla 0020 e dalla 0022), e toglie le righe 23 di

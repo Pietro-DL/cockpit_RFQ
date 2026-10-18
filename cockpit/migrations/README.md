@@ -32,7 +32,7 @@ markmap:
 
 - **Il ritorno indietro:** il migratore non ha il verso «giù».
   - Il ritorno è il backup (`scripts/backup-db.ps1`) più il binario di prima.
-  - Per la 0018 e la 0021 c'è anche uno script manuale in `scripts/` (sotto, «Tornare indietro»).
+  - Per la 0018, la 0021 e la 0023 c'è anche uno script manuale in `scripts/` (sotto, «Tornare indietro»).
 - **Le query:** `internal/platform/db/queries/`.
 - **La configurazione di un'installazione** (utenti, caselle, postazioni, credenziali dei worker): la semina
   `platform/fondazioni` da `cockpit.toml` a ogni avvio.
@@ -176,8 +176,8 @@ markmap:
   - Che cosa introduce:
     - il formato 3 della bozza e della conferma: `ck_distinta_bozza_formato`, `ck_conferma_formato`, `ck_conferma_bozza`,
       `ck_conferma_snapshot`, `ck_conferma_chiave`, `ck_esito_intento_gesto` e `ck_esito_intento_conferma` tolti e rimessi
-      con lo stesso nome (il ramo formato 2 dice esattamente quello di prima); il formato 3 vuole la bozza, la chiave e
-      nodi con l'identità
+      con lo stesso nome (il ramo formato 2 dice esattamente quello di prima); il formato 3 vuole la bozza, la chiave,
+      nodi, archi e decisioni in array e ogni nodo un oggetto con l'identità oggetto
     - `distinta_importazione` (il registro d'importazione del Motore A, immutabile, con le quattro impronte e la radice
       della fonte; `P4X08`), citato con FK dalle versioni della bozza (`importazione_id`) e dalle conferme
       (`importazione_id`, `importazioni_citate`)
@@ -195,7 +195,7 @@ markmap:
     - `v_fascicolo`, `v_step_prodotto`, `v_thread_da_riesaminare`, `v_cruscotto`, `v_codici_candidati_thread` ridefinite
       con lo stesso testo più il predicato `file_rfq_attivo` (deroga dichiarata: senza righe in `file_rfq` le stesse righe)
     - nessuna riga esistente riscritta, nessun riempimento, nessun valore di enum nuovo; `SET LOCAL lock_timeout = '30s'`;
-      variante `0023-v1-formato3-file-20261018a`
+      variante `0023-v1-formato3-file-20261018b` (la `20261018a` era il testo prima della revisione della corsia)
   - Ritorno manuale: `scripts/0023_indietro.sql` (sotto, «Tornare indietro»).
 
 ## Lo schema per dominio
@@ -387,18 +387,21 @@ markmap:
 
 - `distinta_bozza` (0022 → 0023): `formato` 2 o 3; il formato di una bozza aperta non cambia (la conversione è una
   bozza nuova, `P4X04`). `distinta_bozza_versione` (0022 → 0023): lo snapshot ha il formato della testata; nel
-  formato 3 i nodi sono un array con l'identità, la versione porta la chiave del salvataggio (unica) e, con
+  formato 3 nodi, archi e decisioni sono array e ogni nodo è un oggetto con l'identità oggetto, la versione porta la
+  chiave del salvataggio (unica) e, con
   `sorgente.importazione`, il registro della stessa RFQ e dello stesso prodotto con l'impronta, il gruppo e la fonte
   dello snapshot; i registri citati dalle decisioni sono dello stesso prodotto (`P4X04`).
 - `distinta_importazione` (0023): una riga per (RFQ, prodotto, impronta); fonte e allegati citati della RFQ e attivi
   (`P4X08`); `contenuto` fino a 16 MiB, legato alle colonne dal CHECK; non si modifica e non si cancella (`P4X02`).
 - `conferma_strutturale` (0022 → 0023): formato 1, 2 o 3; il formato 3 chiude una bozza formato 3 con lo stesso
   registro, cita in `importazioni_citate` tutti e soli i registri dello snapshot (trigger), e al COMMIT ogni componente
-  certificato porta l'identità decisa del suo nodo (codice byte per byte, rev, emittente, presunzione, namespace), ogni
+  certificato porta l'identità decisa del suo nodo (codice byte per byte, rev con '' = senza rev, emittente,
+  presunzione, namespace), ogni
   arco certificato è un arco dello snapshot con la stessa origine e la stessa qta, e i nodi non inclusi sono tutte e
   sole le decisioni `non_includere` (`P4X01`).
 - `conferma_strutturale_componente.emittente`, `emittente_presunto`, `namespace` (0023): solo nel formato 3 (trigger);
-  l'emittente è `cliente:<uuid>` o `partner:<id minuscolo senza spazi, «:» o «/»>` (`ck_csc_identita`).
+  l'emittente è `cliente:<uuid>` o `partner:<id minuscolo senza spazi, «:» o «/»>`, id e namespace non vuoti senza i
+  bianchi Unicode come nel Go (`ck_csc_identita`).
 - `conferma_strutturale_non_incluso` (0023): una riga per decisione `non_includere`, solo nella transazione della
   conferma formato 3, con l'allegato della RFQ e lo sha256 del nodo; immutabile (`P4X01`).
 - `esito_intento` (0022 → 0023): dieci gesti; `conferma_bom_v2` per una conferma formato 2, `conferma_bom_v3` per una
@@ -661,8 +664,10 @@ markmap:
   - Che cosa non riporta: le note sui disegni, se si sceglie di perderle
 - **`scripts/0023_indietro.sql`** · Da → a: 23 → 22
   - si rifiuta con lo schema non alla 23, con una riga formato 3, con una riga nelle sei tabelle nuove, con un valore
-    nelle otto colonne nuove o con un gesto della 23; rimette vincoli, funzioni, viste e commenti della 22 byte per byte
-    (fine riga compresi: va preso dallo stesso checkout del binario); provato da `TestV1IlRitornoManualeDalla23Alla22`
+    nelle otto colonne nuove o con un gesto della 23; rimette vincoli, funzioni, viste e commenti della 22 com'erano, a
+    meno dei fine riga: un checkout con fine riga diversi da quelli del binario che ha applicato la 0022 rimette i corpi
+    delle quattro funzioni e i tre commenti senza (o con) i CR; provato da `TestV1IlRitornoManualeDalla23Alla22`, che
+    esegue il file com'è sul disco e confronta il catalogo con quello della 22 a meno dei CR
 - La 0019, la 0020 e la 0022 non hanno un ritorno manuale: solo il backup.
 
 ## Invarianti

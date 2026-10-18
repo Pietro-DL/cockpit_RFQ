@@ -253,9 +253,13 @@ markmap:
   `v1_0023_query_db_test.go`** (V1, piano della 0023 §8-§9)
   - Livello: L4
   - Che cosa prova: il catalogo dei vincoli della 0023 (M-32, insieme a quello della 0022: 215 vincoli FK e CHECK), i
-    trigger del formato 3 e del registro (M-04…M-20, M-30, M-34), il ciclo dei file e le viste (M-21…M-31, M-33 sulle
-    righe di prova), la compatibilita' 22 → 23 → 22 (U-01…U-05, U-07, U-09; U-08 e' la prova da zero di
-    `p4_0022_db_test.go`) e le query sqlc della 0023
+    trigger del formato 3 e del registro (M-04…M-20, M-30, M-34 nella parte del database), il ciclo dei file e le viste
+    (M-21…M-31, M-33 sulle righe di prova), la compatibilita' 22 → 23 → 22 (U-01…U-05 nella parte del database, U-07,
+    U-09 con lo script eseguito com'e' sul disco e il catalogo confrontato a meno dei CR; U-08 e' la prova da zero di
+    `p4_0022_db_test.go`) e le query sqlc della 0023, compreso il ripristino di un nodo non incluso con la conferma di
+    base (OT-06)
+  - Il controllo del prodotto nei trigger della versione e della nascita della conferma si prova con un registro di un
+    altro prodotto sulla stessa fonte e nello stesso gruppo (R4), cosi' che a distinguerli resti solo il prodotto
   - Le prove fissate sulla 22 sono riscritte di proposito (piano della 0023, §9.2): da zero e due avvii (alla 23), la
     0022 cercata per numero, 21 → 22 confrontata con `SchemaFinoA(22)`, le due varianti della 0022 (la 0022 per numero;
     con la 0023 un database alla 22 si legge in sola lettura solo con un binario della 22)

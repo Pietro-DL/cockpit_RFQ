@@ -94,7 +94,10 @@ func TestV1M04LaVersioneDellaBozzaFormato3(t *testing.T) {
 		`INSERT INTO distinta_bozza_versione (bozza_id, versione, snapshot, impronta, base_conferma_id, base_numero, base_contatore, firma_base,
 			fonte_allegato_id, fonte_sha256, fonte_gruppo, salvata_da) VALUES ('{B3}', 2, '{"formato": 2}', repeat('c', 64), '{C1}', 1, 0,
 			repeat('1', 64), '{A}', repeat('b', 64), 'bom', '{U}')`)
-	rifiuto23(t, p, "registro di un altro prodotto", "P4X04", frase, versione2B3(t, conSorgente("importazione", sha("f")), "'{R3}'"))
+	// registro di un altro prodotto della stessa RFQ, sulla stessa fonte, con la stessa radice e nello stesso gruppo (R4 di
+	// P2: due prodotti sullo stesso STEP), con l'impronta dello snapshot: lo distingue dal registro di P solo il prodotto
+	rifiuto23(t, p, "registro di un altro prodotto", "P4X04", frase, versione2B3(t, conSorgente("importazione", sha("9")), "'{R4}'"))
+	rifiuto23(t, p, "registro di un altro prodotto, senza fonte", "P4X04", frase, versione2B3(t, conSorgente("importazione", sha("f")), "'{R3}'"))
 	rifiuto23(t, p, "impronta dello snapshot diversa dal registro", "P4X04", frase, versione2B3(t, conSorgente("importazione", sha("f")), "'{R1}'"))
 	rifiuto23(t, p, "registro di un altro gruppo", "P4X04", frase, versione2B3(t, conSorgente("importazione", sha("e")), "'{R2}'"))
 	rifiuto23(t, p, "registro di un'altra fonte", "P4X04", frase, versione2B3(t, conSorgente("allegato_id", u23("{A2}")), "'{R1}'"))
@@ -166,8 +169,10 @@ func TestV1M09bM10LaNascitaDellaConfermaFormato3(t *testing.T) {
 		 SELECT '{T}', '{P2}', 1, 3, false, repeat('3', 64), repeat('2', 64), 0, repeat('1', 64),
 			COALESCE((SELECT struttura FROM working_contatore WHERE thread_id = '{T}'), 0), COALESCE((SELECT dati FROM working_contatore WHERE thread_id = '{T}'), 0),
 			'{B1}', 1, '{"rotta":"prova"}', jsonb_build_object('formato', 3, 'prodotto_id', '{P2}'::text, 'nodi', jsonb_build_array(
-				jsonb_build_object('chiave_bozza', 'k-p2', 'identita', jsonb_build_object('codice', 'ACM-2000')))),
+				jsonb_build_object('chiave_bozza', 'k-p2', 'identita', jsonb_build_object('codice', 'ACM-2000'))), 'archi', '[]'::jsonb,
+				'decisioni', '[]'::jsonb),
 			repeat('a', 64), '{}', '{}', 'nessuno', gen_random_uuid(), '{U}', '{}'::uuid[]`)
+	fraseRegistro := "non e' quello dello snapshot (impronta, gruppo, fonte) o non e' del prodotto"
 	diverso := nuovaC3()
 	diverso.snap["sorgente"].(map[string]any)["importazione"] = sha("e")
 	diverso.snap["sorgente"].(map[string]any)["gruppo"] = "cand:" + u23("{A}") + ":" + rifB("#1")
@@ -175,31 +180,45 @@ func TestV1M09bM10LaNascitaDellaConfermaFormato3(t *testing.T) {
 	diverso.testata["importazioni_citate"] = "ARRAY['{R1}', '{R2}']::uuid[]"
 	diverso.testata["fonte_gruppo"] = "'cand:{A}:" + rifB("#1") + "'"
 	rifiuto23(t, p, "M-10 registro diverso da quello della versione", "P4X01", "o la sua versione cita un altro registro", diverso.istruzioni(t)...)
-	// registro di un altro prodotto: la versione 2 di B3 lo cita a trigger spento (difesa in profondita' della conferma)
+	// registro di un altro prodotto: R4 di P2, con la stessa fonte, la stessa radice e lo stesso gruppo di R1, e lo
+	// snapshot con la sua impronta, cosi' che a distinguerlo resti solo il prodotto. La versione 2 di B3 lo cita a trigger
+	// spento (difesa in profondita' della conferma). La frase e' quella intera del controllo del registro: senza quel
+	// controllo la conferma si fermerebbe dopo, su importazioni_citate, con un'altra frase
 	s3 := snapshot3()
-	s3["sorgente"].(map[string]any)["importazione"] = sha("f")
+	s3["sorgente"].(map[string]any)["importazione"] = sha("9")
 	s3["decisioni"] = []any{}
 	r3 := nuovaC3()
 	r3.snap = s3
 	r3.nonInclusi = nil
 	r3.testata["bozza_versione"] = "2"
 	r3.testata["impronta_snapshot"] = "repeat('c', 64)"
-	r3.testata["importazione_id"] = "'{R3}'"
-	r3.testata["importazioni_citate"] = "'{}'::uuid[]"
-	rifiuto23(t, p, "M-10 registro di un altro prodotto", "P4X01", "o non e' del prodotto",
+	r3.testata["importazione_id"] = "'{R4}'"
+	r3.testata["importazioni_citate"] = "ARRAY['{R4}']::uuid[]"
+	rifiuto23(t, p, "M-10 registro di un altro prodotto", "P4X01", fraseRegistro,
 		// (il trigger resta spento fino al ROLLBACK della prova: con eventi differiti in sospeso non si riaccende)
-		append([]string{`ALTER TABLE distinta_bozza_versione DISABLE TRIGGER trg_dbv_nasce`, versione2B3(t, s3, "'{R3}'")},
+		append([]string{`ALTER TABLE distinta_bozza_versione DISABLE TRIGGER trg_dbv_nasce`, versione2B3(t, s3, "'{R4}'")},
 			r3.istruzioni(t)...)...)
 	gruppo := nuovaC3()
 	gruppo.testata["fonte_gruppo"] = "'cand:x'"
-	rifiuto23(t, p, "M-10 registro di un altro gruppo", "P4X01", "o non e' del prodotto", gruppo.istruzioni(t)...)
+	rifiuto23(t, p, "M-10 registro di un altro gruppo", "P4X01", fraseRegistro, gruppo.istruzioni(t)...)
 	fonte := nuovaC3()
 	fonte.testata["fonte_allegato_id"] = "'{A2}'"
 	fonte.testata["fonte_sha256"] = "repeat('d', 64)"
-	rifiuto23(t, p, "M-10 registro di un'altra fonte", "P4X01", "o non e' del prodotto", fonte.istruzioni(t)...)
+	rifiuto23(t, p, "M-10 registro di un'altra fonte", "P4X01", fraseRegistro, fonte.istruzioni(t)...)
 	senza := nuovaC3()
 	senza.testata["importazione_id"] = "NULL"
 	rifiuto23(t, p, "M-10 snapshot con il registro, colonna NULL", "P4X01", "o la sua versione cita un altro registro", senza.istruzioni(t)...)
+	// il ramo ELSIF: la versione chiusa non ha un registro (la versione 2 di B3, salvata senza sorgente.importazione),
+	// la conferma ha lo snapshot che cita R1 e importazione_id NULL; versione e conferma concordano (nessun registro),
+	// e lo ferma solo il controllo dello snapshot
+	sv := snapshot3()
+	delete(sv["sorgente"].(map[string]any), "importazione")
+	el := nuovaC3()
+	el.testata["bozza_versione"] = "2"
+	el.testata["impronta_snapshot"] = "repeat('c', 64)"
+	el.testata["importazione_id"] = "NULL"
+	rifiuto23(t, p, "M-10 snapshot con il registro, colonna NULL, versione senza registro", "P4X01",
+		"lo snapshot cita un registro che la conferma non registra", append([]string{versione2B3(t, sv, "NULL")}, el.istruzioni(t)...)...)
 
 	// la conferma valida passa, chiude la bozza, e il suo gesto e' conferma_bom_v3
 	riuscita23(t, p, "conferma formato 3 valida", append(nuovaC3().istruzioni(t),
@@ -315,6 +334,30 @@ func TestV1M13IlControlloAlCommitFormato3(t *testing.T) {
 	rifiuto23(t, p, "M-13 perimetro aperto (controllo della 0022)", "P4X01", "della working non e' fra gli archi certificati", c.istruzioni(t)...)
 	// la controprova: la conferma valida passa
 	riuscita23(t, p, "conferma formato 3 valida", nuovaC3().istruzioni(t)...)
+}
+
+// M-13, la rev vuota: un componente della working con la rev uguale alla stringa vuota (una riga legacy: la colonna non
+// lo vieta, e la 0018 la tratta come «senza rev») si certifica con un nodo senza rev, perche' nel formato 3 vuoto e
+// assente sono la stessa cosa (EM §3.10); con una rev nel nodo resta un'identita' diversa.
+func TestV1M13LaRevVuotaDellaWorking(t *testing.T) {
+	p := schema23ConStoria(t)
+	conRevVuota := func(revNodo string) confermaC3 {
+		c := nuovaC3()
+		c.prima = []string{`UPDATE componente SET rev = '' WHERE componente_id = '{S}'`}
+		c.componenti[1] = strings.Replace(componenteC3S, "'ACM-1100', 'A',", "'ACM-1100', '',", 1)
+		id := nodoDi(c.snap, "k-s")["identita"].(map[string]any)
+		delete(id, "rev")
+		if revNodo != "" {
+			id["rev"] = revNodo
+		}
+		return c
+	}
+	rifiuto23(t, p, "M-13 rev '' nella working, «A» nel nodo", "P4X01", "non ha il suo nodo, o non ne porta l'identita' decisa",
+		conRevVuota("A").istruzioni(t)...)
+	riuscita23(t, p, "M-13 rev '' nella working, nodo senza rev", conRevVuota("").istruzioni(t)...)
+	if r := uno23[string](t, p, `SELECT '[' || rev || ']' FROM conferma_strutturale_componente WHERE conferma_id = '{C3}' AND componente_id = '{S}'`); r != "[]" {
+		t.Errorf("rev certificata di S: %s", r)
+	}
 }
 
 // M-14: il registro d'importazione: fonte e allegati citati della RFQ e attivi (P4X08), immutabile (P4X02).
@@ -491,7 +534,8 @@ func TestV1M30LaChiaveDelSalvataggioEUnica(t *testing.T) {
 
 // M-34 (parte del database; T-14 confronta le tre regole: la grammatica e il Go in distintabozza, il CHECK in
 // v1_t14_db_test.go, con gli stessi casi di distintabozza.CasiT14): l'id del partner segue la regola della
-// grammatica (minuscolo, senza spazi, «:» o «/»), con un tetto di sicurezza largo; il namespace solo non vuoto.
+// grammatica (minuscolo, senza spazi, «:» o «/»), con un tetto di sicurezza largo; il namespace solo non vuoto. La
+// parte «un id oltre il tetto: R2 risponde 422 prima del CHECK» e' della rotta R2 (passo 6): qui non c'e'.
 func TestV1M34LEmittenteDellaGrammatica(t *testing.T) {
 	p := schema23ConStoria(t)
 	for _, e := range []struct{ emittente, namespace string }{
