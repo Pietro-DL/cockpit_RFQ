@@ -66,9 +66,7 @@ func Calcola(f fotorfq.Fotografia, r *motorea.InsiemeRegole, in Ingressi) (Esito
 	e := Esito{VersioneValutazione: VersioneValutazione, VersioneImprontaProdotto: VersioneImprontaProdotto,
 		VersioneFormati2D: VersioneFormati2D, VersioneComposizione: motorea.VersioneComposizione,
 		VersioneRevisioneRegistrata: motorea.VersioneRevisioneRegistrata, ImprontaFotografia: impronta}
-	if r != nil {
-		e.ImprontaIndice, e.VersioneLimiti = r.ImprontaIndice, r.Indice.Limiti.Versione
-	}
+	e.ImprontaIndice, e.VersioneLimiti = testataRegole(r)
 
 	thread := append([]fotorfq.Thread(nil), f.Thread...)
 	sort.SliceStable(thread, func(i, j int) bool { return thread[i].ID.String() < thread[j].ID.String() })
@@ -182,19 +180,42 @@ func motoreDel(f fotorfq.Fotografia, r *motorea.InsiemeRegole, cliente uuid.UUID
 // l'errore fra le diagnostiche (mai in silenzio). Gli avvisi della risoluzione (un partner non caricabile, un modello
 // assente) passano nelle diagnostiche del thread; i documenti del perimetro saranno parziali.
 func conContestoDelThread(r *motorea.InsiemeRegole, m *motorea.Motore, thread uuid.UUID, diag []evidenze.Diagnostica) (*motorea.Motore, []evidenze.Diagnostica) {
-	if r == nil || len(r.Contesti) == 0 {
-		return m, diag
-	}
-	c, d := r.ContestoDelThread(thread)
+	rc, d := contestoDelThread(r, m, thread)
 	diag = append(diag, d...)
-	if c == nil {
+	if rc == nil {
 		return m, diag
 	}
-	rc, d2, err := motorea.RisolviContesto(m, *c, nil)
-	if err != nil {
-		return m, append(diag, diagnosticheDellErrore(err, "contesto["+c.ID+"]", thread.String())...)
+	return m.ConContesto(rc), diag
+}
+
+// contestoDelThread (GP-1; da V1 lo usa anche RegoleDiLettura, così il contesto che il registro d'importazione registra
+// è quello che la valutazione applica): il contesto di lavorazione dichiarato per il thread, risolto contro il motore del
+// cliente, con le diagnostiche della ricerca e della risoluzione, in quest'ordine. nil senza insieme di regole, senza
+// contesti, senza un contesto per il thread (o con due: ContestoDelThread non sceglie) e con un contesto che non si
+// risolve: allora l'errore sta fra le diagnostiche. Il padre di eredita_da non si cerca: RisolviContesto riceve nil, e un
+// contesto con eredita_da non si risolve (nessuna eredità implicita).
+func contestoDelThread(r *motorea.InsiemeRegole, m *motorea.Motore, thread uuid.UUID) (*motorea.ContestoRisolto, []evidenze.Diagnostica) {
+	if r == nil || len(r.Contesti) == 0 {
+		return nil, nil
 	}
-	return m.ConContesto(rc), append(diag, d2...)
+	c, diag := r.ContestoDelThread(thread)
+	if c == nil {
+		return nil, diag
+	}
+	rc, d, err := motorea.RisolviContesto(m, *c, nil)
+	if err != nil {
+		return nil, append(diag, diagnosticheDellErrore(err, "contesto["+c.ID+"]", thread.String())...)
+	}
+	return rc, append(diag, d...)
+}
+
+// testataRegole: l'impronta dell'indice delle regole e la versione dei limiti, vuote senza insieme di regole (Esito,
+// RegoleDelThread).
+func testataRegole(r *motorea.InsiemeRegole) (impronta, limiti string) {
+	if r == nil {
+		return "", ""
+	}
+	return r.ImprontaIndice, r.Indice.Limiti.Versione
 }
 
 // ragioneSociale: la ragione sociale del cliente nella fotografia; "" se il cliente non c'è (allora MotoreDi la dice

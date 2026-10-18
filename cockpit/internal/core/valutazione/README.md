@@ -302,7 +302,14 @@ markmap:
   - `Calcola`; l'esito di un thread (`esitoDelThread`: il motore e il motivo, l'errore della valutazione, i record dei
     file, le evidenze, i record piatti, il vecchio dei prodotti; da V2 le associazioni, i file da smistare, i conflitti
     dello smistamento composti con quelli di B5; da V3 il fascicolo, con gli orfani di V2); i messaggi fuori RFQ dei casi
-    di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche.
+    di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche; da V1 il contesto del thread
+    (`contestoDelThread`) e la testata delle regole (`testataRegole`) in una funzione sola, che usa anche
+    `RegoleDiLettura`.
+- **`regole_del_thread.go`** (V1, piano della 0023 §14 passo 6) — responsabilità:
+  - `RegoleDelThread` e `RegoleDiLettura`: con quali regole `Calcola` legge un thread (l'impronta dell'indice, la
+    grammatica del cliente, il contesto applicato con i partner attivi e la copia canonica), per il costruttore del
+    registro d'importazione, con le stesse funzioni di `Calcola`; `NelPerimetro`, il perimetro del contesto per file,
+    con il criterio dell'attivazione.
 - **`esito.go`** (B6, V1) — responsabilità:
   - `VersioneValutazione` (`valutazione-2` da P7e, `valutazione-3` dall'11/10, `valutazione-4` dalla notte del 14/10, `valutazione-5` dal 14/10 con la tabella delle classi, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
     `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri `FileInterpretato` (dalla notte del 14/10 con `Riconoscimento2D`) e
@@ -1174,6 +1181,11 @@ markmap:
 - **`calcola_db_test.go`** (B6, V1) — L4 (`-tags integrazione`, il database di prova) — A1c-L4S-07, la parte di
   `Calcola`: la fotografia conservata ridà l'esito di prima dopo un'analisi nuova alla stessa terna; `Calcola` non parla
   con il database.
+- **`regole_del_thread_test.go`** (V1, piano della 0023 §14 passo 6) — L1: con un contesto dichiarato (lo STEP per
+  allegato, una scansione per sha256 e nome) e il partner BETA caricato, `RegoleDiLettura` dà la testata delle regole e la
+  grammatica dell'esito, il contesto attivo con BETA e la copia canonica, e il perimetro esattamente uguale ai file letti
+  con il contesto; senza contesto, con un contesto proposto, con eredita_da senza il padre, di un altro thread o doppio,
+  nessun file nel perimetro e le diagnostiche dell'esito; senza regole le regole vuote.
 - **`scena_calcola_test.go`** (B6, V1 e V2) — gli aiuti: l'insieme delle regole ACME dalla porta del prodotto, i thread
   degli altri clienti, la fotografia con più thread, il messaggio fuori RFQ, la permutazione; gli invarianti di ogni esito,
   con quelli dello smistamento e, dopo le risposte del 07/10, del contesto. **`export_test.go`**: la composizione dei

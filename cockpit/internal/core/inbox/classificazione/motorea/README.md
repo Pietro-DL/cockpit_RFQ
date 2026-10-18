@@ -194,6 +194,12 @@ markmap:
 - **`Motore.LeggiRevisioneRegistrata`, `VersioneRevisioneRegistrata`** — chi li chiama: da A1c (B6b) solo la
   valutazione, per la colonna `rev` del vecchio di ogni file (`VecchioPiatto.Revisione` e `RevisioneDa`), con la famiglia
   della lettura del codice registrato. La versione va nell'impronta dell'esito.
+- **`ContestoRisolto.Attivo`, `PartnerAttivi`, `CopiaCanonica`, `NelPerimetro`** (V1, piano della 0023 §14 passo 6;
+  emendamento di V1 §3.8.2) — chi li chiama: `valutazione.RegoleDiLettura`, per il costruttore del registro
+  d'importazione. Sono esposizioni, con gli stessi criteri dell'attivazione (`occorrenzeAttive` la decide per
+  `attivazionePer` e per `NelPerimetro`): i partner attivi con l'hash delle loro letture, la copia canonica del contesto
+  con l'ereditato (la forma su cui si calcola l'impronta: `ContestoCanonico`), il perimetro per occorrenza. Non cambiano
+  la lettura.
 - Oggi, nel codice di prodotto, il banco (`app/bancoa`, da A1a.5); l'anteprima arriva in A1d.
 
 ## Invarianti
@@ -339,6 +345,11 @@ markmap:
   segmento minuscolo con le maiuscole esatte e normalizza «maiuscolo» (regressione del 14/10); l'unione
   delle categorie sul piano; la voce nell'interpretazione e nel JSON; senza tabelle il JSON delle letture e
   dell'interpretazione e l'impronta uguali a quelli del codice di prima (aabe52c), con le versioni del motore.
+- **`contesto_esposizione_test.go`** (V1) — L1: il perimetro esposto è l'attivazione (per allegato, per sha256 e nome,
+  mai per sola impronta; un contesto proposto non attiva niente; un messaggio non è mai nel perimetro); i partner attivi
+  con l'hash delle loro letture, senza il partner non caricabile, nessuno per un contesto revocato o nil; la copia
+  canonica, con e senza eredita_da, ha l'impronta del contesto, la stessa di prima di V1, e una copia cambiata non tocca
+  la successiva.
 
 - Nel ramo `-qa` (piano A, par.4.3, Q4), tutti L1 e sintetici, con le grammatiche ACME dai nomi neutri
   (`acme-prefisso`, `acme-marcatore`, `acme-documento`, `acme-punti`, `acme-etichetta`,
