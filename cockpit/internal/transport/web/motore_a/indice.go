@@ -501,6 +501,10 @@ func (x *Indice) Rimozione(c valutazione.Conflitto) *RimozioneAperta {
 // Gruppi: le schede dell'albero del prodotto, nessuna preselezionata (nessun campo dice «scelta»; T-A1d-09, T-A1d-27):
 // «bom» se il prodotto ha la BOM di lavoro (Nodi), con lo STEP e la radice della sua struttura; una «cand» per ogni
 // struttura candidata, nell'ordine dell'esito; «senza» se ci sono confermati senza STEP. In cache per prodotto.
+//
+// Da V1 la regola è quella del core (propostabom.GruppiDelProdotto, emendamento di V1 §6.1), la stessa del registro
+// d'importazione e del gruppo corrente della sorgente: qui si aggiungono solo i dati della pagina, cioè il nome del file,
+// la struttura candidata (la k-esima candidata del core è p.StruttureCandidate[k]) e i nodi del gruppo.
 func (x *Indice) Gruppi(prodotto string) []Gruppo {
 	p := x.Prodotto(prodotto)
 	if p == nil {
@@ -510,23 +514,17 @@ func (x *Indice) Gruppi(prodotto string) []Gruppo {
 		return g
 	}
 	var out []Gruppo
-	if len(p.Nodi) > 0 {
-		g := Gruppo{Chiave: GruppoBOM, Tipo: GruppoBOM, Nodi: x.nodiDelGruppo(prodotto, GruppoBOM)}
-		if st := x.bomDi(prodotto); st != nil {
-			id := st.AllegatoID
-			g.AllegatoID, g.Radice, g.NomeFile = &id, st.Radice, x.NomeFile(st.AllegatoID)
+	k := 0
+	for _, g := range propostabom.GruppiDelProdotto(*p, x.e.Ancoraggi.Strutture) {
+		gr := Gruppo{Chiave: g.Chiave, Tipo: g.Tipo, AllegatoID: g.AllegatoID, Radice: g.Radice, Nodi: x.nodiDelGruppo(prodotto, g.Chiave)}
+		if g.AllegatoID != nil {
+			gr.NomeFile = x.NomeFile(*g.AllegatoID)
 		}
-		out = append(out, g)
-	}
-	for k := range p.StruttureCandidate {
-		sc := &p.StruttureCandidate[k]
-		id := sc.AllegatoID
-		chiave := chiaveCandidata(sc)
-		out = append(out, Gruppo{Chiave: chiave, Tipo: GruppoCandidata, AllegatoID: &id, Radice: sc.Radice,
-			NomeFile: x.NomeFile(sc.AllegatoID), Struttura: sc, Nodi: x.nodiDelGruppo(prodotto, chiave)})
-	}
-	if len(p.ConfermatiSenzaSTEP) > 0 {
-		out = append(out, Gruppo{Chiave: GruppoSenzaSTEP, Tipo: GruppoSenzaSTEP, Nodi: x.nodiDelGruppo(prodotto, GruppoSenzaSTEP)})
+		if g.Tipo == GruppoCandidata {
+			gr.Struttura = &p.StruttureCandidate[k]
+			k++
+		}
+		out = append(out, gr)
 	}
 	if x.gruppi == nil {
 		x.gruppi = map[string][]Gruppo{}

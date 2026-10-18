@@ -7,11 +7,13 @@ import (
 	"promatec/cockpit/internal/core/valutazione"
 )
 
-// Il gruppo corrente della sorgente (V1: emendamento di V1 §6.4.1, la regola di O-01, con il secondo e il terzo giro):
-// la stessa struttura di uno STEP può cambiare gruppo senza cambiare (alla prima «Autorizza» passa da una candidata al
-// gruppo «bom»; «Revoca», la sostituzione dello STEP autorizzato e il cambio di tipo la riportano fra le candidate). Una
-// bozza la ritrova per occorrenza, sha256 e radice, mai per la sola chiave. La stessa funzione serve alla striscia della
-// pagina (/dati, bozza_del_prodotto), a R1 ?confronto=1, all'avviso PROPOSTA_CAMBIATA di R4 e a riallinea_proposta.
+// Il gruppo corrente della sorgente (V1: emendamento di V1 §6.4.1, la regola di O-01, con il secondo, il terzo e il
+// quarto giro, che non cambia la regola): la stessa struttura di uno STEP può cambiare gruppo senza cambiare (alla prima
+// «Autorizza» passa da una candidata al gruppo «bom»; «Revoca» e il cambio di tipo la riportano fra le candidate, la
+// sostituzione dello STEP autorizzato solo con una radice compatibile: con una radice di riserva di solito la struttura non
+// è più proposta, e il gruppo corrente è assente). Una bozza la ritrova per occorrenza, sha256 e radice, mai per la sola
+// chiave. La stessa funzione serve alla striscia della pagina (/dati, bozza_del_prodotto), a R1 ?confronto=1, all'avviso
+// PROPOSTA_CAMBIATA di R4 e a riallinea_proposta.
 
 // I modi del gruppo corrente (GruppoCorrente.Come).
 const (

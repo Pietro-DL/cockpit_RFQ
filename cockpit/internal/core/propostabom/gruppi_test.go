@@ -70,8 +70,9 @@ func TestChiaveDelGruppo(t *testing.T) {
 }
 
 // TestGruppiDelProdotto: i gruppi nell'ordine della pagina (bom, le candidate nell'ordine dell'esito, senza), con i dati
-// della struttura; la BOM di un altro prodotto o una candidata non danno i dati del gruppo «bom»; senza BOM di lavoro
-// niente «bom», senza confermati senza STEP niente «senza»; gli ingressi non cambiano.
+// della struttura; la BOM di un altro prodotto o una candidata non danno i dati del gruppo «bom»; con due BOM di lavoro
+// dello stesso prodotto vale la prima; senza BOM di lavoro niente «bom», senza confermati senza STEP niente «senza»; gli
+// ingressi non cambiano.
 func TestGruppiDelProdotto(t *testing.T) {
 	pv := prodotto(p1, true, candidata(allC, shaY, rY), candidata(allA, shaX, r7))
 	pv.ConfermatiSenzaSTEP = []valutazione.NodoBOM{{Nodo: ancoraggio.NodoProposto{Rif: "componente:00000000-0000-4000-8000-0000000c0009"}}}
@@ -104,11 +105,18 @@ func TestGruppiDelProdotto(t *testing.T) {
 	if g := propostabom.GruppiDelProdotto(prodotto(p1, false), []ancoraggio.StrutturaProdotto{bomDi(p1, allA, shaX, r1)}); len(g) != 0 {
 		t.Errorf("senza BOM di lavoro né candidate né confermati: %+v", g)
 	}
+	// Due BOM di lavoro dello stesso prodotto (fuori da R76 A, che ne ammette una): vale la prima, come Indice.bomDi.
+	if g := propostabom.GruppiDelProdotto(prodotto(p1, true), []ancoraggio.StrutturaProdotto{bomDi(p1, allB, shaX, r1), bomDi(p1, allC, shaY, rY)}); len(g) != 1 ||
+		g[0].AllegatoID == nil || *g[0].AllegatoID != allB || g[0].Sha256 != shaX || g[0].Radice != r1 {
+		t.Errorf("due BOM di lavoro dello stesso prodotto: %+v", g)
+	}
 }
 
 // TestT09GruppoCorrenteDellaSorgente (T-09; emendamento di V1 §6.4.1): i quattro esiti e i tre motivi di assente, con due
 // copie dello stesso STEP, due prodotti con la stessa radice candidata, le occorrenze non attive, il ripiego per chiave
-// (anche con la chiave «bom», che non lo ammette) e il passaggio inverso da «bom» alla candidata.
+// (anche con la chiave «bom», che non lo ammette), il passaggio inverso da «bom» alla candidata e la BOM di lavoro con
+// un'altra struttura (un'altra radice, un altro file) per una bozza con la radice. La sostituzione dello STEP con le
+// strutture calcolate da Calcola sta in valutazione (gruppo_corrente_sostituzione_test.go).
 func TestT09GruppoCorrenteDellaSorgente(t *testing.T) {
 	sorgenteA := propostabom.SorgenteBozza{AllegatoID: allA, Sha256: shaX, Radice: r1, Gruppo: propostabom.ChiaveCandidata(allA, r1)}
 	conGruppo := func(s propostabom.SorgenteBozza, gruppo, radice string) propostabom.SorgenteBozza {
@@ -168,6 +176,18 @@ func TestT09GruppoCorrenteDellaSorgente(t *testing.T) {
 		{"il ripiego per chiave: senza la chiave", prodotto(p1, false, candidata(allA, shaX, r1)), nil, nil, conGruppo(sorgenteA, "", ""),
 			propostabom.GruppoCorrente{Come: "assente", Motivo: "senza_radice"}},
 		{"con la radice (un registro) mai senza_radice, anche con la chiave «bom»", prodotto(p1, false), nil, nil, conGruppo(sorgenteA, "bom", r1),
+			propostabom.GruppoCorrente{Come: "assente", Motivo: "nessun_gruppo"}},
+		// La BOM di lavoro con un'altra struttura, per una bozza con la radice (un registro, il percorso principale di V1):
+		// la regola confronta sha256 e radice, mai solo lo sha256 o solo la presenza di un «bom» (EM §6.4.1, passi 2-3; il
+		// rischio che il paragrafo del ripiego nomina). Sempre assente con nessun_gruppo, mai altra_occorrenza.
+		{"una nuova autorizzazione dello stesso STEP con un'altra radice, sulla stessa occorrenza", prodotto(p1, true),
+			[]ancoraggio.StrutturaProdotto{bomDi(p1, allA, shaX, r7)}, nil, conGruppo(sorgenteA, "bom", r1),
+			propostabom.GruppoCorrente{Come: "assente", Motivo: "nessun_gruppo"}},
+		{"una nuova autorizzazione dello stesso STEP con un'altra radice, sul portatore", prodotto(p1, true),
+			[]ancoraggio.StrutturaProdotto{bomDi(p1, allB, shaX, r7)}, nil, conGruppo(sorgenteA, "bom", r1),
+			propostabom.GruppoCorrente{Come: "assente", Motivo: "nessun_gruppo"}},
+		{"la BOM del file nuovo dopo la sostituzione (risposta «sì»)", prodotto(p1, true),
+			[]ancoraggio.StrutturaProdotto{bomDi(p1, allC, shaY, rY)}, nil, conGruppo(sorgenteA, "bom", r1),
 			propostabom.GruppoCorrente{Come: "assente", Motivo: "nessun_gruppo"}},
 	}
 	for _, c := range casi {

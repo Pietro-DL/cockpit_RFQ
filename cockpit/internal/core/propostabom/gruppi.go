@@ -51,7 +51,8 @@ type Gruppo struct {
 //   - una «cand:…» per ogni struttura candidata del prodotto, nell'ordine dell'esito;
 //   - «senza» se il prodotto ha confermati senza STEP.
 //
-// È la regola con cui la pagina compone le sue schede (Indice.Gruppi la usa per la chiave): una sola, nel core.
+// È la regola con cui la pagina compone le sue schede: Indice.Gruppi la chiama e aggiunge solo i dati della pagina (il nome
+// del file, la struttura candidata, i nodi del gruppo). Una sola, nel core.
 func GruppiDelProdotto(pv valutazione.ProdottoValutato, strutture []ancoraggio.StrutturaProdotto) []Gruppo {
 	var out []Gruppo
 	if len(pv.Nodi) > 0 {

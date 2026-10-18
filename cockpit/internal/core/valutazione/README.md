@@ -1191,6 +1191,10 @@ markmap:
   lavoro con il segnale, hanno il 2D previsto (nodo_proposto), e completezza, perimetro (aperto con nodi_da_decidere),
   verifica della BOM, stato del prodotto e righe da decidere sono quelli della scena gemella senza la parola, campo per
   campo. La valutazione non legge i segnali: la prova tiene vero che il segnale non toglie il nodo e non esenta dal 2D.
+- **`gruppo_corrente_sostituzione_test.go`** (V1, piano della 0023 T-09, quarto giro su O-01) — L1: la prova di
+  `propostabom.GruppoCorrenteDelProdotto` sulla sostituzione dello STEP con una radice di riserva, con le strutture calcolate
+  da `Calcola` (la candidata nata dall'associazione, «Autorizza», poi la risposta «sì» o «no», con B compatibile o no, con
+  il nome di A che dice il prodotto o no, e con la radice compatibile). Sta qui perché usa le scene della valutazione.
 - **`scena_calcola_test.go`** (B6, V1 e V2) — gli aiuti: l'insieme delle regole ACME dalla porta del prodotto, i thread
   degli altri clienti, la fotografia con più thread, il messaggio fuori RFQ, la permutazione; gli invarianti di ogni esito,
   con quelli dello smistamento e, dopo le risposte del 07/10, del contesto. **`export_test.go`**: la composizione dei

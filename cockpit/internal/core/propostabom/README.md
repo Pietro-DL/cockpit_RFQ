@@ -8,10 +8,12 @@
 - Oggi:
   - **la chiave dei gruppi di un prodotto** (`GruppoBOM`, `GruppoCandidata`, `GruppoSenzaSTEP`, `ChiaveCandidata`,
     `GruppiDelProdotto`): «bom», «cand:<allegato_id>:<radice>», «senza», con l'allegato, lo sha256 e la radice della
-    struttura del gruppo. Prima stava nella pagina (`transport/web/motore_a`, `indice.go`), che ora la richiama: la pagina
-    e il registro d'importazione usano la stessa chiave. Una chiave non si scompone mai;
+    struttura del gruppo. Prima stava nella pagina (`transport/web/motore_a`, `indice.go`): ora `Indice.Gruppi` chiama
+    `GruppiDelProdotto` e aggiunge solo i dati della pagina (nome del file, struttura candidata, nodi), e
+    `chiaveCandidata` chiama `ChiaveCandidata`. La pagina e il registro d'importazione usano la stessa regola e la stessa
+    chiave. Una chiave non si scompone mai;
   - **il gruppo corrente della sorgente** di una bozza (`GruppoCorrenteDellaSorgente`, `GruppoCorrenteDelProdotto`; la
-    regola di O-01 con il secondo e il terzo giro): fra i gruppi del prodotto della bozza, sulle occorrenze attive
+    regola di O-01 con il secondo, il terzo e il quarto giro): fra i gruppi del prodotto della bozza, sulle occorrenze attive
     (`NonAttivi`), per occorrenza, sha256 e radice (`SorgenteBozza`; senza la radice, il ripiego per una chiave
     «cand:…»), in quest'ordine: la candidata della stessa occorrenza, la BOM di lavoro della stessa occorrenza, la BOM di
     lavoro su un'altra occorrenza dello stesso contenuto; altrimenti `assente`, con il motivo `nessun_gruppo`,
@@ -47,16 +49,21 @@
 - **Importa:** `core/valutazione` (il prodotto valutato e le sue candidate), `core/ancoraggio` (le strutture),
   `github.com/google/uuid`. La lista chiusa di `core/estrazione/evidenze/dipendenze_test.go` gli consente anche
   `motorea`, `grammatica`, `evidenze` e `jsoncanonico`, per l'adattatore.
-- **È importato da:** `transport/web/motore_a` (la chiave dei gruppi).
+- **È importato da:** `transport/web/motore_a` (i gruppi e la loro chiave).
 
 ## Test
 
 - **`gruppi_test.go`** — L1 — le costanti; `GruppiDelProdotto` (ordine, dati della struttura, la BOM di un altro
   prodotto ignorata); T-09: i quattro esiti e i tre motivi di `assente` con due copie dello stesso STEP, la candidata
   della propria copia prima della BOM sull'altra, il passaggio inverso, le occorrenze non attive, il ripiego per chiave
-  (anche con la chiave «bom», che non lo ammette), due prodotti con la stessa radice candidata, nessuna chiave scomposta;
-  la forma JSON del gruppo corrente.
-- A-09, la parità con `Indice.Gruppi`, in `transport/web/motore_a/indice_gruppi_core_test.go`.
+  (anche con la chiave «bom», che non lo ammette), la BOM di lavoro con un'altra struttura per una bozza con la radice
+  (un'altra radice dello stesso STEP, sulla stessa occorrenza e sul portatore; il file nuovo dopo la sostituzione), due
+  prodotti con la stessa radice candidata, nessuna chiave scomposta; la forma JSON del gruppo corrente.
+- T-09, la sostituzione dello STEP con una radice di riserva (quarto giro su O-01, i casi (i)-(v)), con le strutture
+  calcolate da `valutazione.Calcola`: in `core/valutazione/gruppo_corrente_sostituzione_test.go`, perché usa le scene
+  della valutazione.
+- A-09, la parità con `Indice.Gruppi` (anche il nome del file, la struttura candidata, i nodi del gruppo e la prima delle
+  BOM di lavoro), in `transport/web/motore_a/indice_gruppi_core_test.go`.
 
 ## Leggi anche
 
