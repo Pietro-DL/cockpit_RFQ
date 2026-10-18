@@ -125,6 +125,34 @@ markmap:
     `RileggiImportazione`, `ParametriImportazione`)
 - **`importazione/`** (pacchetto a parte): il registro d'importazione del Motore A (EM §3.8), una foglia senza database
   e senza `core/rfq`, perche' lo usi anche l'adattatore puro `propostabom` (vedi il suo README)
+- **Le rotte della bozza nel formato 3** (V1, ondata B, passo 6 del piano della 0023, prima parte; EM §9):
+  - **`applica2.go`**: la regola d'applicazione del vocabolario 2 sullo snapshot in JSON, la stessa della pagina
+    (`applica` di `distinta_unica.mjs`, i casi condivisi di T-16), l'inverso di ogni verbo (annulla) e il rebase della
+    sola base
+  - **`riconcilia3.go`**: `Riconcilia3`, il rifacimento delle azioni del vocabolario 2 (pura): la forma di ogni verbo, gli
+    stati intermedi possibili (una radice sola, un rif in un nodo solo e mai in una `non_includere`, `nodo_tolto` senza
+    archi ne' preassociazioni, mai la radice), l'evento scritto dal server con l'`azione_id` del gesto, annulla e rifai
+    fermi all'ultima versione costruita dal server (`annullamento_non_ammesso`) con il prima `{azione_id}` (PE-05), il
+    rebase che cambia solo la base (`rebase_cambia_sorgente`), lo snapshot finale uguale a quello rifatto
+  - **`vassoio.go`**: `VassoioDa`, il vassoio «Da ricollocare» dal giornale (EM §3.7, T-16)
+  - **`stato3.go`**: `RifScaduti` (le cinque condizioni di EM §6.4, con i motivi [T] `allegato_fuori_rfq`,
+    `fatti_assenti`, `chiave_assente`, `sha_diverso`, `file_non_attivo`), `BaseDellaBozza`, `LeggiAllegatiCitati`
+  - **`leggi3.go`**: `LeggiR1` (R1 nel formato effettivo: testata, snapshot, `n_eventi` sempre ed `eventi[]` con
+    `?eventi=1` (PE-02), registro della versione e citati, versione corrente, base, rif scaduti, vassoio, `da_rivedere[]`;
+    una bozza formato 2 con `conversione: {necessaria, forma: converti_da}`)
+  - **`richieste3.go`**: `LeggiRichiestaR2` (una e una sola forma; in questa ondata solo `salvataggio`, le altre 422
+    `forma_non_disponibile`), `LeggiRichiestaR3`; l'impronta della richiesta sulla forma canonica del corpo
+  - **`salva3.go`**: `SalvaFormato3` (R2, forma salvataggio): la chiave globale prima di tutto (riproposto o 409
+    `CHIAVE_RIUSATA`), la bozza della RFQ e del prodotto, la versione attesa, `Riconcilia3`, le verifiche dei soli
+    riferimenti nuovi o cambiati contro il database e i registri (appartenenza, `FUORI_RFQ`, `FILE_NON_ATTIVO`, V-1,
+    V-2, V-3, V-5, la regola unica dell'emittente, l'identita' registrata, i nodi `formato_2` contro la versione 1), il
+    rebase (409 `BASE_SUPERATA` con la versione corrente, 422 `rif_scaduti`), versione ed eventi del vocabolario 2
+  - **`intento.go`**: `LeggiIntento` (R6, con la riga della RFQ FOR KEY SHARE e 3 s di attesa: `in_corso`)
+  - **`storico.go`**: `LeggiStorico` (R7 nei formati 1, 2 e 3, con `verifica_calcolata`, `confermato_da_nome` (PE-07),
+    le attestazioni, la storia della fonte e il dettaglio con i registri)
+  - **`conversione.go`**: `Converti` (conversione-1, EM §6.7, U-05): il servizio della forma `converti_da`, che R2
+    chiamera' con l'ondata C; gli archi dello STEP che nel formato 3 non uniscono due caselle restano dell'ingegnere,
+    con la traccia `archi_senza_step` (proposta [T] della corsia)
 
 ## Entry point
 
@@ -150,6 +178,9 @@ markmap:
 - **`LeggiBozza`**, **`LeggiStoria`** (tutte le versioni e il giornale: diagnosi e prove, senza tetto),
   **`VerificaGiornale`** (rifa' il giornale versione per versione)
 - Chi le chiama: in B1 solo le prove; da B2 `transport/web/motore_a` (R1-R3).
+- **Formato 3** (V1, ondata B): `LeggiR1`, `SalvaFormato3` (+ `LeggiRichiestaR2`), `Abbandona` (R3, invariata, per i
+  formati 2 e 3), `LeggiIntento` (R6), `LeggiStorico` (R7), `Converti`; le chiama `transport/web/motore_a_bozza_v1.go`
+  (R1, R2, R3, R6, R7, R11), montato da chi possiede `registraMotoreA`.
 
 ## Il vocabolario 1 delle azioni (contratto rev. 3 §6.6)
 
@@ -227,8 +258,10 @@ markmap:
 ## Dipendenze
 
 - Importa: `core/inbox/classificazione` (solo `CodiceAmmissibile`, `RevAmmissibile`, `MaxCodice`, `MaxRev`),
-  `core/rfq/distintabozza/importazione` (V1), `platform/db`, `platform/jsoncanonico`, pgx (`pgx`, `pgconn`, `pgtype`),
-  `google/uuid`, `golang.org/x/text/unicode/norm` (NFC).
+  `core/rfq/distintabozza/importazione` (V1), `core/rfq/confermabom` (V1, ondata B: lo stato della RFQ, la versione
+  corrente e la validita' delle conferme), `platform/contratti/worker` (la struttura dei fatti per i rif scaduti),
+  `platform/db`, `platform/jsoncanonico`, pgx (`pgx`, `pgconn`, `pgtype`), `google/uuid`, `golang.org/x/text/unicode/norm`
+  (NFC).
 - Le prove del formato 3 importano anche `core/registro/regole/grammatica` (T-14: il validatore delle grammatiche).
 - Mai `transport`, `app`, `ai`; mai `core/rfq/fascicolo` nel codice di prodotto (le prove lo importano: i limiti
   `MaxVociBozza` e `MaxQtaArco` e `RimuoviComponente`).
@@ -269,6 +302,15 @@ markmap:
     formato 3 scritti con le query della 0023 e riletti; i casi C-01…C-34 sul registro e sullo snapshot riletti dal
     database, e N-01 nel testo di jsonb (codice e letterale con l'accento combinante, descrizione in NFC). Conferma e
     storico arrivano con il passo 6
+  - V1, ondata B: `ondatab_db_test.go` (R2 forma salvataggio: giornale, chiave, reinvio, `CHIAVE_RIUSATA` anche da
+    un'altra RFQ, `BOZZA_VERSIONE`, `BOZZA_ALTRO_PRODOTTO`, annulla e rifai sul database (PE-05), lo svincolo per nodo
+    escluso e il vassoio (PE-22), `FUORI_RFQ` e `FILE_NON_ATTIVO`, identita' proposta, registrata ed emittente, il
+    segnale visto (PE-17), lo svincolo che cita l'esclusione (PE-27); R1 con registro, rif scaduti e perimetro; R6;
+    R7 nei tre formati (U-06, PE-07); la conversione (U-05) e i nodi `formato_2` in R2 (U-05b, parte senza R4))
+- **L1 dell'ondata B**: `ondatab_dto_test.go` (PE-27, PE-11, PE-17, PE-22, PE-05), `riconcilia3_test.go` (il vocabolario
+  2 sullo snapshot, la pila d'annullamento, il rebase, «Non includere» nell'ordine della pagina, T-16 con
+  `nodo_escluso`), `richieste3_test.go` (le forme di R2 e il corpo formato 2), `casi_condivisi_test.go` (la meta' del
+  server di T-16 sui casi condivisi della pagina)
 
 ## Stato dell'implementazione
 
@@ -277,7 +319,10 @@ markmap:
 - V1, passo 2 (18/10): il DTO del formato 3 (snapshot, 16 decisioni, registro d'importazione nel pacchetto
   `importazione`), i lettori dei formati 1-3, la canonicalizzazione con la regola dell'NFC, i validatori di forma e i
   limiti. `Salva`, `Leggi` e le altre funzioni qui sopra restano del formato 2: R1-R7 nel formato 3 sono il passo 6.
-- **NON ANCORA IMPLEMENTATO**: le rotte R1-R3 (B2); le partenze `conferma` e `step` (B2); il controllo dei
+- V1, ondata B (18/10): R1, R2 (forma salvataggio), R3, R6, R7 nel formato 3, il vocabolario 2, la conversione
+  (servizio), R11 nel transport. Con l'ondata C: le forme `crea`, `cambia_sorgente`, `riallinea_proposta`, `converti_da`
+  di R2, R4, R5 e la conferma formato 3 (vogliono l'adattatore del Motore A).
+- **NON ANCORA IMPLEMENTATO** (formato 2, storico di B1): le rotte R1-R3 (B2); le partenze `conferma` e `step` (B2); il controllo dei
   `componente_id` e delle proposte della bozza contro la RFQ e del codice registrato (B2); la firma del perimetro
   ricalcolata e i `rif_scaduti` controllati nel rebase (B2); la forma completa delle decisioni (B2);
   `fonte_step_evento` (B2/B4); `versione_corrente`, `base`, `rif_scaduti` in R1 (B2).
