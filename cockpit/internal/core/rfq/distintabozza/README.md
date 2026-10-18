@@ -153,6 +153,9 @@ markmap:
   - **`conversione.go`**: `Converti` (conversione-1, EM §6.7, U-05): il servizio della forma `converti_da`, che R2
     chiamera' con l'ondata C; gli archi dello STEP che nel formato 3 non uniscono due caselle restano dell'ingegnere,
     con la traccia `archi_senza_step` (proposta [T] della corsia)
+  - **`giornale3.go`**: `VerificaGiornale3` (T-10, la parte senza l'adattatore): le versioni della pagina rifatte dai loro
+    eventi con `Riconcilia3`, la versione 1 di una conversione rifatta con conversione-1; le versioni costruite con
+    l'adattatore restano fra le non verificate, con il motivo (`ErrGiornaleIncoerente` per un giornale che non torna)
 
 ## Entry point
 
@@ -307,6 +310,8 @@ markmap:
     escluso e il vassoio (PE-22), `FUORI_RFQ` e `FILE_NON_ATTIVO`, identita' proposta, registrata ed emittente, il
     segnale visto (PE-17), lo svincolo che cita l'esclusione (PE-27); R1 con registro, rif scaduti e perimetro; R6;
     R7 nei tre formati (U-06, PE-07); la conversione (U-05) e i nodi `formato_2` in R2 (U-05b, parte senza R4))
+  - V1, ondata B: `giornale3_db_test.go` (T-10: il giornale delle versioni della pagina e della conversione rifatto, un
+    evento cambiato a mano che si vede; R1 su una bozza formato 2 da convertire)
 - **L1 dell'ondata B**: `ondatab_dto_test.go` (PE-27, PE-11, PE-17, PE-22, PE-05), `riconcilia3_test.go` (il vocabolario
   2 sullo snapshot, la pila d'annullamento, il rebase, «Non includere» nell'ordine della pagina, T-16 con
   `nodo_escluso`), `richieste3_test.go` (le forme di R2 e il corpo formato 2), `casi_condivisi_test.go` (la meta' del

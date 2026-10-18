@@ -97,8 +97,10 @@ func chiaviDeiFatti(ctx context.Context, q *db.Queries, sha string) (map[string]
 }
 
 // RifScaduti calcola i rif scaduti di uno snapshot formato 3 con letture del database (EM §6.4): le caselle dei nodi e
-// delle decisioni non_includere, con il primo motivo che vale nell'ordine delle condizioni. La sola sparizione del gruppo
-// dalle candidate di /dati non fa scadere una casella (Δ-V1-19).
+// delle decisioni non_includere, con un motivo solo per casella, il primo che vale in quest'ordine [T]: prima le
+// condizioni che non leggono i fatti (1 allegato fuori dalla RFQ, 4 sha256 diverso, 5 occorrenza non attiva), poi i
+// fatti (2 fatti assenti, 3 chiave assente). La sola sparizione del gruppo dalle candidate di /dati non fa scadere una
+// casella (Δ-V1-19).
 func RifScaduti(ctx context.Context, q *db.Queries, thread uuid.UUID, s Snapshot3) ([]RifScaduto, error) {
 	type rif struct {
 		chiave, decisione string
