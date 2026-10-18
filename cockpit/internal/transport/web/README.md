@@ -175,6 +175,21 @@ markmap:
 | Le etichette (`Etichetta`, 67 domini) | `motore_a/etichette.go` |
 | L'anteprima dello STEP (`fascicolo.EffettoAutorizzazione`, DTO proprio) | `motore_a/anteprima.go` |
 
+### Le rotte della bozza della Distinta unica (V1, ondata B)
+
+- File: `motore_a_bozza_v1.go` (corsia persistenza), montato da `registraBozzaMotoreA`, che chiama chi possiede
+  `registraMotoreA` (richiesta nel resoconto della corsia); stessa catena di `motore_a.go` (flag → `no-store` →
+  `soloAdmin`, righe gemelle 405/404), JSON senza l'escape HTML, corpo al piu' 2 MiB + 4 KiB (413).
+- R1 `GET /thread/{id}/motore-a/bozza?prodotto=` (`&eventi=1`, `&importazione=1`, `&registro=`, `&confronto=1` = 200
+  con `confronto.errore` finche' l'adattatore non c'e'; `?effetto_cambio_tipo=<componente>&tipo_nuovo=` = l'effetto
+  del cambio di tipo con la firma, PE-09); R2 `POST …/bozza` (forma salvataggio; le altre forme 422
+  `forma_non_disponibile` fino all'ondata C); R3 `POST …/bozza/{bozza}/abbandona`; R6 `GET …/intento/{chiave}`; R7
+  `GET …/conferme?prodotto=` (`&conferma=`, `&importazione=1`); R11 `POST …/riallinea`.
+- I codici: `statoDelCodiceV1` e l'elenco unico `CodiciServerBozzaV1` (T-05, provato contro i cataloghi del ponte); un
+  errore non previsto e' 500 con un testo generico (il dettaglio nel log).
+- Prove: `motore_a_bozza_v1_test.go` (L1: flag, ruoli, rotte montate, codici, T-05, T-12, T-12b),
+  `motore_a_bozza_v1_db_test.go` (L4: T-04 con il guscio della pagina, R2/R3/R11 via HTTP, T-12 meta' L4, T-15).
+
 ### Le rotte (A1d-P2)
 
 - **`GET /thread/{id}/motore-a/dati`** (`Adm`, dietro il flag)
