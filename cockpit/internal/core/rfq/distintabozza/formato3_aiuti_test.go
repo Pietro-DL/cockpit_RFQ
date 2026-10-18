@@ -54,7 +54,7 @@ func letturaProva3(allegato uuid.UUID, id, emittente, namespace, letterale strin
 		"hash_grammatica": strings.Repeat("7", 64), "namespace": namespace, "famiglia": "num", "forma": "sei",
 		"base":          map[string]any{"originale": letterale, "normalizzata": letterale, "segmenti": []any{}, "mancanti": []any{}, "completa": true},
 		"qualificatori": qualificatori, "revisione": revisione, "stato_forma": "letta", "funzione": "identita", "ruolo": "",
-		"qualita": "piena", "motivi": []any{},
+		"qualita": "piena", "motivi": []any{"forma_completa"},
 	}
 }
 

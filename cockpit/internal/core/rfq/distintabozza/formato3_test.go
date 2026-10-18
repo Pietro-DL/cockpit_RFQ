@@ -6,6 +6,7 @@ package distintabozza
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,7 +15,9 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/text/unicode/norm"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/registro/regole/grammatica"
+	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
 
@@ -185,7 +188,32 @@ func TestV1LeRegoleDiFormaDelFormato3(t *testing.T) {
 		{"cliente in maiuscolo", "emittente", "", func(s map[string]any) {
 			nodoIn3(s, "k-0007")["identita"].(map[string]any)["emittente"] = strings.ToUpper(id.clienteE())
 		}},
-		{"rev minuscola", "rev", "", func(s map[string]any) { nodoIn3(s, "k-0007")["identita"].(map[string]any)["rev"] = "a" }},
+		{"rev minuscola", "nodi[1].identita.rev", "", func(s map[string]any) { nodoIn3(s, "k-0007")["identita"].(map[string]any)["rev"] = "a" }},
+		{"rev con uno spazio su un riusa", "nodi[0].identita.rev", "", func(s map[string]any) {
+			nodoIn3(s, "k-root")["identita"].(map[string]any)["rev"] = "B 1"
+		}},
+		{"proposta senza codice", "nodi[1].identita.codice", "", func(s map[string]any) {
+			delete(nodoIn3(s, "k-0007")["identita"].(map[string]any), "codice")
+		}},
+		{"proposta su un nodo da riusare", "nodi[1].identita.modo", "", func(s map[string]any) {
+			n := nodoIn3(s, "k-0007")
+			n["op"], n["componente_id"] = "riusa", altro
+		}},
+		{"decisione identita presa da un altro nodo", "nodi[3].identita.decisione", "", func(s map[string]any) {
+			nodoIn3(s, "k-0011")["identita"] = map[string]any{"emittente": "partner:beta", "namespace": "beta", "codice": "400123",
+				"modo": "decisione", "decisione": "di-0001"}
+			var resto []any
+			for _, d := range s["decisioni"].([]any) {
+				if d.(map[string]any)["id"] != "di-0002" {
+					resto = append(resto, d)
+				}
+			}
+			s["decisioni"] = resto
+		}},
+		{"rev minuscola di una correzione su un nodo da creare", "nodi[2].identita.rev", "", func(s map[string]any) {
+			nodoIn3(s, "k-0009")["identita"].(map[string]any)["rev"] = "b"
+			decisioneIn3(s, "di-0001")["identita"].(map[string]any)["rev"] = "b"
+		}},
 		{"codice nuovo con uno spazio", "codice", "", func(s map[string]any) { nodoIn3(s, "k-man")["identita"].(map[string]any)["codice"] = "ACM 9" }},
 		{"riusa senza codice", "codice", "", func(s map[string]any) { delete(nodoIn3(s, "k-root")["identita"].(map[string]any), "codice") }},
 		{"finito fuori dalla radice", "tipo", "", func(s map[string]any) { nodoIn3(s, "k-0007")["tipo"] = "finito" }},
@@ -238,6 +266,194 @@ func TestV1LeRegoleDiFormaDelFormato3(t *testing.T) {
 type jsonNumero string
 
 func (n jsonNumero) MarshalJSON() ([]byte, error) { return []byte(n), nil }
+
+// TestV1LaRevDaDoveViene (proposta di emendamento P-18; EM §3.4.2, §3.6.1): la rev di un nodo copiata da una fonte che
+// ammette le minuscole ASCII resta byte per byte, con la sola forma di RevAmmissibile (la working di un riusa, anche
+// legacy, la bozza formato 2 di un nodo formato_2, il codice manuale adottato con riferimento manuale_legacy); una rev
+// che introducono l'ingegnere o il registro resta senza minuscole (TestV1LeRegoleDiFormaDelFormato3).
+func TestV1LaRevDaDoveViene(t *testing.T) {
+	id := idSintetici3()
+	imp := componiProva3(t, id).Impronta
+	for nome, cambia := range map[string]func(s map[string]any){
+		"rev minuscola della working su un riusa": func(s map[string]any) {
+			nodoIn3(s, "k-root")["identita"].(map[string]any)["rev"] = "b"
+		},
+		"rev minuscola del codice manuale adottato": func(s map[string]any) {
+			nodoIn3(s, "k-0011")["identita"].(map[string]any)["rev"] = "a"
+			decisioneIn3(s, "di-0002")["identita"].(map[string]any)["rev"] = "a"
+		},
+		"rev minuscola di un nodo formato_2": func(s map[string]any) {
+			n := nodoIn3(s, "k-man")["identita"].(map[string]any)
+			n["modo"], n["rev"] = "formato_2", "a"
+		},
+		"rev minuscola della working fissata con una correzione dell'emittente (riusa)": func(s map[string]any) {
+			n := nodoIn3(s, "k-root")
+			n["identita"] = map[string]any{"emittente": "partner:beta", "codice": "ACM-1000", "rev": "b", "modo": "decisione", "decisione": "dc-0001"}
+			s["decisioni"] = append(s["decisioni"].([]any), map[string]any{"id": "dc-0001", "tipo": "identita", "chiave_bozza": "k-root",
+				"modo": "correzione", "importazione": imp, "identita": map[string]any{"emittente": "partner:beta", "codice": "ACM-1000", "rev": "b"},
+				"motivo": "il componente e' del partner"})
+		},
+	} {
+		t.Run(nome, func(t *testing.T) {
+			s := copiaProfonda(t, snapshotProva3(id, imp))
+			cambia(s)
+			letto, err := LeggiSnapshot3(snapshotJSON(t, s))
+			if err != nil {
+				t.Fatalf("rifiutato: %v", err)
+			}
+			can, err := letto.Canonico()
+			if err != nil {
+				t.Fatalf("lo scrittore lo rifiuta: %v", err)
+			}
+			if !bytes.Contains(can, []byte(`"rev":"`)) {
+				t.Fatal("la rev non si scrive")
+			}
+		})
+	}
+}
+
+// TestV1LoScrittoreChiudeComeIlLettore (EM §3.10: «il lettore del formato 3 normalizza esattamente come lo scrittore»):
+// per ogni snapshot che lo scrittore (Canonico) accetta, RileggiVersione con i suoi byte e la sua impronta riesce e
+// restituisce gli stessi byte; uno snapshot costruito come struct con testi NFD, elenchi in disordine o vuoti da'
+// gli stessi byte di quello letto; uno fuori forma lo scrittore lo rifiuta con CORPO_NON_VALIDO, mai uno snapshot
+// salvato che la rilettura non ritrova.
+func TestV1LoScrittoreChiudeComeIlLettore(t *testing.T) {
+	id := idSintetici3()
+	imp := componiProva3(t, id).Impronta
+	fresco := func() Snapshot3 { return leggiProva3(t, snapshotProva3(id, imp)) }
+	base, err := fresco().Canonico()
+	if err != nil {
+		t.Fatal(err)
+	}
+	indiceNodo := func(s *Snapshot3, k string) int {
+		for i := range s.Nodi {
+			if s.Nodi[i].ChiaveBozza == k {
+				return i
+			}
+		}
+		t.Fatalf("nodo %s", k)
+		return -1
+	}
+	indiceDecisione := func(s *Snapshot3, k string) int {
+		for i := range s.Decisioni {
+			if s.Decisioni[i].ID == k {
+				return i
+			}
+		}
+		t.Fatalf("decisione %s", k)
+		return -1
+	}
+	uguali := map[string]func(s *Snapshot3){
+		"riletto":         func(s *Snapshot3) {},
+		"descrizione NFD": func(s *Snapshot3) { s.Nodi[indiceNodo(s, "k-0007")].Descrizione = descrizioneTelaio },
+		"posizione NFD":   func(s *Snapshot3) { s.Archi[len(s.Archi)-1].Posizione = "Pos." + eAccento },
+		"motivo NFD": func(s *Snapshot3) {
+			s.Decisioni[indiceDecisione(s, "di-0001")].Motivo = "il disegno del fornitore conferma la lettura " + eAccento
+		},
+		"elenchi al rovescio": func(s *Snapshot3) {
+			for i, j := 0, len(s.Nodi)-1; i < j; i, j = i+1, j-1 {
+				s.Nodi[i], s.Nodi[j] = s.Nodi[j], s.Nodi[i]
+			}
+			for i, j := 0, len(s.Decisioni)-1; i < j; i, j = i+1, j-1 {
+				s.Decisioni[i], s.Decisioni[j] = s.Decisioni[j], s.Decisioni[i]
+			}
+		},
+		"copia della lettura con i vuoti": func(s *Snapshot3) {
+			d := &s.Decisioni[indiceDecisione(s, "di-0001")]
+			l := *d.Lettura
+			l.Qualificatori, l.Revisione = json.RawMessage(`{"affissi":[],"decorazioni":[]}`), json.RawMessage(`null`)
+			d.Lettura = &l
+		},
+	}
+	for nome, cambia := range uguali {
+		t.Run(nome, func(t *testing.T) {
+			s := fresco()
+			cambia(&s)
+			b, err := s.Canonico()
+			if err != nil {
+				t.Fatalf("lo scrittore rifiuta: %v", err)
+			}
+			if !bytes.Equal(b, base) {
+				t.Fatalf("lo stesso snapshot da' altri byte:\n%s\n%s", b, base)
+			}
+			imp3, _ := s.Impronta()
+			letto, err := RileggiVersione(FormatoSnapshot3, comeJsonb(t, b), imp3)
+			if err != nil {
+				t.Fatalf("la rilettura non ritrova lo snapshot dello scrittore: %v", err)
+			}
+			if !bytes.Equal(letto.Canonico, b) {
+				t.Fatal("la rilettura cambia i byte")
+			}
+		})
+	}
+	diversi := map[string]func(s *Snapshot3){
+		"un elenco di testa nil": func(s *Snapshot3) { s.DocumentiPreassociati = nil },
+		"rev minuscola su un riusa": func(s *Snapshot3) {
+			s.Nodi[indiceNodo(s, "k-root")].Identita.Rev = "b"
+		},
+	}
+	for nome, cambia := range diversi {
+		t.Run(nome, func(t *testing.T) {
+			s := fresco()
+			cambia(&s)
+			b, err := s.Canonico()
+			if err != nil {
+				t.Fatalf("lo scrittore rifiuta: %v", err)
+			}
+			imp3, _ := s.Impronta()
+			letto, err := RileggiVersione(FormatoSnapshot3, comeJsonb(t, b), imp3)
+			if err != nil || !bytes.Equal(letto.Canonico, b) {
+				t.Fatalf("la rilettura non ritrova lo snapshot dello scrittore: %v", err)
+			}
+		})
+	}
+	rifiutati := map[string]func(s *Snapshot3){
+		"rev minuscola su un nodo da creare": func(s *Snapshot3) { s.Nodi[indiceNodo(s, "k-0007")].Identita.Rev = "a" },
+		"U+0000 in un namespace":             func(s *Snapshot3) { s.Nodi[indiceNodo(s, "k-root")].Identita.Namespace = "acme\x00" },
+		"decisione con un campo di un altro tipo": func(s *Snapshot3) {
+			s.Decisioni[indiceDecisione(s, "dv-0001")].CodiceDopo = "ACM-2"
+		},
+		"non_includere senza casella": func(s *Snapshot3) { s.Decisioni[indiceDecisione(s, "ni-0001")].Casella = nil },
+		"descrizione oltre il limite": func(s *Snapshot3) {
+			s.Nodi[indiceNodo(s, "k-0007")].Descrizione = strings.Repeat("d", MaxDescrizione+1)
+		},
+		"formato 2":             func(s *Snapshot3) { s.Formato = FormatoSnapshot },
+		"proposta senza codice": func(s *Snapshot3) { s.Nodi[indiceNodo(s, "k-0007")].Identita.Codice = "" },
+	}
+	for nome, cambia := range rifiutati {
+		t.Run(nome, func(t *testing.T) {
+			s := fresco()
+			cambia(&s)
+			_, err := s.Canonico()
+			var e *Errore
+			if !errors.As(err, &e) || e.Codice != CodiceCorpoNonValido {
+				t.Fatalf("atteso CORPO_NON_VALIDO dallo scrittore, %v", err)
+			}
+			if _, err := s.Impronta(); err == nil {
+				t.Fatal("l'impronta di uno snapshot fuori forma si calcola")
+			}
+		})
+	}
+}
+
+// TestV1LeRegoleDelCodiceUgualiAClassificazione: la foglia del registro ripete le regole del codice e della rev di
+// classificazione (non la importa): le due devono dire la stessa cosa.
+func TestV1LeRegoleDelCodiceUgualiAClassificazione(t *testing.T) {
+	casi := []string{"", "ACM-1000", "acm-1000", "ACM 1000", "ACM\u00a01000", "ACM\u202f1000", "ACM\u200b1000", "ACM\t1", "A\x00B",
+		strings.Repeat("A", 40), strings.Repeat("A", 41), strings.Repeat("é", 20), strings.Repeat("é", 21), "B", "b", "AB 1",
+		strings.Repeat("B", 10), strings.Repeat("B", 11), "Ä", "ACM-9" + eAccento}
+	for _, c := range casi {
+		if importazione.CodiceAmmissibile(c) != classificazione.CodiceAmmissibile(c) {
+			t.Errorf("CodiceAmmissibile(%q): registro %v, classificazione %v", c, importazione.CodiceAmmissibile(c), classificazione.CodiceAmmissibile(c))
+		}
+		if importazione.RevAmmissibile(c) != classificazione.RevAmmissibile(c) {
+			t.Errorf("RevAmmissibile(%q): registro %v, classificazione %v", c, importazione.RevAmmissibile(c), classificazione.RevAmmissibile(c))
+		}
+	}
+	if importazione.MaxCodiceProposto != classificazione.MaxCodice || importazione.MaxRevProposta != classificazione.MaxRev {
+		t.Error("i tetti del codice e della rev del registro non sono quelli di classificazione")
+	}
+}
 
 // TestV1N01NelloSnapshot (T-02, la parte L1): l'identita' e le copie dal registro restano byte per byte, i testi
 // umani passano in NFC, dopo la lettura, la forma canonica e la rilettura, e nell'impronta.

@@ -195,7 +195,8 @@ markmap:
     - `v_fascicolo`, `v_step_prodotto`, `v_thread_da_riesaminare`, `v_cruscotto`, `v_codici_candidati_thread` ridefinite
       con lo stesso testo più il predicato `file_rfq_attivo` (deroga dichiarata: senza righe in `file_rfq` le stesse righe)
     - nessuna riga esistente riscritta, nessun riempimento, nessun valore di enum nuovo; `SET LOCAL lock_timeout = '30s'`;
-      variante `0023-v1-formato3-file-20261018b` (la `20261018a` era il testo prima della revisione della corsia)
+      variante `0023-v1-formato3-file-20261018c` (la `20261018a` era il testo prima della revisione della corsia, la
+      `20261018b` quello del primo commit delle correzioni)
   - Ritorno manuale: `scripts/0023_indietro.sql` (sotto, «Tornare indietro»).
 
 ## Lo schema per dominio

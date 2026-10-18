@@ -12,7 +12,8 @@ package importazione
 // campo tipizzato del contenuto non ha la sua classe. Le proiezioni sono una scelta tecnica [T] di questo file, perche'
 // il §3.8.1 dice quali campi entrano e non con che forma: un oggetto per impronta, con le chiavi dei livelli del
 // contenuto (fonte, gruppo, nodi, archi, relazioni, fuori_per_decisione, file, diagnostiche), le voci nell'ordine del
-// registro, ognuna con la sua chiave «voce». Un campo null vale come assente (EM §3.10).
+// registro, ognuna con la sua chiave «voce». Le impronte si calcolano sulla forma canonica del registro (FormaCanonica):
+// un campo null, "", [] o {} vale come assente a ogni livello (EM §3.10), nodi e archi stanno nel loro ordine (§3.8).
 
 import (
 	"bytes"
@@ -108,9 +109,14 @@ type Impronte struct {
 	Regole    string
 }
 
-// ImpronteParziali calcola le tre impronte parziali di un contenuto (canonico o no: si rilegge) con l'elenco chiuso di
-// importazione-1. I campi impronta_* del contenuto non entrano: si possono calcolare prima di scriverli.
+// ImpronteParziali calcola le tre impronte parziali di un contenuto (canonico o no: si rilegge e si porta nella forma
+// canonica del registro, FormaCanonica, cosi' un vuoto o un ordine diverso non cambiano le impronte) con l'elenco chiuso
+// di importazione-1. I campi impronta_* del contenuto non entrano: si possono calcolare prima di scriverli.
 func ImpronteParziali(contenuto []byte) (Impronte, error) {
+	contenuto, err := FormaCanonica(contenuto)
+	if err != nil {
+		return Impronte{}, forma("contenuto", "il contenuto non si legge: %v", err)
+	}
 	dec := json.NewDecoder(bytes.NewReader(contenuto))
 	dec.UseNumber()
 	var v map[string]any
@@ -167,7 +173,6 @@ func ImpronteParziali(contenuto []byte) (Impronte, error) {
 	cont["fuori_per_decisione"], ev["fuori_per_decisione"] = fuoriC, fuoriE
 
 	var out Impronte
-	var err error
 	if out.Contenuto, err = jsoncanonico.ImprontaDi(cont); err != nil {
 		return Impronte{}, forma("contenuto", "la parte confrontata non ha una forma canonica: %v", err)
 	}

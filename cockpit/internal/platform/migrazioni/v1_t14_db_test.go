@@ -5,8 +5,10 @@ package migrazioni_test
 // L4 — T-14, la parte del database (PM23 §11; EM §3.4.2; PM23 §4.6): gli stessi casi della parte L1
 // (distintabozza.CasiT14, che li confronta con il validatore delle grammatiche) passano dal CHECK ck_csc_identita di
 // conferma_strutturale_componente, e il CHECK da' lo stesso esito di EmittenteAmmissibile e NamespaceAmmissibile, tetti
-// di sicurezza compresi. Il confronto delle minuscole del CHECK usa lower() del database: il caso con le lettere non
-// ASCII maiuscole dice se lower() le conosce (dipende dalla LC_CTYPE del database).
+// di sicurezza e bianchi Unicode compresi. Il confronto delle minuscole del CHECK usa lower() del database: con una
+// LC_CTYPE che non conosce le maiuscole non ASCII (C, il database di prova) il caso delle lettere non ASCII maiuscole e'
+// la deviazione dichiarata P-17 (T-14 FALLITA per quel caso finche' non e' decisa): la prova la fissa (il CHECK accetta,
+// il Go rifiuta), cosi' una deviazione diversa, o in piu', la fa fallire.
 
 import (
 	"context"
@@ -33,10 +35,8 @@ func TestV1T14LaRegolaDellEmittenteDelDatabase(t *testing.T) {
 	t.Logf("LC_CTYPE del database di prova: %s; lower() conosce le maiuscole non ASCII: %v", ctype, piega)
 	for _, c := range distintabozza.CasiT14() {
 		t.Run(c.Nome, func(t *testing.T) {
-			if c.MaiuscolaNonASCII && !piega {
-				t.Skipf("SALTATA-AMBIENTE: con LC_CTYPE %s lower() del database non conosce le maiuscole non ASCII, e il CHECK "+
-					"non puo' dare l'esito del Go (che rifiuta): differenza da decidere (resoconto della corsia persistenza)", ctype)
-			}
+			// la deviazione dichiarata P-17: qui il CHECK accetta e il Go rifiuta (atteso del CHECK capovolto)
+			deviazione := c.MaiuscolaNonASCII && !piega
 			emittente, namespace := letteraleSQL("partner:beta"), "NULL"
 			if c.Partner != "" {
 				emittente = letteraleSQL("partner:" + c.Partner)
@@ -57,6 +57,14 @@ func TestV1T14LaRegolaDellEmittenteDelDatabase(t *testing.T) {
 			accettato := err == nil
 			if !accettato && vincoloViolato(err) != "ck_csc_identita" {
 				t.Fatalf("la riga si ferma su un altro vincolo: %v", err)
+			}
+			if deviazione {
+				if !accettato || distintabozza.EmittenteAmmissibile("partner:"+c.Partner) {
+					t.Errorf("la deviazione dichiarata P-17 non e' piu' quella: CHECK accettato = %v, Go = %v", accettato,
+						distintabozza.EmittenteAmmissibile("partner:"+c.Partner))
+				}
+				t.Logf("FALLITA (deviazione dichiarata P-17, da decidere): con LC_CTYPE %s il CHECK accetta partner:%s, la grammatica e il Go lo rifiutano", ctype, c.Partner)
+				return
 			}
 			if accettato != c.Atteso {
 				t.Errorf("CHECK ck_csc_identita: accettato = %v, atteso %v", accettato, c.Atteso)

@@ -363,8 +363,10 @@ func (d *Decisione3) validaIdentita(campo string) *Errore {
 	if !codiceRegistrato(id.Codice) {
 		return corpo(campo+".identita.codice", "il codice e' obbligatorio, al piu' %d caratteri, senza spazi ai bordi", MaxCodiceRegistrato)
 	}
-	if id.Rev != "" && !revDellaWorking(id.Rev) {
-		return corpo(campo+".identita.rev", "revisione con spazi, minuscole o oltre %d caratteri: e' la rev della working", classificazione.MaxRev)
+	// qui la sola forma: le minuscole ASCII dipendono da dove viene la rev (il nodo e la decisione insieme), e le guarda
+	// lo snapshot (revDallaFonte, proposta di emendamento P-18)
+	if id.Rev != "" && !classificazione.RevAmmissibile(id.Rev) {
+		return corpo(campo+".identita.rev", "revisione con spazi o controlli, o oltre %d byte", classificazione.MaxRev)
 	}
 	if d.Importazione != "" && !reSha256.MatchString(d.Importazione) {
 		return corpo(campo+".importazione", "l'impronta del registro e' di 64 cifre esadecimali minuscole")
@@ -423,11 +425,6 @@ func (d *Decisione3) validaIdentita(campo string) *Errore {
 		return corpo(campo+".modo", "modo %q: alternativa o correzione", d.Modo)
 	}
 	return nil
-}
-
-// revDellaWorking: la rev della working (EM §3.4.2): RevAmmissibile e senza minuscole ASCII.
-func revDellaWorking(r string) bool {
-	return classificazione.RevAmmissibile(r) && !strings.ContainsFunc(r, func(c rune) bool { return c >= 'a' && c <= 'z' })
 }
 
 // validaCasellaForma: la forma di una casella senza la sorgente (EM §3.4.1, §7.2).

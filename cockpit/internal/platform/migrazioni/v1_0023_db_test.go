@@ -557,7 +557,7 @@ var casiVincoli23 = []casoVincolo{
 		"namespace": "repeat('n', 501)"}, "ck_csc_identita", nil, false},
 	// un id o un namespace di soli bianchi Unicode (tab, NBSP): vuoti per strings.TrimSpace della grammatica e del Go
 	{"conferma_strutturale_componente", map[string]string{"emittente": `E'partner:\t'`, "emittente_presunto": "false"}, "ck_csc_identita", nil, false},
-	{"conferma_strutturale_componente", map[string]string{"emittente": "'cliente:{C}'", "emittente_presunto": "true", "namespace": `E' \t'`},
+	{"conferma_strutturale_componente", map[string]string{"emittente": "'cliente:{C}'", "emittente_presunto": "true", "namespace": `E'\u00a0\t'`},
 		"ck_csc_identita", nil, false},
 
 	// M-16: i gesti

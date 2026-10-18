@@ -1,8 +1,9 @@
 // Package importazione e' il registro d'importazione del Motore A (V1; emendamento di V1 al contratto rev. 3, EM §3.8):
 // la proposta del Motore A per (RFQ, prodotto, gruppo), immutabile, come la conserva distinta_importazione (0023). Qui
-// stanno il DTO del contenuto in nomi minuscoli, la lettura stretta, la forma canonica (jsoncanonico, mai NFC: intervalli
-// in byte, letterale = testo[inizio:fine]), il limite di peso, le quattro impronte con l'elenco chiuso del §3.8.1, la
-// coerenza con le colonne della testata e la copia compatta di una lettura (§3.6.1).
+// stanno il DTO del contenuto in nomi minuscoli, la lettura stretta, la forma canonica del registro (FormaCanonica:
+// jsoncanonico, mai NFC — intervalli in byte, letterale = testo[inizio:fine] —, i vuoti non si scrivono, voci e archi in
+// ordine), il limite di peso, le quattro impronte con l'elenco chiuso del §3.8.1, la coerenza con le colonne della
+// testata e la copia compatta di una lettura (§3.6.1).
 //
 // E' una foglia: libreria standard, uuid e jsoncanonico; niente database, niente core/rfq, niente orologio. Cosi' lo
 // stesso DTO serve all'adattatore del Motore A (propostabom, puro: EM §6.1), che il registro lo scrive, e alla bozza
@@ -22,6 +23,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -45,6 +47,10 @@ const (
 	MaxAllegatiCitati = 10000
 	// MaxCifre: cifre di un numero intero del contenuto (come il formato 2: jsonb rifiuta oltre 131 072 cifre).
 	MaxCifre = 1000
+	// MaxCodiceProposto e MaxRevProposta: i tetti di classificazione.MaxCodice e MaxRev (byte), le regole del codice e
+	// della rev di partenza per la working (EM §3.8, §6.1; CodiceAmmissibile, RevAmmissibile qui sotto).
+	MaxCodiceProposto = 40
+	MaxRevProposta    = 10
 )
 
 // I codici che il registro restituisce a chi lo scrive o lo legge (EM §6.1, §3.8.2). Un difetto di forma senza codice e'
@@ -90,12 +96,35 @@ func incompleto(campo, formato string, a ...any) *Errore {
 var ErrRegistroIncoerente = errors.New("registro d'importazione salvato non coerente")
 
 var (
-	reUUID    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	reSha256  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	reRif     = regexp.MustCompile(`^nodo:[0-9a-f]{64}:.+$`)
-	reVersion = regexp.MustCompile(`^importazione-[1-9][0-9]*$`)
-	reIntero  = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+	reUUID          = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	reSha256        = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	reRif           = regexp.MustCompile(`^nodo:[0-9a-f]{64}:.+$`)
+	reVersion       = regexp.MustCompile(`^importazione-[1-9][0-9]*$`)
+	reIntero        = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+	reChiaveLettura = regexp.MustCompile(`^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.+$`)
 )
+
+// CodiceAmmissibile e RevAmmissibile: le regole di classificazione.CodiceAmmissibile e RevAmmissibile (non vuoto, al
+// piu' MaxCodiceProposto o MaxRevProposta byte, senza spazi, controlli o caratteri di formato), ripetute qui perche' la
+// foglia non importa classificazione; la prova L1 di distintabozza TestV1LeRegoleDelCodiceUgualiAClassificazione le
+// tiene uguali. Il registro le applica a codice_proposto e a rev_proposta, che diventano il codice e la rev di un nodo
+// proposta (EM §3.4.2, §3.8, §6.1).
+func CodiceAmmissibile(s string) bool {
+	return s != "" && len(s) <= MaxCodiceProposto && !strings.ContainsFunc(s, spazioOControllo)
+}
+
+// RevAmmissibile: vedi CodiceAmmissibile.
+func RevAmmissibile(s string) bool {
+	return s != "" && len(s) <= MaxRevProposta && !strings.ContainsFunc(s, spazioOControllo)
+}
+
+func spazioOControllo(r rune) bool {
+	return r <= ' ' || unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+}
+
+func conMinuscoleASCII(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r >= 'a' && r <= 'z' })
+}
 
 // ------------------------------------------------------------------ il contenuto
 
@@ -421,9 +450,11 @@ func stessoInsieme(x, y []uuid.UUID) bool {
 
 // ------------------------------------------------------------------ scrivere e leggere
 
-// Componi chiude un contenuto scritto dall'adattatore: calcola le tre impronte parziali (§3.8.1), le scrive nel
-// contenuto, ne fa i byte canonici e l'impronta intera, e controlla forma e peso come Leggi. Le impronte che il
-// contenuto portava gia' si ignorano: le calcola sempre questa funzione.
+// Componi chiude un contenuto scritto dall'adattatore: lo porta nella forma canonica del registro (FormaCanonica: i
+// vuoti non si scrivono, nodi e archi in ordine), calcola le tre impronte parziali (§3.8.1), le scrive nel contenuto,
+// ne fa i byte canonici e l'impronta intera, e controlla forma e peso come Leggi. Le impronte che il contenuto portava
+// gia' si ignorano: le calcola sempre questa funzione. Per ogni contenuto c che Componi accetta, Leggi(Componi(c))
+// restituisce gli stessi byte, e Componi(Leggi(x).Contenuto) gli stessi byte di Leggi(x).
 func Componi(c Contenuto) (Registro, error) {
 	if c.VersioneImportazione != VersioneImportazione1 {
 		return Registro{}, forma("versione_importazione", "questo codice compone solo registri %s (l'elenco chiuso delle impronte e' il suo)", VersioneImportazione1)
@@ -433,12 +464,19 @@ func Componi(c Contenuto) (Registro, error) {
 	if err != nil {
 		return Registro{}, forma("contenuto", "il contenuto non ha una forma canonica: %v", err)
 	}
+	if e := nullVietati(grezzo); e != nil {
+		return Registro{}, e
+	}
 	imp, err := ImpronteParziali(grezzo)
 	if err != nil {
 		return Registro{}, err
 	}
 	c.ImprontaContenuto, c.ImprontaEvidenze, c.ImprontaRegole = imp.Contenuto, imp.Evidenze, imp.Regole
-	can, err := jsoncanonico.Codifica(c)
+	grezzo, err = jsoncanonico.Codifica(c)
+	if err != nil {
+		return Registro{}, forma("contenuto", "il contenuto non ha una forma canonica: %v", err)
+	}
+	can, err := FormaCanonica(grezzo)
 	if err != nil {
 		return Registro{}, forma("contenuto", "il contenuto non ha una forma canonica: %v", err)
 	}
@@ -446,15 +484,153 @@ func Componi(c Contenuto) (Registro, error) {
 }
 
 // Leggi rilegge un registro (dal database o da chi lo ha appena composto): rilettura stretta, numeri interi, nessun
-// U+0000, i nomi dei campi tipizzati esatti e in un elenco chiuso, le regole di forma, la completezza del §3.8.2, il
-// peso del testo canonico, le impronte parziali ricalcolate (per importazione-1). Restituisce i byte canonici e
-// l'impronta intera.
+// U+0000, i nomi dei campi tipizzati esatti e in un elenco chiuso, nessun null dove il §3.8.2 lo vieta, la forma
+// canonica del registro (FormaCanonica), le regole di forma, la completezza del §3.8.2, il peso del testo canonico, le
+// impronte parziali ricalcolate (per importazione-1). Restituisce i byte canonici e l'impronta intera.
 func Leggi(raw []byte) (Registro, error) {
 	can, err := jsoncanonico.Codifica(json.RawMessage(raw))
 	if err != nil {
 		return Registro{}, forma("contenuto", "il JSON non si legge: %v", err)
 	}
+	if e := nullVietati(can); e != nil {
+		return Registro{}, e
+	}
+	if can, err = FormaCanonica(can); err != nil {
+		return Registro{}, forma("contenuto", "il JSON non si legge: %v", err)
+	}
 	return leggi(can)
+}
+
+// FormaCanonica e' la forma canonica del registro (EM §3.10; P-12 e P-19 del resoconto della corsia persistenza): un
+// membro assente, null, "", [] o {} e' la stessa cosa e non si scrive, a ogni livello (gli elementi degli elenchi
+// restano: la loro posizione conta), salvo regole.partner, che con un contesto attivo e nessun partner e' l'elenco vuoto
+// che dice «nessuno» (§3.8.2); proposta.nodi in ordine di (origine.rif, voce) e proposta.archi in ordine di (padre,
+// figlio, allegato_id), come li vuole il §3.8. Cosi' lo stesso contenuto da' sempre gli stessi byte e le stesse impronte,
+// comunque l'adattatore abbia ordinato gli elenchi o scritto i vuoti: niente PROPOSTA_CAMBIATA e niente 409 di V-7 falsi.
+func FormaCanonica(raw []byte) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	v = senzaVuoti(v, "", map[string]bool{"regole.partner": true})
+	if m, ok := v.(map[string]any); ok {
+		if p, ok := m["proposta"].(map[string]any); ok {
+			ordinaElenco(p["nodi"], func(x map[string]any) []string {
+				return []string{testoDi(oggettoDi(x["origine"])["rif"]), testoDi(x["voce"])}
+			})
+			ordinaElenco(p["archi"], func(x map[string]any) []string {
+				return []string{testoDi(x["padre"]), testoDi(x["figlio"]), testoDi(x["allegato_id"])}
+			})
+		}
+	}
+	return jsoncanonico.Codifica(v)
+}
+
+// SenzaVuoti: un valore JSON senza i membri vuoti (null, "", [], {}), a ogni livello, come FormaCanonica senza
+// eccezioni e senza ordinamenti: la regola con cui la copia compatta di una lettura (qualificatori, revisione) si
+// confronta con quella del registro (V-1).
+func SenzaVuoti(raw json.RawMessage) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return jsoncanonico.Codifica(senzaVuoti(v, "", nil))
+}
+
+func senzaVuoti(v any, percorso string, tieni map[string]bool) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, el := range x {
+			p := k
+			if percorso != "" {
+				p = percorso + "." + k
+			}
+			c := senzaVuoti(el, p, tieni)
+			if vuotoJSON(c) && !tieni[p] {
+				continue
+			}
+			out[k] = c
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, el := range x {
+			out[i] = senzaVuoti(el, percorso+"[]", tieni)
+		}
+		return out
+	}
+	return v
+}
+
+func vuotoJSON(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case string:
+		return x == ""
+	case []any:
+		return len(x) == 0
+	case map[string]any:
+		return len(x) == 0
+	}
+	return false
+}
+
+func testoDi(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// ordinaElenco ordina (stabile) un elenco di oggetti per le chiavi date, in ordine di byte.
+func ordinaElenco(v any, chiavi func(map[string]any) []string) {
+	l, ok := v.([]any)
+	if !ok {
+		return
+	}
+	sort.SliceStable(l, func(i, j int) bool {
+		a, b := chiavi(oggettoDi(l[i])), chiavi(oggettoDi(l[j]))
+		for k := range a {
+			if a[k] != b[k] {
+				return a[k] < b[k]
+			}
+		}
+		return false
+	})
+}
+
+// nullVietati: contesto, regole.contesto, regole.partner e regole.grammatica_cliente sono assenti o valorizzati, mai
+// null (EM §3.8.2: «assenti, non null»; PM23 §10 righe 2-3 e RM-13: un null «con il motivo» vale FALLITA). Con un
+// contesto attivo un null al posto dei partner o della copia del contesto e' un registro incompleto (422
+// PROPOSTA_NON_DISPONIBILE, registro_incompleto); negli altri casi e' un difetto di forma di chi scrive il registro.
+// Si controlla prima della forma canonica, che un null lo toglierebbe.
+func nullVietati(can []byte) *Errore {
+	var testa, regole map[string]json.RawMessage
+	if json.Unmarshal(can, &testa) != nil {
+		return nil // la forma la dice la lettura che segue
+	}
+	_ = json.Unmarshal(testa["regole"], &regole)
+	null := func(r json.RawMessage) bool { return string(r) == "null" }
+	attivo := len(regole["contesto"]) > 0 && !null(regole["contesto"])
+	for _, x := range []struct {
+		campo string
+		r     json.RawMessage
+		conIl bool // con il contesto attivo il campo e' obbligatorio
+	}{{"regole.contesto", regole["contesto"], false}, {"regole.grammatica_cliente", regole["grammatica_cliente"], false},
+		{"regole.partner", regole["partner"], true}, {"contesto", testa["contesto"], true}} {
+		if !null(x.r) {
+			continue
+		}
+		if x.conIl && attivo {
+			return incompleto(x.campo, "con un contesto attivo %s e' obbligatorio: un null non e' ammesso (EM §3.8.2)", x.campo)
+		}
+		return forma(x.campo, "%s e' assente o valorizzato, mai null (EM §3.8.2)", x.campo)
+	}
+	return nil
 }
 
 func leggi(can []byte) (Registro, error) {
@@ -653,8 +829,11 @@ func (c *Contenuto) valida(can []byte) *Errore {
 	for i, v := range c.Proposta.Nodi {
 		campo := fmt.Sprintf("proposta.nodi[%d]", i)
 		o := v.Origine
-		if !reUUID.MatchString(o.AllegatoID) || !reSha256.MatchString(o.Sha256) || !reRif.MatchString(o.Rif) || o.Rif[5:69] != o.Sha256 {
+		if !reUUID.MatchString(o.AllegatoID) || !reSha256.MatchString(o.Sha256) || !reRif.MatchString(o.Rif) {
 			return forma(campo+".origine", "origine {allegato_id, sha256, chiave, rif nodo:<sha256>:<chiave>}")
+		}
+		if o.Rif != "nodo:"+o.Sha256+":"+o.Chiave {
+			return forma(campo+".origine", "il rif dell'origine e' nodo:<sha256>:<chiave> della stessa origine")
 		}
 		if v.Voce != "n:"+o.AllegatoID+":"+o.Rif {
 			return forma(campo+".voce", "la voce e' n:<allegato_id>:<rif> dell'origine")
@@ -666,9 +845,21 @@ func (c *Contenuto) valida(can []byte) *Errore {
 		if !citati[o.AllegatoID] {
 			return forma(campo+".origine.allegato_id", "l'occorrenza %s non e' fra gli allegati citati", o.AllegatoID)
 		}
-		if haControlli(v.CodiceProposto) || haControlli(v.RevProposta) {
-			return forma(campo, "codice e rev proposti senza caratteri di controllo")
+		// codice e rev di partenza della working: le regole del codice e della rev, la rev in maiuscole ASCII (EM §3.8, §6.1)
+		if v.CodiceProposto != "" && !CodiceAmmissibile(v.CodiceProposto) {
+			return forma(campo+".codice_proposto", "il codice proposto e' senza spazi, controlli o caratteri di formato, al piu' %d byte", MaxCodiceProposto)
 		}
+		if v.RevProposta != "" && (!RevAmmissibile(v.RevProposta) || conMinuscoleASCII(v.RevProposta)) {
+			return forma(campo+".rev_proposta", "la rev proposta e' in maiuscole ASCII, senza spazi o controlli, al piu' %d byte", MaxRevProposta)
+		}
+	}
+	// la radice del gruppo e' una voce della proposta: P-2 la porta al prodotto (EM §6.1)
+	if g.Radice != "" && !voci["n:"+f.AllegatoID+":"+g.Radice] {
+		return forma("gruppo.radice", "la radice del gruppo %s non e' fra le voci della proposta", g.Radice)
+	}
+	fuori := map[string]bool{}
+	for _, x := range c.Proposta.FuoriPerDecisione {
+		fuori[x.Voce] = true
 	}
 	for i, a := range c.Proposta.Archi {
 		campo := fmt.Sprintf("proposta.archi[%d]", i)
@@ -678,11 +869,20 @@ func (c *Contenuto) valida(can []byte) *Errore {
 		if !citati[a.AllegatoID] {
 			return forma(campo+".allegato_id", "l'occorrenza %s non e' fra gli allegati citati", a.AllegatoID)
 		}
+		// gli estremi sono voci della proposta, o voci fuori per decisione (un arco verso un nodo tolto)
+		for _, x := range []struct{ nome, rif string }{{"padre", a.Padre}, {"figlio", a.Figlio}} {
+			if k := "n:" + a.AllegatoID + ":" + x.rif; !voci[k] && !fuori[k] {
+				return forma(campo+"."+x.nome, "l'estremo %s non e' una voce della proposta ne' una voce fuori per decisione", x.rif)
+			}
+		}
 	}
 	for i, x := range c.Proposta.File {
 		if !reUUID.MatchString(x.AllegatoID) || !citati[x.AllegatoID] {
 			return forma(fmt.Sprintf("proposta.file[%d].allegato_id", i), "un file cita un'occorrenza fra gli allegati citati")
 		}
+	}
+	if e := c.validaLetture(citati); e != nil {
+		return e
 	}
 	for i, r := range c.Proposta.Relazioni {
 		if r.Sorgente.Tipo != "nodo" && r.Sorgente.Tipo != "file" {
@@ -708,6 +908,88 @@ func (c *Contenuto) valida(can []byte) *Errore {
 	return nil
 }
 
+// validaLetture: ogni lettura del registro (identita_proposta, alternative[] e riferimenti[].lettura delle voci,
+// letture[] dei file) ha la sua chiave_lettura <allegato_id>/<id>, unica dentro il registro (EM §3.8, «Una lettura»):
+// la stessa chiave in due punti porta la stessa lettura, byte per byte, altrimenti V-1 (la copia della decisione) e
+// TrovaLettura sarebbero ambigui. L'allegato della chiave e' quello dell'unita' letta: della voce per l'identita'
+// proposta e le alternative, del file per le sue letture, un allegato citato per un riferimento.
+func (c *Contenuto) validaLetture(citati map[string]bool) *Errore {
+	viste := map[string]string{}
+	una := func(campo string, raw json.RawMessage, allegato string) *Errore {
+		var l struct {
+			ChiaveLettura string `json:"chiave_lettura"`
+		}
+		if err := json.Unmarshal(raw, &l); err != nil {
+			return forma(campo, "una lettura e' un oggetto: %v", err)
+		}
+		m := reChiaveLettura.FindStringSubmatch(l.ChiaveLettura)
+		if m == nil || haControlli(l.ChiaveLettura) {
+			return forma(campo+".chiave_lettura", "la chiave di una lettura e' <allegato_id>/<id della lettura>")
+		}
+		if (allegato != "" && m[1] != allegato) || (allegato == "" && !citati[m[1]]) {
+			return forma(campo+".chiave_lettura", "la chiave %s non e' dell'allegato dell'unita' letta", l.ChiaveLettura)
+		}
+		if prima, ok := viste[l.ChiaveLettura]; ok && prima != string(raw) {
+			return forma(campo+".chiave_lettura", "la chiave %s ha due letture diverse nel registro", l.ChiaveLettura)
+		}
+		viste[l.ChiaveLettura] = string(raw)
+		return nil
+	}
+	elenco := func(campo string, raw json.RawMessage) ([]json.RawMessage, *Errore) {
+		var ll []json.RawMessage
+		if len(raw) > 0 && json.Unmarshal(raw, &ll) != nil {
+			return nil, forma(campo, "atteso un elenco")
+		}
+		return ll, nil
+	}
+	for i, v := range c.Proposta.Nodi {
+		campo := fmt.Sprintf("proposta.nodi[%d]", i)
+		if len(v.IdentitaProposta) > 0 {
+			if e := una(campo+".identita_proposta", v.IdentitaProposta, v.Origine.AllegatoID); e != nil {
+				return e
+			}
+		}
+		alt, e := elenco(campo+".alternative", v.Alternative)
+		if e != nil {
+			return e
+		}
+		for j, l := range alt {
+			if e := una(fmt.Sprintf("%s.alternative[%d]", campo, j), l, v.Origine.AllegatoID); e != nil {
+				return e
+			}
+		}
+		rr, e := elenco(campo+".riferimenti", v.Riferimenti)
+		if e != nil {
+			return e
+		}
+		for j, r := range rr {
+			var x struct {
+				Lettura json.RawMessage `json:"lettura"`
+			}
+			if json.Unmarshal(r, &x) != nil {
+				return forma(fmt.Sprintf("%s.riferimenti[%d]", campo, j), "un riferimento e' un oggetto")
+			}
+			if len(x.Lettura) > 0 {
+				if e := una(fmt.Sprintf("%s.riferimenti[%d].lettura", campo, j), x.Lettura, ""); e != nil {
+					return e
+				}
+			}
+		}
+	}
+	for i, f := range c.Proposta.File {
+		ll, e := elenco(fmt.Sprintf("proposta.file[%d].letture", i), f.Letture)
+		if e != nil {
+			return e
+		}
+		for j, l := range ll {
+			if e := una(fmt.Sprintf("proposta.file[%d].letture[%d]", i, j), l, f.AllegatoID); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
+}
+
 // PartiDellaVoce scompone la chiave di una voce, n:<allegato_id>:<rif>, nell'allegato e nel rif.
 func PartiDellaVoce(voce string) (allegato, rif string, ok bool) {
 	if len(voce) < 2+36+1 || !strings.HasPrefix(voce, "n:") || voce[38] != ':' {
@@ -718,8 +1000,10 @@ func PartiDellaVoce(voce string) (allegato, rif string, ok bool) {
 }
 
 // validaRegole: le versioni che servono fuori dal motore e la completezza del §3.8.2: con un contesto attivo sono
-// obbligatori i partner (anche nessuno: un elenco vuoto), il contesto delle regole e la copia del contesto risolto;
-// senza contesto quei campi sono assenti, non null.
+// obbligatori i partner (anche nessuno: un elenco vuoto), il contesto delle regole, la copia del contesto risolto e,
+// in calcolo, impronta_indice (il nome minuscolo di ImprontaIndice: proposta di emendamento P-20); senza contesto quei
+// campi sono assenti, non null (nullVietati). contesto_id e impronta_contesto dei file nel perimetro li controlla
+// l'adattatore, che dal motore sa quali occorrenze stanno nel perimetro (EM §3.8.2): il registro non lo porta.
 func (c *Contenuto) validaRegole() *Errore {
 	r := c.Regole
 	if r.Versioni.Importazione != c.VersioneImportazione {
@@ -755,6 +1039,11 @@ func (c *Contenuto) validaRegole() *Errore {
 	}
 	if !contesto {
 		return incompleto("contesto", "con un contesto attivo la copia del contesto risolto e' obbligatoria")
+	}
+	var calcolo map[string]json.RawMessage
+	var indice string
+	if json.Unmarshal(c.Calcolo, &calcolo) != nil || json.Unmarshal(calcolo["impronta_indice"], &indice) != nil || strings.TrimSpace(indice) == "" {
+		return incompleto("calcolo.impronta_indice", "con un contesto attivo l'impronta dell'indice (ImprontaIndice) e' obbligatoria")
 	}
 	return nil
 }

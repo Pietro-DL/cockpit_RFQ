@@ -11,6 +11,7 @@ package distintabozza
 // accettato dalla proposta resta uguale alla proposta. Gruppi, rif e UUID sono ASCII e restano come sono.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -432,7 +433,9 @@ type CasoT14 struct {
 	// CHECK no (la sola differenza dichiarata, EM §3.4.2).
 	OltreIlTetto bool
 	// MaiuscolaNonASCII: il CHECK confronta con lower() del database, che conosce le maiuscole non ASCII solo con una
-	// LC_CTYPE che le conosce (non con C): su un database con LC_CTYPE C il CHECK accetta quello che il Go rifiuta.
+	// LC_CTYPE che le conosce (non con C): su un database con LC_CTYPE C il CHECK accetta quello che il Go rifiuta. E'
+	// la deviazione dichiarata P-17 del resoconto della corsia persistenza (T-14 FALLITA per questo caso finche' non e'
+	// decisa): la prova del database la fissa, e il caso torna nel confronto normale dove lower() le conosce.
 	MaiuscolaNonASCII bool
 }
 
@@ -450,10 +453,19 @@ func CasiT14() []CasoT14 {
 		{Nome: "id di 201 caratteri", Partner: strings.Repeat("b", MaxIDPartner+1), OltreIlTetto: true},
 		{Nome: "lettere non ASCII minuscole", Partner: "è-uno", Atteso: true},
 		{Nome: "lettere non ASCII maiuscole", Partner: "È-uno", MaiuscolaNonASCII: true},
+		// «non vuoto» e' quello di strings.TrimSpace (i bianchi Unicode), non solo lo spazio; il tab dentro l'id non e' fra
+		// i caratteri vietati (spazio, «:», «/»), per la grammatica come per il Go e per il CHECK
+		{Nome: "id di soli tab", Partner: "\t\t"},
+		{Nome: "id dello spazio unificatore", Partner: "\u00a0"},
+		{Nome: "id del separatore di riga", Partner: "\u2028"},
+		{Nome: "id con un tab dentro", Partner: "be\tta", Atteso: true},
 		{Nome: "namespace di 70 caratteri", Namespace: strings.Repeat("n", 70), Atteso: true},
 		{Nome: "namespace di 500 caratteri", Namespace: strings.Repeat("n", MaxNamespace), Atteso: true},
 		{Nome: "namespace di 501 caratteri", Namespace: strings.Repeat("n", MaxNamespace+1), OltreIlTetto: true},
 		{Nome: "namespace di soli spazi", Namespace: "   "},
+		{Nome: "namespace di soli tab", Namespace: "\t"},
+		{Nome: "namespace di spazi tipografici", Namespace: "\u2003\u3000"},
+		{Nome: "namespace del separatore di paragrafo", Namespace: "\u2029"},
 		{Nome: "namespace non ASCII", Namespace: "acmè", Atteso: true},
 	}
 }
@@ -533,8 +545,13 @@ func validaIdentita(campo string, n Nodo3) *Errore {
 	}
 	switch id.Modo {
 	case ModoProposta:
-		if len(n.Caselle) == 0 {
-			return corpo(c+".modo", "il modo proposta e' di un nodo con la sua casella")
+		// la proposta e' un nodo da creare con il codice proposto dalla voce (EM §3.4.2: codice = codice_proposto non
+		// vuoto; P-4 lo crea): proposta di emendamento P-15
+		if len(n.Caselle) == 0 || n.Op != OpCrea {
+			return corpo(c+".modo", "il modo proposta e' di un nodo da creare con la sua casella")
+		}
+		if id.Codice == "" {
+			return corpo(c+".codice", "il modo proposta porta il codice proposto dalla voce del registro")
 		}
 	case ModoDaDecidere:
 		if len(n.Caselle) == 0 {
@@ -573,8 +590,9 @@ func validaIdentita(campo string, n Nodo3) *Errore {
 			return corpo(c+".codice", "op %s vuole il codice del componente, al piu' %d caratteri", n.Op, MaxCodiceRegistrato)
 		}
 	}
-	if id.Rev != "" && !revDellaWorking(id.Rev) {
-		return corpo(c+".rev", "revisione con spazi, minuscole o oltre %d caratteri: e' la rev della working", classificazione.MaxRev)
+	// qui la sola forma (RevAmmissibile); le minuscole ASCII le guarda validaDecisioni, che sa da dove viene la rev (P-18)
+	if id.Rev != "" && !classificazione.RevAmmissibile(id.Rev) {
+		return corpo(c+".rev", "revisione con spazi o controlli, o oltre %d byte", classificazione.MaxRev)
 	}
 	return nil
 }
@@ -821,6 +839,11 @@ func (s *Snapshot3) validaDecisioni(nodi map[string]Nodo3, rifDi map[string]stri
 		presunto := false
 		switch d.Tipo {
 		case DecisioneIdentita:
+			// la decisione identita e' del nodo che la cita (EM §3.6.1: chiave_bozza = il nodo con identita.decisione =
+			// questo id): un altro nodo non la prende in prestito (proposta di emendamento P-15)
+			if d.ChiaveBozza != n.ChiaveBozza {
+				return corpo(campo+".decisione", "la decisione %s e' del nodo %s, non di %s", d.ID, d.ChiaveBozza, n.ChiaveBozza)
+			}
 			x := d.Identita
 			if id.Emittente != x.Emittente || id.Namespace != x.Namespace || id.Codice != x.Codice || id.Rev != x.Rev {
 				return corpo(campo, "il nodo %s non porta l'identita' della decisione %s", n.ChiaveBozza, d.ID)
@@ -839,7 +862,36 @@ func (s *Snapshot3) validaDecisioni(nodi map[string]Nodo3, rifDi map[string]stri
 				"con la decisione %s la presunzione dell'emittente e' %v: la calcola il server", d.ID, presunto)
 		}
 	}
+	for i, n := range s.Nodi {
+		if revConMinuscole(n.Identita.Rev) && !revDallaFonte(n, perID) {
+			return corpo(fmt.Sprintf("nodi[%d].identita.rev", i),
+				"la rev %q ha minuscole: una rev nuova della working e' senza minuscole ASCII (EM §3.4.2)", n.Identita.Rev)
+		}
+	}
 	return nil
+}
+
+func revConMinuscole(r string) bool {
+	return strings.ContainsFunc(r, func(c rune) bool { return c >= 'a' && c <= 'z' })
+}
+
+// revDallaFonte: la rev del nodo e' copiata byte per byte da una fonte che ammette le minuscole ASCII, e allora vale la
+// sola forma (RevAmmissibile): la working per un riusa o un esclude (componente.rev, che le strade legacy scrivono com'e',
+// anche quando una correzione «Fissa l'emittente»), la bozza formato 2 per un nodo formato_2, il codice corretto a mano
+// nella pagina vecchia per la decisione identita con riferimento manuale_legacy. Le rev che introducono l'ingegnere o il
+// registro (crea, modifica, manuale, proposta = rev_proposta, correzione con un codice nuovo) restano senza minuscole
+// ASCII. Proposta di emendamento P-18 del resoconto della corsia persistenza (EM §3.4.2, §3.6.1).
+func revDallaFonte(n Nodo3, perID map[string]Decisione3) bool {
+	switch {
+	case n.Op == OpRiusa || n.Op == OpEsclude:
+		return true
+	case n.Identita.Modo == ModoFormato2:
+		return true
+	case n.Identita.Modo == ModoDecisione:
+		d, ok := perID[n.Identita.Decisione]
+		return ok && d.Tipo == DecisioneIdentita && d.Riferimento == RiferimentoManualeLegacy
+	}
+	return false
 }
 
 // originiConferma: un nodo o un arco con origine «conferma» viene da una conferma, e la base allora ha numero almeno 1.
@@ -905,15 +957,72 @@ func (s *Snapshot3) normalizza() {
 	})
 }
 
-// Canonico restituisce i byte canonici dello snapshot (normalizzato prima): quelli che si salvano, che R1 restituisce e
-// di cui si calcola l'impronta.
+// Canonico e' la chiusura dello scrittore: restituisce i byte canonici dello snapshot, quelli che si salvano, che R1
+// restituisce e di cui si calcola l'impronta, per ogni snapshot costruito dal server o riletto (EM §3.10: «il lettore
+// del formato 3 normalizza esattamente come lo scrittore»). Applica la stessa normalizzazione del lettore: l'NFC dei
+// testi umani (descrizioni, posizioni, motivi) e le decisioni rilette con la loro forma chiusa (motivi in NFC, copia
+// della lettura normalizzata); poi le regole di forma (valida), gli elenchi in ordine, il limite di peso, e la
+// rilettura dei byte prodotti con il lettore, che deve dare gli stessi byte. Un difetto e' un 422 CORPO_NON_VALIDO
+// (*Errore) con il campo, mai uno snapshot salvato che la rilettura non ritrova (ErrSnapshotIncoerente).
 func (s Snapshot3) Canonico() ([]byte, error) {
+	c := s.copia()
+	if c.Formato != FormatoSnapshot3 {
+		return nil, corpo("formato", "formato %d: lo scrittore del formato 3 scrive solo il formato %d", c.Formato, FormatoSnapshot3)
+	}
+	if c.ProdottoID == uuid.Nil {
+		return nil, corpo("prodotto_id", "manca il prodotto")
+	}
+	if len(c.Nodi) > MaxVoci || len(c.Archi) > MaxVoci || len(c.Decisioni) > MaxVoci || len(c.DocumentiPreassociati) > MaxVoci {
+		return nil, corpo("snapshot", "un elenco oltre il limite di %d voci", MaxVoci)
+	}
+	for i := range c.Nodi {
+		c.Nodi[i].Descrizione = nfc(c.Nodi[i].Descrizione)
+	}
+	for i := range c.Archi {
+		c.Archi[i].Posizione = nfc(c.Archi[i].Posizione)
+	}
+	for i, d := range c.Decisioni {
+		campo := fmt.Sprintf("decisioni[%d]", i)
+		raw, err := d.Canonica()
+		if err != nil {
+			return nil, corpo(campo, "la decisione non ha una forma canonica: %v", err)
+		}
+		letta, e := LeggiDecisione3(campo, raw)
+		if e != nil {
+			return nil, e
+		}
+		c.Decisioni[i] = letta
+	}
+	if e := c.valida(); e != nil {
+		return nil, e
+	}
+	c.normalizza()
+	b, err := jsoncanonico.Codifica(c)
+	if err != nil {
+		return nil, corpo("snapshot", "lo snapshot non ha una forma canonica: %v", err)
+	}
+	if len(b) > MaxSnapshot {
+		return nil, corpo("snapshot", "lo snapshot pesa %d byte, oltre il limite di %d", len(b), MaxSnapshot)
+	}
+	riletto, e := leggiSnapshot3(b, 0)
+	if e != nil {
+		return nil, e
+	}
+	if b2, err := riletto.codifica(); err != nil || !bytes.Equal(b, b2) {
+		return nil, corpo("snapshot", "la rilettura dei byte dello scrittore non da' gli stessi byte (%v)", err)
+	}
+	return b, nil
+}
+
+// codifica: i byte canonici di uno snapshot gia' letto (e quindi normalizzato e valido) dal lettore.
+func (s Snapshot3) codifica() ([]byte, error) {
 	c := s.copia()
 	c.normalizza()
 	return jsoncanonico.Codifica(c)
 }
 
-// Impronta e' lo sha256 dei byte canonici (distinta_bozza_versione.impronta, conferma_strutturale.impronta_snapshot).
+// Impronta e' lo sha256 dei byte canonici della chiusura dello scrittore (distinta_bozza_versione.impronta,
+// conferma_strutturale.impronta_snapshot).
 func (s Snapshot3) Impronta() (string, error) {
 	b, err := s.Canonico()
 	if err != nil {

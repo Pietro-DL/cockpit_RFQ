@@ -84,10 +84,18 @@ markmap:
     modi dell'identita' con l'op e le caselle, la presunzione dell'emittente dove non dipende dal database
     (`emittente_presunto_diverso`), caselle e step con l'occorrenza, il gruppo e lo sha256 della sorgente
     (`rif_fuori_importazione`), un rif in un nodo solo, la radice con la casella se c'e' un registro, `qta` sempre
-    (`arco_senza_quantita`), il nodo in modo decisione legato alla sua decisione `identita` o `ricodifica` con la stessa
-    identita', una `non_includere` per rif e mai sul rif di una casella (EM §7.2)
+    (`arco_senza_quantita`), il nodo in modo decisione legato alla sua decisione `identita` (del nodo stesso) o
+    `ricodifica` con la stessa identita', il modo proposta solo su un nodo da creare con il codice proposto, una
+    `non_includere` per rif e mai sul rif di una casella (EM §7.2)
+  - la **rev**: `RevAmmissibile` sempre; senza minuscole ASCII quando la introducono l'ingegnere o il registro (crea,
+    modifica, manuale, proposta, correzione con un codice nuovo); byte per byte quando e' copiata da una fonte che le
+    ammette (la working di un riusa o di un esclude, la bozza formato 2 di un nodo `formato_2`, il codice manuale
+    adottato con `riferimento: manuale_legacy`): `revDallaFonte`, proposta di emendamento P-18
   - la regola dell'**NFC** (N-01): solo descrizioni, motivi e posizioni; l'identita' e le copie dal registro byte per
-    byte; la **forma canonica** (`Canonico`, `Impronta`), `RegistriCitati`
+    byte; la **forma canonica** (`Canonico`, `Impronta`): la chiusura dello scrittore, la stessa normalizzazione del
+    lettore (NFC dei testi umani, decisioni rilette con la loro forma chiusa), le regole di forma, il limite di 2 MiB e
+    la rilettura dei byte prodotti, che deve dare gli stessi byte (CORPO_NON_VALIDO altrimenti, mai uno snapshot salvato
+    che `RileggiVersione` non ritrova); `RegistriCitati`
   - la regola unica della forma dell'emittente: `EmittenteAmmissibile`, `NamespaceAmmissibile` (la grammatica, con il
     tetto di sicurezza del CHECK `ck_csc_identita`), `EmittenteCliente`, `PresunzioneAttesa`, i casi di T-14
     (`CasiT14`, esportati perche' la parte L4 in `platform/migrazioni` usi gli stessi)

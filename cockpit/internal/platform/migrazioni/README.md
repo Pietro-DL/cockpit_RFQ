@@ -267,10 +267,12 @@ markmap:
   - Livello: L4
   - Che cosa prova: i casi di `distintabozza.CasiT14` (gli stessi della parte L1, che li confronta con il validatore
     delle grammatiche) passano dal CHECK `ck_csc_identita` con l'esito di `EmittenteAmmissibile` e
-    `NamespaceAmmissibile`, tetti di sicurezza compresi
+    `NamespaceAmmissibile`, tetti di sicurezza e bianchi Unicode compresi (un id o un namespace di soli tab o spazi
+    tipografici e' vuoto anche per il CHECK)
   - Il caso delle maiuscole non ASCII dipende da `lower()` del database: con LC_CTYPE C (il database di prova) il CHECK
-    le accetta e il Go no, e il caso risulta SALTATA-AMBIENTE (differenza da decidere: resoconto della corsia
-    persistenza di V1)
+    le accetta e il Go no. E' la deviazione dichiarata P-17 del resoconto della corsia persistenza di V1 (T-14 FALLITA
+    per quel caso finche' non e' decisa): la prova la fissa (il CHECK accetta, il Go rifiuta, lo scrive nel log), e una
+    deviazione diversa o in piu' la fa fallire
 - **`larghezze_db_test.go`**
   - Livello: L4
   - Che cosa prova: le colonne `codice` e `rev` larghe almeno quanto `classificazione` dichiara

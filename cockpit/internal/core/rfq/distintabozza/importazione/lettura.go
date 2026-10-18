@@ -28,8 +28,9 @@ type LetturaRegistro struct {
 
 // LetturaCompatta e' la copia compatta di una lettura (EM §3.6.1): {emittente, hash_grammatica, namespace, letterale,
 // base: {originale, normalizzata}, qualificatori, revisione}. Nella forma canonica i facoltativi vuoti o null non si
-// scrivono, e qualificatori e revisione vuoti ({} o null) nemmeno: la stessa regola per la copia della decisione e per
-// quella ricavata dal registro, cosi' il confronto di V-1 e' fra byte canonici.
+// scrivono, nemmeno dentro qualificatori e revisione (la regola della forma canonica del registro, SenzaVuoti), e
+// qualificatori e revisione vuoti non si scrivono affatto: la stessa regola per la copia della decisione e per quella
+// ricavata dal registro, cosi' il confronto di V-1 e' fra byte canonici.
 type LetturaCompatta struct {
 	Emittente      string          `json:"emittente"`
 	HashGrammatica string          `json:"hash_grammatica,omitempty"`
@@ -77,12 +78,16 @@ func StessaLettura(a, b LetturaCompatta) bool {
 	return err == nil && bytes.Equal(x, y)
 }
 
-// opzionale: un oggetto JSON canonico, oppure niente per assente, null o {}.
+// opzionale: un oggetto JSON canonico senza i membri vuoti (la forma canonica del registro, SenzaVuoti), oppure niente
+// per assente, null, {} o un oggetto di soli vuoti.
 func opzionale(r json.RawMessage, campo string) (json.RawMessage, error) {
 	if len(r) == 0 {
 		return nil, nil
 	}
-	c, err := jsoncanonico.Codifica(r)
+	if _, err := jsoncanonico.Codifica(r); err != nil {
+		return nil, fmt.Errorf("%s: %v", campo, err)
+	}
+	c, err := SenzaVuoti(r)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %v", campo, err)
 	}

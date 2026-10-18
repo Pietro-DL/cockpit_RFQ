@@ -189,8 +189,12 @@ func TestV1LaFormaChiusaDelleDecisioni(t *testing.T) {
 		{"identita senza codice", "decisioni[0].identita.codice", cambia(DecisioneIdentita, func(d map[string]any) {
 			delete(d["identita"].(map[string]any), "codice")
 		})},
-		{"identita con la rev minuscola", "decisioni[0].identita.rev", cambia(DecisioneIdentita, func(d map[string]any) {
-			d["identita"].(map[string]any)["rev"] = "b"
+		// (le minuscole della rev dipendono dal nodo: le guarda lo snapshot, TestV1LaRevDaDoveViene; qui la sola forma)
+		{"identita con la rev con uno spazio", "decisioni[0].identita.rev", cambia(DecisioneIdentita, func(d map[string]any) {
+			d["identita"].(map[string]any)["rev"] = "B 1"
+		})},
+		{"identita con la rev oltre 10 byte", "decisioni[0].identita.rev", cambia(DecisioneIdentita, func(d map[string]any) {
+			d["identita"].(map[string]any)["rev"] = strings.Repeat("B", 11)
 		})},
 		{"non_includere con un motivo_codice sconosciuto", "decisioni[0].motivo_codice", cambia(DecisioneNonIncludere, func(d map[string]any) { d["motivo_codice"] = "rumore" })},
 		{"non_includere con un'azione non v4", "decisioni[0].azione_id", cambia(DecisioneNonIncludere, func(d map[string]any) {

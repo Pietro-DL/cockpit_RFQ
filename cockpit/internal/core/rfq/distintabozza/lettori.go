@@ -79,7 +79,7 @@ func RileggiVersione(formatoTestata int, raw json.RawMessage, impronta string) (
 		if err != nil {
 			return SnapshotLetto{}, err
 		}
-		can, err := s.Canonico()
+		can, err := s.codifica()
 		if err != nil {
 			return SnapshotLetto{}, fmt.Errorf("%w: %v", ErrSnapshotIncoerente, err)
 		}
@@ -89,16 +89,17 @@ func RileggiVersione(formatoTestata int, raw json.RawMessage, impronta string) (
 }
 
 // rileggiSnapshot3 rilegge uno snapshot formato 3 salvato e ne ricontrolla l'impronta: la forma canonica rifatta deve
-// dare l'impronta registrata (il lettore normalizza esattamente come lo scrittore: EM §3.10).
+// dare l'impronta registrata (il lettore normalizza esattamente come lo scrittore, Snapshot3.Canonico: EM §3.10).
 func rileggiSnapshot3(raw json.RawMessage, impronta string) (Snapshot3, string, error) {
 	s, e := leggiSnapshot3(raw, 0)
 	if e != nil {
 		return Snapshot3{}, "", fmt.Errorf("%w: non si rilegge (%v)", ErrSnapshotIncoerente, e)
 	}
-	imp, err := s.Impronta()
+	can, err := s.codifica()
 	if err != nil {
 		return Snapshot3{}, "", fmt.Errorf("%w: %v", ErrSnapshotIncoerente, err)
 	}
+	imp := jsoncanonico.Impronta(can)
 	if imp != strings.TrimSpace(impronta) {
 		return Snapshot3{}, "", fmt.Errorf("%w: impronta %s, registrata %s", ErrSnapshotIncoerente, imp, impronta)
 	}
@@ -147,7 +148,7 @@ func LeggiSnapshotConferma(formato int, raw json.RawMessage, impronta string) Sn
 		if err != nil {
 			return nonLeggibile(err.Error())
 		}
-		can, err := s.Canonico()
+		can, err := s.codifica()
 		if err != nil {
 			return nonLeggibile(err.Error())
 		}

@@ -244,7 +244,8 @@ func TestIlRegistroSiLeggeStretto(t *testing.T) {
 		cambia      func(m map[string]any)
 	}{
 		{"campo sconosciuto in testa", "contenuto.inventato", func(m map[string]any) { m["inventato"] = "x" }},
-		{"campo sconosciuto nella voce", "proposta.nodi[1].orario", func(m map[string]any) { voceIn(m, "#7")["orario"] = "2026-10-17" }},
+		// (le voci stanno in ordine di rif: #1, #31, #7, #9)
+		{"campo sconosciuto nella voce", "proposta.nodi[2].orario", func(m map[string]any) { voceIn(m, "#7")["orario"] = "2026-10-17" }},
 		{"campo sconosciuto nel gruppo", "gruppo.bundle_id", func(m map[string]any) { ogg(m["gruppo"])["bundle_id"] = "b" }},
 		{"nome con la maiuscola", "contenuto.Proposta", func(m map[string]any) { m["Proposta"] = m["proposta"]; delete(m, "proposta") }},
 		{"stato_motore con un campo in piu'", "stato_motore.calcolato_il", func(m map[string]any) {
@@ -258,7 +259,44 @@ func TestIlRegistroSiLeggeStretto(t *testing.T) {
 		{"formato del registro", "formato_registro", func(m map[string]any) { m["formato_registro"] = 2 }},
 		{"gruppo senza", "gruppo.chiave", func(m map[string]any) { ogg(m["gruppo"])["chiave"] = "senza" }},
 		{"radice di un altro sha", "gruppo.radice", func(m map[string]any) { ogg(m["gruppo"])["radice"] = "nodo:" + strings.Repeat("d", 64) + ":#1" }},
-		{"voce che non e' la sua origine", "proposta.nodi[1].voce", func(m map[string]any) { voceIn(m, "#7")["voce"] = voceA("#8") }},
+		{"voce che non e' la sua origine", "proposta.nodi[2].voce", func(m map[string]any) { voceIn(m, "#7")["voce"] = voceA("#8") }},
+		{"origine con un'altra chiave", "proposta.nodi[2].origine", func(m map[string]any) { ogg(voceIn(m, "#7")["origine"])["chiave"] = "#8" }},
+		{"codice proposto con uno spazio", "proposta.nodi[2].codice_proposto", func(m map[string]any) { voceIn(m, "#7")["codice_proposto"] = "ACM 1100" }},
+		{"codice proposto con lo spazio unificatore", "codice_proposto", func(m map[string]any) { voceIn(m, "#7")["codice_proposto"] = "ACM\u00a01100" }},
+		{"codice proposto oltre 40 byte", "codice_proposto", func(m map[string]any) { voceIn(m, "#7")["codice_proposto"] = strings.Repeat("A", 41) }},
+		{"rev proposta minuscola", "proposta.nodi[2].rev_proposta", func(m map[string]any) { voceIn(m, "#7")["rev_proposta"] = "a" }},
+		{"rev proposta con uno spazio", "rev_proposta", func(m map[string]any) { voceIn(m, "#7")["rev_proposta"] = "A 1" }},
+		{"radice senza la sua voce", "gruppo.radice", func(m map[string]any) {
+			p := ogg(m["proposta"])
+			var resto []any
+			for _, v := range ele(p["nodi"]) {
+				if ogg(v)["voce"] != voceA("#1") {
+					resto = append(resto, v)
+				}
+			}
+			p["nodi"] = resto
+		}},
+		{"arco verso un nodo che non e' una voce", "figlio", func(m map[string]any) {
+			p := ogg(m["proposta"])
+			p["archi"] = append(ele(p["archi"]), map[string]any{"allegato_id": aProva, "padre": rifA("#7"), "figlio": rifA("#404"), "quantita": 1})
+		}},
+		{"chiave di lettura con due letture diverse", "chiave_lettura", func(m map[string]any) {
+			v := voceIn(m, "#9")
+			altra := mappaDi(t, json.RawMessage(lettura(aProva, "l:u:step:#9:id:beta-num/sei:0-6", "partner:beta", "beta", "400124")))
+			v["alternative"] = append(ele(v["alternative"]), altra)
+		}},
+		{"chiave di lettura di un altro allegato", "chiave_lettura", func(m map[string]any) {
+			ogg(ele(voceIn(m, "#9")["alternative"])[0])["chiave_lettura"] = fProva + "/l:u:step:#9:id:beta-num/sei:0-6"
+		}},
+		{"lettura di un file con la chiave della voce", "chiave_lettura", func(m map[string]any) {
+			ogg(ele(ogg(ele(ogg(m["proposta"])["file"])[0])["letture"])[0])["chiave_lettura"] = aProva + "/l:u:pdf:1:id:beta-num/sei:0-6"
+		}},
+		{"lettura senza chiave", "chiave_lettura", func(m map[string]any) { delete(ogg(voceIn(m, "#7")["identita_proposta"]), "chiave_lettura") }},
+		// null dove il §3.8.2 vuole assente (senza contesto: difetti di forma)
+		{"contesto null", "contesto", func(m map[string]any) { m["contesto"] = nil }},
+		{"partner null", "regole.partner", func(m map[string]any) { ogg(m["regole"])["partner"] = nil }},
+		{"contesto delle regole null", "regole.contesto", func(m map[string]any) { ogg(m["regole"])["contesto"] = nil }},
+		{"grammatica del cliente null", "regole.grammatica_cliente", func(m map[string]any) { ogg(m["regole"])["grammatica_cliente"] = nil }},
 		{"allegato non citato", "allegati_citati", func(m map[string]any) { m["allegati_citati"] = []any{fProva} }},
 		{"citati fuori ordine", "allegati_citati[1]", func(m map[string]any) { m["allegati_citati"] = []any{fProva, aProva} }},
 		{"relazione di un'altra sorgente", "sorgente.tipo", func(m map[string]any) {
@@ -436,14 +474,31 @@ func TestLeImpronteSeguonoLElencoChiuso(t *testing.T) {
 	confronta(t, "il nome ricevuto della fonte", func(m map[string]any) {
 		ogg(ogg(m["proposta"])["fonte"])["nome_ricevuto"] = "altro.stp"
 	}, false, true, false)
-	// null e assente sono la stessa cosa per le impronte parziali
-	conNull := cambiato(t, contenutoDiProva(), func(m map[string]any) { voceIn(m, "#7")["motivo_lettura"] = nil })
-	imp, err := ImpronteParziali(mustCodifica(t, conNull))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if imp.Contenuto != r0.Contenuto.ImprontaContenuto || imp.Evidenze != r0.Contenuto.ImprontaEvidenze {
-		t.Fatal("un campo null cambia le impronte parziali")
+	// null, "", [] e {} valgono come assenti per le impronte parziali, anche annidati e nella parte confrontata, e l'ordine
+	// di voci e archi non conta (la forma canonica del registro)
+	for nome, f := range map[string]func(m map[string]any){
+		"un campo null":                  func(m map[string]any) { voceIn(m, "#7")["motivo_lettura"] = nil },
+		"un elenco vuoto nel confronto":  func(m map[string]any) { voceIn(m, "#7")["alternative"] = []any{} },
+		"un null annidato nel confronto": func(m map[string]any) { ogg(voceIn(m, "#7")["identita_proposta"])["revisione"] = nil },
+		"un oggetto vuoto fra le evidenze": func(m map[string]any) {
+			ogg(ele(ogg(m["proposta"])["file"])[0])["interpretazione"] = map[string]any{"stato": "letta", "contesto_id": nil}
+		},
+		"gli archi al rovescio": func(m map[string]any) {
+			l := ele(ogg(m["proposta"])["archi"])
+			l[0], l[1] = l[1], l[0]
+		},
+	} {
+		x := cambiato(t, contenutoDiProva(), f)
+		imp, err := ImpronteParziali(mustCodifica(t, x))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if imp.Contenuto != r0.Contenuto.ImprontaContenuto || imp.Evidenze != r0.Contenuto.ImprontaEvidenze || imp.Regole != r0.Contenuto.ImprontaRegole {
+			t.Errorf("%s cambia le impronte parziali", nome)
+		}
+		if r := componi(t, x); r.Impronta != r0.Impronta {
+			t.Errorf("%s cambia l'impronta intera", nome)
+		}
 	}
 }
 
@@ -490,13 +545,20 @@ func TestLaCompletezzaDelContesto(t *testing.T) {
 	nessuno := conContesto()
 	vuoto := []PartnerAttivo{}
 	nessuno.Regole.Partner = &vuoto
-	componi(t, nessuno) // con il contesto e nessun partner attivo: un elenco vuoto, ammesso
+	// con il contesto e nessun partner attivo: un elenco vuoto, ammesso, e scritto (la forma canonica non lo toglie)
+	if r := componi(t, nessuno); !bytes.Contains(r.Canonico, []byte(`"partner":[]`)) {
+		t.Fatal("l'elenco vuoto dei partner con il contesto attivo non si scrive")
+	}
 	for nome, guasta := range map[string]func(*Contenuto){
 		"senza partner":         func(c *Contenuto) { c.Regole.Partner = nil },
 		"senza la copia":        func(c *Contenuto) { c.Contesto = nil },
 		"con la copia null":     func(c *Contenuto) { c.Contesto = raw("null") },
+		"con la copia vuota":    func(c *Contenuto) { c.Contesto = raw("{}") },
 		"senza impronta":        func(c *Contenuto) { c.Regole.Contesto.Impronta = "" },
 		"senza id del contesto": func(c *Contenuto) { c.Regole.Contesto.ID = nil },
+		"senza impronta_indice": func(c *Contenuto) { c.Calcolo = raw(`{"voci":{},"bundle_id":"b-1"}`) },
+		"impronta_indice vuota": func(c *Contenuto) { c.Calcolo = raw(`{"impronta_indice":""}`) },
+		"senza calcolo":         func(c *Contenuto) { c.Calcolo = nil },
 	} {
 		c := conContesto()
 		guasta(&c)
@@ -517,6 +579,95 @@ func TestLaCompletezzaDelContesto(t *testing.T) {
 	c.Contesto = raw(`{"id":"x"}`)
 	if _, err := Componi(c); err == nil {
 		t.Fatal("una copia del contesto senza contesto nelle regole passa")
+	}
+	// un null al posto della copia del contesto: con il contesto attivo e' un registro incompleto (sopra), senza e' un
+	// difetto di forma, mai un «assente» (EM §3.8.2; PM23 §10 righe 2-3)
+	c = contenutoDiProva()
+	c.Contesto = raw("null")
+	_, err := Componi(c)
+	var e *Errore
+	if !errors.As(err, &e) || e.Codice != "" || e.Campo != "contesto" {
+		t.Fatalf("contesto null senza contesto: atteso un difetto di forma, %v", err)
+	}
+	// Leggi distingue allo stesso modo: il testo con un null nei campi del §3.8.2 non si legge
+	m := mappaDi(t, json.RawMessage(componi(t, conContesto()).Canonico))
+	ogg(m["regole"])["partner"] = nil
+	b, _ := json.Marshal(m)
+	if _, err := Leggi(b); !errors.As(err, &e) || e.Codice != CodicePropostaNonDisponibile || e.Motivo != MotivoRegistroIncompleto {
+		t.Fatalf("partner null con il contesto attivo: atteso %s/%s, %v", CodicePropostaNonDisponibile, MotivoRegistroIncompleto, err)
+	}
+}
+
+// TestLaFormaCanonicaDelRegistro (EM §3.10, §3.8; P-12 e P-19 del resoconto della corsia persistenza): lo stesso
+// contenuto da' gli stessi byte e le stesse impronte comunque sia scritto: i membri null, "", [] e {} a ogni livello
+// valgono come assenti e non si scrivono (salvo regole.partner, provato sopra), le voci e gli archi si mettono in
+// ordine. Leggi e Componi danno gli stessi byte.
+func TestLaFormaCanonicaDelRegistro(t *testing.T) {
+	r0 := componi(t, contenutoDiProva())
+	// lo stesso contenuto con dei vuoti annidati, anche nella parte confrontata, e gli elenchi al rovescio
+	m := mappaDi(t, json.RawMessage(r0.Canonico))
+	voceIn(m, "#7")["motivo_lettura"] = nil
+	voceIn(m, "#7")["alternative"] = []any{}
+	voceIn(m, "#7")["codice_composto"] = map[string]any{}
+	voceIn(m, "#9")["motivo_rev"] = ""
+	ogg(voceIn(m, "#1")["identita_proposta"])["qualificatori"] = map[string]any{"affissi": []any{}, "decorazioni": []any{}}
+	ogg(m["gruppo"])["motivo_grafo"] = nil
+	ogg(m["proposta"])["relazioni"].([]any)[0].(map[string]any)["modello"] = ""
+	p := ogg(m["proposta"])
+	for _, k := range []string{"nodi", "archi"} {
+		l := ele(p[k])
+		for i, j := 0, len(l)-1; i < j; i, j = i+1, j-1 {
+			l[i], l[j] = l[j], l[i]
+		}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, err := Leggi(b)
+	if err != nil {
+		t.Fatalf("lo stesso contenuto con i vuoti e gli elenchi al rovescio non si legge: %v", err)
+	}
+	if !bytes.Equal(r1.Canonico, r0.Canonico) || r1.Impronta != r0.Impronta {
+		t.Fatalf("vuoti e ordine cambiano i byte o l'impronta:\n%s\n%s", r1.Canonico, r0.Canonico)
+	}
+	// Componi sullo stesso contenuto scritto cosi' da' lo stesso registro
+	r2 := componi(t, cambiato(t, contenutoDiProva(), func(m map[string]any) {
+		voceIn(m, "#7")["alternative"] = []any{}
+		voceIn(m, "#9")["motivo_rev"] = ""
+		p := ogg(m["proposta"])
+		l := ele(p["nodi"])
+		l[0], l[len(l)-1] = l[len(l)-1], l[0]
+	}))
+	if !bytes.Equal(r2.Canonico, r0.Canonico) {
+		t.Fatalf("Componi dipende dai vuoti o dall'ordine delle voci:\n%s\n%s", r2.Canonico, r0.Canonico)
+	}
+	// Leggi e Componi: Componi(Leggi(x).Contenuto) ha gli stessi byte di Leggi(x)
+	for nome, reg := range map[string]Registro{"senza contesto": r0, "con il contesto": componi(t, func() Contenuto {
+		c := contenutoDiProva()
+		c.Regole.Contesto = &ContestoRegole{ID: raw(`"ctx-acme"`), Impronta: strings.Repeat("5", 64)}
+		p := []PartnerAttivo{}
+		c.Regole.Partner = &p
+		c.Contesto = raw(`{"id":"ctx-acme","eredita_da":null,"partner":[]}`)
+		return c
+	}())} {
+		letto, err := Leggi(reg.Canonico)
+		if err != nil {
+			t.Fatalf("%s: %v", nome, err)
+		}
+		ricomposto := componi(t, letto.Contenuto)
+		if !bytes.Equal(ricomposto.Canonico, letto.Canonico) || ricomposto.Impronta != letto.Impronta {
+			t.Fatalf("%s: Componi(Leggi(x).Contenuto) cambia i byte:\n%s\n%s", nome, ricomposto.Canonico, letto.Canonico)
+		}
+	}
+	// nei byte canonici non resta un vuoto, salvo l'elenco dei partner
+	for _, vuoto := range []string{`:null`, `:""`, `:{}`} {
+		if bytes.Contains(r0.Canonico, []byte(vuoto)) {
+			t.Errorf("i byte canonici portano %s", vuoto)
+		}
+	}
+	if bytes.Contains(r0.Canonico, []byte(`:[]`)) {
+		t.Error("i byte canonici portano un elenco vuoto")
 	}
 }
 

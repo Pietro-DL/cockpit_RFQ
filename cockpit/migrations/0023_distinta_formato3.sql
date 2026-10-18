@@ -405,12 +405,12 @@ ALTER TABLE conferma_strutturale_componente ADD CONSTRAINT ck_csc_identita CHECK
      OR emittente ~ '^cliente:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
      OR (left(emittente, 8) = 'partner:'
          AND char_length(emittente) BETWEEN 9 AND 208
-         AND btrim(substr(emittente, 9), E' \t\n\r\f\u000b\u0085               　') <> ''
+         AND btrim(substr(emittente, 9), E' \t\n\r\f\u000b\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000') <> ''
          AND strpos(substr(emittente, 9), ' ') = 0 AND strpos(substr(emittente, 9), ':') = 0
          AND strpos(substr(emittente, 9), '/') = 0
          AND substr(emittente, 9) = lower(substr(emittente, 9))))
     AND (namespace IS NULL
-         OR (btrim(namespace, E' \t\n\r\f\u000b\u0085               　') <> ''
+         OR (btrim(namespace, E' \t\n\r\f\u000b\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000') <> ''
              AND char_length(namespace) <= 500))
     AND (namespace IS NULL OR emittente IS NOT NULL)
     AND ((emittente IS NULL) = (emittente_presunto IS NULL)));
@@ -1456,6 +1456,7 @@ vera. Lo usano le cinque viste ridefinite dalla 0023 e le query delle proposte.'
 -- ============================================================ 12. VARIANTE E VERSIONE
 -- La variante lega il testo di questo file al database (platform/migrazioni, ControllaVarianti): ogni cambio del testo
 -- prima della spinta cambia anche la variante (la prova L1 lega variante e impronta del file). 20261018a: il testo del
--- primo passaggio della corsia; 20261018b: dopo la revisione (CHECK del formato 3, identita' certificata, controllo (i)).
-INSERT INTO schema_variante (versione, variante) VALUES (23, '0023-v1-formato3-file-20261018b');
+-- primo passaggio della corsia; 20261018b: dopo la revisione (CHECK del formato 3, identita' certificata, controllo (i));
+-- 20261018c: i bianchi di ck_csc_identita tutti come sequenze di escape, U+2028 e U+2029 compresi.
+INSERT INTO schema_variante (versione, variante) VALUES (23, '0023-v1-formato3-file-20261018c');
 INSERT INTO schema_versione (versione) VALUES (23);
