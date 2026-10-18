@@ -347,7 +347,8 @@ markmap:
   dell'interpretazione e l'impronta uguali a quelli del codice di prima (aabe52c), con le versioni del motore.
 - **`contesto_esposizione_test.go`** (V1) — L1: il perimetro esposto è l'attivazione (per allegato, per sha256 e nome,
   mai per sola impronta; un contesto proposto non attiva niente; un messaggio non è mai nel perimetro); i partner attivi
-  con l'hash delle loro letture, senza il partner non caricabile, nessuno per un contesto revocato o nil; la copia
+  con l'hash delle loro letture (quello caricato, anche quando il contesto lo scrive in maiuscolo), senza il partner non
+  caricabile, nessuno per un contesto revocato o nil; la copia
   canonica, con e senza eredita_da, ha l'impronta del contesto, la stessa di prima di V1, e una copia cambiata non tocca
   la successiva.
 

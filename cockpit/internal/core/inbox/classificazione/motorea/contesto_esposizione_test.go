@@ -96,6 +96,15 @@ func TestContestoPartnerAttivi(t *testing.T) {
 	if b := lettureDi(i, "beta-dis"); len(b) != 1 || b[0].Forma.Emittente != "beta" || b[0].Forma.HashEmittente != r.PartnerAttivi()[0].Hash {
 		t.Errorf("l'hash del partner attivo è quello delle sue letture: %+v", b)
 	}
+	// Il contesto può scrivere l'hash con le maiuscole (il confronto non le guarda): l'hash esposto resta quello della
+	// grammatica caricata, com'è nelle letture, mai il testo del contesto.
+	mu, _, err := RisolviContesto(m, contesto(strings.ToUpper(hash), []OccorrenzaContesto{{Sha256: shaP1, Nome: "654321.pdf"}}, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := mu.PartnerAttivi(), []PartnerAttivo{{Emittente: "beta", Hash: hash}}; strings.ToUpper(hash) == hash || !reflect.DeepEqual(got, want) {
+		t.Errorf("con l'hash del contesto in maiuscolo: partner attivi %+v, attesi %+v", got, want)
+	}
 
 	nc, diag, err := RisolviContesto(m, contesto(strings.Repeat("9", 64), []OccorrenzaContesto{{Sha256: shaP1, Nome: "654321.pdf"}}, nil), nil)
 	if err != nil || len(conCodice(diag, CodiceContestoPartnerNonCaricabile)) != 1 {
