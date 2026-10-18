@@ -151,20 +151,13 @@ type StoricoR7 struct {
 	Dettaglio    *DettaglioR7     `json:"dettaglio,omitempty"`
 }
 
-// verificaCalcolata dice se la conferma porta una verifica calcolata: nel formato 3 di V1 la verifica registrata e' quella
-// provvisoria «mai positiva» (EM §3.9, K-1 [U]; base di lavoro RV3-36 A), quindi falsa; nei formati 1 e 2 vero se la
-// colonna verifica ne porta una (un oggetto non vuoto con un esito).
-func verificaCalcolata(formato int16, verifica json.RawMessage) bool {
-	if formato == FormatoSnapshot3 {
-		return false
-	}
-	var v map[string]json.RawMessage
-	if json.Unmarshal(verifica, &v) != nil || len(v) == 0 {
-		return false
-	}
-	_, esito := v["esito"]
-	_, verificata := v["verificata"]
-	return esito || verificata
+// verificaCalcolata e' il segno di EM §9.7 (DECA PE-07; MAT §6.2; PM23 R-17), alla lettera del testo recepito: vero se la
+// conferma porta la verifica registrata da R5, cioe' per le conferme formato 3 (in V1 la verifica provvisoria «mai
+// positiva», K-1 [U]), falso per i formati 1 e 2, qualunque cosa porti la loro colonna verifica. La pagina ne ricava
+// «Verificata»: con vero «non ancora calcolata (arriva in V2)», con falso il calcolo di oggi (MAT §6.2, righe
+// «Verificata»). Prima del secondo passaggio dell'ondata B il codice aveva la polarita' opposta (PB-19, ritirata).
+func verificaCalcolata(formato int16) bool {
+	return formato == FormatoSnapshot3
 }
 
 // LeggiStorico e' R7 (commento di testa). Chi chiama apre la transazione in sola lettura.
@@ -200,7 +193,7 @@ func LeggiStorico(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID
 		c := ConfermaR7{ConfermaID: r.ConfermaID, Numero: int(r.Numero), Formato: int(r.Formato), SenzaRiepilogoV2: r.SenzaRiepilogoV2,
 			ConfermatoDa: r.ConfermatoDa, ConfermatoDaNome: r.ConfermatoDaNome, ConfermatoDaSigla: r.ConfermatoDaSigla,
 			ConfermatoIl: r.ConfermatoIl, FirmaStruttura: strings.TrimSpace(r.FirmaStruttura), CriterioVerifica: r.CriterioVerifica,
-			MonoPezzo: r.MonoPezzo, Origine: canonico(r.Origine), VerificaCalcolata: verificaCalcolata(r.Formato, r.Verifica),
+			MonoPezzo: r.MonoPezzo, Origine: canonico(r.Origine), VerificaCalcolata: verificaCalcolata(r.Formato),
 			F8Stato: r.F8Stato.String, ImportazioniCitate: r.ImportazioniCitate}
 		c.Ultima = haUltima && u.ID == r.ConfermaID
 		c.Valida = c.Ultima && val.Valida

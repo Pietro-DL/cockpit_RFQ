@@ -195,7 +195,7 @@ func verificaPrimaVersione3(ctx context.Context, q *db.Queries, thread uuid.UUID
 	if err != nil {
 		return "", err
 	}
-	rifatto, _, _, err := convertiSnapshot(ctx, q, thread, vecchio, EmittenteCliente(cliente))
+	rifatto, _, err := convertiSnapshot(ctx, q, thread, vecchio, EmittenteCliente(cliente))
 	if err != nil {
 		return fmt.Sprintf("conversione-1 oggi non si rifa' (%v): le occorrenze dei file sono cambiate dopo la conversione", err), nil
 	}

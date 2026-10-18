@@ -62,6 +62,86 @@ type Riconciliazione3 struct {
 	Strutturali int
 	// ProposteCitate: le proposte che file_preassociato, file_svincolato e file_lasciato nominano.
 	ProposteCitate []uuid.UUID
+	// Riferimenti: gli UUID e i registri che i prima e i dopo degli eventi nominano (EM §9, «ogni UUID del corpo e della
+	// query, ovunque sia annidato»): chi salva controlla anche quelli che compaiono solo nelle azioni, per esempio un nodo
+	// aggiunto e tolto nello stesso salvataggio.
+	Riferimenti RiferimentiEventi
+	// NodiAggiunti: le chiavi dei nodi che un nodo_aggiunto di questo salvataggio mette nella bozza (non quelli che un
+	// annulla o un rifai riporta): chi salva verifica il loro modo con le regole P-2...P-6 (EM §6.1, «le stesse regole
+	// valgono per l'importazione a mano»).
+	NodiAggiunti []string
+}
+
+// RiferimentiEventi: gli UUID e i registri nominati dagli eventi di un salvataggio, ciascuno con il primo campo che lo
+// nomina (azioni[i].prima|dopo...).
+type RiferimentiEventi struct {
+	Componenti map[uuid.UUID]string
+	Allegati   map[uuid.UUID]string
+	Proposte   map[uuid.UUID]string
+	Registri   map[string]string
+}
+
+// raccogli scorre un prima o un dopo scritto dal server e ne prende i riferimenti: componenti (componente_id, padre_id,
+// figlio_id, prodotti[]), allegati (allegato_id delle caselle, degli step, delle citazioni; l'allegato di una
+// chiave_lettura), proposte (proposta_id) e registri (importazione). azione_id, conferma_id della base e id delle
+// decisioni non sono riferimenti da controllare qui.
+func (r *RiferimentiEventi) raccogli(campo string, raw json.RawMessage) {
+	if nullo(raw) {
+		return
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return
+	}
+	if r.Componenti == nil {
+		r.Componenti, r.Allegati, r.Proposte, r.Registri = map[uuid.UUID]string{}, map[uuid.UUID]string{}, map[uuid.UUID]string{}, map[string]string{}
+	}
+	metti := func(m map[uuid.UUID]string, s, dove string) {
+		if u, err := uuid.Parse(s); err == nil && u != uuid.Nil {
+			if _, ok := m[u]; !ok {
+				m[u] = dove
+			}
+		}
+	}
+	var scorri func(dove string, x any)
+	scorri = func(dove string, x any) {
+		switch t := x.(type) {
+		case map[string]any:
+			for k, y := range t {
+				d := dove + "." + k
+				s, testo := y.(string)
+				switch {
+				case testo && (k == "componente_id" || k == "padre_id" || k == "figlio_id"):
+					metti(r.Componenti, s, d)
+				case testo && k == "allegato_id":
+					metti(r.Allegati, s, d)
+				case testo && k == "proposta_id":
+					metti(r.Proposte, s, d)
+				case testo && k == "chiave_lettura":
+					metti(r.Allegati, strings.SplitN(s, "/", 2)[0], d)
+				case testo && k == "importazione" && reSha256.MatchString(s):
+					if _, ok := r.Registri[s]; !ok {
+						r.Registri[s] = d
+					}
+				case k == "prodotti":
+					if xx, ok := y.([]any); ok {
+						for i, p := range xx {
+							if ps, ok := p.(string); ok {
+								metti(r.Componenti, ps, fmt.Sprintf("%s[%d]", d, i))
+							}
+						}
+					}
+				default:
+					scorri(d, y)
+				}
+			}
+		case []any:
+			for i, y := range t {
+				scorri(fmt.Sprintf("%s[%d]", dove, i), y)
+			}
+		}
+	}
+	scorri(campo, v)
 }
 
 var originiDelBrowser3 = map[string]bool{OrigineStep: true, OrigineUtente: true}
@@ -107,6 +187,8 @@ func Riconcilia3(prima, dopo Snapshot3, azioni []Azione, cx Contesto3) (Riconcil
 		if a.Azione != AzSorgenteVista && a.Azione != AzSorgenteRifiutata && a.Azione != AzFileLasciato {
 			r.Strutturali++
 		}
+		r.Riferimenti.raccogli(campo+".prima", ev.Prima)
+		r.Riferimenti.raccogli(campo+".dopo", ev.Dopo)
 		r.Eventi = append(r.Eventi, ev)
 	}
 	rifatto, err := st.snapshotJSON()
@@ -330,6 +412,7 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := rc.st.applicaV2(campo, a.Azione, nil, canonico(n)); e != nil {
 			return ev, e
 		}
+		rc.r.NodiAggiunti = append(rc.r.NodiAggiunti, n.ChiaveBozza)
 	case AzNodoTolto:
 		azione, e := leggiSoloAzioneID(campo+".dopo", a.Dopo)
 		if e != nil {
@@ -374,10 +457,14 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := decodificaStretta(campo+".dopo", a.Dopo, &d); e != nil {
 			return ev, e
 		}
-		for k := range p {
-			if !ammessi[k] {
-				return ev, corpo(campo, "%s: il campo %q del nodo non si cambia cosi'", a.Azione, k)
-			}
+		// prima e dopo nominano gli stessi campi, almeno uno (EM §9.2, come il vocabolario 1: DB/azioni.go modificaNodo), e
+		// solo campi che il verbo puo' toccare: la chiave e l'origine mai (EM §3.4, [U] P4-WZ-01/02). Un campo del dopo che il
+		// prima non nomina cambierebbe lo snapshot senza entrare nell'evento, e il giornale non rifarebbe la versione (T-10)
+		if e := stessiCampi3(campo, a.Azione, p, d, ammessi); e != nil {
+			return ev, e
+		}
+		if a.Azione == AzNodoRiusato && (!nominato(p, "op") || !nominato(p, "componente_id")) {
+			return ev, corpo(campo, "nodo_riusato nomina op e componente_id (e al piu' l'identita')")
 		}
 		// i valori di prima e dopo nella forma del nodo: si leggono sovrapposti al nodo corrente, che e' gia' normalizzato
 		cur, ok := rc.nodo3Di(a.ChiaveBozza)
@@ -531,13 +618,12 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if err != nil {
 			return ev, corpo(campo+"."+nome, "la decisione non ha una forma canonica: %v", err)
 		}
-		// la chiave e' quella del nodo della decisione, se ne nomina uno; una decisione senza chiave (non_includere, il
-		// nodo e' tolto) tiene quella dichiarata dalla pagina
-		ded := d.ChiaveBozza
-		if ded == "" {
-			ded = a.ChiaveBozza
-		}
-		if e := chiave(ded); e != nil {
+		// la chiave e' dedotta dalla decisione: la sua chiave_bozza, se il tipo ha il campo; per i tipi che non l'hanno
+		// (non_includere, escludi, scollega_documento, togli_arco, cambia_tipo, ricodifica, arco_condiviso, mono_pezzo)
+		// null. Una chiave dichiarata diversa e' azioni_non_riconciliate. E' la regola del vocabolario 1 (DB/azioni.go
+		// :594-600, :780, :1246-1253) e la raccomandata (a) di RPC PD-08: nel giornale non entra mai una chiave che il
+		// server non ha verificato (scelta [T] della corsia persistenza, secondo passaggio dell'ondata B, al posto di PB-14)
+		if e := chiave(d.ChiaveBozza); e != nil {
 			return ev, e
 		}
 		if a.Azione == AzDecisioneAggiunta {
@@ -644,7 +730,9 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		}
 		rc.r.Rebase = &RebaseDichiarato3{Base: d.Base, Motivo: ev.Motivo}
 		ev.Prima = canonico(map[string]any{"base": p.Base})
-		ev.Dopo = canonico(map[string]any{"base": d.Base, "rif_scaduti": d.RifScaduti})
+		// i rif scaduti del dopo li scrive il server, non li copia dal corpo: un rebase che lascia rif scaduti R2 lo rifiuta
+		// (verifica3.rebase, 422 rif_scaduti), quindi il valore vero e' sempre l'elenco vuoto
+		ev.Dopo = canonico(map[string]any{"base": d.Base, "rif_scaduti": []any{}})
 	case AzSorgenteVista, AzSorgenteRifiutata:
 		if e := vuoto(a.Prima, "prima"); e != nil {
 			return ev, e
@@ -804,6 +892,35 @@ func (rc *riconciliatore3) evento(n int) (*Evento, error) {
 	return nil, nil
 }
 
+// stessiCampi3: prima e dopo di nodo_modificato e nodo_riusato nominano lo stesso insieme di campi, non vuoto, tutti fra
+// quelli del verbo (EM §9.2; come il vocabolario 1, che da' CORPO_NON_VALIDO senza motivo: e' la forma dell'azione).
+func stessiCampi3(campo, verbo string, p, d oggettoV2, ammessi map[string]bool) *Errore {
+	if len(p) == 0 || len(p) != len(d) {
+		return corpo(campo, "%s: prima e dopo nominano gli stessi campi, almeno uno", verbo)
+	}
+	for k := range d {
+		if _, ok := p[k]; !ok {
+			return corpo(campo, "%s: prima e dopo nominano gli stessi campi, almeno uno (il dopo nomina %q, il prima no)", verbo, k)
+		}
+	}
+	nomi := make([]string, 0, len(p))
+	for k := range p {
+		nomi = append(nomi, k)
+	}
+	sort.Strings(nomi)
+	for _, k := range nomi {
+		if !ammessi[k] {
+			return corpo(campo, "%s: il campo %q del nodo non si cambia cosi'", verbo, k)
+		}
+	}
+	return nil
+}
+
+func nominato(o oggettoV2, k string) bool {
+	_, ok := o[k]
+	return ok
+}
+
 // sovrapponi3: il nodo (oggetto canonico) con i campi dati al posto dei suoi, riletto con le regole di forma del nodo.
 func (rc *riconciliatore3) sovrapponi3(campo string, cur oggettoV2, campi oggettoV2) (Nodo3, *Errore) {
 	m := oggettoV2{}
@@ -916,25 +1033,13 @@ func leggiRebase3(campo string, a Azione, sorgente *Sorgente3) (rebase3Prima, re
 	if e := d.Base.valida(campo + ".dopo.base"); e != nil {
 		return p, d, e
 	}
-	if len(d.RifScaduti) > MaxVoci {
-		return p, d, corpo(campo+".dopo.rif_scaduti", "troppi rif scaduti (al piu' %d)", MaxVoci)
+	// dopo un rebase non restano rif scaduti (R2 rifiuta il rebase che ne lascia: verifica3.rebase): l'unico dopo che il
+	// server puo' scrivere ha l'elenco vuoto, e un elenco dichiarato diverso e' un rebase che non si salva
+	if len(d.RifScaduti) > 0 {
+		return p, d, corpoMotivo(campo+".dopo.rif_scaduti", MotivoRifScaduti,
+			"dopo il rebase non restano rif scaduti: il dopo li dice vuoti (li scrive il server); prima si tolgono o si rifanno")
 	}
-	for i, x := range d.RifScaduti {
-		var o map[string]json.RawMessage
-		if err := json.Unmarshal(x, &o); err != nil {
-			return p, d, corpo(fmt.Sprintf("%s.dopo.rif_scaduti[%d]", campo, i), "un rif scaduto e' un oggetto {chiave_bozza | decisione, casella, motivo}")
-		}
-		for k := range o {
-			switch k {
-			case "chiave_bozza", "decisione", "casella", "motivo":
-			default:
-				return p, d, corpo(fmt.Sprintf("%s.dopo.rif_scaduti[%d].%s", campo, i, k), "campo non ammesso in un rif scaduto")
-			}
-		}
-	}
-	if d.RifScaduti == nil {
-		d.RifScaduti = []json.RawMessage{}
-	}
+	d.RifScaduti = []json.RawMessage{}
 	return p, d, nil
 }
 

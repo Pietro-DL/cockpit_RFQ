@@ -5,6 +5,11 @@ package distintabozza
 // (DU-B33). «vassoio»: dalla stessa sequenza di eventi del giornale il server (VassoioDa, quello di R1 ?eventi=1) da' lo
 // stesso vassoio; «applica»: le azioni del vocabolario 2 applicate allo snapshot con la regola del server (applica2.go)
 // danno lo snapshot atteso.
+//
+// T-16 lato server e' quindi **in parte** (rilievo della revisione dell'ondata B): il vassoio passa dalla funzione di R1,
+// le azioni «applica» solo dall'applicazione strutturale (applicaV2, modificaV2), non dalla strada di R2 (LeggiSnapshot3 e
+// Riconcilia3 con le forme di EM §9.2): i casi del file a 33066de hanno snapshot parziali e forme che R2 rifiuta. Passano
+// da li' dopo RIC-I1, RIC-I2 (corsia interfaccia) e la decisione su RPC PD-08 (PM23 T-16; RIC-P5).
 
 import (
 	"bytes"

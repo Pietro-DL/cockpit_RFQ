@@ -57,14 +57,41 @@ type LetturaR1 struct {
 	AggiornataDa            *uuid.UUID                    `json:"aggiornata_da,omitempty"`
 	AggiornataIl            *time.Time                    `json:"aggiornata_il,omitempty"`
 	NEventi                 *int                          `json:"n_eventi,omitempty"`
-	Eventi                  []EventoLetto                 `json:"eventi,omitempty"`
+	Eventi                  []EventoR1                    `json:"eventi,omitempty"`
 	VersioneCorrente        *confermabom.VersioneCorrente `json:"versione_corrente,omitempty"`
 	Base                    *StatoBase                    `json:"base,omitempty"`
 	// RifScaduti e Vassoio ci sono sempre per una bozza formato 3, anche vuoti ([]); mancano per nessuna_bozza e formato 2.
-	RifScaduti              *[]RifScaduto                 `json:"rif_scaduti,omitempty"`
-	Vassoio                 *[]VoceVassoio                `json:"vassoio,omitempty"`
-	DaRivedere              json.RawMessage               `json:"da_rivedere,omitempty"`
-	Conversione             *Conversione                  `json:"conversione,omitempty"`
+	RifScaduti  *[]RifScaduto   `json:"rif_scaduti,omitempty"`
+	Vassoio     *[]VoceVassoio  `json:"vassoio,omitempty"`
+	DaRivedere  json.RawMessage `json:"da_rivedere,omitempty"`
+	Conversione *Conversione    `json:"conversione,omitempty"`
+}
+
+// EventoR1 e' un evento del giornale come lo da' R1 ?eventi=1 (EM §9.1 e §9.2: «nel giornale la chiave si chiama
+// chiave», come nel C3, C3:752-753; RIC-P6 della corsia contratto): i campi di EventoLetto, con la chiave dell'evento nel
+// campo chiave e l'autore in autore. La pagina li legge cosi' (distinta_unica.mjs: eventoAzione, da_rivedere, autoreDi).
+type EventoR1 struct {
+	N           int             `json:"n"`
+	Versione    int             `json:"versione"`
+	Vocabolario int             `json:"vocabolario"`
+	Azione      string          `json:"azione"`
+	Chiave      string          `json:"chiave,omitempty"`
+	Prima       json.RawMessage `json:"prima,omitempty"`
+	Dopo        json.RawMessage `json:"dopo,omitempty"`
+	Origine     string          `json:"origine"`
+	Motivo      string          `json:"motivo,omitempty"`
+	Autore      uuid.UUID       `json:"autore"`
+	Quando      time.Time       `json:"quando"`
+}
+
+// EventiR1 porta gli eventi letti nella forma di R1.
+func EventiR1(ee []EventoLetto) []EventoR1 {
+	out := make([]EventoR1, 0, len(ee))
+	for _, e := range ee {
+		out = append(out, EventoR1{N: e.N, Versione: e.Versione, Vocabolario: e.Vocabolario, Azione: e.Azione, Chiave: e.ChiaveBozza,
+			Prima: e.Prima, Dopo: e.Dopo, Origine: e.Origine, Motivo: e.Motivo, Autore: e.UtenteID, Quando: e.Quando})
+	}
+	return out
 }
 
 // LeggiR1 legge la bozza aperta di un prodotto della RFQ nel formato effettivo (commento di testa). Errori: la RFQ che
@@ -130,7 +157,7 @@ func LeggiR1(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, op 
 		eventi = append(eventi, eventoLetto(e))
 	}
 	if op.Eventi {
-		out.Eventi = eventi
+		out.Eventi = EventiR1(eventi)
 		out.DaRivedere = daRivedereDa(eventi)
 	}
 	if letto.Formato3 == nil {

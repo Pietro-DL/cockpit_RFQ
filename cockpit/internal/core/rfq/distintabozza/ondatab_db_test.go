@@ -536,7 +536,8 @@ func TestV1SalvaFormato3IRiferimentiELeIdentita(t *testing.T) {
 			}
 		}
 		s["decisioni"] = append(dd, nuova)
-		return s, []Azione{azione3(t, AzDecisioneTolta, "k-cordone", vecchia, nil), azione3(t, AzDecisioneAggiunta, "k-cordone", nil, nuova)}
+		// la non_includere non ha chiave_bozza: la chiave degli eventi e' null (RPC PD-08, raccomandata (a))
+		return s, []Azione{azione3(t, AzDecisioneTolta, "", vecchia, nil), azione3(t, AzDecisioneAggiunta, "", nil, nuova)}
 	}
 	s, aa = segnale("ancoraggio-2")
 	_, err = salva(s, aa...)
@@ -570,7 +571,7 @@ func TestV1SalvaFormato3IRiferimentiELeIdentita(t *testing.T) {
 		"motivo_codice": "altro", "motivo": "non serve", "azione_id": azioneB}
 	s = copiaProfonda(t, cur)
 	s["decisioni"] = append(s["decisioni"].([]any), ni)
-	_, err = salva(s, azione3(t, AzDecisioneAggiunta, "k-x", nil, ni))
+	_, err = salva(s, azione3(t, AzDecisioneAggiunta, "", nil, ni))
 	codice3(t, err, CodiceFileNonAttivo, "")
 	// i riferimenti gia' salvati restano: un salvataggio che non li tocca passa anche con lo STEP in Altri file
 	s = copiaProfonda(t, cur)
@@ -591,7 +592,7 @@ func TestV1LeggiR1Formato3(t *testing.T) {
 	if l.Stato != StatoAperta || l.Formato != FormatoSnapshot3 || l.Vocabolario != VocabolarioFormato3 || l.Versione != 1 || l.BozzaID == nil || *l.BozzaID != sc.bozza {
 		t.Fatalf("testata: %+v", l)
 	}
-	if l.NEventi == nil || *l.NEventi != 1 || len(l.Eventi) != 1 || l.Eventi[0].Azione != AzBozzaAperta {
+	if l.NEventi == nil || *l.NEventi != 1 || len(l.Eventi) != 1 || l.Eventi[0].Azione != AzBozzaAperta || l.Eventi[0].Autore != sc.utente {
 		t.Fatalf("eventi: %v %+v", l.NEventi, l.Eventi)
 	}
 	if l.ChiaveUltimoSalvataggio == nil || *l.ChiaveUltimoSalvataggio != sc.chiave0 {
@@ -779,10 +780,13 @@ func TestV1StoricoR7ITreFormati(t *testing.T) {
 	if len(st.Conferme) != 3 {
 		t.Fatalf("conferme: %+v", st.Conferme)
 	}
+	// verifica_calcolata (EM §9.7, MAT §6.2, PM23 R-17, alla lettera del testo recepito): vera per la conferma formato 3
+	// scritta da R5, falsa per le formato 1 (con la colonna verifica al suo valore di partenza, '{}') e 2 (anche con un esito
+	// nella colonna verifica)
 	for i, atteso := range []struct {
 		formato  int
 		verifica bool
-	}{{1, false}, {2, true}, {3, false}} {
+	}{{1, false}, {2, false}, {3, true}} {
 		c := st.Conferme[i]
 		if c.Formato != atteso.formato || c.VerificaCalcolata != atteso.verifica || c.ConfermatoDaNome != "Prova bozza" || c.ConfermatoDaSigla != "DBZ" {
 			t.Errorf("conferma %d: %+v", i+1, c)
@@ -869,6 +873,11 @@ func TestV1ConversioneFormato2(t *testing.T) {
 	ctx := context.Background()
 	shaB := strings.Repeat("b", 64)
 	riga := uuid.MustParse("00000000-0000-4000-8000-0000000c0007")
+	rigaM := uuid.MustParse("00000000-0000-4000-8000-0000000c0008")
+	rigaS := uuid.MustParse("00000000-0000-4000-8000-0000000c0009")
+	proposta := nuovaProposta(t, p, s.allegato2, s.thread, nil)
+	ricodifica := json.RawMessage(`{"id":"rc-1","tipo":"ricodifica","componente_id":"` + idDi("k-p1-1").String() +
+		`","codice_prima":"ACM-1101","codice_dopo":"ACM-1101X","motivo":"il codice del fornitore"}`)
 	vecchio := Snapshot{Formato: FormatoSnapshot, ProdottoID: s.prodotto, VersioneBomBase: &VersioneBomBase{}, FirmaBase: firmaProva,
 		Sorgente: &Sorgente{AllegatoID: pu(s.allegato), Sha256: shaB, Gruppo: "bom"},
 		Nodi: []Nodo{
@@ -877,8 +886,14 @@ func TestV1ConversioneFormato2(t *testing.T) {
 				Caselle: []Casella{{Gruppo: "bom", Rif: "nodo:" + shaB + ":#7"}}, RigheProposta: []uuid.UUID{riga}},
 			{ChiaveBozza: "k-9", Op: OpCrea, Codice: "ACM-1109", Tipo: "sciolto", Origine: "step",
 				Caselle: []Casella{{Gruppo: "bom", Rif: "nodo:" + shaB + ":#9"}}},
+			// un nodo dell'ingegnere con righe, e un nodo con origine step senza caselle (il formato 2 lo ammette)
+			{ChiaveBozza: "k-m", Op: OpCrea, Codice: "ACM-1190", Tipo: "sciolto", Origine: "utente", RigheProposta: []uuid.UUID{rigaM}},
+			{ChiaveBozza: "k-s", Op: OpCrea, Codice: "ACM-1191", Tipo: "sciolto", Origine: "step", RigheProposta: []uuid.UUID{rigaS}},
 		},
-		Archi: []Arco{{Padre: "k-root", Figlio: "k-7", Qta: 1, Origine: "step"}, {Padre: "k-7", Figlio: "k-9", Qta: 2, Origine: "step"}},
+		Archi: []Arco{{Padre: "k-root", Figlio: "k-7", Qta: 1, Origine: "step"}, {Padre: "k-7", Figlio: "k-9", Qta: 2, Origine: "step"},
+			{Padre: "k-root", Figlio: "k-m", Qta: 1, Origine: "utente", Posizione: "P1"}, {Padre: "k-7", Figlio: "k-s", Qta: 1, Origine: "step"}},
+		Decisioni:             []json.RawMessage{ricodifica, json.RawMessage(`{"id":"mp-1","tipo":"mono_pezzo","motivo":"pezzo unico"}`)},
+		DocumentiPreassociati: []Preassociazione{{PropostaID: proposta, ChiaveBozza: "k-7"}},
 	}
 	b2 := bozza2DB(t, p, s.thread, s.prodotto, s.utente, vecchio)
 	var primaDB string
@@ -908,9 +923,14 @@ func TestV1ConversioneFormato2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("conversione: %v", err)
 	}
-	if c.Versione != 1 || c.Formato != FormatoSnapshot3 || !c.NuovaVersione || len(c.RigheCadute) != 1 || c.RigheCadute[0].ChiaveBozza != "k-7" ||
-		len(c.RigheCadute[0].Righe) != 1 || c.RigheCadute[0].Righe[0] != riga {
+	// la risposta elenca i soli nodi senza casella che avevano righe (EM §6.7): k-m e k-s, non k-7
+	if c.Versione != 1 || c.Formato != FormatoSnapshot3 || !c.NuovaVersione || len(c.RigheCadute) != 2 || c.RigheCadute[0].ChiaveBozza != "k-m" ||
+		c.RigheCadute[0].Righe[0] != rigaM || c.RigheCadute[1].ChiaveBozza != "k-s" || c.RigheCadute[1].Righe[0] != rigaS {
 		t.Fatalf("esito: %+v", c)
+	}
+	if len(c.NodiSenzaCasella) != 1 || c.NodiSenzaCasella[0] != "k-s" || len(c.DecisioniCompletate) != 1 ||
+		c.DecisioniCompletate[0] != (DecisioneCompletata{ID: "rc-1", Campo: "emittente_dopo"}) || len(c.FontiNonRiportate) != 0 {
+		t.Fatalf("tracce: %+v", c)
 	}
 	// la formato 2: abbandonata, con il solo prefisso nel motivo di chiusura; lo snapshot identico
 	var stato, motivoChiusura, dopoDB string
@@ -936,6 +956,17 @@ func TestV1ConversioneFormato2(t *testing.T) {
 		if n.ChiaveBozza == "k-7" && (len(n.Caselle) != 1 || n.Caselle[0].AllegatoID != s.allegato) {
 			t.Errorf("caselle di k-7: %+v", n.Caselle)
 		}
+		if n.ChiaveBozza == "k-s" && (n.Origine != OrigineUtente || len(n.Caselle) != 0) {
+			t.Errorf("il nodo step senza caselle: %+v", n)
+		}
+	}
+	// decisioni e preassociazioni copiate; la ricodifica con l'emittente del cliente della RFQ
+	if len(n3.Decisioni) != 2 || n3.Decisioni[1].ID != "rc-1" || n3.Decisioni[1].EmittenteDopo != cliente || n3.Decisioni[1].CodiceDopo != "ACM-1101X" ||
+		n3.Decisioni[0].ID != "mp-1" || n3.Decisioni[0].Motivo != "pezzo unico" {
+		t.Errorf("decisioni: %+v", n3.Decisioni)
+	}
+	if len(n3.DocumentiPreassociati) != 1 || n3.DocumentiPreassociati[0] != (Preassociazione{PropostaID: proposta, ChiaveBozza: "k-7"}) {
+		t.Errorf("preassociazioni: %+v", n3.DocumentiPreassociati)
 	}
 	// l'arco fra due caselle resta dello STEP; quello dalla radice (senza caselle nel formato 2) resta dell'ingegnere
 	for _, a := range n3.Archi {
@@ -950,16 +981,24 @@ func TestV1ConversioneFormato2(t *testing.T) {
 			}
 		}
 	}
-	if len(c.ArchiSenzaStep) != 1 || c.ArchiSenzaStep[0] != (ArcoSenzaStep{Padre: "k-root", Figlio: "k-7"}) {
+	// nell'ordine canonico degli archi (padre, figlio): «k-7» viene prima di «k-root»
+	if len(c.ArchiSenzaStep) != 2 || c.ArchiSenzaStep[0] != (ArcoSenzaStep{Padre: "k-7", Figlio: "k-s"}) ||
+		c.ArchiSenzaStep[1] != (ArcoSenzaStep{Padre: "k-root", Figlio: "k-7"}) {
 		t.Errorf("archi senza step: %+v", c.ArchiSenzaStep)
 	}
-	// l'evento di apertura: origine server, il motivo intero, la partenza, l'algoritmo e la traccia delle righe cadute
+	// l'evento di apertura: origine server, il motivo intero, la partenza, l'algoritmo e le tracce (tutte le righe cadute)
 	ee := eventiDB(t, p, c.BozzaID, 1)
+	daBozza := ""
+	if len(ee) == 1 {
+		daBozza = campoJSON(t, ee[0].Dopo, "da_bozza")
+	}
 	if len(ee) != 1 || ee[0].Azione != AzBozzaAperta || ee[0].Origine != "server" || ee[0].Motivo != motivo ||
 		campoJSON(t, ee[0].Dopo, "partenza") != `"formato_2"` || campoJSON(t, ee[0].Dopo, "algoritmo") != `"conversione-1"` ||
-		!strings.Contains(campoJSON(t, ee[0].Dopo, "da_bozza"), riga.String()) ||
-		!strings.Contains(campoJSON(t, ee[0].Dopo, "da_bozza"), `"archi_senza_step":[{"figlio":"k-7","padre":"k-root"}]`) {
-		t.Fatalf("evento di apertura: %+v", ee)
+		!strings.Contains(daBozza, riga.String()) || !strings.Contains(daBozza, rigaM.String()) || !strings.Contains(daBozza, rigaS.String()) ||
+		!strings.Contains(daBozza, `"archi_senza_step":[{"figlio":"k-s","padre":"k-7"},{"figlio":"k-7","padre":"k-root"}]`) ||
+		!strings.Contains(daBozza, `"nodi_senza_casella":["k-s"]`) || !strings.Contains(daBozza, `"decisioni_completate":[{"campo":"emittente_dopo","id":"rc-1"}]`) ||
+		!strings.Contains(daBozza, `"fonti_non_riportate":[]`) {
+		t.Fatalf("evento di apertura: %+v\n%s", ee, daBozza)
 	}
 	// la fonte secondaria rifatta sulla bozza nuova, con la stessa chiave
 	if n := conta3(t, p, `SELECT count(*) FROM fonte_step_evento WHERE bozza_id = $1 AND chiave_bozza = 'k-7' AND azione = 'scelta' AND ruolo = 'sottoassieme'`,
@@ -969,7 +1008,8 @@ func TestV1ConversioneFormato2(t *testing.T) {
 	// il reinvio: la stessa chiave e la stessa impronta
 	c2, err := Converti(ctx, p, Conversione3{ThreadID: s.thread, ProdottoID: s.prodotto, UtenteID: s.utente, BozzaID: b2, VersioneAttesa: 1,
 		Motivo: motivo, ChiaveSalvataggio: chiave, ImprontaRichiesta: strings.Repeat("5", 64)})
-	if err != nil || !c2.Riproposto || c2.BozzaID != c.BozzaID || len(c2.RigheCadute) != 1 || len(c2.ArchiSenzaStep) != 1 {
+	if err != nil || !c2.Riproposto || c2.BozzaID != c.BozzaID || len(c2.RigheCadute) != 2 || len(c2.ArchiSenzaStep) != 2 ||
+		len(c2.NodiSenzaCasella) != 1 || len(c2.DecisioniCompletate) != 1 {
 		t.Fatalf("reinvio della conversione: %+v %v", c2, err)
 	}
 	// U-05b (la parte senza R4): un nodo formato_2 tiene codice e rev della versione 1

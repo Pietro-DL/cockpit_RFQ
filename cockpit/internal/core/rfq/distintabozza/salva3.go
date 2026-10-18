@@ -17,8 +17,14 @@ package distintabozza
 //   - i registri citati esistono, della RFQ e del prodotto, e una decisione nuova cita il registro della versione (V-2) →
 //     422 CORPO_NON_VALIDO importazione_sconosciuta;
 //   - V-1: un nodo in modo proposta porta l'identita' proposta del registro della versione (rev_proposta vuota = rev
-//     assente, PE-11); la lettura copiata da una decisione identita e' quella del suo registro; V-3: ogni casella cita una
-//     voce intera del registro; V-5: il segnale visto di una non_includere e' quello del registro (PE-17);
+//     assente, PE-11); un nodo da_decidere ha una voce senza codice proposto (EM §3.4.2); un nodo che un nodo_aggiunto
+//     mette nella bozza con una casella ha il modo delle regole P-2...P-6 (EM §6.1, l'importazione a mano); un arco step
+//     nuovo o cambiato e' un arco del registro della versione, o dei fatti correnti dello STEP senza registro (EM §3.5);
+//     la lettura copiata da una decisione identita e' quella del suo registro; V-3: ogni casella cita una voce intera del
+//     registro; V-5: il segnale visto di una non_includere e' quello del registro; per una non_includere nuova senza
+//     importazione, V-3 e V-5 contro il registro della versione (EM §7.1: per una decisione nuova e' quello) (PE-17);
+//   - gli UUID e i registri che compaiono solo nelle azioni (un nodo aggiunto e tolto nello stesso salvataggio): della
+//     RFQ anche loro (EM §9, «ovunque sia annidato»);
 //   - la regola unica dell'emittente (§5.6) → emittente_non_ammesso; l'identita' registrata dei nodi in modo registrato
 //     (codice di oggi, certificazione valida o cliente presunto) → registrato_non_corrispondente; i nodi formato_2 come
 //     nella versione 1 della bozza convertita → formato_2_non_corrispondente;
@@ -34,6 +40,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +50,7 @@ import (
 
 	"promatec/cockpit/internal/core/rfq/confermabom"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
@@ -423,8 +431,16 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 	decisioni := vf.decisioniCambiate()
 	pre := vf.preassociazioniCambiate()
 
+	// i riferimenti che la versione precedente aveva gia': quelli degli eventi che non ci sono, sono nuovi
+	prec := riferimentiDello(vf.prima)
+
 	// appartenenza dei componenti
 	componenti := map[uuid.UUID]string{}
+	for u, campo := range ric.Riferimenti.Componenti {
+		if !prec.componenti[u] {
+			componenti[u] = campo
+		}
+	}
 	for _, n := range nodi {
 		if n.ComponenteID != nil {
 			componenti[*n.ComponenteID] = campoNodo(vf.nuovo, n.ChiaveBozza) + ".componente_id"
@@ -441,9 +457,9 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 			componenti[p] = fmt.Sprintf("%s.prodotti[%d]", c, j)
 		}
 	}
-	for u, campo := range componenti {
+	for _, u := range ordinati(componenti) {
 		if _, ok := vf.st.Componente(u); !ok {
-			return fuori(campo, "il componente %s non e' di questa RFQ", u)
+			return fuori(componenti[u], "il componente %s non e' di questa RFQ", u)
 		}
 	}
 
@@ -494,6 +510,15 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 	for _, f := range ric.FontiCitate {
 		ids = append(ids, *f.AllegatoID)
 	}
+	// gli allegati che solo le azioni nominano (caselle, step e letture di oggetti aggiunti e tolti nello stesso
+	// salvataggio): della RFQ; non serve che siano attivi, perche' lo snapshot salvato non li porta
+	transitori := map[uuid.UUID]string{}
+	for u, campo := range ric.Riferimenti.Allegati {
+		if !prec.allegati[u] {
+			transitori[u] = campo
+			ids = append(ids, u)
+		}
+	}
 	allegati, err := LeggiAllegatiCitati(vf.ctx, vf.q, vf.thread, ids)
 	if err != nil {
 		return err
@@ -525,6 +550,11 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 			return corpo(fmt.Sprintf("azioni.sorgente_vista[%d].sha256", i), "lo sha256 dichiarato non e' quello del file")
 		}
 	}
+	for _, u := range ordinati(transitori) {
+		if !allegati[u].DellaRfq {
+			return fuori(transitori[u], "l'allegato %s non e' un file di questa RFQ", u)
+		}
+	}
 
 	// le proposte: preassociazioni nuove o cambiate, svincoli nuovi o cambiati, quelle nominate dalle azioni
 	proposte := map[uuid.UUID]string{}
@@ -550,6 +580,11 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 	for _, p := range ric.ProposteCitate {
 		if _, ok := proposte[p]; !ok && !giaSalvate[p] {
 			proposte[p] = "azioni"
+		}
+	}
+	for p, campo := range ric.Riferimenti.Proposte {
+		if _, ok := proposte[p]; !ok && !giaSalvate[p] {
+			proposte[p] = campo
 		}
 	}
 	if len(proposte) > 0 {
@@ -589,11 +624,18 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 	if err := vf.caricaRegistri(); err != nil {
 		return err
 	}
+	if err := vf.registriTransitori(ric.Riferimenti.Registri, prec.registri); err != nil {
+		return err
+	}
 	versione := ""
 	if vf.nuovo.Sorgente != nil {
 		versione = vf.nuovo.Sorgente.Importazione
 	}
 	regVersione, _ := vf.registro(versione)
+	aggiunti := map[string]bool{}
+	for _, k := range ric.NodiAggiunti {
+		aggiunti[k] = true
+	}
 	for _, n := range nodi {
 		campo := campoNodo(vf.nuovo, n.ChiaveBozza)
 		if regVersione != nil {
@@ -602,6 +644,9 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 					return corpoMotivo(fmt.Sprintf("%s.caselle[%d]", campo, j), MotivoRifFuoriImportazione,
 						"la casella non cita una voce intera del registro della versione (n:<allegato>:<rif>)")
 				}
+			}
+			if e := vf.modoDelNodo(campo, n, &regVersione.Contenuto, aggiunti[n.ChiaveBozza]); e != nil {
+				return e
 			}
 		}
 		if n.Identita.Modo == ModoProposta {
@@ -619,6 +664,10 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 					"l'identita' non e' quella proposta dal registro (emittente, namespace, codice proposto, rev proposta)")
 			}
 		}
+	}
+	// gli archi step nuovi o cambiati: rimandi al registro (V-1, «relazioni»; EM §3.5)
+	if err := vf.archiStep(regVersione); err != nil {
+		return err
 	}
 	casellaDi := map[string]*Casella3{}
 	for _, n := range vf.nuovo.Nodi {
@@ -642,9 +691,15 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 				}
 			}
 		case DecisioneNonIncludere:
+			// il registro della decisione; per una decisione nuova o cambiata senza importazione, quello della versione
+			// (EM §7.1: «per una decisione nuova, quello della versione»; §3.4.1: con un registro citato ogni rif sta nel
+			// registro; V-5): cosi' una non_includere non porta un rif che il registro della bozza non ha
+			if reg == nil && d.Importazione == "" {
+				reg = regVersione
+			}
 			if reg != nil {
 				if !VoceDelRegistro(&reg.Contenuto, d.Casella.AllegatoID, d.Casella.Rif) {
-					return corpoMotivo(campo+".casella", MotivoRifFuoriImportazione, "la casella non cita una voce intera del registro della decisione")
+					return corpoMotivo(campo+".casella", MotivoRifFuoriImportazione, "la casella non cita una voce intera del registro della decisione (o della versione)")
 				}
 				if e := VerificaSegnaleVisto(campo, &reg.Contenuto, d); e != nil {
 					return e
@@ -657,6 +712,253 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 
 	// la regola unica dell'emittente, l'identita' registrata, la presunzione, i nodi formato_2
 	return vf.identita(nodi, decisioni, regVersione)
+}
+
+// ordinati: le chiavi di una mappa di UUID in ordine (un errore dice sempre lo stesso campo per lo stesso corpo).
+func ordinati(m map[uuid.UUID]string) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(m))
+	for u := range m {
+		out = append(out, u)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
+}
+
+// riferimentiPrecedenti: gli UUID e i registri che uno snapshot salvato porta (componenti dei nodi e delle decisioni,
+// allegati della sorgente, delle caselle, degli step, delle non_includere e delle letture, proposte delle preassociazioni
+// e degli svincoli, registri della sorgente e delle decisioni).
+type riferimentiPrecedenti struct {
+	componenti, allegati, proposte map[uuid.UUID]bool
+	registri                       map[string]bool
+}
+
+func riferimentiDello(s Snapshot3) riferimentiPrecedenti {
+	r := riferimentiPrecedenti{componenti: map[uuid.UUID]bool{}, allegati: map[uuid.UUID]bool{}, proposte: map[uuid.UUID]bool{},
+		registri: map[string]bool{}}
+	if s.Sorgente != nil && s.Sorgente.AllegatoID != nil {
+		r.allegati[*s.Sorgente.AllegatoID] = true
+	}
+	for _, imp := range s.RegistriCitati() {
+		r.registri[imp] = true
+	}
+	for _, n := range s.Nodi {
+		if n.ComponenteID != nil {
+			r.componenti[*n.ComponenteID] = true
+		}
+		for _, c := range n.Caselle {
+			r.allegati[c.AllegatoID] = true
+		}
+	}
+	for _, a := range s.Archi {
+		if a.Step != nil {
+			r.allegati[a.Step.AllegatoID] = true
+		}
+	}
+	for _, d := range s.Decisioni {
+		for _, u := range []*uuid.UUID{d.ComponenteID, d.PadreID, d.FiglioID} {
+			if u != nil {
+				r.componenti[*u] = true
+			}
+		}
+		if d.PropostaID != nil {
+			r.proposte[*d.PropostaID] = true
+		}
+		for _, p := range d.Prodotti {
+			r.componenti[p] = true
+		}
+		if d.Casella != nil {
+			r.allegati[d.Casella.AllegatoID] = true
+		}
+		if d.ChiaveLettura != "" {
+			if u, err := uuid.Parse(strings.SplitN(d.ChiaveLettura, "/", 2)[0]); err == nil {
+				r.allegati[u] = true
+			}
+		}
+	}
+	for _, p := range s.DocumentiPreassociati {
+		r.proposte[p.PropostaID] = true
+	}
+	return r
+}
+
+// registriTransitori: i registri che solo le azioni citano (una decisione aggiunta e tolta nello stesso salvataggio)
+// esistono e sono della RFQ e del prodotto, come quelli dello snapshot (V-2).
+func (vf *verifica3) registriTransitori(citati map[string]string, prec map[string]bool) error {
+	var cercare []string
+	campi := map[string]string{}
+	for imp, campo := range citati {
+		if _, gia := vf.registri[imp]; gia || prec[imp] {
+			continue
+		}
+		cercare = append(cercare, imp)
+		campi[imp] = campo
+	}
+	if len(cercare) == 0 {
+		return nil
+	}
+	sort.Strings(cercare)
+	rr, err := vf.q.ListImportazioniPerImpronte(vf.ctx, db.ListImportazioniPerImpronteParams{ThreadID: vf.thread,
+		ProdottoID: vf.prodotto.ComponenteID, Impronte: cercare})
+	if err != nil {
+		return err
+	}
+	trovati := map[string]bool{}
+	for _, r := range rr {
+		trovati[strings.TrimSpace(r.Impronta)] = true
+	}
+	for _, imp := range cercare {
+		if !trovati[imp] {
+			return corpoMotivo(campi[imp], MotivoImportazioneSconosciuta, "il registro %s non c'e' fra quelli del prodotto in questa RFQ", imp)
+		}
+	}
+	return nil
+}
+
+// modoAtteso: il modo che le regole dello stato di partenza danno a un nodo con la casella di quella voce (EM §6.1):
+// P-2 la voce della radice e P-3 una voce con decisione_esistente danno registrato (salvo il raggruppamento di P-3, la
+// voce diversa dalla radice la cui decisione_esistente e' il prodotto del registro, che segue P-4); P-4 da'
+// proposta con codice_proposto, altrimenti da_decidere.
+func modoAtteso(c *importazione.Contenuto, v importazione.Voce) string {
+	if c.EVoceDellaRadice(v) {
+		return ModoRegistrato
+	}
+	if len(v.DecisioneEsistente) > 0 && string(v.DecisioneEsistente) != "null" {
+		var de struct {
+			ComponenteID string `json:"componente_id"`
+		}
+		_ = json.Unmarshal(v.DecisioneEsistente, &de)
+		if de.ComponenteID == "" || de.ComponenteID != c.ProdottoID {
+			return ModoRegistrato
+		}
+	}
+	if v.CodiceProposto != "" {
+		return ModoProposta
+	}
+	return ModoDaDecidere
+}
+
+// modoDelNodo: il modo di un nodo nuovo o cambiato con la casella, contro la voce del registro della versione (EM §3.4.2,
+// §6.1; PM23 R-03). Un nodo da_decidere ha una voce senza codice proposto (altrimenti si toglierebbe il codice proposto
+// senza la decisione identita motivata, §3.6.1); un nodo messo nella bozza da un nodo_aggiunto di questo salvataggio
+// («Importa dalla proposta…», «Includi di nuovo»), che non sia in modo decisione, ha il modo che darebbero P-2...P-6.
+// Un altro modo e' 422 proposta_non_corrispondente. I nodi gia' salvati con il modo di allora, e quelli che un annulla o
+// un rifai riporta, non si rivedono qui.
+func (vf *verifica3) modoDelNodo(campo string, n Nodo3, c *importazione.Contenuto, aggiunto bool) *Errore {
+	if len(n.Caselle) == 0 || n.Identita.Modo == ModoDecisione {
+		return nil
+	}
+	v, ok := c.VocePerRif(n.Caselle[0].AllegatoID, n.Caselle[0].Rif)
+	if !ok {
+		return nil // una voce fuori per decisione: il nodo non e' dello stato di partenza, e V-3 l'ha gia' guardata
+	}
+	if n.Identita.Modo == ModoDaDecidere && v.CodiceProposto != "" {
+		return corpoMotivo(campo+".identita.modo", MotivoPropostaNonCorrispondente,
+			"la voce del nodo ha il codice proposto %s: un nodo da decidere e' senza codice proposto; per toglierlo serve una decisione identita motivata", v.CodiceProposto)
+	}
+	if aggiunto {
+		if atteso := modoAtteso(c, v); n.Identita.Modo != atteso {
+			return corpoMotivo(campo+".identita.modo", MotivoPropostaNonCorrispondente,
+				"un nodo importato dalla proposta ha il modo che danno le regole dello stato di partenza (%s), non %s", atteso, n.Identita.Modo)
+		}
+	}
+	return nil
+}
+
+// archiStep: gli archi con origine step nuovi o cambiati (l'arco o le caselle dei suoi estremi) sono archi della
+// struttura del motore (EM §3.5: «l'arco STEP accettato e' (allegato_id, rif della casella del padre, rif della casella
+// del figlio). Il server verifica che stia nel registro, o nei fatti correnti per una bozza senza importazione»; V-1,
+// «relazioni»). Con il registro della versione: un arco di proposta.archi[] con quell'allegato e quei due rif; senza
+// registro: una relazione della struttura dei fatti correnti dello STEP. Altrimenti 422 CORPO_NON_VALIDO,
+// rif_fuori_importazione (scelta [T] della corsia persistenza: l'arco e' un rimando per rif, come una casella).
+func (vf *verifica3) archiStep(reg *importazione.Registro) error {
+	caselle := func(s Snapshot3) map[string][]Casella3 {
+		out := map[string][]Casella3{}
+		for _, n := range s.Nodi {
+			out[n.ChiaveBozza] = n.Caselle
+		}
+		return out
+	}
+	cPrima, cNuovo := caselle(vf.prima), caselle(vf.nuovo)
+	archiPrima := map[[2]string][]byte{}
+	for _, a := range vf.prima.Archi {
+		archiPrima[[2]string{a.Padre, a.Figlio}] = canonico(a)
+	}
+	var nelRegistro map[[3]string]bool
+	if reg != nil {
+		nelRegistro = map[[3]string]bool{}
+		for _, x := range reg.Contenuto.Proposta.Archi {
+			nelRegistro[[3]string{x.AllegatoID, x.Padre, x.Figlio}] = true
+		}
+	}
+	fatti := map[string]map[[2]string]bool{}
+	for i, a := range vf.nuovo.Archi {
+		if a.Origine != OrigineStep || a.Step == nil {
+			continue
+		}
+		k := [2]string{a.Padre, a.Figlio}
+		if p, ok := archiPrima[k]; ok && bytes.Equal(p, canonico(a)) && bytes.Equal(canonico(cPrima[a.Padre]), canonico(cNuovo[a.Padre])) &&
+			bytes.Equal(canonico(cPrima[a.Figlio]), canonico(cNuovo[a.Figlio])) {
+			continue // l'arco e i suoi estremi sono quelli della versione precedente
+		}
+		campo := fmt.Sprintf("snapshot.archi[%d].step", i)
+		trovato := false
+		for _, cp := range cNuovo[a.Padre] {
+			for _, cf := range cNuovo[a.Figlio] {
+				if reg != nil {
+					if nelRegistro[[3]string{a.Step.AllegatoID.String(), cp.Rif, cf.Rif}] {
+						trovato = true
+					}
+					continue
+				}
+				shaP, chiaveP := shaEChiave(cp.Rif)
+				shaF, chiaveF := shaEChiave(cf.Rif)
+				if shaP == "" || shaP != shaF {
+					continue
+				}
+				rr, ok := fatti[shaP]
+				if !ok {
+					var err error
+					if rr, err = relazioniDeiFatti(vf.ctx, vf.q, shaP); err != nil {
+						return err
+					}
+					fatti[shaP] = rr
+				}
+				if rr[[2]string{chiaveP, chiaveF}] {
+					trovato = true
+				}
+			}
+		}
+		if !trovato {
+			if reg != nil {
+				return corpoMotivo(campo, MotivoRifFuoriImportazione,
+					"l'arco step %s → %s non e' un arco del registro della versione (allegato, rif della casella del padre, rif della casella del figlio)", a.Padre, a.Figlio)
+			}
+			return corpoMotivo(campo, MotivoRifFuoriImportazione,
+				"l'arco step %s → %s non e' una relazione dei fatti correnti dello STEP (la bozza non ha un registro)", a.Padre, a.Figlio)
+		}
+	}
+	return nil
+}
+
+// relazioniDeiFatti: le relazioni (chiave del padre, chiave del figlio) della struttura dei fatti correnti di un
+// contenuto; vuote senza fatti correnti o senza una struttura leggibile.
+func relazioniDeiFatti(ctx context.Context, q *db.Queries, sha string) (map[[2]string]bool, error) {
+	out := map[[2]string]bool{}
+	af, err := q.GetAnalisiCorrente(ctx, sha)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	st, ok := worker.DecodificaStruttura(af.Fatti)
+	if !ok {
+		return out, nil
+	}
+	for _, r := range st.Relazioni {
+		out[[2]string{r.Padre, r.Figlio}] = true
+	}
+	return out, nil
 }
 
 // emittenteAmmesso: la regola unica dell'emittente (EM §5.6): il cliente della RFQ, un partner attivo nel registro citato

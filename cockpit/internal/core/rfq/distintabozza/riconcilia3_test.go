@@ -261,8 +261,10 @@ func TestV1Riconcilia3LoSvincoloPerNodoEscluso(t *testing.T) {
 	}
 }
 
-// «Non includere» nell'ordine della pagina (arco_tolto, nodo_tolto, poi la decisione con la chiave del nodo), con la stessa
-// azione_id; la decisione non_includere sul rif di una casella della bozza e' una contraddizione (EM §7.2).
+// «Non includere» nell'ordine della pagina (arco_tolto, nodo_tolto, poi la decisione), con la stessa azione_id; la
+// decisione non_includere non ha chiave_bozza, e la chiave del suo evento e' null (RPC PD-08, raccomandata (a), come il
+// vocabolario 1): una chiave dichiarata e' azioni_non_riconciliate; la decisione non_includere sul rif di una casella
+// della bozza e' una contraddizione (EM §7.2).
 func TestV1Riconcilia3NonIncludereNellOrdineDellaPagina(t *testing.T) {
 	id := idSintetici3()
 	imp := componiProva3(t, id).Impronta
@@ -293,12 +295,15 @@ func TestV1Riconcilia3NonIncludereNellOrdineDellaPagina(t *testing.T) {
 		}
 	}
 	d["nodi"], d["archi"], d["decisioni"] = nodi, archi, append(decisioni, ni)
-	r, err := Riconcilia3(s, leggiProva3(t, d), []Azione{
-		azione3(t, AzArcoTolto, "k-0011", arco, map[string]any{"azione_id": azioneA}),
-		azione3(t, AzDecisioneTolta, "k-0011", dec, nil),
-		azione3(t, AzNodoTolto, "k-0011", nodo, map[string]any{"azione_id": azioneA}),
-		azione3(t, AzDecisioneAggiunta, "k-0011", nil, ni),
-	}, Contesto3{N0: 4})
+	gesto := func(chiaveDecisione string) []Azione {
+		return []Azione{
+			azione3(t, AzArcoTolto, "k-0011", arco, map[string]any{"azione_id": azioneA}),
+			azione3(t, AzDecisioneTolta, "k-0011", dec, nil),
+			azione3(t, AzNodoTolto, "k-0011", nodo, map[string]any{"azione_id": azioneA}),
+			azione3(t, AzDecisioneAggiunta, chiaveDecisione, nil, ni),
+		}
+	}
+	r, err := Riconcilia3(s, leggiProva3(t, d), gesto(""), Contesto3{N0: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,12 +311,21 @@ func TestV1Riconcilia3NonIncludereNellOrdineDellaPagina(t *testing.T) {
 		t.Fatalf("eventi %d strutturali %d", len(r.Eventi), r.Strutturali)
 	}
 	for i, ev := range r.Eventi {
-		if ev.ChiaveBozza != "k-0011" {
-			t.Errorf("evento %d (%s): chiave %q", i, ev.Azione, ev.ChiaveBozza)
+		atteso := "k-0011" // la chiave dedotta: il figlio dell'arco, il nodo, la chiave_bozza della decisione identita
+		if i == 3 {
+			atteso = "" // la non_includere non ha chiave_bozza: null
+		}
+		if ev.ChiaveBozza != atteso {
+			t.Errorf("evento %d (%s): chiave %q, attesa %q", i, ev.Azione, ev.ChiaveBozza, atteso)
 		}
 	}
+	// PD-08 (a): la chiave del nodo tolto dichiarata sulla non_includere non entra nel giornale
+	_, err = Riconcilia3(s, leggiProva3(t, d), gesto("k-0011"), Contesto3{N0: 4})
+	if e := errore3(t, err); e.Motivo != MotivoAzioniNonRiconciliate || e.Campo != "azioni[3].chiave_bozza" {
+		t.Fatalf("chiave dichiarata sulla non_includere: %+v", e)
+	}
 	// la decisione prima del nodo tolto: il rif sta ancora nelle caselle
-	_, err = Riconcilia3(s, s, []Azione{azione3(t, AzDecisioneAggiunta, "k-0011", nil, ni)}, Contesto3{N0: 4})
+	_, err = Riconcilia3(s, s, []Azione{azione3(t, AzDecisioneAggiunta, "", nil, ni)}, Contesto3{N0: 4})
 	if e := errore3(t, err); e.Codice != CodiceCorpoNonValido || e.Campo != "azioni[0].dopo.casella.rif" {
 		t.Fatalf("non incluso e incluso insieme: %+v", e)
 	}
@@ -361,6 +375,19 @@ func TestV1Riconcilia3IlRebaseCambiaSoloLaBase(t *testing.T) {
 	if e := errore3(t, err); e.Motivo != MotivoRebaseCambiaSorgente {
 		t.Fatalf("rebase con un'altra sorgente: %+v", e)
 	}
+	// i rif scaduti del dopo li scrive il server: l'evento ha l'elenco vuoto, e un elenco dichiarato non vuoto e' un rebase
+	// che non si salva (422 rif_scaduti)
+	if campoJSON3(t, r.Eventi[0].Dopo, "rif_scaduti") != `[]` {
+		t.Fatalf("dopo del rebase: %s", r.Eventi[0].Dopo)
+	}
+	scaduto := map[string]any{"chiave_bozza": "k-0009", "casella": map[string]any{"allegato_id": id.allegato.String(), "gruppo": gruppoProva3,
+		"rif": id.rif("#9")}, "motivo": ScadutoChiaveAssente}
+	conScaduti := azione3(t, AzRebase, "", map[string]any{"base": vecchia}, map[string]any{"base": nuova, "rif_scaduti": []any{scaduto}})
+	conScaduti.Motivo = a.Motivo
+	_, err = Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{conScaduti}, Contesto3{N0: 4})
+	if e := errore3(t, err); e.Motivo != MotivoRifScaduti || e.Campo != "azioni[0].dopo.rif_scaduti" {
+		t.Fatalf("rebase con rif scaduti dichiarati: %+v", e)
+	}
 	// il rebase senza motivo
 	c := a
 	c.Motivo = ""
@@ -379,6 +406,130 @@ func TestV1Riconcilia3IlRebaseCambiaSoloLaBase(t *testing.T) {
 	altro.Contatore = 14
 	if e := rebaseCoerente3(&RebaseRichiesta3{Base: altro, Motivo: a.Motivo}, r.Rebase); e == nil {
 		t.Fatal("campo rebase diverso dall'azione accettato")
+	}
+}
+
+// campoJSON3: un campo di un oggetto JSON, nella sua forma canonica.
+func campoJSON3(t *testing.T, raw json.RawMessage, k string) string {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("%s non e' un oggetto: %v", raw, err)
+	}
+	return string(canonico(m[k]))
+}
+
+// nodo_modificato e nodo_riusato: prima e dopo nominano gli stessi campi, almeno uno, fra quelli del verbo (EM §9.2, come
+// il vocabolario 1); la chiave e l'origine non si cambiano mai (EM §3.4). Rilievo bloccante della revisione dell'ondata B:
+// un campo del dopo che il prima non nomina entrava nello snapshot ma non nell'evento, e il giornale non rifaceva la
+// versione (T-10).
+func TestV1Riconcilia3NodoModificatoNominaGliStessiCampi(t *testing.T) {
+	id := idSintetici3()
+	imp := componiProva3(t, id).Impronta
+	base := snapshotProva3(id, imp)
+	conTipo := func(extra map[string]any) map[string]any {
+		d := copiaProfonda(t, base)
+		n := nodoIn3(d, "k-man")
+		n["tipo"] = "sciolto"
+		for k, v := range extra {
+			n[k] = v
+		}
+		return d
+	}
+	casi := []struct {
+		nome        string
+		prima, dopo map[string]any
+		snap        map[string]any
+	}{
+		{"un campo del dopo che il prima non nomina", map[string]any{"tipo": "commerciale"},
+			map[string]any{"tipo": "sciolto", "descrizione": "aggiunta senza dirlo"}, conTipo(map[string]any{"descrizione": "aggiunta senza dirlo"})},
+		{"l'origine, nominata solo nel dopo", map[string]any{"tipo": "commerciale"},
+			map[string]any{"tipo": "sciolto", "origine": "registrato"}, conTipo(map[string]any{"origine": "registrato"})},
+		{"l'origine, nominata nel prima e nel dopo", map[string]any{"tipo": "commerciale", "origine": "utente"},
+			map[string]any{"tipo": "sciolto", "origine": "registrato"}, conTipo(map[string]any{"origine": "registrato"})},
+		{"la chiave, nominata solo nel dopo", map[string]any{"tipo": "commerciale"},
+			map[string]any{"tipo": "sciolto", "chiave_bozza": "k-man2"}, base},
+		{"la chiave, nominata nel prima e nel dopo", map[string]any{"tipo": "commerciale", "chiave_bozza": "k-man"},
+			map[string]any{"tipo": "sciolto", "chiave_bozza": "k-man2"}, base},
+		{"prima e dopo vuoti", map[string]any{}, map[string]any{}, base},
+	}
+	for _, c := range casi {
+		_, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, c.snap), []Azione{azione3(t, AzNodoModificato, "k-man", c.prima, c.dopo)}, Contesto3{N0: 4})
+		if e := errore3(t, err); e.Codice != CodiceCorpoNonValido || e.Campo != "azioni[0]" {
+			t.Errorf("%s: %+v (atteso 422 CORPO_NON_VALIDO sull'azione)", c.nome, e)
+		}
+	}
+	// nodo_riusato nomina op e componente_id
+	_, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, base), []Azione{azione3(t, AzNodoRiusato, "k-man",
+		map[string]any{"op": "crea"}, map[string]any{"op": "riusa"})}, Contesto3{N0: 4})
+	if e := errore3(t, err); e.Codice != CodiceCorpoNonValido {
+		t.Errorf("nodo_riusato senza componente_id: %+v", e)
+	}
+	// la chiave cambiata con nodo_modificato su un nodo appena aggiunto: rifiutata (EM §3.4: una chiave non cambia)
+	nuovo := nodoManuale3(id, "k-u1", "ACM-2000")
+	rinominato := copiaProfonda(t, nuovo)
+	rinominato["chiave_bozza"], rinominato["tipo"] = "k-u2", "sciolto"
+	d := copiaProfonda(t, base)
+	d["nodi"] = append(d["nodi"].([]any), rinominato)
+	_, err = Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{
+		azione3(t, AzNodoAggiunto, "k-u1", nil, nuovo),
+		azione3(t, AzNodoModificato, "k-u1", map[string]any{"tipo": "commerciale"}, map[string]any{"tipo": "sciolto", "chiave_bozza": "k-u2"}),
+	}, Contesto3{N0: 4})
+	if e := errore3(t, err); e.Codice != CodiceCorpoNonValido || e.Campo != "azioni[1]" {
+		t.Errorf("la chiave cambiata da nodo_modificato: %+v", e)
+	}
+	// il caso buono: l'evento scritto dal server, rifatto come azione, rifa' lo snapshot salvato (la proprieta' di T-10)
+	buono := conTipo(map[string]any{"descrizione": "Vite"})
+	az := []Azione{azione3(t, AzNodoModificato, "k-man", map[string]any{"tipo": "commerciale", "descrizione": nil},
+		map[string]any{"tipo": "sciolto", "descrizione": "Vite"})}
+	r, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, buono), az, Contesto3{N0: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := r.Eventi[0]
+	if string(ev.Prima) != `{"descrizione":null,"tipo":"commerciale"}` || string(ev.Dopo) != `{"descrizione":"Vite","tipo":"sciolto"}` {
+		t.Fatalf("evento: prima %s dopo %s", ev.Prima, ev.Dopo)
+	}
+	giornale := []Azione{{Azione: ev.Azione, ChiaveBozza: ev.ChiaveBozza, Prima: ev.Prima, Dopo: ev.Dopo, Origine: ev.Origine}}
+	if _, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, buono), giornale, Contesto3{N0: 4}); err != nil {
+		t.Fatalf("l'evento salvato non rifa' lo snapshot: %v", err)
+	}
+}
+
+// I riferimenti che compaiono solo nelle azioni (EM §9, «ogni UUID del corpo, ovunque sia annidato»): un nodo del
+// componente aggiunto e tolto nello stesso salvataggio lascia lo snapshot com'era, ma il suo componente e' fra i
+// riferimenti che chi salva controlla.
+func TestV1Riconcilia3IRiferimentiDelleAzioni(t *testing.T) {
+	id := idSintetici3()
+	imp := componiProva3(t, id).Impronta
+	base := snapshotProva3(id, imp)
+	s := leggiProva3(t, base)
+	estraneo := idDi("componente-di-un-altra-rfq")
+	n := map[string]any{"chiave_bozza": "k-t1", "componente_id": estraneo.String(), "op": "riusa", "tipo": "sciolto", "origine": "registrato",
+		"identita": map[string]any{"emittente": id.clienteE(), "emittente_presunto": true, "codice": "ACM-7001", "modo": "registrato"}}
+	ni := map[string]any{"id": "ni-t1", "tipo": "non_includere",
+		"casella":       map[string]any{"allegato_id": id.allegato.String(), "gruppo": gruppoProva3, "rif": id.rif("#12")},
+		"motivo_codice": "altro", "motivo": "prova", "azione_id": azioneB, "importazione": strings.Repeat("e", 64)}
+	r, err := Riconcilia3(s, s, []Azione{
+		azione3(t, AzNodoAggiunto, "k-t1", nil, n),
+		azione3(t, AzNodoTolto, "k-t1", n, nil),
+		azione3(t, AzDecisioneAggiunta, "", nil, ni),
+		azione3(t, AzDecisioneTolta, "", ni, nil),
+	}, Contesto3{N0: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Riferimenti.Componenti[estraneo] != "azioni[0].dopo.componente_id" {
+		t.Errorf("componenti delle azioni: %v", r.Riferimenti.Componenti)
+	}
+	if _, ok := r.Riferimenti.Allegati[id.allegato]; !ok {
+		t.Errorf("allegati delle azioni: %v", r.Riferimenti.Allegati)
+	}
+	if _, ok := r.Riferimenti.Registri[strings.Repeat("e", 64)]; !ok {
+		t.Errorf("registri delle azioni: %v", r.Riferimenti.Registri)
+	}
+	if len(r.NodiAggiunti) != 1 || r.NodiAggiunti[0] != "k-t1" {
+		t.Errorf("nodi aggiunti: %v", r.NodiAggiunti)
 	}
 }
 
