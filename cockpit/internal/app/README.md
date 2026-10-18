@@ -68,8 +68,11 @@ markmap:
     - e `ricalcola` (il ritriage delle sole chiavi appena scritte)
   - **`servizi.go`**
     - `Servizi`
-    - `CostruisciServizi` (scrittore NAS, scheduler e cache avviati subito, agente, esecutore, ricognitore, ingest, opzioni del sync, anteprima del motore A)
-    - `Servizi.Avvia` (esecutore e ricognitore)
+    - `CostruisciServizi` (scrittore NAS, scheduler e cache avviati subito, agente, esecutore, ricognitore, ingest, opzioni del sync, anteprima del motore A, il ciclo dei file della Sorgente prima della cache: la cache riceve `CopiaNelDeposito`)
+    - `Servizi.Avvia` (esecutore, ricognitore e il custode del ciclo dei file)
+  - **`ciclo_file.go`** (V1, ondata B, corsia file)
+    - `preparaCicloFile` (il deposito degli «Altri file» all'avvio con `filerfq.PreparaDeposito`: un segnaposto che non torna con le copie registrate ferma l'avvio; il servizio con lo staging, il NAS in sola lettura, il log)
+    - `contestiPerIlCicloFile` (i contesti partner del motore A ridotti a quello che serve alla dipendenza D-13); la strada d'ingresso (`workerapi.Server`) la monta `Ascolta`
   - **`motore_a.go`** (giro 5, A1d)
     - `preparaMotoreA` (la Distinta nuova del motore A all'avvio: indice, grammatiche, file dei casi, limite, la riga del log; restituisce `motore_a.Regole` di `transport/web/motore_a`, con lo stato: spenta, pronta, indice assente, indice non valido, nessuna grammatica)
     - `leggiRegoleMotoreA` e `regoleLette` (il disco: i file solo dentro la cartella dell'indice)

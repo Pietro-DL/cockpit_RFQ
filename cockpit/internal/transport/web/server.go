@@ -33,6 +33,7 @@ import (
 	"promatec/cockpit/internal/core/inbox/lettura"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -124,6 +125,9 @@ type Server struct {
 	// MotoreA: le regole della Distinta nuova del motore A (giro 5, A1d), preparate una volta all'avvio da app/runtime.
 	// Il valore zero è la Distinta spenta: le sue rotte (A1d-P2) rispondono 404 a tutti prima della sessione.
 	MotoreA motorea_web.Regole
+	// CicloFile: il servizio del ciclo dei file della Sorgente (V1, EM §10; sorgente.go), costruito all'avvio con lo
+	// staging, il deposito degli «Altri file» e la strada d'ingresso. Nil = uno con il pool e lo staging, senza deposito.
+	CicloFile *filerfq.Servizio
 }
 
 type chiaveCtx int
@@ -350,6 +354,8 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	s.registraPostazioni(mux)
 	s.registraAdmin(mux)
 	s.registraMotoreA(mux)
+	// V1: le rotte della Sorgente del ciclo dei file, S1-S5 (sorgente.go); E1′ sta sulla rotta di «carica»
+	s.registraSorgente(mux)
 }
 
 // statici serve i file statici. Quelli che non cambiano mai sotto lo stesso indirizzo (pdf.js, che sta in

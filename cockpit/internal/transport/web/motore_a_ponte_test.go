@@ -145,10 +145,20 @@ var ponteEscluse = map[string]string{
 	"/thread/{id}/distinta/albero/riepilogo":                            "la POST del riepilogo con una bozza non vuota: fuori dalla v1 (la GET è in LETTURE)",
 	"/thread/{id}/fascicolo/nas/importa":                                "non è un gesto della Distinta: caricamenti del Fascicolo",
 	"/thread/{id}/fascicolo/carica":                                     "non è un gesto della Distinta: caricamenti del Fascicolo",
-	"/thread/{id}/carica":                                               "non è un gesto della Distinta: file, zip e 7z dalla pagina della RFQ (14/10)",
 	"/thread/{id}/fascicolo/file/{pid}/generale":                        "non è un gesto della Distinta: documenti generali del Fascicolo",
 	"/thread/{id}/richiesta":                                            "non è un gesto della Distinta: richieste ai fornitori",
 	"/thread/{id}/richiesta/{rid}/annulla":                              "non è un gesto della Distinta: richieste ai fornitori",
+}
+
+// ponteDedicate (V1, PM23 PP-09 e T-06): le rotte POST che la pagina nuova chiama direttamente, con il loro contratto
+// JSON (EM §10.9), fuori dalla lista ROTTE del ponte: «Scarta», «Metti in Altri file» e «Riattiva» della Sorgente, e
+// «carica», che lascia le escluse per il suo ramo JSON (E1′; il ramo HTML resta della pagina della RFQ, 14/10). E' la
+// quarta parte del mondo chiuso: registrate = ROTTE ∪ {ALBERO} ∪ escluse ∪ dedicate, e le parti non si toccano.
+var ponteDedicate = map[string]string{
+	"/thread/{id}/sorgente/file/{allegato}/scarta":     "S2, EM §10.9",
+	"/thread/{id}/sorgente/file/{allegato}/altri-file": "S3, EM §10.9",
+	"/thread/{id}/sorgente/file/{allegato}/riattiva":   "S4, EM §10.9",
+	"/thread/{id}/carica":                              "E1′, il ramo JSON (EM §10.9); il ramo HTML resta della pagina della RFQ (14/10)",
 }
 
 // ponteRotteRegistrate: le rotte «METODO /thread/…» e «METODO /proposta/…» che il server registra, lette dai sorgenti
@@ -215,8 +225,15 @@ func TestPonteLaListaChiusa(t *testing.T) {
 			t.Errorf("la rotta esclusa %q è nella lista del ponte (%s)", r, ponteEscluse[r])
 		}
 	}
-	if nelPonte[normalizza(ponteAlbero)] || escluse[normalizza(ponteAlbero)] {
-		t.Error("ALBERO è a parte: né in ROTTE né fra le escluse")
+	dedicate := map[string]bool{}
+	for r := range ponteDedicate {
+		dedicate[normalizza(r)] = true
+		if nelPonte[normalizza(r)] || escluse[normalizza(r)] {
+			t.Errorf("la rotta dedicata %q è anche nella lista del ponte o fra le escluse (%s)", r, ponteDedicate[r])
+		}
+	}
+	if nelPonte[normalizza(ponteAlbero)] || escluse[normalizza(ponteAlbero)] || dedicate[normalizza(ponteAlbero)] {
+		t.Error("ALBERO è a parte: né in ROTTE né fra le escluse né fra le dedicate")
 	}
 	attese := map[string]bool{normalizza(ponteAlbero): true}
 	for r := range nelPonte {
@@ -225,9 +242,12 @@ func TestPonteLaListaChiusa(t *testing.T) {
 	for r := range escluse {
 		attese[r] = true
 	}
+	for r := range dedicate {
+		attese[r] = true
+	}
 	for _, r := range chiaviOrdinate(registrate) {
 		if !attese[r] {
-			t.Errorf("il server registra POST %s, che non è in ROTTE, non è ALBERO e non è fra le escluse: va deciso di proposito", r)
+			t.Errorf("il server registra POST %s, che non è in ROTTE, non è ALBERO, non è fra le escluse né fra le dedicate: va deciso di proposito", r)
 		}
 	}
 	for _, r := range chiaviOrdinate(attese) {

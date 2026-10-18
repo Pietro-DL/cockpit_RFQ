@@ -104,6 +104,10 @@ func Ascolta(ctx context.Context, cfg *config.Config, s *Servizi, materiale *ret
 	// Il caricamento interno del Fascicolo (B8.7) fa la strada dei file che arrivano dai worker: la
 	// proposta e l'analisi le decide la stessa funzione del workerapi.
 	ws.Pipeline, ws.MaxCaricamento = wa, wa.MaxUpload
+	// V1: la «Riattiva» rimanda il file sulla stessa strada d'ingresso (EM §10.6)
+	if s.CicloFile != nil {
+		s.CicloFile.Pipeline = wa
+	}
 	// L'esecutore interno parte QUI e non prima, perche' gli serve chi sa scompattare un archivio, e
 	// quel qualcuno e' la stessa parte che riceve i risultati dei worker: dal blocco 4A l'estrazione
 	// di uno zip e' un job, non un pezzo della richiesta HTTP con cui il download viene consegnato.
@@ -169,6 +173,7 @@ func serverWeb(cfg *config.Config, s *Servizi, materiale *rete.Materiale, log *s
 		GiorniStorico: cfg.Outlook.GiorniCaricaPrecedenti, InboxMaxMessaggi: cfg.Outlook.InboxMaxMessaggi,
 		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, URLPubblico: cfg.Server.URLPubblico, Workers: risorse.FS, Agente: s.Agente,
 		Ricognitore: s.Ricognitore, Staging: s.RadiceStaging, MotoreA: s.MotoreA, OCRPostazioni: ocrDellePostazioni(cfg),
+		CicloFile:    s.CicloFile,
 		Analizzatore: coda.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri}}
 }
 

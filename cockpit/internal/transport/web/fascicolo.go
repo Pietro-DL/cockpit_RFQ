@@ -605,6 +605,10 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		if a, err := q.GetAllegato(ctx, p.AllegatoID); err == nil {
 			nome = a.NomeFile
 		}
+		// V1 (EM §10.7): un file in Altri file o scartato nella Distinta nuova non si assegna dalle pagine legacy
+		if err := rifiutoFileNonAttivo(ctx, q, p.AllegatoID); err != nil {
+			return "", err
+		}
 		if err := attesa.controlla(p, nome); err != nil {
 			return "", err
 		}

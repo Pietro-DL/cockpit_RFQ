@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/archivio"
 )
@@ -173,21 +174,28 @@ finito:
 				return err
 			}
 			// lo stesso contenuto già caricato in questo contenitore (un nuovo invio dopo una risposta persa) non
-			// diventa un secondo allegato con una seconda analisi
-			gia, err := q.ListAllegatiMessaggio(ctx, nota.MessaggioID)
+			// diventa un secondo allegato con una seconda analisi. V1 (EM §10.9, E1′; G-14; giro 1, TR-10): il
+			// controllo sta dopo il lucchetto del contenitore, e un file scartato nella Sorgente (anche col gesto
+			// precedente) non conta: il ricaricamento e' un'occorrenza nuova, e quella scartata riceve l'evento
+			// ricaricato_dopo_scarto (origine legacy), scritto dal servizio del ciclo dei file
+			if _, err := q.BloccaMessaggio(ctx, nota.MessaggioID); err != nil {
+				return err
+			}
+			doppione, err := filerfq.CercaDoppione(ctx, q, nota.MessaggioID, car.Sha256)
 			if err != nil {
 				return err
 			}
-			for _, x := range gia {
-				if !x.ContenitoreID.Valid && x.Sha256.Valid && x.Sha256.String == car.Sha256 {
-					return errGiaCaricato
-				}
+			if doppione.Presente != nil {
+				return errGiaCaricato
 			}
 			a, err := fascicolo.RegistraCaricamento(ctx, q, nota, u.UtenteID, car)
 			if err != nil {
 				return err
 			}
 			if err := s.Pipeline.DopoCaricamento(ctx, q, a.AllegatoID); err != nil {
+				return err
+			}
+			if err := filerfq.SegnaRicaricato(ctx, q, thread, doppione.Scartate, a.AllegatoID, u.UtenteID, filerfq.OrigineLegacy); err != nil {
 				return err
 			}
 			return tx.Commit(ctx)

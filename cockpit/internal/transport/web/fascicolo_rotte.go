@@ -54,8 +54,10 @@ func (s *Server) registraFascicolo(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/fascicolo/revisione/abbandona", s.autenticato(s.dopoIlGesto(s.abbandonaRevisione)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/congela", s.autenticato(s.dopoIlGesto(s.congela)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/carica", s.autenticato(s.dopoICaricamenti(s.caricaVersioneInterna)))
-	// 14/10: file, zip e 7z dalla pagina della RFQ, del cliente o versioni interne (caricamento_rfq.go)
-	mux.HandleFunc("POST /thread/{id}/carica", s.autenticato(s.dopoICaricamenti(s.caricaNellaRFQ)))
+	// 14/10: file, zip e 7z dalla pagina della RFQ, del cliente o versioni interne (caricamento_rfq.go). V1 (EM §10.9):
+	// con «Accept: application/json» il ramo JSON E1′ della Distinta nuova (flag e admin), altrimenti il frammento HTML
+	// di sempre, invariato (sorgente_carica.go, caricaRFQ)
+	mux.HandleFunc("POST /thread/{id}/carica", s.caricaRFQ())
 }
 
 // ------------------------------------------------------------------ pagina e pannelli
