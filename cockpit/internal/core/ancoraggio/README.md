@@ -152,6 +152,17 @@ markmap:
     ambigua o discordante dà solo indicatori, perché forse non è del nodo (T-B4-39). Il `Conflitto` composto lo fanno
     B5 e B6;
   - le diagnostiche `ancoraggio.completamento_documentale` e `ancoraggio.correzione_documentale`, in avviso.
+- Con V1 (LS-02; emendamento di V1 §11.1; addendum ad A1c §2.2 del 18/10; `VersioneServizio` `ancoraggio-3`) c'è
+  **il segnale dei possibili elementi CAD** (`elementi_cad.go`), calcolato dove nasce il `NodoProposto` di uno STEP:
+  - la regola `elemento_cad_nome_foglia_v1`: l'id o il nome grezzo del PRODUCT contiene, come parola, saldatura,
+    cordone, fillet o bead, oppure weld seguito da bead, seam o id; il nodo è una foglia nel file; non è una radice del
+    file. Un segnale solo (`NodoProposto.Segnali`, `SegnaleNodo` con il codice `ancoraggio.possibile_elemento_cad`), con
+    un riscontro per campo (`RiscontroNome`: parole e intervalli in byte sul grezzo) e una spiegazione deterministica;
+  - la lettura d'identità del nodo e il grafo non completo sono solo contro-indizi (`lettura_identita`,
+    `grafo_non_completo`); geometria, nome d'istanza e assenza del 2D non sono ingressi;
+  - il segnale non toglie il nodo, non lo esenta dal 2D, non cambia tipo, perimetro, righe da decidere né il documento,
+    e non decide: la decisione «non includere» è della bozza (formato 3) e la applica la conferma. Il JSON di un nodo
+    senza segnali è quello di prima (`omitempty`, in fondo al tipo).
 
 ## Non appartiene qui
 
@@ -186,7 +197,8 @@ markmap:
 ## File
 
 - **`prodotti.go`** — responsabilità:
-  - commento `// Package`; `VersioneServizio` (`ancoraggio-2` da K4: le equivalenze del cartiglio);
+  - commento `// Package`; `VersioneServizio` (`ancoraggio-2` da K4: le equivalenze del cartiglio; `ancoraggio-3` da V1:
+    il segnale LS-02);
   - il vocabolario: `Autorita`, `OrigineDato`, `StatoRichiesta`, `GestoMessaggio`, `RichiestaValutata`,
     `SegmentoPertinente`;
   - `MessaggioInterpretato` (messaggio, documento, interpretazione: il documento dà il segmento di un'unità e la
@@ -213,8 +225,8 @@ markmap:
     B4 gli ingressi della catena e delle decisioni: `RigaDecisaLegacy` con i suoi stati, le righe decise, i codici
     proposti, i codici dei messaggi, le decisioni sull'identità, il codice manuale, la revisione e la lettura del
     componente; dalla fase 3 le letture dei codici decisi e le associazioni decise;
-  - `StatoStruttura`, `NodoProposto` (con la catena e le decisioni accanto, B4, e l'abbinamento per base, B4 fase 2),
-    `ArcoProposto` (con l'arco confermato accanto, B4), `StrutturaProdotto`;
+  - `StatoStruttura`, `NodoProposto` (con la catena e le decisioni accanto, B4, l'abbinamento per base, B4 fase 2, e i
+    segnali, V1), `ArcoProposto` (con l'arco confermato accanto, B4), `StrutturaProdotto`;
   - `ProponiStrutture` (radici candidate, struttura, stato, diagnostiche; da B4 anche le decisioni e le catene dei
     nodi), `StatoStrutturaDelTarget`, i controlli di contratto;
   - dalla notte del 14/10 le radici di riserva (`radiceDiRiserva`, `StrutturaProdotto.Origine` con le sue costanti,
@@ -254,6 +266,12 @@ markmap:
     forte, la lettura del cartiglio, il confronto con l'identità proposta dallo STEP (`confrontaConLoSTEP`), la
     correzione accanto, i candidati del cartiglio, la discordanza con la decisione, `RevisioneInferiore`
     (`revisioneInferiore`), lo stato della revisione (`statoRevisione`, che usa anche la catena), le diagnostiche.
+- **`elementi_cad.go`** (V1, LS-02) — responsabilità:
+  - `SegnaleNodo`, `RiscontroNome`; il codice del segnale `ancoraggio.possibile_elemento_cad` (non è il codice di una
+    diagnostica: sta qui, e lo fissa la prova dei valori), la regola `elemento_cad_nome_foglia_v1`, i contro-indizi,
+    l'espressione della regola v1 (`EspressioneElementoCADV1`);
+  - `segnaliElementoCAD`, chiamata da `struttura` per ogni nodo, con le parole e i loro intervalli (`paroleDelGrezzo`)
+    e la spiegazione.
 - **`codici_diagnostica.go`** — responsabilità:
   - i codici che il pacchetto produce (R41 b): `ancoraggio.richiesta_non_valutata`,
     `ancoraggio.righe_stessa_base`, `ancoraggio.quantita_non_intera`, `ancoraggio.alternative_conservate`;
@@ -650,6 +668,16 @@ markmap:
     il conflitto con il cartiglio, anche con la decisione tracciata; niente sulla struttura candidata (T-B4-38); il
     candidato del 2D senza il confronto con la radice scelta quando la radice ha la base del prodotto (T-B4-25);
   - il determinismo, gli errori di contratto, i valori e i campi.
+- **`elementi_cad_test.go`** — livello L1 — il segnale LS-02 dai fatti del worker all'adattatore, a `StrutturaDa` e a
+  `ProponiStrutture` (V1, piano della 0023 §10 riga 6):
+  - Q-01: gli esempi positivi e negativi sintetici di A3 §3.6 (i 51 cordoni, i corpi di saldatura, la minuteria da
+    saldare, le radici, il contenitore con figli, i limiti dichiarati fissati come limiti), le spiegazioni, le righe da
+    decidere che restano, la scena ACME di sempre; l'equivalenza con l'esito dell'espressione Python della misura;
+  - Q-02: la stessa scena con i fatti v3, v3 con la diagnostica 1 e v4: lo stesso esito; i contro-indizi;
+  - Q-02b: il JSON dei nodi senza segnali uguale a quello di prima, campo per campo.
+- **`elementi_cad_interna_test.go`** — livello L1, dentro il pacchetto — le parole e i loro intervalli, le tre
+  condizioni una per volta, e l'equivalenza della regola con una lettura indipendente della semantica Python su tutti i
+  testi di al più tre pezzi di un alfabeto di prova.
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro
   (A1a-CAT, A1c-L1-32) in `core/estrazione/evidenze/codici_diagnostica_test.go`.
 - I clienti delle prove sono inventati (ACME). I test stanno nel ramo `-qa`.

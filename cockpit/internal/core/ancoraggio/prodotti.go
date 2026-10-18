@@ -32,7 +32,11 @@ import (
 // ancoraggio-2 (K4): le equivalenze del cartiglio negli ancoraggi dei file (equivalenze.go: il motivo
 // equivalenza_cartiglio, CandidatoAncoraggio.Equivalenze, ancoraggio.equivalenza_cartiglio_contesa). Le regole di
 // ProponiProdotti non cambiano, ma la versione è una sola, e cambia anche l'ID dei suoi esiti.
-const VersioneServizio = "ancoraggio-2"
+// ancoraggio-3 (V1, LS-02; addendum ad A1c §2.2 del 18/10): il segnale dei possibili elementi CAD sui nodi degli STEP
+// (elementi_cad.go: NodoProposto.Segnali, regola elemento_cad_nome_foglia_v1). Un campo calcolato in più, con
+// omitempty: nessun nodo tolto, nessun fabbisogno cambiato, nessuna regola di ProponiProdotti cambiata. Cambiano l'ID e
+// le impronte degli esiti di oggi, non i registri già scritti.
+const VersioneServizio = "ancoraggio-3"
 
 // ---- il vocabolario comune (contratto §2.2) ----
 

@@ -1363,9 +1363,19 @@ func TestProponiStruttureErroriDiContratto(t *testing.T) {
 //
 // Riscritta per B4 (commit P6b, fase 2): NodoProposto.AbbinamentoPerBase (emendamento E1 §4.2, punto 2; lettura
 // dell'orchestratore T-B4-12). I valori e i campi dei tipi degli ancoraggi li fissa ancoraggi_test.go.
+//
+// Riscritta per LS-02 (V1; emendamento di V1 §11.1; addendum ad A1c §2.2 del 18/10): NodoProposto.Segnali, in fondo al
+// tipo, e i tipi nuovi SegnaleNodo e RiscontroNome; il codice del segnale, la regola versionata, i due contro-indizi e
+// l'espressione della regola v1 (elementi_cad.go). Le prove della regola sono in elementi_cad_test.go.
 func TestIValoriDelleStrutture(t *testing.T) {
 	id := uidS(0x5a0)
 	for _, c := range []struct{ got, want string }{
+		// il segnale LS-02 (V1)
+		{ancoraggio.CodiceSegnaleElementoCAD, "ancoraggio.possibile_elemento_cad"},
+		{ancoraggio.RegolaElementoCADNomeFogliaV1, "elemento_cad_nome_foglia_v1"},
+		{ancoraggio.ControIndizioLetturaIdentita, "lettura_identita"},
+		{ancoraggio.ControIndizioGrafoNonCompleto, "grafo_non_completo"},
+		{ancoraggio.EspressioneElementoCADV1, `(?i)(?:^|[^A-Za-z])(?:saldatura|cordone|fillet|bead)(?:$|[^A-Za-z])|(?:^|[^A-Za-z])weld[ _-]*(?:bead|seam|id)(?:$|[^A-Za-z])`},
 		{string(ancoraggio.StatoStrutturaNessuna), "nessuna"},
 		{string(ancoraggio.StatoStrutturaCandidata), "struttura_candidata"},
 		{string(ancoraggio.StatoBOMDiLavoroProposta), "bom_di_lavoro_proposta"},
@@ -1408,7 +1418,10 @@ func TestIValoriDelleStrutture(t *testing.T) {
 		{ancoraggio.RigaPropostaLegacy{}, "ID:id AllegatoID:allegato_id Sha256:sha256 Chiave:chiave Autorita:autorita Origine:origine " +
 			"CodiceManuale:codice_manuale RevManuale:rev_manuale LetturaManuale:lettura_manuale"},
 		{ancoraggio.NodoProposto{}, "Rif:rif AllegatoID:allegato_id EntitaID:entita_id Codice:codice Padri:padri Leggibile:leggibile SenzaFile:senza_file " +
-			"Decisione:decisione RigaLegacy:riga_legacy RigaDecisa:riga_decisa DecisoDaPersona:deciso_da_persona AbbinamentoPerBase:abbinamento_per_base"},
+			"Decisione:decisione RigaLegacy:riga_legacy RigaDecisa:riga_decisa DecisoDaPersona:deciso_da_persona AbbinamentoPerBase:abbinamento_per_base " +
+			"Segnali:segnali"},
+		{ancoraggio.SegnaleNodo{}, "Codice:codice Regola:regola Riscontri:riscontri ControIndizi:contro_indizi Spiegazione:spiegazione"},
+		{ancoraggio.RiscontroNome{}, "Campo:campo UnitaID:unita_id Parole:parole Intervalli:intervalli"},
 		{ancoraggio.ArcoProposto{}, "Padre:padre Figlio:figlio Quantita:quantita Occorrenze:occorrenze Decisione:decisione"},
 		{ancoraggio.StrutturaProdotto{}, "Target:target AllegatoID:allegato_id Sha256:sha256 Radice:radice RadiceDelFile:radice_del_file Compatibilita:compatibilita " +
 			"Stato:stato Origine:origine Nodi:nodi Archi:archi ArchiContesto:archi_contesto Fonti:fonti GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo " +

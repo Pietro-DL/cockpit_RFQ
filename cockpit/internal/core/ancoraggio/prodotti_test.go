@@ -896,9 +896,12 @@ func TestProponiProdottiErroriDiContratto(t *testing.T) {
 // vocabolario e della fonte sono quelli del contratto. Se uno cambia, questa prova si riscrive con «Riscritta per …».
 //
 // Riscritta per K4: VersioneServizio ancoraggio-2 (le equivalenze del cartiglio negli ancoraggi).
+//
+// Riscritta per LS-02 (V1; addendum ad A1c §2.2 del 18/10): VersioneServizio ancoraggio-3 (il segnale dei possibili
+// elementi CAD sui nodi degli STEP, elementi_cad.go).
 func TestIValoriDelContratto(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
-		{ancoraggio.VersioneServizio, "ancoraggio-2"},
+		{ancoraggio.VersioneServizio, "ancoraggio-3"},
 		{string(ancoraggio.AutoritaConfermata), "confermata"},
 		{string(ancoraggio.AutoritaProposta), "proposta"},
 		{string(ancoraggio.AutoritaScenario), "scenario"},
