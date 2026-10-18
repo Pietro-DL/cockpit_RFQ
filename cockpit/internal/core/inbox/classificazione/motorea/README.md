@@ -120,8 +120,8 @@ markmap:
     lunga quanto la lettura più lunga più il confine, ripartenza di una runa; l'allungamento della lettura quando il confine destro ha consumato un carattere che poteva essere
     suo.
 - **`confini.go`** — responsabilità:
-  - le quattro classi di confine (D-05), con il caso che giustifica ognuna: la regex del confine destro e i
-    due controlli in Go.
+  - le cinque classi di confine (D-05; la quinta, `alnum_ascii_o_trattino`, dal 17/10 con l'addendum di LS-03 A),
+    con il caso che giustifica ognuna: la regex del confine destro e i due controlli in Go.
 - **`letture.go`** — responsabilità:
   - `LetturaForma`, `BaseLetta`, `SegmentoLetto`, `ParteLetta`, `AffissoLetto`, `RevisioneLetta`,
     `DecorazioneLetta`, `RipetizioneLetta` e le costanti degli stati;
