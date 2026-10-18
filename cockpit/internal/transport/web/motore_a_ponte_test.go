@@ -149,6 +149,11 @@ var ponteEscluse = map[string]string{
 	"/thread/{id}/fascicolo/file/{pid}/generale":                        "non è un gesto della Distinta: documenti generali del Fascicolo",
 	"/thread/{id}/richiesta":                                            "non è un gesto della Distinta: richieste ai fornitori",
 	"/thread/{id}/richiesta/{rid}/annulla":                              "non è un gesto della Distinta: richieste ai fornitori",
+	// V1, ondata B (corsia persistenza): le POST della bozza della Distinta unica le chiama il ponte nuovo
+	// (distinta_unica_ponte.mjs, EM §9), non questo; restano qui fino alla riscrittura di T-06 (R-7 dell'interfaccia)
+	"/thread/{id}/motore-a/bozza":                   "Distinta unica di V1: R2 del ponte nuovo (EM §9.2), fino a T-06",
+	"/thread/{id}/motore-a/bozza/{bozza}/abbandona": "Distinta unica di V1: R3 del ponte nuovo (EM §9.3), fino a T-06",
+	"/thread/{id}/motore-a/riallinea":               "Distinta unica di V1: R11 (EM §9.8), fino a T-06",
 }
 
 // ponteRotteRegistrate: le rotte «METODO /thread/…» e «METODO /proposta/…» che il server registra, lette dai sorgenti

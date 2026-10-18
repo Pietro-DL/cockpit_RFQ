@@ -48,6 +48,12 @@ markmap:
 
 ## File
 
+- **`fonte_step_v1.go`** (V1, ondata B, corsia persistenza; EM §2.3, §9.10; PM23 R-24)
+  - `ScriviFonteProdotto`: la riga della storia della fonte STEP del prodotto (`fonte_step_evento`, ruolo prodotto) che
+    «Autorizza» (`autorizzazione`, in `DichiaraStrutturale` per un finito, anche dalla sostituzione con «sì»), «Revoca»
+    (`revoca`, con il motivo, in `RevocaStrutturale`) e «Conferma la fonte» (`conferma_documento`, in
+    `transport/web/allegati.go`) scrivono nella transazione dell'atto; senza un allegato del documento la riga non si
+    scrive e l'atto va avanti (limite dichiarato)
 - **`fascicolo.go`**
   - Commento `// Package`.
   - `Rifiuto` (il «no» per l'operatore: chi chiama annulla la transazione; `transport/web` usa lo stesso tipo come suo `rifiuto`)

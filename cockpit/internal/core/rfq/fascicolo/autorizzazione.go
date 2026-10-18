@@ -913,6 +913,14 @@ func DichiaraStrutturale(ctx context.Context, q *db.Queries, thread, utente uuid
 			StepStrutturaleID: uid(e.Documento.DocumentoID)}); err != nil {
 			return "", err
 		}
+		// V1 (EM §2.3, §9.10; PM23 R-24): la riga «autorizzazione» della storia della fonte del prodotto, nella stessa
+		// transazione; non per un file che era gia' lo STEP autorizzato
+		if e.Gia == "" {
+			if _, err := ScriviFonteProdotto(ctx, q, EventoFonte{Thread: thread, Prodotto: c.ComponenteID, Documento: e.Documento.DocumentoID,
+				Allegato: portatore, Sha256: e.Sha256, Azione: FonteAutorizzazione, Autore: utente}); err != nil {
+				return "", err
+			}
+		}
 	}
 	// le deleghe rimaste senza catena dopo le revoche se ne vanno con la loro storia
 	cascata, err := revocaLeDelegheSenzaCatena(ctx, q, thread, utente, revocate)
@@ -1050,6 +1058,13 @@ func RevocaStrutturale(ctx context.Context, q *db.Queries, thread, utente, comp 
 		}
 		if err := revocaDichiarazione(ctx, q, thread, utente, d, "autorizzazione_revocata", motivo, "revocato lo STEP autorizzato"); err != nil {
 			return "", err
+		}
+		// V1 (EM §2.3, §9.10; PM23 R-24): la riga «revoca» della storia della fonte del prodotto, con il motivo
+		if c.Tipo == db.TipoComponenteFinito && !d.Delega() && d.Documento.Valid {
+			if _, err := ScriviFonteProdotto(ctx, q, EventoFonte{Thread: thread, Prodotto: comp, Documento: d.Documento.UUID, Allegato: d.Allegato,
+				Sha256: d.Sha256, Azione: FonteRevoca, Motivo: motivo, Autore: utente}); err != nil {
+				return "", err
+			}
 		}
 		revocate[d.Sha256] = true
 		f := d.NomeFile

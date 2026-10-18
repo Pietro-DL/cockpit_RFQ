@@ -31,10 +31,17 @@ markmap:
   - **controllo della base** (`ControllaBase`): i motivi `conferma_cambiata` e `struttura_cambiata` di
     `BASE_SUPERATA`.
 
+## Lo stato della RFQ (V1, ondata B)
+
+- **`base.go`**: `StatoRFQ` (`LeggiStatoRFQ`: componenti, archi, conferme e fonti autorizzate di tutta la RFQ, con le
+  query di `db/queries/v1_bozza_rotte.sql`; `NuovoStatoRFQ` in memoria), `VersioneCorrente` (ultima conferma,
+  contatore, firma del perimetro ricalcolata, fonte autorizzata: la `versione_corrente` di R1), `ValiditaUltima`,
+  `ControllaBase`. Recuperato dalla tappa del 13/10 (V0 §2.3: «riusabile, da adattare»); e' l'unico file del package che
+  legge il database, nella transazione di chi chiama (R1 in sola lettura, R2 dopo `BloccaThread`). Le regole restano
+  quelle pure di `firma.go` e `validita.go`.
+
 ## Non appartiene qui
 
-- Query, sqlc, transazioni: la lettura dello stato della RFQ (`StatoRFQ`, `Q/p4_bozza_v2.sql`) e le prove L4
-  (`base_db_test.go`) sono della parte di B2.3 con il database.
 - La scrittura di `conferma_strutturale` e dei suoi componenti e archi (B2.7), i segni sulle righe STEP (B2.9).
 - I motivi della base che dipendono dalla fonte STEP (`fonte_rifiutata`, `rif_scaduti`): li aggiunge chi chiama.
 
@@ -48,5 +55,5 @@ markmap:
   `TestScenarioFLeRegoleDelClienteNonCambianoLaFirma` (nessun import delle regole del cliente fuori dalle prove),
   `TestScenarioFValiditaDopoUnCambioDiRegoleODiStruttura` (regole cambiate → conferma valida per firma; cambio
   vero di un componente o di un arco → non valida, `struttura_cambiata`).
-- I nomi dei file della parte pura sono `firma.go` e `validita.go`; `base.go` e `base_db_test.go` del piano
-  restano alla parte di B2.3 con il database.
+- I nomi dei file della parte pura sono `firma.go` e `validita.go`. `base_test.go` (L1, V1 ondata B): lo stato della
+  RFQ in memoria usa la firma e la validita' del package; la lettura dal database la provano le L4 delle rotte (R1).

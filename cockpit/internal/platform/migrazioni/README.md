@@ -270,9 +270,11 @@ markmap:
     `NamespaceAmmissibile`, tetti di sicurezza e bianchi Unicode compresi (un id o un namespace di soli tab o spazi
     tipografici e' vuoto anche per il CHECK)
   - Il caso delle maiuscole non ASCII dipende da `lower()` del database: con LC_CTYPE C (il database di prova) il CHECK
-    le accetta e il Go no. E' la deviazione dichiarata P-17 del resoconto della corsia persistenza di V1 (T-14 FALLITA
-    per quel caso finche' non e' decisa): la prova la fissa (il CHECK accetta, il Go rifiuta, lo scrive nel log), e una
-    deviazione diversa o in piu' la fa fallire
+    le accetta e il Go no. E' la deviazione accettata P-17 (a), decisione [T] dell'integratore sulle proposte
+    dell'ondata A (18/10): il CHECK e' una difesa in piu', non la regola; le maiuscole non ASCII le rifiutano il Go e
+    la grammatica, e R5 e' l'unico scrittore; il requisito resta PostgreSQL 16+ (niente `pg_c_utf8` ne' ICU). Per quel
+    caso T-14 dice «deviazione accettata (P-17 a)», non piu' FALLITA: la prova la fissa (il CHECK accetta, il Go
+    rifiuta, lo scrive nel log), e una deviazione diversa o in piu' la fa fallire
 - **`larghezze_db_test.go`**
   - Livello: L4
   - Che cosa prova: le colonne `codice` e `rev` larghe almeno quanto `classificazione` dichiara

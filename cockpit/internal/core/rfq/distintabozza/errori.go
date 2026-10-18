@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"promatec/cockpit/internal/core/rfq/confermabom"
 )
 
 // I codici degli errori del package, con i nomi del contratto backend A1d v2 rev. 3 (§6.2, §6.5, §6.7, §15.5-§15.7).
@@ -56,6 +58,10 @@ type Errore struct {
 	// database ferma da solo sotto i lucchetti (indice della bozza aperta, PK della versione) non c'e': la
 	// transazione e' gia' annullata e non si rilegge niente (RC-15, motivato nel resoconto delle correzioni).
 	Conflitto *Conflitto
+	// VersioneCorrente: per BASE_SUPERATA del rebase del formato 3, la versione corrente del prodotto (EM §9.2).
+	VersioneCorrente *confermabom.VersioneCorrente
+	// AllegatoID: per gruppo_su_altra_occorrenza, l'allegato del gruppo (EM §6.1); per le forme che lo dicono.
+	AllegatoID *uuid.UUID
 }
 
 // Conflitto descrive la bozza corrente quando un salvataggio o un abbandono arrivano su una versione superata.

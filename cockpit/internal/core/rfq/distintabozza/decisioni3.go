@@ -76,7 +76,9 @@ var formeDecisione = map[string]formaDecisione{
 	DecisioneCambiaTipo:          {[]string{"componente_id", "tipo_nuovo", "firma_effetto"}, nil},
 	DecisioneIdentita:            {[]string{"chiave_bozza", "modo", "identita"}, []string{"importazione", "chiave_lettura", "riferimento", "lettura", "motivo"}},
 	DecisioneNonIncludere:        {[]string{"casella", "motivo_codice", "motivo", "azione_id"}, []string{"importazione", "segnale_visto"}},
-	DecisioneScollegaDocumento:   {[]string{"proposta_id", "componente_id"}, []string{"motivo"}},
+	// da_decisione: l'id della decisione escludi da cui nasce lo svincolo (PE-27 dell'ondata A, decisione [T]
+	// dell'integratore, 18/10): «↺ Ripristina» toglie l'esclusione e gli svincoli che la citano nello stesso gesto
+	DecisioneScollegaDocumento: {[]string{"proposta_id", "componente_id"}, []string{"motivo", "da_decisione"}},
 }
 
 var (
@@ -111,6 +113,7 @@ type Decisione3 struct {
 	AzioneID      *uuid.UUID                    `json:"azione_id,omitempty"`
 	SegnaleVisto  *importazione.SegnaleVisto    `json:"segnale_visto,omitempty"`
 	PropostaID    *uuid.UUID                    `json:"proposta_id,omitempty"`
+	DaDecisione   string                        `json:"da_decisione,omitempty"`
 	Motivo        string                        `json:"motivo,omitempty"`
 }
 
@@ -151,6 +154,7 @@ type decisione3In struct {
 	AzioneID      *uuid.UUID                    `json:"azione_id"`
 	SegnaleVisto  *importazione.SegnaleVisto    `json:"segnale_visto"`
 	PropostaID    *uuid.UUID                    `json:"proposta_id"`
+	DaDecisione   *string                       `json:"da_decisione"`
 	Motivo        *string                       `json:"motivo"`
 }
 
@@ -235,7 +239,7 @@ func (in decisione3In) converti() Decisione3 {
 		TipoNuovo: valore(in.TipoNuovo), FirmaEffetto: valore(in.FirmaEffetto), Modo: valore(in.Modo),
 		Importazione: valore(in.Importazione), ChiaveLettura: valore(in.ChiaveLettura), Riferimento: valore(in.Riferimento),
 		Lettura: in.Lettura, MotivoCodice: valore(in.MotivoCodice), AzioneID: in.AzioneID, SegnaleVisto: in.SegnaleVisto,
-		PropostaID: in.PropostaID}
+		PropostaID: in.PropostaID, DaDecisione: valore(in.DaDecisione)}
 	if in.Qta != nil {
 		d.Qta = *in.Qta
 	}
@@ -276,6 +280,11 @@ func (d *Decisione3) valida(campo string) *Errore {
 	}
 	if d.ChiaveBozza != "" && !reChiave.MatchString(d.ChiaveBozza) {
 		return corpo(campo+".chiave_bozza", "la chiave e' 1-64 caratteri fra lettere, cifre e . _ : -")
+	}
+	// la decisione escludi da cui nasce lo svincolo: un id della stessa forma; che sia un'esclusione dello stesso
+	// snapshot, dello stesso componente, lo controlla lo snapshot (validaDecisioni, PE-27)
+	if d.DaDecisione != "" && !reChiave.MatchString(d.DaDecisione) {
+		return corpo(campo+".da_decisione", "l'id di una decisione e' 1-64 caratteri fra lettere, cifre e . _ : -")
 	}
 	maxMotivo := MaxMotivo
 	if d.Tipo == DecisioneRicodifica {
