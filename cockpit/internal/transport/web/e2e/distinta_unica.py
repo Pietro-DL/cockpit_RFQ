@@ -732,6 +732,9 @@ def b15(b):
     p.click("#du-da-conferma")
     b.salvata(1)
     expect(p.locator("#du-vp .du-nc[data-k]")).to_have_count(1)
+    # «v1 confermata» e «Verificata» restano due segni distinti; la verifica di una conferma di V1 non è calcolata
+    expect(p.locator("#du-stato-conferma")).to_contain_text("v1 confermata")
+    expect(p.locator("#du-stato-conferma")).to_contain_text("Verificata: non ancora calcolata (arriva in V2)")
     b.apri_wizard()
     expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
     b.modo("R6", "in_corso")

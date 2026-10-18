@@ -1946,7 +1946,9 @@ function statoConferma() {
   const out = h("span", { class: "du-azioni", id: "du-stato-conferma" });
   if (ultima) out.append(pill(ultima.valida ? "ok" : "ver", ultima.valida ? "v" + ultima.numero + " confermata il " + dataOra(ultima.confermato_il) : "v" + ultima.numero + " confermata, poi la struttura è cambiata: serve una conferma nuova", "conferma n. " + ultima.numero));
   else out.append(pill("neu", "nessuna conferma"));
-  const daR5 = conf.some((c) => c.origine && c.origine.rotta === "motore-a/bom/conferma");
+  // l'ultima conferma è del formato 3 (R5 di V1, EM §9.7: «formato» nell'elenco): la sua verifica in V1 non è calcolata
+  // (mai positiva, EM §9.5 passo 12); «origine» ha una forma che EM non fissa, e resta solo come ripiego
+  const daR5 = !!ultima && (ultima.formato === 3 || !!(ultima.origine && ultima.origine.rotta === "motore-a/bom/conferma"));
   const p = prodottoScelto();
   if (daR5) out.append(pill("neu", "Verificata: non ancora calcolata (arriva in V2)"));
   else if (p) out.append(pill(p.verificato ? "ok" : "neu", "Verificata (calcolo di oggi): " + (p.verificato ? "sì" : "no"), arr(p.motivi).map((m) => (m && (m.codice || m.motivo)) || m).join(", ")));
