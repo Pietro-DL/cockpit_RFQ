@@ -71,6 +71,15 @@ markmap:
   - Righe: 167
   - Responsabilità: `EstraiArchivio` (voci fra i contenuti, allegati figli, proposte e analisi in una
     transazione), `estraiInContenuti`
+  - V1 (EM §10.6, §10.7 G-7): le voci si estraggono in una cartella temporanea (`estraiInTemporanea`) e si adottano
+    sotto `BloccaContenuto` nella transazione che scrive `path_staging` (`adottaVoce`); sotto `BloccaThread` un archivio
+    non attivo non scrive voci, una voce scartata non si riscrive, una voce in Altri file non riceve la lettura, e un file
+    diverso allo stesso indice di una voce non attiva e' l'evento `anomalia_riestrazione` (lo scrive `core/rfq/filerfq`)
+- **`sorgente_guardie.go`** (V1)
+  - Responsabilità: `statoOccorrenza`, lo stato dell'occorrenza di un allegato per le guardie del worker (EM §10.7): il
+    result di un download (G-1: la proposta, poi `BloccaContenuto`, poi lo stato; uno scartato non riceve i byte, uno in
+    Altri file li registra senza la strada d'ingresso), i destinatari dei fatti di un'analisi (G-2: solo le occorrenze
+    attive; i fatti per sha si scrivono sempre), i fatti gia' presenti (G-4) e la strada d'ingresso (G-5)
 
 ## Entry point
 

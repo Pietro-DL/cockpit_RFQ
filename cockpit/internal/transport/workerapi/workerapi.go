@@ -834,16 +834,41 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		}
 		// da qui in poi il file è dell'allegato: la riga del job è bloccata (Blocca), quindi nessun
 		// altro tentativo può promuovere il suo nel frattempo
-		if prep.riusato {
+		r := prep.r
+		// V1 (EM §10.6, §10.7 G-1): la proposta dell'allegato prima dell'allegato (lo stesso ordine dei gesti della
+		// Sorgente), poi il lucchetto per contenuto, e sotto il lucchetto lo stato dell'occorrenza e il contenuto. Un file
+		// scartato nella Sorgente non riceve i byte ne' la strada d'ingresso; uno in Altri file registra i byte, ma la
+		// strada d'ingresso no. Il contenuto «gia' presente» si ricontrolla qui: se nel frattempo l'ha tolto un tempo 2 o
+		// la cache, si promuove il .parte del tentativo.
+		if _, err := q.BloccaPropostaDiAllegato(ctx, []uuid.UUID{r.AllegatoID}); err != nil {
+			return err
+		}
+		sha := strings.ToLower(r.Sha256)
+		if err := q.BloccaContenuto(ctx, sha); err != nil {
+			return err
+		}
+		stato, err := statoOccorrenza(ctx, q, r.AllegatoID)
+		if err != nil {
+			return err
+		}
+		if stato == "scartato" {
 			staging.RimuoviParte(prep.parte)
+			s.Log.Info("download di un file scartato nella Sorgente: i byte non si registrano", "allegato", r.AllegatoID)
+			return nil
+		}
+		if staging.ContenutoGiaPresente(prep.definitivo, sha) {
+			staging.RimuoviParte(prep.parte)
+			staging.ToccaContenuto(prep.definitivo)
 		} else if err := staging.Promuovi(prep.parte, prep.definitivo); err != nil {
 			return err
 		}
-		r := prep.r
-		if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: r.AllegatoID, PathStaging: txt(prep.definitivo), Sha256: txt(strings.ToLower(r.Sha256)), Bytes: pgtype.Int8{Int64: r.Bytes, Valid: true}}); err != nil {
+		if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: r.AllegatoID, PathStaging: txt(prep.definitivo), Sha256: txt(sha), Bytes: pgtype.Int8{Int64: r.Bytes, Valid: true}}); err != nil {
 			return err
 		}
 		s.riallineaEntryID(ctx, q, prep.p.RiferimentoElemento, prep.p.EntryID, r.RisultatoElemento)
+		if stato == "altri_file" {
+			return nil
+		}
 		return s.dopoStaging(ctx, q, r)
 
 	case db.TipoJobAnalizzaAllegato:
@@ -902,7 +927,14 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		// L’INTERPRETAZIONE, invece, è di ogni singola proposta: dipende dalla direzione del messaggio
 		// e dalle regole del cliente di quella RFQ. Gli stessi fatti danno proposte diverse in RFQ
 		// diverse, e ognuna va scritta con le sue regole (A15).
-		destinatari := []db.Allegato{a}
+		// V1 (EM §10.7, G-2): i fatti per sha si scrivono sempre (sopra); la lettura la ricevono solo le occorrenze
+		// attive, compresa quella del job (le altre la ricevono quando tornano attive, con «Riattiva»)
+		var destinatari []db.Allegato
+		if stato, err := statoOccorrenza(ctx, q, a.AllegatoID); err != nil {
+			return err
+		} else if stato == "attivo" {
+			destinatari = append(destinatari, a)
+		}
 		if a.Sha256.Valid && a.Sha256.String != "" {
 			altre, err := q.ListProposteAperteStessoFile(ctx, a.Sha256)
 			if err != nil {
@@ -1138,6 +1170,12 @@ func (s *Server) applicaFattiEsistenti(ctx context.Context, q *db.Queries, a db.
 	if !a.Sha256.Valid || a.Sha256.String == "" {
 		return nil
 	}
+	// V1 (EM §10.7, G-4): un'occorrenza in Altri file o scartata non riceve la lettura dei fatti gia' presenti
+	if stato, err := statoOccorrenza(ctx, q, a.AllegatoID); err != nil {
+		return err
+	} else if stato != "attivo" {
+		return nil
+	}
 	f, err := q.GetAnalisiFatti(ctx, db.GetAnalisiFattiParams{
 		Sha256: a.Sha256.String, VersioneAnalizzatore: int16(s.Analizzatore.Versione),
 		HashConfigurazione: s.Analizzatore.Hash(),
@@ -1277,6 +1315,13 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 	a, err := q.GetAllegato(ctx, r.AllegatoID)
 	if err != nil {
 		return err
+	}
+	// V1 (EM §10.7, G-5): un'occorrenza non attiva non fa la strada d'ingresso (la «Riattiva» la chiama dopo aver
+	// scritto attivo, nella stessa transazione)
+	if stato, err := statoOccorrenza(ctx, q, a.AllegatoID); err != nil {
+		return err
+	} else if stato != "attivo" {
+		return nil
 	}
 	m, err := q.GetMessaggio(ctx, a.MessaggioID)
 	if err != nil {
