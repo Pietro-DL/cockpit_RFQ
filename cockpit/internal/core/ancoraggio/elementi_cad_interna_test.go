@@ -64,7 +64,7 @@ func TestSegnaliElementoCADLeTreCondizioni(t *testing.T) {
 		{"cordone con un codice letto e il grafo non completo", letto, true, false, false, 1,
 			[]string{ControIndizioLetturaIdentita, ControIndizioGrafoNonCompleto}},
 	} {
-		s := segnaliElementoCAD(c.n, c.foglia, c.radice, c.grafoCompleto)
+		s := segnaliElementoCAD(c.n, c.foglia, c.radice, c.grafoCompleto, "2 radici nel file: una distinta ne ha una")
 		if len(s) != c.segnali {
 			t.Errorf("%s: %d segnali, attesi %d", c.nome, len(s), c.segnali)
 			continue
@@ -77,7 +77,7 @@ func TestSegnaliElementoCADLeTreCondizioni(t *testing.T) {
 			t.Errorf("%s: %+v", c.nome, s[0])
 		}
 	}
-	s := segnaliElementoCAD(letto, true, false, true)[0]
+	s := segnaliElementoCAD(letto, true, false, true, "")[0]
 	if !strings.HasSuffix(s.Spiegazione, " Ha anche un codice letto (7120002): controlla che non sia un pezzo vero.") {
 		t.Errorf("le letture con lo stesso letterale si dicono una volta: %q", s.Spiegazione)
 	}
@@ -88,22 +88,51 @@ func TestSegnaliElementoCADLeTreCondizioni(t *testing.T) {
 	dueCodici := cordone
 	dueCodici.Letture = []motorea.LetturaCodice{{ID: "l:1", Forma: motorea.LetturaForma{Originale: "7120002"}},
 		{ID: "l:2", Forma: motorea.LetturaForma{Originale: "7120003"}}, {ID: "l:3", Forma: motorea.LetturaForma{Originale: "7120002"}}}
-	if s := segnaliElementoCAD(dueCodici, true, false, true); len(s) != 1 || !strings.HasSuffix(s[0].Spiegazione,
-		"finché non decidi. Ha anche dei codici letti (7120002, 7120003): controlla che non sia un pezzo vero.") {
+	if s := segnaliElementoCAD(dueCodici, true, false, true, ""); len(s) != 1 || !strings.HasSuffix(s[0].Spiegazione,
+		"e la decisione è tua. Ha anche dei codici letti (7120002, 7120003): controlla che non sia un pezzo vero.") {
 		t.Errorf("due letterali diversi: %+v", s)
 	}
 	// Solo l'id e il nome sono ingressi della regola (EM §11.1, la tabella degli ingressi): un altro campo grezzo con la
 	// parola, se StrutturaDa un giorno lo portasse fra i grezzi (per esempio la descrizione), non dà il segnale.
 	altroCampo := NodoStruttura{Rif: "nodo:x:#5", Grezzi: []ValoreGrezzo{{Testo: "ACME-P-005", Campo: CampoGrezzoID, UnitaID: "u:step:#5:id"},
 		{Testo: "piastra per saldatura", Campo: "descrizione", UnitaID: "u:step:#5:descrizione"}}}
-	if s := segnaliElementoCAD(altroCampo, true, false, true); s != nil {
+	if s := segnaliElementoCAD(altroCampo, true, false, true, ""); s != nil {
 		t.Errorf("la parola in un campo che non è l'id né il nome: %+v", s)
 	}
 	trePezzi := NodoStruttura{Rif: "nodo:x:#4", Grezzi: []ValoreGrezzo{{Testo: "FILLET_WELD_ID_BEAD", Campo: CampoGrezzoID, UnitaID: "u:step:#4:id"}}}
-	tre := segnaliElementoCAD(trePezzi, true, false, true)
+	tre := segnaliElementoCAD(trePezzi, true, false, true, "")
 	if len(tre) != 1 || !reflect.DeepEqual(tre[0].Riscontri[0].Parole, []string{"FILLET", "WELD_ID", "BEAD"}) ||
 		!strings.HasPrefix(tre[0].Spiegazione, "L'id del pezzo nel file contiene «FILLET», «WELD_ID» e «BEAD»; il nodo non ha figli") {
 		t.Errorf("tre parole nello stesso campo: %+v", tre)
+	}
+}
+
+// TestSpiegazioneElementoCADITestiDiP5 (decisione P-5 dell'ondata A di V1; addendum ad A1c §2.2, rev. 3; EM §11.1): le
+// due frasi del segnale e del grafo. La frase del segnale è vera anche per un nodo già scartato; quella del grafo riporta
+// il motivo della completezza tale e quale (qualunque motivo, anche uno che non nasconde figli), e senza motivo resta
+// senza parentesi.
+func TestSpiegazioneElementoCADITestiDiP5(t *testing.T) {
+	cordone := NodoStruttura{Rif: "nodo:x:#2", Grezzi: []ValoreGrezzo{{Testo: "ACME Saldatura 2", Campo: CampoGrezzoNome, UnitaID: "u:step:#2:nome"}}}
+	frase := "Il nome del pezzo nel file contiene «Saldatura»; il nodo non ha figli e non è una radice del file: possibile elemento CAD " +
+		"(un cordone di saldatura o simile), non un articolo. È solo un segnale: da solo non toglie il nodo dalla proposta né il suo 2D, " +
+		"e la decisione è tua."
+	if s := segnaliElementoCAD(cordone, true, false, true, ""); len(s) != 1 || s[0].Spiegazione != frase {
+		t.Errorf("il grafo completo: %+v", s)
+	}
+	for _, motivo := range []string{"2 radici nel file: una distinta ne ha una", "struttura v4: gli scarti non sono numerati, serve la rianalisi v3"} {
+		atteso := frase + " Il grafo del file non è completo (" + motivo + "): che il nodo non abbia figli potrebbe non essere un'informazione."
+		if s := segnaliElementoCAD(cordone, true, false, false, motivo); len(s) != 1 || s[0].Spiegazione != atteso {
+			t.Errorf("il grafo non completo con il motivo %q: %+v", motivo, s)
+		}
+	}
+	senzaMotivo := frase + " Il grafo del file non è completo: che il nodo non abbia figli potrebbe non essere un'informazione."
+	if s := segnaliElementoCAD(cordone, true, false, false, ""); len(s) != 1 || s[0].Spiegazione != senzaMotivo {
+		t.Errorf("il grafo non completo senza motivo: %+v", s)
+	}
+	// il motivo da solo non dà il contro-indizio: lo dà il grafo non completo
+	if s := segnaliElementoCAD(cordone, true, false, true, "2 radici nel file: una distinta ne ha una"); len(s) != 1 || s[0].Spiegazione != frase ||
+		len(s[0].ControIndizi) != 0 {
+		t.Errorf("un motivo con il grafo completo: %+v", s)
 	}
 }
 

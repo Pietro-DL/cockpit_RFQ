@@ -872,7 +872,7 @@ func (c *contestoIndicizzato) struttura(t ProdottoRichiesto, f *fileIndicizzato,
 		// Il segnale LS-02 guarda il file, non la struttura: una foglia nel file è foglia in ogni struttura, e la radice
 		// del file è la stessa per ogni target (elementi_cad.go).
 		s.Nodi = append(s.Nodi, NodoProposto{Rif: r, AllegatoID: f.s.AllegatoID, EntitaID: n.EntitaID, Padri: copiaStringhe(p),
-			Leggibile: len(n.Letture) > 0, SenzaFile: true, Segnali: segnaliElementoCAD(n, len(f.figli[r]) == 0, f.radici[r], f.s.GrafoCompleto)})
+			Leggibile: len(n.Letture) > 0, SenzaFile: true, Segnali: segnaliElementoCAD(n, len(f.figli[r]) == 0, f.radici[r], f.s.GrafoCompleto, f.s.MotivoGrafo)})
 	}
 	sort.SliceStable(s.Archi, func(i, j int) bool {
 		if s.Archi[i].Padre != s.Archi[j].Padre {

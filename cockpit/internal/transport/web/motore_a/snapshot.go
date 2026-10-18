@@ -15,7 +15,9 @@ package motore_a
 //     SAVEPOINT e lascia aperta la transazione esterna, con la sua istantanea. Il caricatore non cambia (A1c congelato):
 //     cambia solo chi gli dà la transazione [T];
 //  4. le dichiarazioni dello STEP (fascicolo.LeggiDichiarazioni: ListDichiarazioniRfq + ValutaDichiarazioni), che il
-//     caricatore non legge: la validità delle autorizzazioni la dice il Fascicolo, qui non si ricostruisce.
+//     caricatore non legge: la validità delle autorizzazioni la dice il Fascicolo, qui non si ricostruisce;
+//  5. V1 (dati_v1.go, leggiV1): le occorrenze non attive, le bozze aperte formato 3 con le colonne del loro registro, lo
+//     stato di F8 e l'identità certificata dei componenti del thread.
 //
 // In REPEATABLE READ l'istantanea nasce alla prima lettura (GetThread) e vale per tutte le altre, compresa la
 // fotografia: esistenza, fase, fotografia e dichiarazioni sono dello stesso istante. SELECT now() del caricatore dà
@@ -45,6 +47,7 @@ type lettura struct {
 	Foto          fotorfq.Fotografia
 	Fase          *Fase
 	Dichiarazioni fascicolo.Dichiarazioni
+	V1            DatiV1
 }
 
 // tempoRollback: quanto può durare il ROLLBACK dello snapshot, staccato dal contesto della richiesta [T].
@@ -120,7 +123,11 @@ func (s Servizio) leggiSnapshot(ctx context.Context, thread uuid.UUID) (lettura,
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrLettura, err)
 		}
-		l = lettura{Foto: f, Fase: fase, Dichiarazioni: d}
+		v1, err := leggiV1(ctx, q, thread, f)
+		if err != nil {
+			return err
+		}
+		l = lettura{Foto: f, Fase: fase, Dichiarazioni: d, V1: v1}
 		return nil
 	})
 	return l, err

@@ -54,6 +54,10 @@ markmap:
   - **il nome di una cartella o di un file sul NAS, la copia, l'integrità** → `core/rfq/documenti`
   - **la BOM, le proposte dagli STEP, il piano, la preparazione, l'editor** → `core/rfq/fascicolo`
   - **la bozza della distinta salvata sul server (P4: snapshot, giornale, riconciliazione)** → `core/rfq/distintabozza`
+  - **il registro d'importazione della Distinta unica (V1: il DTO, la forma canonica, le impronte)** →
+    `core/rfq/distintabozza/importazione`
+  - **dalla proposta del Motore A al registro e alla bozza formato 3 (gruppi, gruppo corrente, adattatore, confronto,
+    cambio della fonte, S6, modello di `/dati`)** → `core/propostabom`
   - **una rotta del browser, una schermata** → `transport/web` (e `web/` per template e statici)
   - **il protocollo con i worker** → `transport/workerapi` + `platform/contratti/worker`
   - **la coda, le capacità, l'instradamento dei job** → `platform/coda`
@@ -107,6 +111,12 @@ markmap:
   - **[`core/rfq/distintabozza/README.md`](core/rfq/distintabozza/README.md)** → la bozza della distinta formato 2 salvata
     sul server (giro 5, A1d, P4-B1): snapshot completo a ogni versione, giornale delle azioni, riconciliazione, letture
     e abbandono; le rotte R1-R3 sono di B2
+  - **[`core/rfq/distintabozza/importazione/README.md`](core/rfq/distintabozza/importazione/README.md)** → il registro
+    d'importazione di V1 (la foglia del DTO): la lettura stretta, la forma canonica, le quattro impronte con l'elenco
+    chiuso, le regole di forma, le letture e le loro copie
+  - **[`core/propostabom/README.md`](core/propostabom/README.md)** → dalla proposta del Motore A alla bozza formato 3
+    (V1): la chiave dei gruppi, il gruppo corrente della sorgente, l'adattatore del registro d'importazione, il
+    confronto fra due registri, l'effetto del cambio della fonte, il contenuto di S6 e le aggiunte di V1 a `/dati`
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
   - **[`platform/config/README.md`](platform/config/README.md)** → `cockpit.toml`, voce per voce
   - **[`platform/db/README.md`](platform/db/README.md)** → il codice sqlc, le query per file
@@ -177,8 +187,17 @@ markmap:
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
   - **`core/*` (aggancio, ingest, registro, rfq)** → gli altri `core/*`, `platform`
     - `core/rfq/distintabozza` (P4-B1) importa solo `core/inbox/classificazione` (i limiti di codice e rev),
-      `platform/db`, `platform/jsoncanonico`, pgx, uuid e `golang.org/x/text/unicode/norm` (le stringhe in NFC della
-      forma canonica); mai `core/rfq/fascicolo` (solo nelle prove)
+      `core/rfq/distintabozza/importazione` (V1: il DTO del registro d'importazione), `platform/db`,
+      `platform/jsoncanonico`, pgx, uuid e `golang.org/x/text/unicode/norm` (le stringhe in NFC della forma canonica);
+      mai `core/rfq/fascicolo` (solo nelle prove)
+  - **`core/rfq/distintabozza/importazione`** → `platform/jsoncanonico`, uuid
+    - la foglia del registro d'importazione (V1): nessun altro `core/*`; la importano `core/rfq/distintabozza` e
+      `core/propostabom`. Sta nella lista chiusa dei pacchetti del motore A (`pacchettiMotoreA`, P-10), con l'eccezione
+      del nome fra i vietati ai puri
+  - **`core/propostabom`** → `core/valutazione`, `core/ancoraggio`, `core/inbox/classificazione/motorea`,
+    `core/estrazione/evidenze`, `core/rfq/distintabozza/importazione`, `platform/jsoncanonico`, uuid
+    - puro: legge l'esito già calcolato, mai il DB, il caricatore, `core/rfq/distintabozza` (che importa lui, mai il
+      contrario), `transport`; lista chiusa in `core/estrazione/evidenze/dipendenze_test.go`
   - **`platform/*`** → solo `platform` e librerie (`testutil` anche il package radice, per le migrazioni incorporate)
   - **`platform/coda`** → `platform/storage/staging` (l'interfaccia `Staging`, per la guardia del doppio download)
   - **`platform/jsoncanonico`** → solo la libreria standard
@@ -192,7 +211,8 @@ markmap:
       importano `transport/web` e `app/runtime`; non importa mai `transport/web` né `app/*` (lista chiusa in
       `core/estrazione/evidenze/dipendenze_test.go`, `pacchettiMotoreA`). Da A1d-P2 importa il caricatore,
       `core/valutazione`, `core/confronto`, `core/fotorfq`, `core/ancoraggio`, `core/rfq/fascicolo` (l'anteprima dello
-      STEP e le dichiarazioni, riusate), `platform/db` e pgx
+      STEP e le dichiarazioni, riusate), `platform/db` e pgx; da V1 anche `core/propostabom` (i gruppi e il modello di
+      `/dati`)
   - **`app/runtime`** → `core`, `ai`, `platform`, `transport`
     - è l'unica area che le può conoscere tutte insieme, perché è quella che monta il processo
   - **`app/bancoa`** → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`,
@@ -220,6 +240,9 @@ markmap:
     sulle fixture sintetiche)
   - e `core/valutazione` → `core/fotorfq/caricatore`, `platform/testutil` (la L4 dei target e della fonte sul
     database di prova)
+  - e `core/valutazione` → `core/propostabom`, `core/rfq/distintabozza/importazione` (V1: le prove dell'adattatore del
+    registro, del confronto, del cambio della fonte, di S6 e del modello di `/dati` sulle scene della valutazione, nel
+    package di prova esterno `valutazione_test`)
   - e `core/confronto` → `core/valutazione`, `core/fotorfq`, `core/fotorfq/caricatore`,
     `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`, `platform/testutil` (le L4 A1c-L4S-08 e
     -09 sul database di prova: il percorso del banco e dell'anteprima, dalla fotografia al confronto)
@@ -500,6 +523,18 @@ markmap:
       della RFQ, albero, modifiche a mano, preparazione, piano, editor, suffissi
     - Parziale o in attesa: un prodotto della richiesta tolto o corretto torna alla preparazione successiva
       (l'identificativo non si aggiorna)
+  - **`core/rfq/distintabozza/importazione`** (V1)
+    - Completo: il DTO del registro d'importazione, la lettura stretta, la forma canonica, le quattro impronte con
+      l'elenco chiuso, le regole di forma, le letture e le loro copie (anche `codice_proposto` e `rev_proposta` di
+      una lettura, DECA PE-08)
+    - Parziale o in attesa: il registro lo scrive R2 (passo 6 del piano della 0023, corsia persistenza)
+  - **`core/propostabom`** (V1)
+    - Completo: la chiave dei gruppi, il gruppo corrente della sorgente (con P-4 (b)), l'adattatore del registro
+      d'importazione, il confronto fra due registri, l'effetto del cambio della fonte in sola lettura, il contenuto di
+      S6, le aggiunte di V1 al modello di `/dati` (le usa `transport/web/motore_a`)
+    - Parziale o in attesa: le rotte che lo usano per scrivere o per confrontare (R2, R1 `?confronto=1`,
+      `riallinea_proposta`, S6) arrivano con l'ondata C; i confermati senza STEP del gruppo «bom» (P-6) li aggiunge
+      chi conosce la working
   - **`platform/config`**
     - Completo: tutte le voci, avvisi sulle voci sconosciute, percorsi dalla cartella del file, `log_livello` a
       quattro valori

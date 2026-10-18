@@ -166,6 +166,7 @@ markmap:
 | Lo snapshot unico REPEATABLE READ READ ONLY (esistenza, fase, fotografia con un savepoint per il caricatore, dichiarazioni STEP) | `motore_a/snapshot.go` |
 | Il calcolo: `caricatore.Carica` → `valutazione.Calcola` → passaggio → `confronto.Confronta(…, nil)` | `motore_a/calcolo.go` |
 | La pagina e il JSON di `/dati` (contratto §2.2, §2.4) | `motore_a/modelli.go` |
+| Le aggiunte di V1 a `/dati` (EM §9.9; PE-01, PE-10, PE-15, PE-16, PE-28): le letture nello stesso snapshot (occorrenze non attive, bozze aperte formato 3 con le colonne del registro, F8, identità certificate; `queries/v1_motore.sql`) e la composizione con `propostabom.Modello` (gruppi con l'impronta_contenuto di adesso e i nodi, fonte, F8, bozza del prodotto con il gruppo corrente) | `motore_a/dati_v1.go`; prove `modelli_test.go` (A-28 sui nomi) e `dati_v1_db_test.go` (L4) |
 | La copia di `app/bancoa/passaggio.go` | `motore_a/passaggio.go` |
 | L'indice delle ricerche (contratto §2.3) | `motore_a/indice.go` |
 | La voce della tabella delle classi del cliente (14/10): sotto il codice della casella «categoria · descrizione · fonte» (`ma_classe_breve`), la riga «Normativa» dell'anteprima, il segno «minuteria ?» per il commerciale proposto con la minuteria proposta, l'etichetta di `proposto_dalla_grammatica` | `web/templates/motore_a.html`, `motore_a/etichette.go`; prova `motore_a_classi_test.go` |
@@ -200,7 +201,12 @@ markmap:
 
 - **`GET /thread/{id}/motore-a/dati`** (`Adm`, dietro il flag)
   - 200: il JSON del contratto §2.4 (`motore_a.Pagina`: `thread_id`, `vista`, `prodotto`, `testa`, `esito`,
-    `confronto`, `errore` sempre vuoto, `calcolato`); l'indice non c'è (Q-A1d-11 = A, da confermare).
+    `confronto`, `errore` sempre vuoto, `calcolato`); l'indice non c'è (Q-A1d-11 = A, da confermare). Da V1 (EM
+    §9.9) anche `gruppi` (con i nodi e le diagnostiche di più nodi), `motivo_senza_gruppi`, `fonte`, `f8_stato` e
+    `bozza_del_prodotto`, tutti `omitempty`: la pagina composta senza V1 resta byte per byte quella di prima. Le
+    aggiunte di V1 costano un'importazione per gruppo con uno STEP: `RichiestaPagina.SenzaV1` le salta (la pagina HTML
+    e il suo frammento non le leggono; /dati le calcola, il valore zero). Un errore o un panic dell'adattatore restano
+    nel gruppo (`importazione` con `ERRORE_CALCOLO`).
   - 400 id non valido; 404 RFQ inesistente; 503 regole non pronte (testo generico di `Regole.Errore()`, delle regole
     del servizio della richiesta) o troppi calcoli in corso (`ErrOccupato`, testo generico); 504 tempo scaduto
     (`limiti.anteprima.tempo_massimo_ms` dell'indice); 500 ogni altro errore, testo generico e dettaglio nel log, anche

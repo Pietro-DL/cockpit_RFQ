@@ -651,6 +651,7 @@ var etichette = map[string]map[string]string{
 		"ancoraggio.completamento_documentale":       "codice completato dal documento",
 		"ancoraggio.correzione_documentale":          "codice corretto dal documento",
 		"ancoraggio.equivalenza_cartiglio_contesa":   "equivalenza del cartiglio non univoca",
+		"ancoraggio.possibile_elemento_cad":          "possibile elemento CAD",
 		"confronto.revisione_non_confrontabile":      "revisioni del vecchio e del nuovo non confrontabili",
 		"regole.assenti":                             "cliente senza grammatica del motore A",
 		"regole.non_valide":                          "grammatica del cliente non valida",

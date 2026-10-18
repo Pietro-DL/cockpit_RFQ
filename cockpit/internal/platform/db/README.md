@@ -49,9 +49,10 @@ markmap:
 
 ### Le query per file
 
-- 35 file, 553 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
+- 37 file, 578 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
   `p4_conferme.sql` con 27 query, 22 piu' le 5 delle correzioni del 13/10; V1: + `v1_formato3.sql` con 43 query e
-  `ConfermaDistintaBozza` in `p4_conferme.sql`).
+  `ConfermaDistintaBozza` in `p4_conferme.sql`; V1, ondata B, corsia persistenza: + `v1_bozza_rotte.sql` con 22 query;
+  V1, corsia motore: + `v1_motore.sql` con 3 query).
 - «Senza chiamanti» = nessun chiamante, né in produzione né nei test; il «+n» fra parentesi conta quelle chiamate soltanto dai test.
 - L'elenco per nome è in «Stato dell'implementazione».
 - **`agente.sql`** — analisi semantica dell'agente
@@ -144,9 +145,12 @@ markmap:
     `importazione_id` e `importazioni_citate`; `ConfermaDistintaBozza` chiude la bozza nella transazione di R5
 - **`v1_formato3.sql`** — la 0023 di V1 (giro 5, A1d; direttiva 23): bozza formato 3, registro d'importazione, conferma formato 3, R4/R6/R7, atti della fonte, ciclo dei file della Sorgente
   - Tabelle e viste: `distinta_importazione`, `distinta_bozza`, `distinta_bozza_versione`, `conferma_strutturale` e il suo contenuto, `conferma_strutturale_non_incluso`, `componente` (`InsertComponenteSenzaFusione`, senza ON CONFLICT), `associazione_evento`, `f8_stato`, `fonte_step_evento`, `attestazione_fascicolo`, `componente_proposta` e `relazione_proposta` in lettura, `file_rfq`, `file_rfq_evento`, `file_rfq_rimozione`, `file_rfq_conservazione`, `documento_proposta` in lettura (D-6)
-  - Query: 43; senza chiamanti in produzione al primo commit: tutte (le chiamano R1-R7 nel passo 6 del piano della 0023, il motore per `GetSorgenteBozzaAperta`, il servizio dei file per le query dei file); le prova `platform/migrazioni/v1_0023_query_db_test.go`
+  - Query: 43; senza chiamanti in produzione al primo commit: tutte (le chiamano R1-R7 nel passo 6 del piano della 0023, il motore per `GetSorgenteBozzaAperta`, il servizio dei file per le query dei file); le prova `platform/migrazioni/v1_0023_query_db_test.go`. `ListIdentitaRegistrate` la chiama il modello di `/motore-a/dati` (`transport/web/motore_a/dati_v1.go`)
   - Chi le chiama: per ora solo le prove L4
   - Le colonne `tx` (xid8) non si leggono; le date le scrive il database; ogni lettura porta la RFQ nel `WHERE`: le testate direttamente, versioni ed eventi con una JOIN sulla testata (RC-19); gli eventi si leggono fino a una versione e a pagine
+- **`v1_motore.sql`** — le letture di V1 del modello della pagina della Distinta (`/motore-a/dati`, EM §9.9; corsia motore, ondata B), solo SELECT, nello snapshot REPEATABLE READ READ ONLY della fotografia
+  - Tabelle: `file_rfq` (le occorrenze non attive), `distinta_bozza`, `distinta_bozza_versione` e `distinta_importazione` (le bozze aperte formato 3 con le colonne del registro della versione, mai il contenuto), `f8_stato` (lo stato del rismistamento)
+  - Query: 3 (`ListFileRfqNonAttivi`, `ListSorgentiBozzeAperte`, `GetStatoF8DelThread`); le chiama `transport/web/motore_a` (`dati_v1.go:leggiV1`); le prova la L4 `transport/web/motore_a/dati_v1_db_test.go`
 - **`v1_bozza_rotte.sql`** — V1, ondata B (corsia persistenza, passo 6 del piano della 0023, prima parte): le letture dello stato della RFQ e delle rotte della bozza nel formato 3, gli aggiornamenti di `f8_stato` di R11, la testata di una bozza convertita, l'allegato della storia della fonte degli atti esistenti
   - Tabelle e viste: `componente`, `componente_relazione`, `conferma_strutturale` (testate), `documento`, `documento_provenienza`, `allegato` + `messaggio` (con `file_rfq_attivo`), `documento_proposta`, `thread_offerta` (anche FOR KEY SHARE per R6), `distinta_bozza` (insert con l'id della conversione), `distinta_bozza_versione`, `esito_intento`, `file_rfq_evento`, `associazione_evento`, `f8_stato` (letture e i due UPDATE di R11), `file_rfq`, `file_rfq_rimozione`, `file_rfq_conservazione`, `utente`, `distinta_importazione`
   - Query: 22; chi le chiama: `core/rfq/confermabom` (lo stato della RFQ), `core/rfq/distintabozza` (R1, R2, R6, R7, conversione), `core/rfq/fascicolo` (`GetAllegatoDelDocumento`) e `transport/web` (R11, con `OraDelDatabase`: l'inizio del riallineamento sull'orologio del database, dal secondo passaggio dell'ondata B). Lo schema non cambia: nessuna migrazione
@@ -302,6 +306,8 @@ markmap:
   - V1, ondata B: la stessa v1.31.1 su una copia; nasce `v1_bozza_rotte.sql.go`, nient'altro cambia. sqlc non vede la
     nullabilita' delle colonne di un LEFT JOIN LATERAL: `GetStatiCorrentiFile` le porta con `COALESCE`. Nel secondo
     passaggio la query `OraDelDatabase` cambia solo `v1_bozza_rotte.sql.go`.
+  - V1, corsia motore (ondata B): la stessa v1.31.1, su una copia fuori dal worktree; nasce solo `v1_motore.sql.go`
+    (le tre query non hanno tabelle nuove: `models.go` non cambia).
 - **Dopo:** `go build ./...`, `go vet ./internal/platform/db/`, e le prove L4 dei package che usano le query toccate.
 
 ### Aggiungere una query

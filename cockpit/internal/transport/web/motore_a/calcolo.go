@@ -43,7 +43,9 @@ import (
 )
 
 // Risultato: ciò che un calcolo riuscito consegna. Thread ed EsitoThread puntano dentro Foto ed Esito (il thread
-// chiesto); Fase e Dichiarazioni sono dello stesso snapshot della fotografia.
+// chiesto); Fase e Dichiarazioni sono dello stesso snapshot della fotografia. V1: Regole sono le regole di lettura del
+// thread sulla stessa fotografia e sulle stesse regole del calcolo (valutazione.RegoleDiLettura: il contesto con il
+// perimetro, per l'adattatore del registro), V1 le letture di V1 dello stesso snapshot (dati_v1.go).
 type Risultato struct {
 	Foto          fotorfq.Fotografia
 	Esito         valutazione.Esito
@@ -52,6 +54,8 @@ type Risultato struct {
 	Confronto     confronto.Esito
 	Fase          *Fase
 	Dichiarazioni fascicolo.Dichiarazioni
+	Regole        valutazione.RegoleDelThread
+	V1            DatiV1
 }
 
 // Calcola: il calcolo di un thread, in sola lettura, con il limite del servizio.
@@ -182,7 +186,8 @@ func (s Servizio) calcola(ctx context.Context, thread uuid.UUID) (*Risultato, er
 	if e.VersioneValutazione != VersioneAttesa {
 		return nil, fmt.Errorf("%w: l'esito è «%s», la pagina legge «%s»", ErrVersione, e.VersioneValutazione, VersioneAttesa)
 	}
-	r := &Risultato{Foto: l.Foto, Esito: e, Fase: l.Fase, Dichiarazioni: l.Dichiarazioni}
+	r := &Risultato{Foto: l.Foto, Esito: e, Fase: l.Fase, Dichiarazioni: l.Dichiarazioni, V1: l.V1}
+	r.Regole, _ = valutazione.RegoleDiLettura(r.Foto, s.Regole.Insieme, thread)
 	for i := range r.Foto.Thread {
 		if r.Foto.Thread[i].ID == thread {
 			r.Thread = &r.Foto.Thread[i]

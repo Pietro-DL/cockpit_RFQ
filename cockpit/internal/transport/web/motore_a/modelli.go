@@ -11,6 +11,11 @@ package motore_a
 // dell'editor sarà un'estensione esplicita del contratto). Da A1d-P2 un calcolo che non riesce è un codice HTTP
 // dell'adattatore (404, 503, 504, 500), quindi in una risposta 200 «errore» è sempre vuoto: il campo resta per il
 // contratto e per la pagina di P4.
+//
+// V1 (emendamento di V1 §9.9; dati_v1.go) aggiunge i campi del modello della Distinta unica, con i nomi di PE-01,
+// PE-15, PE-16 (decisioni dell'ondata A): gruppi (con l'impronta_contenuto di un'importazione fatta adesso e i nodi con
+// la completezza e le diagnostiche correnti), motivo_senza_gruppi, fonte (con lo STEP secondario), f8_stato e
+// bozza_del_prodotto (il gruppo corrente della sorgente). L'esito resta valutazione.EsitoThread, com'è.
 
 import (
 	"context"
@@ -20,6 +25,7 @@ import (
 
 	"promatec/cockpit/internal/core/confronto"
 	"promatec/cockpit/internal/core/fotorfq"
+	"promatec/cockpit/internal/core/propostabom"
 	"promatec/cockpit/internal/core/valutazione"
 )
 
@@ -42,6 +48,15 @@ type Pagina struct {
 	Scrive    bool                     `json:"-"`         // i pulsanti dei gesti sono attivi (almeno operatore)
 	Indice    *Indice                  `json:"-"`         // le ricerche (contratto §2.3), per il rendering di P4
 	Calcolato time.Time                `json:"calcolato"` // Fotografia.PresaIl: il now() della transazione
+
+	// V1 (emendamento di V1 §9.9): il modello della Distinta unica per il prodotto scelto (dati_v1.go). Tutti omitempty: una
+	// pagina composta senza V1 (la pagina di P4 con un errore, i casi del costruttore) resta byte per byte quella di prima, e
+	// la pagina legge un elenco assente come vuoto.
+	Gruppi            []propostabom.GruppoDelModello `json:"gruppi,omitempty"`
+	MotivoSenzaGruppi *propostabom.MotivoSenzaGruppi `json:"motivo_senza_gruppi,omitempty"`
+	Fonte             *FonteDelProdotto              `json:"fonte,omitempty"`
+	F8Stato           string                         `json:"f8_stato,omitempty"`
+	BozzaDelProdotto  *BozzaDelProdotto              `json:"bozza_del_prodotto,omitempty"`
 }
 
 // Testa: la testa della pagina (contratto §2.2).
@@ -64,11 +79,15 @@ type Fase struct {
 }
 
 // RichiestaPagina: che cosa chiede chi apre la pagina. Scrive lo decide l'adattatore dal ruolo (almeno operatore).
+// SenzaV1: la pagina non vuole le aggiunte di V1 (gruppi, fonte, bozza del prodotto, …), che costano un'importazione per
+// gruppo con uno STEP: la pagina HTML di /motore-a e il suo frammento non le leggono, /dati sì. Il valore zero le
+// calcola, così /dati resta com'è [T].
 type RichiestaPagina struct {
 	Thread   uuid.UUID
 	Vista    string
 	Prodotto string
 	Scrive   bool
+	SenzaV1  bool
 }
 
 // Pagina: il calcolo (Calcola, con i suoi errori) e la pagina composta. La composizione (ComponiPagina, con NuovoIndice)
@@ -101,6 +120,9 @@ func ComponiPagina(r *Risultato, rp RichiestaPagina) *Pagina {
 	p.Indice = NuovoIndice(r.Thread, r.EsitoThread, p.Confronto, &r.Dichiarazioni)
 	p.Prodotto = ProdottoScelto(r.EsitoThread, rp.Prodotto)
 	p.Calcolato = r.Foto.PresaIl
+	if !rp.SenzaV1 {
+		componiV1(p, r)
+	}
 	return p
 }
 

@@ -128,13 +128,22 @@ var pacchettiMotoreA = []regolePacchetto{
 	{percorso: "internal/core/confronto", puro: true,
 		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
 		esterni:  []string{"github.com/google/uuid"}},
+	// Il registro d'importazione del Motore A (V1: emendamento di V1 §3.8; P-10 della corsia persistenza, accolta nelle
+	// decisioni dell'ondata A): la foglia pura del DTO del registro, con la forma canonica e le impronte. Sta sotto
+	// core/rfq/distintabozza, che la conserva, ma è pura come le foglie del motore: libreria standard, uuid e jsoncanonico.
+	// È l'unico pacchetto di core/rfq che i pacchetti puri possono importare: l'eccezione per nome è eccezioniAiVietati.
+	{percorso: "internal/core/rfq/distintabozza/importazione", puro: true,
+		progetto: []string{"internal/platform/jsoncanonico"},
+		esterni:  []string{"github.com/google/uuid"}},
 	// Dalla proposta del Motore A alla bozza della Distinta (V1: emendamento di V1 §6.1; piano della 0023 §14 passo 3):
-	// la chiave dei gruppi, il gruppo corrente della sorgente e, poi, l'adattatore del registro d'importazione. Puro, con
-	// le dipendenze di ancoraggio e valutazione (A3 §1.2): l'esito già calcolato, le letture, le foglie. Mai core/rfq (la
-	// bozza lo importa, mai il contrario), il DB, transport.
+	// la chiave dei gruppi, il gruppo corrente della sorgente, l'adattatore del registro d'importazione (con la foglia del
+	// registro, P-10), il confronto e il contenuto dell'anteprima dello STEP. Puro, con le dipendenze di ancoraggio e
+	// valutazione (A3 §1.2): l'esito già calcolato, le letture, le foglie. Di core/rfq solo la foglia del registro (la
+	// bozza importa questo pacchetto, mai il contrario); mai il DB, transport.
 	{percorso: "internal/core/propostabom", puro: true,
 		progetto: []string{"internal/core/valutazione", "internal/core/ancoraggio", "internal/core/inbox/classificazione/motorea",
-			"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
+			"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze", "internal/platform/jsoncanonico",
+			"internal/core/rfq/distintabozza/importazione"},
 		esterni: []string{"github.com/google/uuid"}},
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
@@ -178,6 +187,19 @@ var vietatiAiPuri = regexp.MustCompile(`^promatec/cockpit/internal/platform/db($
 	`|^promatec/cockpit/internal/platform/storage/` +
 	`|^promatec/cockpit/internal/core/rfq/` +
 	`|^promatec/cockpit/internal/core/inbox/(ingest|aggancio)($|/)`)
+
+// eccezioniAiVietati: i pacchetti che VP vieterebbe per il percorso e che i pacchetti puri possono importare, per nome
+// (P-10 della corsia persistenza di V1, accolta nelle decisioni dell'ondata A): la foglia pura del registro
+// d'importazione, che sta sotto core/rfq ma non importa niente di core/rfq, del DB o di transport (la sua voce qui
+// sopra la tiene pura, anche per transitività).
+var eccezioniAiVietati = map[string]bool{
+	modulo + "/internal/core/rfq/distintabozza/importazione": true,
+}
+
+// vietatoAiPuri: VP con le eccezioni per nome.
+func vietatoAiPuri(imp string) bool {
+	return vietatiAiPuri.MatchString(imp) && !eccezioniAiVietati[imp]
+}
 
 // vietatiDiretti (VD): vietati come import diretto nei pacchetti puri. uuid li porta comunque, quindi si
 // controllano sul sorgente e non con la chiusura.
@@ -284,7 +306,7 @@ func TestMotoreAImportaSoloIlConsentito(t *testing.T) {
 			case r.puro && vietatiDiretti[imp]:
 				t.Errorf("%s è puro e importa %s (VD)", r.percorso, imp)
 			}
-			if r.puro && vietatiAiPuri.MatchString(imp) {
+			if r.puro && vietatoAiPuri(imp) {
 				t.Errorf("%s è puro e importa %s (VP)", r.percorso, imp)
 			}
 		}
@@ -302,7 +324,7 @@ func TestMotoreAImportaSoloIlConsentito(t *testing.T) {
 			}
 			visti[rel] = true
 			for _, imp := range sorgenti(t, radice, rel).Imports {
-				if vietatiAiPuri.MatchString(imp) {
+				if vietatoAiPuri(imp) {
 					t.Errorf("%s è puro e raggiunge %s attraverso %s (VP)", r.percorso, imp, rel)
 				}
 				if delProgetto(imp) {
@@ -894,8 +916,11 @@ var fascicoloDellaDistintaNuova = []string{"EffettoAutorizzazione", "LeggiDichia
 	"Raggruppamento", "OrigineSmistamento", "OrigineStepStrutturale"}
 
 // queriesDellaDistintaNuova: i metodi di *db.Queries che la Distinta nuova chiama da sé (lo snapshot: l'esistenza della
-// RFQ e la fase). Solo letture (Get*, List*), e tutte usate: una lettura che non serve più si toglie da qui.
-var queriesDellaDistintaNuova = []string{"GetThread", "GetFaseCorrente", "ListFaseCatalogo"}
+// RFQ e la fase; da V1, il modello della Distinta unica: le occorrenze non attive, le bozze aperte formato 3 con le
+// colonne del registro, lo stato di F8, l'identità certificata dei componenti). Solo letture (Get*, List*), e tutte
+// usate: una lettura che non serve più si toglie da qui.
+var queriesDellaDistintaNuova = []string{"GetThread", "GetFaseCorrente", "ListFaseCatalogo", "ListFileRfqNonAttivi",
+	"ListSorgentiBozzeAperte", "GetStatoF8DelThread", "ListIdentitaRegistrate"}
 
 // chiamateCheScrivono: i metodi di una transazione pgx che la Distinta nuova non chiama mai da sé: le letture passano
 // dalle query generate (db.Queries), dal caricatore e dal Fascicolo; la transazione si chiude solo con Rollback.

@@ -98,6 +98,25 @@ markmap:
     - le rotte R1-R3 sono di B2: NON ANCORA IMPLEMENTATE
   - DB: sì (solo le tre tabelle `distinta_bozza*` della 0022)
   - README: [README](rfq/distintabozza/README.md)
+- **`rfq/distintabozza/importazione`** (giro 5, V1)
+  - Che cosa fa: il **registro d'importazione** della Distinta unica, la foglia del DTO:
+    - il contenuto con i nomi del registro, la lettura stretta (`Leggi`, `Rileggi`) e la composizione (`Componi`)
+    - la forma canonica, le quattro impronte con l'elenco chiuso (impronta, contenuto, evidenze, regole), le regole di
+      forma e la completezza del contesto (§3.8.2), il peso
+    - le letture (`TrovaLettura`, con `codice_proposto` e `rev_proposta` facoltativi: DECA PE-08) e le loro copie
+      (la copia compatta di V-1, il segnale visto)
+    - Puro
+  - DB: no
+  - README: [README](rfq/distintabozza/importazione/README.md)
+- **`propostabom`** (giro 5, V1)
+  - Che cosa fa: dalla **proposta del Motore A alla bozza formato 3**:
+    - la chiave dei gruppi di un prodotto e il gruppo corrente della sorgente di una bozza (O-01, con P-4 (a) e (b))
+    - l'adattatore del registro d'importazione (`ImportaGruppo`), chiuso con `importazione.Componi`
+    - il confronto fra due registri (`Confronta`, PE-18), l'effetto del cambio della fonte (cambio-fonte-1 in sola
+      lettura), il contenuto di S6 e le aggiunte di V1 al modello di `/dati`
+    - Puro: legge l'esito già calcolato, non decide
+  - DB: no
+  - README: [README](propostabom/README.md)
 - **`registro/regole`**
   - Che cosa fa:
     - lo **schema** di ciò che un cliente dichiara di sé (`cliente.regole`, suffissi decorativi compresi) e le convenzioni di codice
@@ -292,10 +311,22 @@ markmap:
     - `platform/storage/staging`
   - **`rfq/distintabozza`** importa:
     - `inbox/classificazione` (solo i limiti di codice e rev)
+    - `rfq/distintabozza/importazione` (V1: il DTO del registro d'importazione)
     - `platform/db`
     - `platform/jsoncanonico`
     - `golang.org/x/text/unicode/norm` (NFC della forma canonica)
     - mai `rfq/fascicolo` nel codice di prodotto (solo le prove)
+  - **`rfq/distintabozza/importazione`** importa:
+    - `platform/jsoncanonico`
+    - nessun altro `core/*`: è una foglia, nella lista chiusa dei pacchetti del motore A (P-10)
+  - **`propostabom`** importa:
+    - `valutazione` (l'esito, il prodotto valutato, le regole di lettura del thread)
+    - `ancoraggio` (le strutture, la catena del codice, i segnali)
+    - `inbox/classificazione/motorea` (le letture e le relazioni)
+    - `estrazione/evidenze` (il documento, le diagnostiche)
+    - `rfq/distintabozza/importazione` (il DTO del registro)
+    - `platform/jsoncanonico`
+    - mai il DB, il caricatore, `rfq/distintabozza` (la importa lei), `transport`
   - **`registro/anagrafica`** importa:
     - `registro/regole`
     - `platform/db`
@@ -314,6 +345,9 @@ markmap:
 - `lettura.Presenta`, `OggettoVisibile`;
 - `documenti.CartellaThread`, `NomeSicuro`, `ScegliPercorso`, `CopiaSulNas`, `RiprendiContenuto`, `CreaCartellaThread`, `Ricognitore.Giro` / `Avvia`, `AllineaDocumento`, `PercorsoSulNas`, `DentroLaRadice`, `VerificaFileAperto`, `Segnala`;
 - `fascicolo.CongelaBom`, `ApriRevisione`, `AbbandonaBozza`, `LeggiGate`, `ApplicaStruttura`, `RianalizzaRfq`, i gesti di decisione (`AccettaNodo`, `AccettaRelazione`, `AccettaFile`, `ScartaNodo`, `CodiceDelNodo`, …), `CandidatiDellaRfq`, `AggiungiDaCodice`, `NuovoAlbero`, `ModificaComponente`, `Collega` / `Scollega` / `Sposta`, `AssicuraProdottiDellaRichiesta`, `PreparaFile`, `PianoDelFascicolo`, `ApplicaStrutturaVoluta`, `NotaInterna`, `RegistraCaricamento`;
+- `importazione.Componi` / `Leggi` / `Rileggi` / `ImpronteParziali`; `propostabom.GruppiDelProdotto`,
+  `GruppoCorrenteDelProdotto`, `ImportaGruppo`, `Confronta`, `ConfrontaCaselle`, `EffettoDelCambioFonte`,
+  `AnteprimaDelloSTEP`, `ConfrontoDelCodice` / `MotivoFonteObbligatorio` (S6 e R2), `Modello`;
 - `regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`, `anagrafica.Semina`,
 - `fornitori.Leggi` / `Calcola` / `Applica`.
 
@@ -394,7 +428,8 @@ markmap:
   - crea il messaggio «nota interna» della RFQ e i suoi allegati per i caricamenti interni.
 - `rfq/distintabozza` scrive solo `distinta_bozza`, `distinta_bozza_versione`, `distinta_bozza_evento` (0022): mai la
   working, le proposte, i documenti o il NAS.
-- `inbox/classificazione`, `inbox/lettura` e `registro/regole` non hanno effetti.
+- `inbox/classificazione`, `inbox/lettura`, `registro/regole`, `rfq/distintabozza/importazione` e `propostabom` non
+  hanno effetti.
 
 ## Test
 
@@ -405,6 +440,9 @@ markmap:
   - su `registro/regole`
   - e sulle parti pure di `rfq/documenti` e `rfq/fascicolo` (nomi, gate, cicli, differenza, classificazione dei nodi, unione dei codici, albero, piano, editor, note).
   - e su `rfq/distintabozza` (forma dello snapshot, limiti, forma canonica, riconciliazione delle azioni).
+  - e su `rfq/distintabozza/importazione` (la forma canonica, le impronte, le regole di forma, le letture) e
+    `propostabom` (i gruppi, il gruppo corrente, le proiezioni; l'adattatore, il confronto, il cambio della fonte, S6 e
+    il modello di `/dati` sulle scene di `valutazione`).
 - **L4** (`-tags integrazione`, PostgreSQL di prova) per tutto ciò che scrive:
   - `ingest`
   - `aggancio`

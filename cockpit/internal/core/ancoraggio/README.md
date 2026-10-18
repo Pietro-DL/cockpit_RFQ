@@ -157,7 +157,11 @@ markmap:
   - la regola `elemento_cad_nome_foglia_v1`: l'id o il nome grezzo del PRODUCT contiene, come parola, saldatura,
     cordone, fillet o bead, oppure weld seguito da bead, seam o id; il nodo è una foglia nel file; non è una radice del
     file. Un segnale solo (`NodoProposto.Segnali`, `SegnaleNodo` con il codice `ancoraggio.possibile_elemento_cad`), con
-    un riscontro per campo (`RiscontroNome`: parole e intervalli in byte sul grezzo) e una spiegazione deterministica;
+    un riscontro per campo (`RiscontroNome`: parole e intervalli in byte sul grezzo) e una spiegazione deterministica,
+    con le frasi della decisione P-5 dell'ondata A di V1 (addendum ad A1c §2.2, rev. 3): «È solo un segnale: da solo non
+    toglie il nodo dalla proposta né il suo 2D, e la decisione è tua.» e, con il grafo non completo, «Il grafo del file
+    non è completo (‹motivo›): che il nodo non abbia figli potrebbe non essere un'informazione.», con il motivo della
+    completezza (`StrutturaFile.MotivoGrafo`) tale e quale;
   - la lettura d'identità del nodo e il grafo non completo sono solo contro-indizi (`lettura_identita`,
     `grafo_non_completo`); geometria, nome d'istanza e assenza del 2D non sono ingressi;
   - il segnale non toglie il nodo, non lo esenta dal 2D, non cambia tipo, perimetro, righe da decidere né il documento,
@@ -267,18 +271,19 @@ markmap:
     correzione accanto, i candidati del cartiglio, la discordanza con la decisione, `RevisioneInferiore`
     (`revisioneInferiore`), lo stato della revisione (`statoRevisione`, che usa anche la catena), le diagnostiche.
 - **`elementi_cad.go`** (V1, LS-02) — responsabilità:
-  - `SegnaleNodo`, `RiscontroNome`; il codice del segnale `ancoraggio.possibile_elemento_cad` (non è il codice di una
-    diagnostica: sta qui, e lo fissa la prova dei valori), la regola `elemento_cad_nome_foglia_v1`, i contro-indizi,
-    l'espressione della regola v1 (`EspressioneElementoCADV1`);
-  - `segnaliElementoCAD`, chiamata da `struttura` per ogni nodo, con le parole e i loro intervalli (`paroleDelGrezzo`)
-    e la spiegazione.
+  - `SegnaleNodo`, `RiscontroNome`; la regola `elemento_cad_nome_foglia_v1`, i contro-indizi, l'espressione della
+    regola v1 (`EspressioneElementoCADV1`); il codice del segnale sta in `codici_diagnostica.go` (P-1 (a));
+  - `segnaliElementoCAD`, chiamata da `struttura` per ogni nodo con la completezza del grafo e il suo motivo, con le
+    parole e i loro intervalli (`paroleDelGrezzo`) e la spiegazione (`spiegazioneElementoCAD`).
 - **`codici_diagnostica.go`** — responsabilità:
   - i codici che il pacchetto produce (R41 b): `ancoraggio.richiesta_non_valutata`,
     `ancoraggio.righe_stessa_base`, `ancoraggio.quantita_non_intera`, `ancoraggio.alternative_conservate`;
     `ancoraggio.target_senza_struttura`, `ancoraggio.grafo_incompleto` (le strutture);
     `ancoraggio.radice_dal_nome_file`, `ancoraggio.radice_dallo_step_associato` (le radici di riserva, in nota: notte
     del 14/10); `ancoraggio.completamento_documentale`, `ancoraggio.correzione_documentale` (la riconciliazione, fase 3);
-    `ancoraggio.equivalenza_cartiglio_contesa` (le equivalenze del cartiglio, in avviso: K4).
+    `ancoraggio.equivalenza_cartiglio_contesa` (le equivalenze del cartiglio, in avviso: K4);
+    `ancoraggio.possibile_elemento_cad` (il codice del segnale LS-02, non di una diagnostica: decisione P-1 (a)
+    dell'ondata A di V1, con la riga dell'elenco d'oro e l'etichetta «possibile elemento CAD» della pagina).
 
 ## Entry point
 
@@ -674,13 +679,15 @@ markmap:
     saldare, le radici, il contenitore con figli, i limiti dichiarati fissati come limiti), le spiegazioni, il JSON del
     segnale scritto a mano (con e senza contro-indizi), le righe da decidere che restano, la scena ACME di sempre; i file
     con il motivo della completezza che la funzione SQL dà davvero (a un nodo, due radici: il contro-indizio
-    grafo_non_completo anche quando il motivo non nasconde figli, limite dichiarato); la radice di una struttura che nel
+    grafo_non_completo anche quando il motivo non nasconde figli, con il motivo nella frase); la radice di una struttura che nel
     file è una foglia, segnalata come nella struttura della radice del file (limite dichiarato); l'equivalenza con l'esito
     dell'espressione Python della misura, anche passando dalla regola vera, dai fatti a `ProponiStrutture`;
   - Q-02: la stessa scena con i fatti v3, v3 con la diagnostica 1 e v4: lo stesso esito; i contro-indizi;
   - Q-02b: il JSON dei nodi senza segnali uguale a quello di prima, campo per campo.
 - **`elementi_cad_interna_test.go`** — livello L1, dentro il pacchetto — le parole e i loro intervalli, le tre
   condizioni una per volta, le forme della spiegazione che gli esempi non hanno (due letterali letti diversi, tre parole),
+  le due frasi di P-5 (il motivo del grafo tale e quale, senza motivo senza parentesi, il motivo da solo che non dà il
+  contro-indizio),
   un campo grezzo che non è l'id né il nome (non dà il segnale), e l'equivalenza della regola con una lettura
   indipendente della semantica Python su tutti i testi di al più tre pezzi di un alfabeto di prova (anche con due
   separatori di seguito).

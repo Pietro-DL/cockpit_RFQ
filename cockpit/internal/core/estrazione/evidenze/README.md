@@ -128,10 +128,15 @@ markmap:
 - **`codici_diagnostica_test.go`** con **`testdata/codici_diagnostica.txt`** — livello L1 — che cosa copre
   (A1a-CAT): i codici di tutti i `codici_diagnostica.go` del motore A, letti dai sorgenti: formato, nessun
   doppione nemmeno fra pacchetti, nessun codice pubblicato sparito, nessun codice nuovo fuori dall'elenco
-  d'oro, nessuna `Diagnostica` con il codice scritto sul posto.
+  d'oro, nessuna `Diagnostica` con il codice scritto sul posto. Con V1 l'elenco ha i cinque codici `importazione.*`
+  dell'adattatore (`propostabom`) e il codice del segnale LS-02 `ancoraggio.possibile_elemento_cad` (decisione P-1
+  (a) dell'ondata A).
 - **`dipendenze_test.go`** — livello L1 — che cosa copre: G1 (import consentiti, anche transitivi sul
   progetto), G2 (niente orologio, file, rete, goroutine), G9 (il legacy non cambia import), nessun
-  riferimento all'LLM nei sorgenti del motore. Ogni sessione lo estende con i suoi pacchetti.
+  riferimento all'LLM nei sorgenti del motore. Ogni sessione lo estende con i suoi pacchetti. V1 (corsia motore,
+  ondata B): `core/rfq/distintabozza/importazione` è una foglia dei pacchetti del motore A, con l'eccezione per nome
+  fra i vietati ai puri (`eccezioniAiVietati`, decisione P-10 dell'ondata A), e `propostabom` la importa; le query
+  di `queries/v1_motore.sql` stanno fra quelle della Distinta nuova.
 - **`documento_test.go`, `valida_test.go`** — livello L1 — che cosa copre (A1a-DOC): `ValidaDocumento` e
   `ValidaUso` su documenti costruiti in Go, un codice `documento.*` per ogni caso; `UsoSconosciuto`; la fonte
   «testo»; i DTO in JSON canonico, andata e ritorno.

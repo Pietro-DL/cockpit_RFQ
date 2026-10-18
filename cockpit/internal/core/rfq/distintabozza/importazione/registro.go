@@ -912,15 +912,29 @@ func (c *Contenuto) valida(can []byte) *Errore {
 // letture[] dei file) ha la sua chiave_lettura <allegato_id>/<id>, unica dentro il registro (EM §3.8, «Una lettura»):
 // la stessa chiave in due punti porta la stessa lettura, byte per byte, altrimenti V-1 (la copia della decisione) e
 // TrovaLettura sarebbero ambigui. L'allegato della chiave e' quello dell'unita' letta: della voce per l'identita'
-// proposta e le alternative, del file per le sue letture, un allegato citato per un riferimento.
+// proposta e le alternative, del file per le sue letture, un allegato citato per un riferimento. I due campi facoltativi
+// codice_proposto e rev_proposta di una lettura (DECA PE-08) hanno le regole di quelli della voce: il codice
+// ammissibile, la rev in maiuscole ASCII; in piu', in una lettura la rev c'e' solo con il codice: senza una proiezione
+// ammissibile del codice i due campi sono omessi (EM §3.8, «Una lettura»). La voce tiene la sua regola (P-4).
 func (c *Contenuto) validaLetture(citati map[string]bool) *Errore {
 	viste := map[string]string{}
 	una := func(campo string, raw json.RawMessage, allegato string) *Errore {
 		var l struct {
-			ChiaveLettura string `json:"chiave_lettura"`
+			ChiaveLettura  string  `json:"chiave_lettura"`
+			CodiceProposto *string `json:"codice_proposto"`
+			RevProposta    *string `json:"rev_proposta"`
 		}
 		if err := json.Unmarshal(raw, &l); err != nil {
 			return forma(campo, "una lettura e' un oggetto: %v", err)
+		}
+		if l.CodiceProposto != nil && !CodiceAmmissibile(*l.CodiceProposto) {
+			return forma(campo+".codice_proposto", "il codice proposto di una lettura e' senza spazi, controlli o caratteri di formato, al piu' %d byte", MaxCodiceProposto)
+		}
+		if l.RevProposta != nil && (!RevAmmissibile(*l.RevProposta) || conMinuscoleASCII(*l.RevProposta)) {
+			return forma(campo+".rev_proposta", "la rev proposta di una lettura e' in maiuscole ASCII, senza spazi o controlli, al piu' %d byte", MaxRevProposta)
+		}
+		if l.RevProposta != nil && l.CodiceProposto == nil {
+			return forma(campo+".rev_proposta", "una lettura porta rev_proposta solo con codice_proposto: senza una proiezione ammissibile del codice i due campi sono omessi")
 		}
 		m := reChiaveLettura.FindStringSubmatch(l.ChiaveLettura)
 		if m == nil || haControlli(l.ChiaveLettura) {

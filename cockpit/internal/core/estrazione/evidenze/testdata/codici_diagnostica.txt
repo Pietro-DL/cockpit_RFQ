@@ -123,6 +123,7 @@ ancoraggio.radice_dallo_step_associato
 ancoraggio.completamento_documentale
 ancoraggio.correzione_documentale
 ancoraggio.equivalenza_cartiglio_contesa
+ancoraggio.possibile_elemento_cad
 bom.fonte_non_registrata
 documenti.deroga_non_sostituisce_2d
 confronto.revisione_non_confrontabile
@@ -144,3 +145,8 @@ motore.legame_ambiguo
 motore.suffisso_non_letto
 contesto.codifica_contraddetta
 richiesta.codice_solo_in_mail
+importazione.senza_grammatica
+importazione.namespace_incoerente
+importazione.relazione_incompleta
+importazione.grafo_da_rileggere
+importazione.evidenze_file_non_attivi

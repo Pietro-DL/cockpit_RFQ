@@ -14,7 +14,10 @@ import (
 )
 
 // LetturaRegistro: i campi di una lettura che servono fuori dal motore. Gli altri campi (unita', intervallo, ruolo, ...)
-// restano nel contenuto e si leggono dal JSON.
+// restano nel contenuto e si leggono dal JSON. CodiceProposto e RevProposta (facoltativi; DECA PE-08, EM §3.8): il
+// codice e la rev di partenza della lettura per la working, con le stesse proiezioni (importazione-1) dell'identita'
+// proposta di una voce; li scrive l'adattatore su ogni lettura che ha una proiezione ammissibile, e servono ad «Adotta
+// come codice» su un'alternativa o su un riferimento. Non entrano nella copia compatta (V-1 non cambia).
 type LetturaRegistro struct {
 	ChiaveLettura  string          `json:"chiave_lettura"`
 	Emittente      string          `json:"emittente"`
@@ -24,6 +27,8 @@ type LetturaRegistro struct {
 	Base           json.RawMessage `json:"base"`
 	Qualificatori  json.RawMessage `json:"qualificatori"`
 	Revisione      json.RawMessage `json:"revisione"`
+	CodiceProposto string          `json:"codice_proposto,omitempty"`
+	RevProposta    string          `json:"rev_proposta,omitempty"`
 }
 
 // LetturaCompatta e' la copia compatta di una lettura (EM §3.6.1): {emittente, hash_grammatica, namespace, letterale,

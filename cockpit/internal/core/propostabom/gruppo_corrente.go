@@ -25,8 +25,9 @@ const (
 // I motivi di un gruppo corrente assente (GruppoCorrente.Motivo; terzo giro su O-01, OT-08):
 //   - nessun_gruppo: con la radice della sorgente nessun gruppo delle occorrenze attive ha la struttura, e nessuna BOM
 //     di lavoro con la stessa struttura sta su un'occorrenza non attiva: il motore non propone più questa struttura;
-//   - occorrenza_non_attiva: la BOM di lavoro con la stessa struttura sta su un'occorrenza in «Altri file» o scartata
-//     (GruppoCorrente.AllegatoID è il suo allegato): prima di seguirla serve «Riattiva»;
+//   - occorrenza_non_attiva: la BOM di lavoro con la stessa struttura sta su un'occorrenza in «Altri file» o scartata,
+//     oppure la candidata della propria occorrenza sta su quell'occorrenza non attiva (decisione P-4 (a) e (b)
+//     dell'ondata A di V1); GruppoCorrente.AllegatoID è il suo allegato: prima di seguirla serve «Riattiva»;
 //   - senza_radice: la bozza non ha la radice della sorgente e il ripiego per chiave non la dà (la chiave «bom», o una
 //     chiave «cand:…» che non c'è più): la regola non si applica. Solo per una bozza senza registro venuta dal formato 2.
 const (
@@ -79,7 +80,8 @@ func GruppoCorrenteDelProdotto(pv valutazione.ProdottoValutato, strutture []anco
 //  3. la BOM di lavoro con lo stesso sha256 e la stessa radice su un altro allegato (il portatore): «bom»,
 //     altra_occorrenza, con il suo allegato;
 //  4. altrimenti assente: occorrenza_non_attiva se la BOM di lavoro con la stessa struttura sta su un'occorrenza non
-//     attiva (con il suo allegato), nessun_gruppo se no.
+//     attiva, o se la candidata della propria occorrenza (lo stesso allegato, sha256 e radice) sta su un'occorrenza non
+//     attiva (P-4 (b)), con il suo allegato; nessun_gruppo se no.
 //
 // Una candidata di un'altra occorrenza non vale mai: con la stessa radice candidata sulla propria copia e la BOM di lavoro
 // sull'altra vale la candidata. Nessuna chiave si scompone: la chiave del risultato è quella del gruppo, e il ripiego
@@ -122,6 +124,12 @@ func GruppoCorrenteDellaSorgente(gruppi []Gruppo, nonAttivi NonAttivi, s Sorgent
 			return GruppoCorrente{Chiave: g.Chiave, Come: ComeStessaOccorrenza}
 		default:
 			return GruppoCorrente{Chiave: g.Chiave, Come: ComeAltraOccorrenza, AllegatoID: &id}
+		}
+	}
+	for _, g := range gruppi {
+		if g.Tipo == GruppoCandidata && nonAttivo(g) && stessaStruttura(g, s.Sha256, radice) && *g.AllegatoID == s.AllegatoID {
+			id := *g.AllegatoID
+			return GruppoCorrente{Come: ComeAssente, AllegatoID: &id, Motivo: MotivoOccorrenzaNonAttiva}
 		}
 	}
 	return GruppoCorrente{Come: ComeAssente, Motivo: MotivoNessunGruppo}

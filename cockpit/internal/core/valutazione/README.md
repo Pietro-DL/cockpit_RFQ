@@ -1195,6 +1195,28 @@ markmap:
   `propostabom.GruppoCorrenteDelProdotto` sulla sostituzione dello STEP con una radice di riserva, con le strutture calcolate
   da `Calcola` (la candidata nata dall'associazione, «Autorizza», poi la risposta «sì» o «no», con B compatibile o no, con
   il nome di A che dice il prodotto o no, e con la radice compatibile). Sta qui perché usa le scene della valutazione.
+- **`importazione_registro_scena_test.go`**, **`importazione_registro_gp_scena_test.go`** (V1, piano della 0023 §14
+  passo 3, corsia motore, ondata B) — L1: l'adattatore `propostabom.ImportaGruppo` sulle scene di `Calcola`, con le
+  regole di lettura del thread; ogni registro passa `importazione.Leggi`, `Componi(Leggi(x).Contenuto)` e `Rileggi` con
+  le sue colonne (A-29). A-01 (determinismo, anche con la fotografia permutata), A-02, A-03, A-12 (l'identità da
+  `CatenaCodice.Forma` con l'emittente esplicito, il letterale byte per byte), A-04 e A-07 (il legame della radice con
+  BETA: la primaria del cliente, il riferimento del fornitore mai promosso, i figli con l'identità del partner; le
+  relazioni dell'id della radice e del nome del file con i due estremi), A-05 (letture discordanti di due famiglie: i
+  nomi dei nodi sono riservati in A1), A-06 (l'equivalente K4 da un DXF: riferimento, mai identità), A-08 (lo stesso sha
+  in due allegati, il contesto su uno solo), A-10, A-11, A-13, A-14 (i rifiuti del §6.1), A-15, A-16 (le diagnostiche:
+  in una voce solo se citano un nodo solo), A-17 (2000 nodi: peso e tempo nel log), A-18 (il confronto: uguale, regole
+  cambiate con il contesto ridichiarato, l'hash di ogni lettura con una grammatica nuova, un'identità cambiata, un nodo
+  sparito, un segnale, la radice decisa che non è una differenza), A-19 (LS-01), A-23 (il contesto, per impronta),
+  A-25 (il codice di partenza delle letture), T-13 (i campi, e le proiezioni sull'uscita vera: ogni campo di una voce
+  cambia solo l'impronta della sua classe).
+- **`importazione_cambio_fonte_scena_test.go`** (V1, EM §6.6, cambio-fonte-1 in sola lettura) — L1:
+  `propostabom.EffettoDelCambioFonte` sui registri veri: la stessa struttura (riallineamento), fra due occorrenze dello
+  stesso STEP (niente ereditato in silenzio: caselle e archi riscritti, identità aggiornate, da rivedere per
+  altra_occorrenza e per la lettura assente), verso un altro STEP (nodi fuori, decisioni cadute, il vassoio).
+- **`importazione_modello_scena_test.go`** (V1, EM §9.9 e §10.9) — L1: `propostabom.Modello` (A-26 l'identità
+  registrata, A-27 la completezza del 2D e le diagnostiche correnti per nodo, A-28 i gruppi con l'impronta_contenuto di
+  `ImportaGruppo` e il motivo senza gruppi) e `propostabom.AnteprimaDelloSTEP` (S6: la candidata in vista, la proposta,
+  l'effetto sulla bozza, la struttura da rileggere).
 - **`scena_calcola_test.go`** (B6, V1 e V2) — gli aiuti: l'insieme delle regole ACME dalla porta del prodotto, i thread
   degli altri clienti, la fotografia con più thread, il messaggio fuori RFQ, la permutazione; gli invarianti di ogni esito,
   con quelli dello smistamento e, dopo le risposte del 07/10, del contesto. **`export_test.go`**: la composizione dei

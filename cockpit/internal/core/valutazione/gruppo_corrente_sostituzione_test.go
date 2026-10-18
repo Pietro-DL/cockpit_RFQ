@@ -24,10 +24,12 @@ var (
 	cSost    = uid(0x5a01)
 	aSostA   = uid(0x5a11)
 	aSostB   = uid(0x5a12)
+	aSostC   = uid(0x5a13) // un altro STEP con una struttura compatibile del prodotto (il cancello del passo 3 bis)
 	dSostA   = uid(0x5a21)
 	dSostB   = uid(0x5a22)
 	shaSostA = strings.Repeat("5a", 32)
 	shaSostB = strings.Repeat("5b", 32)
+	shaSostC = strings.Repeat("5c", 32)
 )
 
 // I momenti della scena della sostituzione.
@@ -239,4 +241,130 @@ func TestT09LaSostituzioneConUnaRadiceDiRiserva(t *testing.T) {
 			}
 		})
 	}
+}
+
+// revocaDiA: «Revoca» dell'autorizzazione di A come la scrive il legacy (F/autorizzazione.go:1117): step_strutturale_id
+// vuoto, la vista da_scegliere, la riga della radice di A riaperta, con la marcatura nella storia. Il documento di A resta
+// confermato sul prodotto: l'associazione decisa resta una prova del passo 3 bis.
+func revocaDiA(th *fotorfq.Thread) {
+	th.Componenti[0].StepStrutturaleID = nil
+	th.StepProdotto[0].StepStrutturaleID, th.StepProdotto[0].Esito = nil, "da_scegliere"
+	for i := range th.RigheComponenteProposta {
+		if r := &th.RigheComponenteProposta[i]; r.AllegatoID == aSostA && r.Chiave == "#1" {
+			r.Stato, r.ComponenteID, r.DecisoDa, r.DecisoIl, r.Marcatura = "aperta", nil, nil, nil, nil
+		}
+	}
+}
+
+// conFileCompatibile: lo STEP C del prodotto, con la radice che ha la base del finito (la regola 1 di ProponiStrutture),
+// senza documento, con le sue righe aperte.
+func conFileCompatibile(t *testing.T, th *fotorfq.Thread) {
+	t.Helper()
+	fc := fattiSTEP(t, shaSostC, []string{"#1"}, []nodoSTEP{{"#1", radiceCompatibile}, {"#2", "101000004_01"}}, [][2]string{{"#1", "#2"}}, "")
+	conAllegato(th, allegato(aSostC, 3, "compatibile-c.stp", "stp", shaSostC), &fc)
+	for k, id := range []string{radiceCompatibile, "101000004_01"} {
+		th.RigheComponenteProposta = append(th.RigheComponenteProposta, fotorfq.RigaComponenteProposta{ID: uid(0x5a51 + k), AllegatoID: aSostC,
+			NomeFile: "compatibile-c.stp", Sha256: shaSostC, Chiave: fmt.Sprintf("#%d", k+1), IDGrezzo: id, Famiglia: "acme", Fonte: "step", Stato: "aperta"})
+	}
+}
+
+// TestT09IlCancelloDelPasso3Bis (T-09, il cancello del passo 3 bis anche per «Revoca» e per la sostituzione di uno STEP
+// non autorizzato; EM §6.4.1, «Lo stesso cancello vale per "Revoca", per il cambio di tipo e per la sostituzione di uno
+// STEP non autorizzato»; recepimento dell'ondata A, residuo di O-01), con le strutture calcolate dalla fotografia con
+// Calcola. Una radice di riserva torna fra le candidate solo se il passo 3 bis la dà ancora: una radice sola nello STEP,
+// nessuna struttura compatibile del prodotto da nessun file, nessuna fonte confermata, con la prova del nome del file o
+// dell'associazione decisa.
+//   - una bozza sul «bom» di A (radice di riserva), poi «Revoca», senza un file compatibile: cand:A:#1, stessa_occorrenza;
+//   - la stessa «Revoca» con un altro file con una struttura compatibile del prodotto: assente, nessun_gruppo;
+//   - A con due radici, la giusta scelta da «Autorizza», poi «Revoca»: assente, nessun_gruppo;
+//   - una bozza sulla candidata di A (non autorizzato), poi la sostituzione di A con un file compatibile, senza la
+//     domanda: assente, nessun_gruppo.
+//
+// I casi P-4 (a) e (b) con i fatti calcolati (l'occorrenza della bozza in «Altri file») stanno in TestA28LoSTEPNonAttivo.
+// Il cambio di tipo del prodotto non è qui: con il tipo commerciale il componente non è più un prodotto della valutazione
+// (i target sono i finiti), e il gruppo corrente non si calcola per lui (resoconto della corsia, ondata B).
+func TestT09IlCancelloDelPasso3Bis(t *testing.T) {
+	r := insiemeRiserve(t)
+	rif := ancoraggio.RifComponente(cSost)
+	radiceDiA := ancoraggio.RifNodo(shaSostA, "#1")
+	candA := propostabom.ChiaveCandidata(aSostA, radiceDiA)
+	sulBOM := propostabom.SorgenteBozza{AllegatoID: aSostA, Sha256: shaSostA, Radice: radiceDiA, Gruppo: propostabom.GruppoBOM}
+	sullaCandidata := propostabom.SorgenteBozza{AllegatoID: aSostA, Sha256: shaSostA, Radice: radiceDiA, Gruppo: candA}
+	corrente := func(t *testing.T, th fotorfq.Thread, s propostabom.SorgenteBozza) propostabom.GruppoCorrente {
+		t.Helper()
+		et := esitoSmistamentoCon(t, th, r)
+		return propostabom.GruppoCorrenteDelProdotto(prodottoDi(t, et, rif), et.Ancoraggi.Strutture, nil, s)
+	}
+	assente := propostabom.GruppoCorrente{Come: propostabom.ComeAssente, Motivo: propostabom.MotivoNessunGruppo}
+	candidataDiA := propostabom.GruppoCorrente{Chiave: candA, Come: propostabom.ComeStessaOccorrenza}
+	bomDiA := propostabom.GruppoCorrente{Chiave: propostabom.GruppoBOM, Come: propostabom.ComeStessaOccorrenza}
+	uguale := func(a, b propostabom.GruppoCorrente) bool {
+		return a.Chiave == b.Chiave && a.Come == b.Come && a.Motivo == b.Motivo && (a.AllegatoID == nil) == (b.AllegatoID == nil)
+	}
+	autorizzato := func(t *testing.T) fotorfq.Thread {
+		return scenaSostituzione(t, sostituzione{momento: momentoAutorizzato, radiceA: radiceRiserva, nomeA: nomeMuto})
+	}
+
+	t.Run("«Revoca» senza un file compatibile", func(t *testing.T) {
+		th := autorizzato(t)
+		if got := corrente(t, th, sulBOM); !uguale(got, bomDiA) {
+			t.Fatalf("prima di «Revoca»: %+v", got)
+		}
+		revocaDiA(&th)
+		if got := corrente(t, th, sulBOM); !uguale(got, candidataDiA) {
+			t.Errorf("dopo «Revoca», senza un file compatibile: %+v, attesa la candidata di A", got)
+		}
+	})
+	t.Run("«Revoca» con un file compatibile", func(t *testing.T) {
+		th := autorizzato(t)
+		conFileCompatibile(t, &th)
+		if got := corrente(t, th, sulBOM); !uguale(got, bomDiA) {
+			t.Fatalf("prima di «Revoca», con il file compatibile: %+v", got)
+		}
+		revocaDiA(&th)
+		if got := corrente(t, th, sulBOM); !uguale(got, assente) {
+			t.Errorf("dopo «Revoca», con un file compatibile: %+v, atteso assente / nessun_gruppo", got)
+		}
+	})
+	t.Run("A con due radici, «Revoca»", func(t *testing.T) {
+		th := autorizzato(t)
+		th.Fatti[shaSostA] = fattiSTEP(t, shaSostA, []string{"#1", "#3"}, []nodoSTEP{{"#1", radiceRiserva}, {"#2", "101000002_01"}, {"#3", "101000007_01"}},
+			[][2]string{{"#1", "#2"}}, "")
+		th.RigheComponenteProposta = append(th.RigheComponenteProposta, fotorfq.RigaComponenteProposta{ID: uid(0x5a61), AllegatoID: aSostA, NomeFile: nomeMuto,
+			Sha256: shaSostA, Chiave: "#3", IDGrezzo: "101000007_01", Famiglia: "acme", Fonte: "step", Stato: "aperta"})
+		if got := corrente(t, th, sulBOM); !uguale(got, bomDiA) {
+			t.Fatalf("prima di «Revoca», con la radice scelta da «Autorizza»: %+v", got)
+		}
+		revocaDiA(&th)
+		if got := corrente(t, th, sulBOM); !uguale(got, assente) {
+			t.Errorf("dopo «Revoca», con due radici: %+v, atteso assente / nessun_gruppo", got)
+		}
+	})
+	t.Run("la sostituzione di uno STEP non autorizzato", func(t *testing.T) {
+		th := scenaSostituzione(t, sostituzione{momento: momentoCandidata, radiceA: radiceRiserva, nomeA: nomeMuto})
+		if got := corrente(t, th, sullaCandidata); !uguale(got, candidataDiA) {
+			t.Fatalf("prima della sostituzione: %+v", got)
+		}
+		// la sostituzione senza la domanda (F/struttura.go:327-330): sostituito_da su A, le righe aperte di A chiuse
+		// dall'automatismo, B con il suo documento sul finito e le sue righe; nessuna autorizzazione
+		fb := fattiSTEP(t, shaSostB, []string{"#1"}, []nodoSTEP{{"#1", radiceCompatibile}, {"#2", "101000003_01"}}, [][2]string{{"#1", "#2"}}, "")
+		conAllegato(&th, allegato(aSostB, 2, nomeB, "stp", shaSostB), &fb)
+		dB, cp := dSostB, cSost
+		th.Documenti[0].SostituitoDa = &dB
+		th.Documenti = append(th.Documenti, fotorfq.DocumentoConfermato{ID: dSostB, ThreadID: threadACME, ComponenteID: &cp, Tipo: "cad_3d", NomeFile: nomeB,
+			Estensione: "stp", Sha256: shaSostB, StatoNas: "scritto", ConfermatoDa: operatore, ConfermatoIl: dataACME.Add(time.Hour), Allegati: []uuid.UUID{aSostB}})
+		nota := "superata da " + nomeB
+		for i := range th.RigheComponenteProposta {
+			if r := &th.RigheComponenteProposta[i]; r.Stato == "aperta" {
+				r.Stato, r.Nota = "scartata", &nota
+			}
+		}
+		for k, id := range []string{radiceCompatibile, "101000003_01"} {
+			th.RigheComponenteProposta = append(th.RigheComponenteProposta, fotorfq.RigaComponenteProposta{ID: uid(0x5a71 + k), AllegatoID: aSostB, NomeFile: nomeB,
+				Sha256: shaSostB, Chiave: fmt.Sprintf("#%d", k+1), IDGrezzo: id, Famiglia: "acme", Fonte: "step", Stato: "aperta"})
+		}
+		if got := corrente(t, th, sullaCandidata); !uguale(got, assente) {
+			t.Errorf("dopo la sostituzione non autorizzata con un file compatibile: %+v, atteso assente / nessun_gruppo", got)
+		}
+	})
 }

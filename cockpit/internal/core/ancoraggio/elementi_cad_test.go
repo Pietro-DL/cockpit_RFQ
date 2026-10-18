@@ -259,8 +259,8 @@ func TestQ01GliEsempiDiA3(t *testing.T) {
 	t.Run("le spiegazioni", func(t *testing.T) {
 		cordone := got[ancoraggio.RifNodo(shaAssiemeCAD, "#100")].Segnali[0]
 		if want := "L'id e il nome del pezzo nel file contengono «Saldatura»; il nodo non ha figli e non è una radice del file: " +
-			"possibile elemento CAD (un cordone di saldatura o simile), non un articolo. È solo un segnale: il nodo resta nella proposta e il " +
-			"suo 2D resta richiesto finché non decidi."; cordone.Spiegazione != want {
+			"possibile elemento CAD (un cordone di saldatura o simile), non un articolo. È solo un segnale: da solo non toglie il nodo dalla proposta né il " +
+			"suo 2D, e la decisione è tua."; cordone.Spiegazione != want {
 			t.Errorf("spiegazione del cordone:\n%s\nattesa:\n%s", cordone.Spiegazione, want)
 		}
 		letto := got[ancoraggio.RifNodo(shaAssiemeCAD, "#276")].Segnali[0]
@@ -288,8 +288,8 @@ func TestQ01GliEsempiDiA3(t *testing.T) {
 	// d'importazione copia in nodi[].segnali[] e che entra nelle sue impronte (EM §3.8.1). Senza contro-indizi la chiave
 	// contro_indizi non c'è (omitempty, AD-LS02-2); con un codice letto c'è, prima della spiegazione.
 	t.Run("il JSON del segnale", func(t *testing.T) {
-		spiegazione := "possibile elemento CAD (un cordone di saldatura o simile), non un articolo. È solo un segnale: il nodo resta nella proposta e il " +
-			"suo 2D resta richiesto finché non decidi."
+		spiegazione := "possibile elemento CAD (un cordone di saldatura o simile), non un articolo. È solo un segnale: da solo non toglie il nodo dalla proposta né il " +
+			"suo 2D, e la decisione è tua."
 		attesi := map[string]string{
 			"#100": `[{"codice":"ancoraggio.possibile_elemento_cad","regola":"elemento_cad_nome_foglia_v1","riscontri":[` +
 				`{"campo":"id","unita_id":"u:step:#100:id","parole":["Saldatura"],"intervalli":[{"inizio":15,"fine":24}]},` +
@@ -354,7 +354,7 @@ func TestQ01GliEsempiDiA3(t *testing.T) {
 					case len(x.Segnali) > 0:
 						segnalati = append(segnalati, n.chiave)
 						if slices.Contains(x.Segnali[0].ControIndizi, ancoraggio.ControIndizioGrafoNonCompleto) != (c.motivo != "") ||
-							strings.HasSuffix(x.Segnali[0].Spiegazione, " Il grafo del file non è completo: il nodo potrebbe avere figli non letti.") != (c.motivo != "") {
+							strings.HasSuffix(x.Segnali[0].Spiegazione, " Il grafo del file non è completo ("+c.motivo+"): che il nodo non abbia figli potrebbe non essere un'informazione.") != (c.motivo != "") {
 							t.Errorf("%s con il motivo %q: contro-indizi %v, spiegazione %q", n.chiave, c.motivo, x.Segnali[0].ControIndizi, x.Segnali[0].Spiegazione)
 						}
 					}
@@ -570,7 +570,7 @@ func TestQ02IndipendenzaDallaGeometriaEDaLS01(t *testing.T) {
 		}
 		attesi := append(append([]string(nil), s3.ControIndizi...), ancoraggio.ControIndizioGrafoNonCompleto)
 		if !reflect.DeepEqual(s4.ControIndizi, attesi) ||
-			s4.Spiegazione != s3.Spiegazione+" Il grafo del file non è completo: il nodo potrebbe avere figli non letti." {
+			s4.Spiegazione != s3.Spiegazione+" Il grafo del file non è completo ("+motivi[formaV4Regressione]+"): che il nodo non abbia figli potrebbe non essere un'informazione." {
 			t.Errorf("%s: con il grafo non completo contro-indizi %v e spiegazione %q", rif, s4.ControIndizi, s4.Spiegazione)
 		}
 	}

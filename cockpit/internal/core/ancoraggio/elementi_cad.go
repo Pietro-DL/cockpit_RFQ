@@ -18,14 +18,9 @@ import (
 // perché valutazione.NodoBOM incorpora il nodo, e l'adattatore del registro d'importazione lo copia. Una regola sola,
 // nessuna copia.
 
-// CodiceSegnaleElementoCAD: il codice del segnale (SegnaleNodo.Codice), con il prefisso dell'area come ogni codice del
-// motore A. R41 b vorrebbe ogni codice che il pacchetto produce in codici_diagnostica.go: che stia qui è una deviazione
-// dichiarata, da decidere (proposta P-1 dell'addendum ad A1c §2.2 del 18/10). In quel file il codice vorrebbe anche la
-// riga dell'elenco d'oro dei codici (estrazione/evidenze) e l'etichetta della pagina (transport/web/motore_a), due file di
-// altre corsie; finché non si decide, il valore lo fissa la prova dei valori delle strutture. Come un codice delle
-// diagnostiche, una volta pubblicato non cambia nome né significato: lo copiano il registro d'importazione e la
-// decisione «non includere» (segnale_visto).
-const CodiceSegnaleElementoCAD = "ancoraggio.possibile_elemento_cad"
+// Il codice del segnale (SegnaleNodo.Codice) è CodiceSegnaleElementoCAD, in codici_diagnostica.go come ogni codice che
+// il pacchetto produce (R41 b; decisione P-1 (a) dell'ondata A di V1), con la riga dell'elenco d'oro e l'etichetta della
+// pagina.
 
 // RegolaElementoCADNomeFogliaV1: la regola che dà il segnale, con la versione nel nome. Una parola nuova o un criterio
 // nuovo vogliono una misura e una regola _v2, mai un ritocco di questa.
@@ -34,8 +29,8 @@ const RegolaElementoCADNomeFogliaV1 = "elemento_cad_nome_foglia_v1"
 // I contro-indizi di un segnale (SegnaleNodo.ControIndizi): codici, non testo libero, nell'ordine qui sotto. Non
 // cambiano l'esito: lo dicono nella spiegazione.
 //   - lettura_identita: il nodo ha anche una lettura d'identità (Leggibile): potrebbe essere un pezzo vero;
-//   - grafo_non_completo: il grafo del file non è completo (StrutturaFile.GrafoCompleto falso): la foglia potrebbe
-//     avere figli non letti.
+//   - grafo_non_completo: il grafo del file non è completo (StrutturaFile.GrafoCompleto falso): che il nodo non abbia
+//     figli potrebbe non essere un'informazione; la spiegazione riporta il motivo (StrutturaFile.MotivoGrafo).
 const (
 	ControIndizioLetturaIdentita  = "lettura_identita"
 	ControIndizioGrafoNonCompleto = "grafo_non_completo"
@@ -91,10 +86,10 @@ type RiscontroNome struct {
 //  3. il nodo non è una radice del file (radice).
 //
 // Allora c'è un segnale solo, con un riscontro per ogni campo grezzo che ha la parola; altrimenti nil. La lettura
-// d'identità del nodo e la completezza del grafo del file (grafoCompleto) sono solo contro-indizi: non cambiano
-// l'esito. La geometria, il nome d'istanza e l'assenza del 2D non sono ingressi: non arrivano al documento, e la
+// d'identità del nodo e la completezza del grafo del file (grafoCompleto, con il motivo motivoGrafo che la spiegazione
+// riporta) sono solo contro-indizi: non cambiano l'esito. La geometria, il nome d'istanza e l'assenza del 2D non sono ingressi: non arrivano al documento, e la
 // direttiva 23 vieta l'assenza di geometria come criterio universale. È pura: gli elenchi dell'uscita sono nuovi.
-func segnaliElementoCAD(n NodoStruttura, foglia, radice, grafoCompleto bool) []SegnaleNodo {
+func segnaliElementoCAD(n NodoStruttura, foglia, radice, grafoCompleto bool, motivoGrafo string) []SegnaleNodo {
 	if !foglia || radice {
 		return nil
 	}
@@ -121,7 +116,7 @@ func segnaliElementoCAD(n NodoStruttura, foglia, radice, grafoCompleto bool) []S
 	if !grafoCompleto {
 		s.ControIndizi = append(s.ControIndizi, ControIndizioGrafoNonCompleto)
 	}
-	s.Spiegazione = spiegazioneElementoCAD(riscontri, letti, !grafoCompleto)
+	s.Spiegazione = spiegazioneElementoCAD(riscontri, letti, !grafoCompleto, motivoGrafo)
 	return []SegnaleNodo{s}
 }
 
@@ -159,8 +154,10 @@ func codiciLetti(n NodoStruttura) []string {
 }
 
 // spiegazioneElementoCAD: la spiegazione del segnale, composta dai campi in modo deterministico. Prima dove sono le
-// parole (l'id, il nome o tutti e due), poi le due condizioni e che cosa vuol dire il segnale, poi i contro-indizi.
-func spiegazioneElementoCAD(riscontri []RiscontroNome, letti []string, grafoNonCompleto bool) string {
+// parole (l'id, il nome o tutti e due), poi le due condizioni e che cosa vuol dire il segnale, poi i contro-indizi. Le
+// due frasi del segnale e del grafo sono quelle della decisione P-5 dell'ondata A di V1 (addendum ad A1c §2.2, rev. 3):
+// vere anche per un nodo già scartato e per ogni motivo del grafo non completo, che la frase riporta tale e quale.
+func spiegazioneElementoCAD(riscontri []RiscontroNome, letti []string, grafoNonCompleto bool, motivoGrafo string) string {
 	var id, nome []string // le parole di ogni campo, senza doppioni, nell'ordine del testo
 	for _, r := range riscontri {
 		for _, p := range r.Parole {
@@ -184,7 +181,7 @@ func spiegazioneElementoCAD(riscontri []RiscontroNome, letti []string, grafoNonC
 		b.WriteString("Il nome del pezzo nel file contiene " + elencoParole(nome))
 	}
 	b.WriteString("; il nodo non ha figli e non è una radice del file: possibile elemento CAD (un cordone di saldatura o simile), " +
-		"non un articolo. È solo un segnale: il nodo resta nella proposta e il suo 2D resta richiesto finché non decidi.")
+		"non un articolo. È solo un segnale: da solo non toglie il nodo dalla proposta né il suo 2D, e la decisione è tua.")
 	switch len(letti) {
 	case 0:
 	case 1:
@@ -192,8 +189,11 @@ func spiegazioneElementoCAD(riscontri []RiscontroNome, letti []string, grafoNonC
 	default:
 		b.WriteString(" Ha anche dei codici letti (" + strings.Join(letti, ", ") + "): controlla che non sia un pezzo vero.")
 	}
-	if grafoNonCompleto {
-		b.WriteString(" Il grafo del file non è completo: il nodo potrebbe avere figli non letti.")
+	switch {
+	case grafoNonCompleto && motivoGrafo != "":
+		b.WriteString(" Il grafo del file non è completo (" + motivoGrafo + "): che il nodo non abbia figli potrebbe non essere un'informazione.")
+	case grafoNonCompleto:
+		b.WriteString(" Il grafo del file non è completo: che il nodo non abbia figli potrebbe non essere un'informazione.")
 	}
 	return b.String()
 }
