@@ -41,7 +41,8 @@ markmap:
 - **`conservazione.go`** (V1, corsia file) — Responsabilità:
   - il tipo `Conservazione` (`[conservazione].radice`) e `Configurata`;
   - `normalizzaConservazione`: un disco locale (niente UNC, niente lettere di rete), mai sovrapposta allo staging, alla radice del NAS o a una delle radici di produzione (ne' sotto ne' sopra), i percorsi confrontati risolti (`percorsoRisolto`, `confrontabile`, `sovrapposti`)
-- **`conservazione_windows.go`, `conservazione_altri.go`** — `unitaDiRete`: `GetDriveTypeW` (`DRIVE_REMOTE`) su Windows, sempre falso altrove
+- **`conservazione_windows.go`, `conservazione_altri.go`** — `unitaDiRete`: `GetDriveTypeW` (`DRIVE_REMOTE`) su Windows, sempre falso altrove; `percorsoFinale`: su Windows il percorso finale attraverso l'handle (`GetFinalPathNameByHandleW`: giunzioni, collegamenti simbolici e unita' SUBST seguiti fino al volume vero, senza il prefisso `\\?\`; se il percorso non si apre, `filepath.EvalSymlinks`), altrove `filepath.EvalSymlinks`
+- **`conservazione_giunzione_windows_test.go`** — L1 solo Windows: il deposito che attraverso una giunzione sta nello staging si rifiuta (la prova si salta se la giunzione non si crea)
 
 ## Entry point
 
@@ -154,7 +155,7 @@ markmap:
 
 - **`radice`**
   - Default: vuota = la conservazione degli «Altri file» non e' configurata («Metti in Altri file» risponde 503 `NON_CONFIGURATO`)
-  - Verifica / effetto: relativa = dalla cartella del file; su un disco locale (un UNC o una lettera di rete fermano l'avvio); mai uguale, sotto o sopra `[nas].staging`, `[nas].radice` o una `radici_produzione` (errore con la voce che si sovrappone). La cartella e il segnaposto li crea il server all'avvio (`core/rfq/filerfq.PreparaDeposito`), non il caricamento della configurazione. La procedura (spostare il deposito, la copia di sicurezza) e' in `cockpit.toml.example`
+  - Verifica / effetto: relativa = dalla cartella del file; su un disco locale (un UNC o una lettera di rete fermano l'avvio); mai uguale, sotto o sopra `[nas].staging`, `[nas].radice` o una `radici_produzione`, confrontando i percorsi finali (giunzioni e SUBST comprese; errore con la voce che si sovrappone). La cartella e il segnaposto li crea il server all'avvio, e solo con `[motore_a]` acceso (`app/runtime.preparaCicloFile`, `core/rfq/filerfq.PreparaDeposito`), non il caricamento della configurazione. La procedura (spostare il deposito, la copia di sicurezza) e' in `cockpit.toml.example`, dove la riga resta commentata: con la risposta a V1-Q06 il deposito locale e' provvisorio (ondata C: la cartella ALTRI FILES della RFQ sul NAS)
 
 #### `[sicurezza]`
 

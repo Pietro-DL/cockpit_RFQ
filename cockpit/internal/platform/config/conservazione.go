@@ -91,8 +91,11 @@ func percorsoUNC(p string) bool {
 }
 
 // percorsoRisolto rende un percorso confrontabile con un altro: assoluto e con i collegamenti seguiti fin dove la
-// cartella esiste (il deposito puo' non esistere ancora: lo crea l'avvio). Un percorso UNC non si tocca: non si apre la
-// rete per controllare un file di configurazione.
+// cartella esiste (il deposito puo' non esistere ancora: lo crea l'avvio), sul volume finale. Su Windows la parte che
+// esiste si risolve attraverso l'handle (percorsoFinale: GetFinalPathNameByHandleW), che segue anche le giunzioni (i
+// mount point, che filepath.EvalSymlinks non segue piu' con winsymlink=1) e le unita' SUBST, e dice il volume vero
+// (rilievo della revisione); fuori da Windows filepath.EvalSymlinks. Un percorso UNC non si tocca: non si apre la rete
+// per controllare un file di configurazione.
 func percorsoRisolto(p string) (string, error) {
 	p = strings.TrimSpace(p)
 	if percorsoUNC(p) {
@@ -119,7 +122,7 @@ func percorsoRisolto(p string) (string, error) {
 		resto = filepath.Join(filepath.Base(cur), resto)
 		cur = padre
 	}
-	reale, err := filepath.EvalSymlinks(cur)
+	reale, err := percorsoFinale(cur)
 	if err != nil {
 		return "", err
 	}

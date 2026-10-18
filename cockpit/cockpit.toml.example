@@ -187,19 +187,28 @@ intervallo_integrita_s = 900
 # verificata (sha256) del file PRIMA di cambiarne lo stato; «Riattiva» la riprende per rimettere i byte nello staging;
 # il custode del ciclo dei file toglie le copie che non servono piu' (dopo «Riattiva» o «Scarta»). Non e' la cartella
 # ALTRO del NAS (sul NAS non si scrive niente) e non e' una cache: il custode della cache dello staging non la guarda.
-# Serve solo con [motore_a] acceso: a flag spento nessuno la usa.
 #
-# Le regole, controllate all'avvio (se non tornano il server non parte, e l'errore dice quale voce):
+# PROVVISORIA: la risposta a V1-Q06 (18/10) mette gli «Altri file» nella cartella ALTRI FILES della RFQ sul NAS, e il
+# cambio arriva con l'ondata C. Fino ad allora questa sezione resta commentata qui e NON si aggiunge alla configurazione
+# vera: il deposito locale serve alle prove (cartelle temporanee) e a chi lo prova di proposito.
+#
+# Il server prepara il deposito (crea la cartella, _parti e il segnaposto, e fa i controlli qui sotto) solo con
+# [motore_a] acceso: a flag spento la radice scritta qui si ignora, e l'avvio non scrive niente ne' si ferma per lei.
+#
+# Le regole, controllate all'avvio con [motore_a] acceso (se non tornano il server non parte, e l'errore dice quale
+# voce):
 #   - un disco LOCALE del server: niente percorsi UNC (\\server\...) ne' lettere mappate sulla rete;
 #   - fuori dallo staging, dalla radice del NAS e da ogni radici_produzione, e mai sopra una di loro (dentro lo
-#     staging la cache la svuoterebbe; sul NAS sarebbe una scrittura sul NAS);
+#     staging la cache la svuoterebbe; sul NAS sarebbe una scrittura sul NAS). I percorsi si confrontano risolti:
+#     giunzioni, collegamenti e unita' SUBST si seguono fino al volume vero;
 #   - un percorso relativo vale dalla cartella di questo file.
 # Assente o vuota: la conservazione non e' configurata, «Metti in Altri file» risponde 503 NON_CONFIGURATO (e lo dice
 # la pagina) e il resto della Sorgente funziona.
 #
 # La procedura:
-#   1. la cartella la crea il server al primo avvio, con dentro _parti (le copie in corso) e il segnaposto
-#      .cockpit-deposito, che porta l'identificativo del deposito: ogni copia registrata nel database lo ricorda;
+#   1. la cartella la crea il server al primo avvio con [motore_a] acceso, con dentro _parti (le copie in corso) e il
+#      segnaposto .cockpit-deposito, che porta l'identificativo del deposito: ogni copia registrata nel database lo
+#      ricorda;
 #   2. la copia di sicurezza di questa cartella la decide chi gestisce il server, insieme a quella del database: i file
 #      senza il database, o il database senza i file, non bastano a ripristinare gli «Altri file»;
 #   3. per spostare il deposito: fermare il server, spostare la cartella INTERA (segnaposto compreso), cambiare qui la
@@ -207,7 +216,7 @@ intervallo_integrita_s = 900
 #      server non parte e lo dice: e' la protezione dal puntare per sbaglio una cartella vuota mentre i file sono altrove;
 #   4. i file del deposito e il segnaposto non si cancellano a mano: le copie si tolgono con il loro rilascio, e i
 #      parziali rimasti in _parti da oltre 24 ore li toglie il custode.
-radice = 'C:\Cockpit\server\conservazione'
+# radice = 'C:\Cockpit\server\conservazione'
 
 [outlook]
 cartelle = ["Inbox", "Sent Items"]
