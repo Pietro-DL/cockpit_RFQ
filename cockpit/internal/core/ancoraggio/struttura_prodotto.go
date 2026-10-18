@@ -218,6 +218,12 @@ const (
 //     verificare; con la riga decisa che porta un componente fuori dal contesto, il motivo e l'abbinamento accanto
 //     (T-B4-26); sul nodo scartato, nodo_scartato e nessuna proposta (T-B4-27). Mai una decisione: Decisione resta
 //     quella per UUID.
+//
+// Da V1 (LS-02; addendum ad A1c §2.2 del 18/10, ancoraggio-3):
+//   - Segnali: i segnali del nodo (SegnaleNodo), oggi solo il possibile elemento CAD (elementi_cad.go, regola
+//     elemento_cad_nome_foglia_v1), calcolati qui dai fatti del file: il nome grezzo, la foglia e la radice del file.
+//     Un segnale non toglie il nodo, non lo esenta dal 2D e non decide niente. In fondo al tipo e con omitempty: il
+//     JSON di un nodo senza segnali è quello di prima.
 type NodoProposto struct {
 	Rif                string              `json:"rif"`
 	AllegatoID         uuid.UUID           `json:"allegato_id"`
@@ -231,6 +237,7 @@ type NodoProposto struct {
 	RigaDecisa         *RigaDecisaLegacy   `json:"riga_decisa,omitempty"`
 	DecisoDaPersona    bool                `json:"deciso_da_persona"`
 	AbbinamentoPerBase *AbbinamentoPerBase `json:"abbinamento_per_base,omitempty"`
+	Segnali            []SegnaleNodo       `json:"segnali,omitempty"`
 }
 
 // ArcoProposto: un arco dell'albero proposto di una struttura del prodotto (M2; contratto §1.4): dai fatti dello STEP,
@@ -862,8 +869,10 @@ func (c *contestoIndicizzato) struttura(t ProdottoRichiesto, f *fileIndicizzato,
 		n := f.nodi[r]
 		p := append([]string(nil), padri[r]...)
 		sort.Strings(p)
+		// Il segnale LS-02 guarda il file, non la struttura: una foglia nel file è foglia in ogni struttura, e la radice
+		// del file è la stessa per ogni target (elementi_cad.go).
 		s.Nodi = append(s.Nodi, NodoProposto{Rif: r, AllegatoID: f.s.AllegatoID, EntitaID: n.EntitaID, Padri: copiaStringhe(p),
-			Leggibile: len(n.Letture) > 0, SenzaFile: true})
+			Leggibile: len(n.Letture) > 0, SenzaFile: true, Segnali: segnaliElementoCAD(n, len(f.figli[r]) == 0, f.radici[r], f.s.GrafoCompleto)})
 	}
 	sort.SliceStable(s.Archi, func(i, j int) bool {
 		if s.Archi[i].Padre != s.Archi[j].Padre {

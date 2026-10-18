@@ -37,6 +37,7 @@ import (
 	"promatec/cockpit/internal/core/ancoraggio"
 	"promatec/cockpit/internal/core/confronto"
 	"promatec/cockpit/internal/core/fotorfq"
+	"promatec/cockpit/internal/core/propostabom"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/core/valutazione"
 	"promatec/cockpit/internal/platform/db"
@@ -258,11 +259,13 @@ const (
 	OrigineConfermata = "confermata"
 )
 
-// Le chiavi e i tipi dei gruppi (X-02; T-A1d-09): stringhe opache e stabili, che non dipendono dall'ordine.
+// Le chiavi e i tipi dei gruppi (X-02; T-A1d-09): stringhe opache e stabili, che non dipendono dall'ordine. Da V1 stanno
+// nel core (propostabom, emendamento di V1 §6.1), che le usa anche per il registro d'importazione e per il gruppo
+// corrente della sorgente di una bozza: qui restano i nomi della pagina, gli stessi valori.
 const (
-	GruppoBOM       = "bom"
-	GruppoCandidata = "cand"
-	GruppoSenzaSTEP = "senza"
+	GruppoBOM       = propostabom.GruppoBOM
+	GruppoCandidata = propostabom.GruppoCandidata
+	GruppoSenzaSTEP = propostabom.GruppoSenzaSTEP
 )
 
 // AsseStruttura: l'asse di ricerca «struttura» di Conflitti, tutti gli assi tranne lo smistamento (T-A1d-25; piano
@@ -498,6 +501,10 @@ func (x *Indice) Rimozione(c valutazione.Conflitto) *RimozioneAperta {
 // Gruppi: le schede dell'albero del prodotto, nessuna preselezionata (nessun campo dice «scelta»; T-A1d-09, T-A1d-27):
 // «bom» se il prodotto ha la BOM di lavoro (Nodi), con lo STEP e la radice della sua struttura; una «cand» per ogni
 // struttura candidata, nell'ordine dell'esito; «senza» se ci sono confermati senza STEP. In cache per prodotto.
+//
+// Da V1 la regola è quella del core (propostabom.GruppiDelProdotto, emendamento di V1 §6.1), la stessa del registro
+// d'importazione e del gruppo corrente della sorgente: qui si aggiungono solo i dati della pagina, cioè il nome del file,
+// la struttura candidata (la k-esima candidata del core è p.StruttureCandidate[k]) e i nodi del gruppo.
 func (x *Indice) Gruppi(prodotto string) []Gruppo {
 	p := x.Prodotto(prodotto)
 	if p == nil {
@@ -507,23 +514,17 @@ func (x *Indice) Gruppi(prodotto string) []Gruppo {
 		return g
 	}
 	var out []Gruppo
-	if len(p.Nodi) > 0 {
-		g := Gruppo{Chiave: GruppoBOM, Tipo: GruppoBOM, Nodi: x.nodiDelGruppo(prodotto, GruppoBOM)}
-		if st := x.bomDi(prodotto); st != nil {
-			id := st.AllegatoID
-			g.AllegatoID, g.Radice, g.NomeFile = &id, st.Radice, x.NomeFile(st.AllegatoID)
+	k := 0
+	for _, g := range propostabom.GruppiDelProdotto(*p, x.e.Ancoraggi.Strutture) {
+		gr := Gruppo{Chiave: g.Chiave, Tipo: g.Tipo, AllegatoID: g.AllegatoID, Radice: g.Radice, Nodi: x.nodiDelGruppo(prodotto, g.Chiave)}
+		if g.AllegatoID != nil {
+			gr.NomeFile = x.NomeFile(*g.AllegatoID)
 		}
-		out = append(out, g)
-	}
-	for k := range p.StruttureCandidate {
-		sc := &p.StruttureCandidate[k]
-		id := sc.AllegatoID
-		chiave := chiaveCandidata(sc)
-		out = append(out, Gruppo{Chiave: chiave, Tipo: GruppoCandidata, AllegatoID: &id, Radice: sc.Radice,
-			NomeFile: x.NomeFile(sc.AllegatoID), Struttura: sc, Nodi: x.nodiDelGruppo(prodotto, chiave)})
-	}
-	if len(p.ConfermatiSenzaSTEP) > 0 {
-		out = append(out, Gruppo{Chiave: GruppoSenzaSTEP, Tipo: GruppoSenzaSTEP, Nodi: x.nodiDelGruppo(prodotto, GruppoSenzaSTEP)})
+		if g.Tipo == GruppoCandidata {
+			gr.Struttura = &p.StruttureCandidate[k]
+			k++
+		}
+		out = append(out, gr)
 	}
 	if x.gruppi == nil {
 		x.gruppi = map[string][]Gruppo{}
@@ -1075,7 +1076,7 @@ func (x *Indice) strutturaCandidata(prodotto, gruppo string) *ancoraggio.Struttu
 	for s := range x.e.Ancoraggi.Strutture {
 		st := &x.e.Ancoraggi.Strutture[s]
 		if st.Target == prodotto && st.Stato != ancoraggio.StatoBOMDiLavoroProposta &&
-			GruppoCandidata+":"+st.AllegatoID.String()+":"+st.Radice == gruppo {
+			propostabom.ChiaveCandidata(st.AllegatoID, st.Radice) == gruppo {
 			return st
 		}
 	}
@@ -1119,9 +1120,10 @@ func (x *Indice) documentoDelComponente(componente, a uuid.UUID) *uuid.UUID {
 	return nil
 }
 
-// chiaveCandidata: la chiave del gruppo di una struttura candidata, «cand:<allegato_id>:<radice>» (X-02).
+// chiaveCandidata: la chiave del gruppo di una struttura candidata, «cand:<allegato_id>:<radice>» (X-02), quella del
+// core (propostabom.ChiaveCandidata, V1): la pagina e il registro d'importazione usano la stessa.
 func chiaveCandidata(sc *valutazione.StrutturaCandidata) string {
-	return GruppoCandidata + ":" + sc.AllegatoID.String() + ":" + sc.Radice
+	return propostabom.ChiaveCandidata(sc.AllegatoID, sc.Radice)
 }
 
 // unPadreNelGruppo: il nodo ha almeno un padre (Parentela.Padre) fra i Rif dati.

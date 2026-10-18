@@ -79,18 +79,40 @@ type CodificaContesto struct {
 	Perimetro []int  `json:"perimetro,omitempty"`
 }
 
-// ContestoRisolto: il contesto controllato contro il motore di un cliente, pronto per Interpreta.
+// ContestoRisolto: il contesto controllato contro il motore di un cliente, pronto per Interpreta. Da V1 (piano della
+// 0023 §14 passo 6; emendamento di V1 §3.8.2) espone, per il registro d'importazione, quello che Interpreta usa: se si
+// attiva (Attivo), i partner che attiva (PartnerAttivi), la sua copia canonica con l'ereditato (CopiaCanonica) e il
+// perimetro per occorrenza (NelPerimetro), con gli stessi criteri dell'attivazione. Le esposizioni non cambiano niente
+// della lettura.
 type ContestoRisolto struct {
 	ID       string
 	Impronta string // sha256 del canonico del contesto (e di quello ereditato): entra nell'identità delle interpretazioni toccate
 	attivo   bool
 
-	partner   map[string]bool // attivi e caricati
-	mancanti  []string        // dichiarati nel contesto e non caricabili (in ordine)
-	perimetro []OccorrenzaContesto
-	codifiche []CodificaContesto
-	modelli   map[string]bool
-	modelliNo []string // ammessi dal contesto e assenti dal motore
+	partner     map[string]bool   // attivi e caricati
+	hashPartner map[string]string // per i partner attivi: l'hash della grammatica caricata nel motore (quello delle letture)
+	mancanti    []string          // dichiarati nel contesto e non caricabili (in ordine)
+	perimetro   []OccorrenzaContesto
+	codifiche   []CodificaContesto
+	modelli     map[string]bool
+	modelliNo   []string         // ammessi dal contesto e assenti dal motore
+	canonico    ContestoCanonico // la forma su cui si calcola l'impronta (CopiaCanonica)
+}
+
+// ContestoCanonico: la copia canonica di un contesto risolto (V1: emendamento di V1 §3.8, «contesto»): il file del
+// contesto e quello da cui eredita con eredita_da (profondità 1), ognuno nella forma normalizzata (normalizzaContesto:
+// partner, modelli, perimetro e codifiche in ordine, gli indici delle codifiche riscritti). È l'oggetto su cui si calcola
+// l'impronta del contesto: jsoncanonico.ImprontaDi della copia è ContestoRisolto.Impronta.
+type ContestoCanonico struct {
+	Contesto ContestoLavorazione  `json:"contesto"`
+	Padre    *ContestoLavorazione `json:"padre,omitempty"`
+}
+
+// PartnerAttivo: un emittente partner che il contesto attiva sui documenti del suo perimetro, con l'hash della sua
+// grammatica caricata nel motore, lo stesso che le letture del partner portano (LetturaForma.HashEmittente).
+type PartnerAttivo struct {
+	Emittente string `json:"emittente"`
+	Hash      string `json:"hash"`
 }
 
 // LeggiContesto: la decodifica stretta del file (chiavi sconosciute e valori dopo l'oggetto rifiutati).
@@ -184,11 +206,12 @@ func RisolviContesto(m *Motore, c ContestoLavorazione, padre *ContestoLavorazion
 	}
 
 	r := &ContestoRisolto{
-		ID:        c.ID,
-		attivo:    c.Stato == StatoContestoDichiarato,
-		partner:   map[string]bool{},
-		perimetro: eff.Perimetro,
-		modelli:   map[string]bool{},
+		ID:          c.ID,
+		attivo:      c.Stato == StatoContestoDichiarato,
+		partner:     map[string]bool{},
+		hashPartner: map[string]string{},
+		perimetro:   eff.Perimetro,
+		modelli:     map[string]bool{},
 	}
 	if len(eff.Perimetro) == 0 {
 		errore("perimetro", "il perimetro è vuoto: un contesto vale per un insieme di file dichiarato")
@@ -227,6 +250,7 @@ func RisolviContesto(m *Motore, c ContestoLavorazione, padre *ContestoLavorazion
 			continue
 		}
 		r.partner[p.Emittente] = true
+		r.hashPartner[p.Emittente] = pc.hash
 	}
 	for i, k := range eff.Codifiche {
 		pk := fmt.Sprintf("codifiche[%d]", i)
@@ -260,16 +284,15 @@ func RisolviContesto(m *Motore, c ContestoLavorazione, padre *ContestoLavorazion
 			Percorso: "stato", Messaggio: "contesto " + c.Stato + ": si mostra e non attiva niente"})
 	}
 	// L'impronta non dipende dall'ordine degli elenchi (direttiva 21 §9: determinismo variando l'ordine di file ed
-	// emittenti): si calcola sulla forma normalizzata del contesto e del padre.
+	// emittenti): si calcola sulla forma normalizzata del contesto e del padre, la copia canonica (V1: la stessa forma, con
+	// gli stessi nomi, che prima era un tipo senza nome; l'impronta non cambia).
 	var np *ContestoLavorazione
 	if padre != nil {
 		x := normalizzaContesto(*padre)
 		np = &x
 	}
-	imp, err := jsoncanonico.ImprontaDi(struct {
-		Contesto ContestoLavorazione  `json:"contesto"`
-		Padre    *ContestoLavorazione `json:"padre,omitempty"`
-	}{normalizzaContesto(c), np})
+	r.canonico = ContestoCanonico{Contesto: normalizzaContesto(c), Padre: np}
+	imp, err := jsoncanonico.ImprontaDi(r.canonico)
 	if err != nil {
 		return nil, nil, fmt.Errorf("motorea: impronta del contesto: %w", err)
 	}
@@ -342,6 +365,67 @@ func (m *Motore) ConContesto(c *ContestoRisolto) *Motore {
 // Contesto: il contesto risolto del motore, nil senza.
 func (m *Motore) Contesto() *ContestoRisolto { return m.contesto }
 
+// ---- le esposizioni per il registro d'importazione (V1: emendamento di V1 §3.8.2; piano della 0023 §14 passo 6) ----
+
+// Attivo: il contesto si attiva (stato dichiarato) per i documenti del suo perimetro. Falso per nil e per un contesto
+// proposto o revocato, che si mostra e non attiva niente: lo stesso criterio dell'attivazione.
+func (c *ContestoRisolto) Attivo() bool { return c != nil && c.attivo }
+
+// PartnerAttivi: i partner che il contesto attiva sui documenti del suo perimetro (dichiarati dal cliente, caricati nel
+// motore e con l'hash che il contesto attende), con l'hash della grammatica caricata, in ordine di emittente. Vuoto per
+// nil e per un contesto non attivo. Un partner dichiarato e non caricabile non c'è: lo dice la diagnostica
+// contesto.partner_non_caricabile, e i documenti del perimetro hanno l'interpretazione parziale.
+func (c *ContestoRisolto) PartnerAttivi() []PartnerAttivo {
+	if !c.Attivo() {
+		return nil
+	}
+	out := make([]PartnerAttivo, 0, len(c.partner))
+	for e := range c.partner {
+		out = append(out, PartnerAttivo{Emittente: e, Hash: c.hashPartner[e]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Emittente < out[j].Emittente })
+	return out
+}
+
+// CopiaCanonica: la copia canonica del contesto risolto (ContestoCanonico), con il contesto ereditato se c'è; nil per
+// nil. Una copia nuova a ogni chiamata, che chi la riceve può cambiare senza toccare il contesto: la sua impronta
+// (jsoncanonico.ImprontaDi) è Impronta.
+func (c *ContestoRisolto) CopiaCanonica() *ContestoCanonico {
+	if c == nil {
+		return nil
+	}
+	out := ContestoCanonico{Contesto: copiaContesto(c.canonico.Contesto)}
+	if c.canonico.Padre != nil {
+		p := copiaContesto(*c.canonico.Padre)
+		out.Padre = &p
+	}
+	return &out
+}
+
+// NelPerimetro: il contesto si attiva per il documento, cioè il motore lo legge con il contesto. È lo stesso criterio
+// con cui Interpreta decide l'attivazione, e quindi ContestoID e ImprontaContesto dell'interpretazione
+// (occorrenzeAttive): falso per nil, per un contesto non attivo, per un documento che non viene da un allegato o la cui
+// occorrenza non sta nel perimetro (per allegato, oppure per sha256 e nome ricevuto, e contenitore se scritto: mai per
+// sola impronta).
+func (c *ContestoRisolto) NelPerimetro(doc evidenze.DocumentoEvidenze) bool {
+	return len(c.occorrenzeAttive(doc)) > 0
+}
+
+// copiaContesto: una copia del file del contesto che non condivide elenchi con l'originale.
+func copiaContesto(c ContestoLavorazione) ContestoLavorazione {
+	x := c
+	x.Partner = append([]PartnerContesto(nil), c.Partner...)
+	x.Perimetro = append([]OccorrenzaContesto(nil), c.Perimetro...)
+	x.Modelli = append([]string(nil), c.Modelli...)
+	x.Codifiche = nil
+	for _, k := range c.Codifiche {
+		kk := k
+		kk.Perimetro = append([]int(nil), k.Perimetro...)
+		x.Codifiche = append(x.Codifiche, kk)
+	}
+	return x
+}
+
 // occorrenzeDi: gli indici del perimetro che coincidono con la fonte del documento.
 func (c *ContestoRisolto) occorrenzeDi(f evidenze.Fonte) []int {
 	var out []int
@@ -368,13 +452,20 @@ func (c *ContestoRisolto) occorrenzeDi(f evidenze.Fonte) []int {
 	return out
 }
 
-// attivazionePer: l'attivazione del contesto per un documento; nil se il contesto non è attivo o il documento
-// non è nel perimetro. Due codifiche diverse dello stesso campo sulla stessa occorrenza valgono «misto».
-func (c *ContestoRisolto) attivazionePer(doc evidenze.DocumentoEvidenze) *attivazione {
+// occorrenzeAttive: gli indici del perimetro che il contesto attiva per un documento: vuoto se il contesto è nil o non
+// attivo, se il documento non viene da un allegato o se nessuna occorrenza del perimetro coincide con la sua fonte. È il
+// criterio dell'attivazione (attivazionePer) e del perimetro esposto (NelPerimetro): uno solo.
+func (c *ContestoRisolto) occorrenzeAttive(doc evidenze.DocumentoEvidenze) []int {
 	if c == nil || !c.attivo || doc.Fonte.Tipo != "allegato" {
 		return nil
 	}
-	occ := c.occorrenzeDi(doc.Fonte)
+	return c.occorrenzeDi(doc.Fonte)
+}
+
+// attivazionePer: l'attivazione del contesto per un documento; nil se il contesto non è attivo o il documento
+// non è nel perimetro. Due codifiche diverse dello stesso campo sulla stessa occorrenza valgono «misto».
+func (c *ContestoRisolto) attivazionePer(doc evidenze.DocumentoEvidenze) *attivazione {
+	occ := c.occorrenzeAttive(doc)
 	if len(occ) == 0 {
 		return nil
 	}
