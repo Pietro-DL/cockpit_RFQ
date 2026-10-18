@@ -1887,6 +1887,15 @@ function strumentiOrg(g) {
     h("button", { type: "button", id: "du-zoom-centra", title: "Centra il pezzo scelto", onclick: centraSel }, "Centra")));
   return h("div", { class: "du-strumenti", role: "toolbar", "aria-label": "Strumenti dell'organigramma" }, parti);
 }
+// controIndizio: l'etichetta di un contro-indizio del segnale LS-02 (codici dell'ancoraggio, SegnaleNodo.ControIndizi):
+// non cambiano l'esito del segnale, aiutano a decidere. Un codice sconosciuto si mostra com'è.
+const CONTRO_INDIZI = {
+  lettura_identita: "il nodo ha anche una lettura d'identità: potrebbe essere un pezzo vero",
+  grafo_non_completo: "il grafo del file non è completo: la foglia potrebbe avere figli non letti",
+};
+function controIndizio(c) {
+  return CONTRO_INDIZI[c] ? CONTRO_INDIZI[c] + " (" + c + ")" : String(c);
+}
 function cassettoSegnalati(g) {
   if (!S.segnalatiAperto || g.modo !== "bozza") return null;
   const segnalati = Object.values(g.nodi).filter((v) => v.cad && !v.noninc);
@@ -1909,7 +1918,7 @@ function cassettoSegnalati(g) {
         onchange: (e) => cambiaSelezione(v.k, e.target.checked) }),
       h("span", { class: "du-segnalato-n" }, (v.voce && v.voce.grezzi && (v.voce.grezzi.nome || v.voce.grezzi.id)) || v.desc || v.k),
       h("span", { class: "du-segnalato-s" }, (padre ? "sotto " + (g.nodi[padre.p].cod || g.nodi[padre.p].desc) + " · " : "") + (seg.regola || "") + (seg.spiegazione ? " · " + seg.spiegazione : "") +
-        (arr(seg.contro_indizi).length ? " · contro-indizi: " + arr(seg.contro_indizi).join(", ") : ""))));
+        (arr(seg.contro_indizi).length ? " · contro-indizi: " + arr(seg.contro_indizi).map(controIndizio).join("; ") : ""))));
   }
   box.append(c);
   return box;

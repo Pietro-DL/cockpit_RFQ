@@ -204,11 +204,16 @@ func bdVoce(allegato, sha, chiave, nome, codice, rev, tipo, emittente, ns string
 // dello STEP. versione cambia l'impronta (la proposta di oggi diversa da quella importata).
 func (b *bancoDU) registro(allegato, sha string, versione int) m {
 	cli := "cliente:" + bdCliente
-	saldatura := func(chiave, n string) m {
+	// i contro-indizi del segnale sono codici dell'ancoraggio (SegnaleNodo.ControIndizi), assenti senza
+	saldatura := func(chiave, n string, controIndizi ...string) m {
 		v := bdVoce(allegato, sha, chiave, "ACME_111_2.000_Saldatura d'angolo "+n+"_oa_0", "", "", "sciolto", cli, "", []string{"#7"}, true)
-		v["segnali"] = []any{m{"codice": "ancoraggio.possibile_elemento_cad", "regola": "elemento_cad_nome_foglia_v1",
+		segnale := m{"codice": "ancoraggio.possibile_elemento_cad", "regola": "elemento_cad_nome_foglia_v1",
 			"riscontri":   []any{m{"campo": "nome", "unita_id": "u:n" + chiave, "parole": []any{"Saldatura"}, "intervalli": []any{m{"inizio": 15, "fine": 24}}}},
-			"spiegazione": "Il nome del pezzo nel file contiene «Saldatura»; il nodo non ha figli e non è una radice del file: possibile elemento CAD, non un articolo. È solo un segnale: il nodo resta nella proposta e il suo 2D resta richiesto finché non decidi."}}
+			"spiegazione": "Il nome del pezzo nel file contiene «Saldatura»; il nodo non ha figli e non è una radice del file: possibile elemento CAD, non un articolo. È solo un segnale: il nodo resta nella proposta e il suo 2D resta richiesto finché non decidi."}
+		if len(controIndizi) > 0 {
+			segnale["contro_indizi"] = controIndizi
+		}
+		v["segnali"] = []any{segnale}
 		v["fabbisogni_previsti_all_importazione"] = []any{m{"tipo_documento": "disegno_2d", "bloccante": true}}
 		return v
 	}
@@ -218,7 +223,7 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 		bdVoce(allegato, sha, "#9", "Staffa del fornitore", "400123", "", "sciolto", "partner:beta", "beta", []string{"#7"}, true),
 		bdVoce(allegato, sha, "#11", "Traversa", "ACM-1120", "A", "sciolto", cli, "acme", []string{"#7"}, true),
 		bdVoce(allegato, sha, "#12", "Piastrina", "", "", "sciolto", cli, "", []string{"#7"}, true),
-		saldatura("#31", "1"), saldatura("#32", "2"), saldatura("#33", "3"),
+		saldatura("#31", "1"), saldatura("#32", "2"), saldatura("#33", "3", "grafo_non_completo"),
 		bdVoce(allegato, sha, "#40", "WELDED SUPPORT", "ACM-1400", "A", "sottoassieme", cli, "acme", []string{"#1"}, false),
 		bdVoce(allegato, sha, "#41", "Piede", "ACM-1410", "A", "sciolto", cli, "acme", []string{"#40"}, true),
 		bdVoce(allegato, sha, "#50", "Coperchio", "ACM-1500", "A", "sciolto", cli, "acme", []string{"#1"}, true),
