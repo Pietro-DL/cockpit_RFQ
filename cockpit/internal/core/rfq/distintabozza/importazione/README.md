@@ -45,15 +45,19 @@ markmap:
   Le regole di forma: voci con l'origine coerente (rif = nodo:<sha256>:<chiave>), codice e rev proposti ammissibili
   (la rev in maiuscole ASCII), la radice del gruppo fra le voci, gli estremi degli archi fra le voci o fra i fuori per
   decisione, ogni lettura con la sua `chiave_lettura` dell'allegato dell'unita' letta e unica nel registro (la stessa
-  chiave porta la stessa lettura, byte per byte).
+  chiave porta la stessa lettura, byte per byte); i due campi facoltativi `codice_proposto` e `rev_proposta` di una
+  lettura (DECA PE-08) hanno le regole di quelli della voce.
 - **`impronte.go`**: l'elenco chiuso (le tabelle `campi*`, `Classificazione`, `CampiDellaRadiceFraLeEvidenze`) e
   `ImpronteParziali`: impronta_contenuto (struttura e identita'), impronta_evidenze (il resto della proposta, solo
   informativa), impronta_regole. La voce della radice (`origine.rif` = `gruppo.radice`) passa alle evidenze i campi che
   vengono dallo stato della RFQ (O-01). Le impronte si calcolano sulla forma canonica: un vuoto o un ordine diverso
   non le cambiano.
-- **`lettura.go`**: `LetturaRegistro`, `LetturaCompatta` (la copia di una decisione `identita`, con la stessa forma
-  canonica da tutte e due le parti, vuoti tolti anche dentro qualificatori e revisione: `StessaLettura` per V-1),
-  `TrovaLettura`, `SegnaleVisto` e `SegnaliDellaVoce`.
+- **`lettura.go`**: `LetturaRegistro` (con `CodiceProposto` e `RevProposta`, facoltativi: il codice e la rev di
+  partenza della lettura, le stesse proiezioni importazione-1 dell'identità proposta di una voce, scritte
+  dall'adattatore su ogni lettura con una proiezione ammissibile; DECA PE-08, per «Adotta come codice» su
+  un'alternativa o un riferimento), `LetturaCompatta` (la copia di una decisione `identita`, con la stessa forma
+  canonica da tutte e due le parti, vuoti tolti anche dentro qualificatori e revisione: `StessaLettura` per V-1; i due
+  campi di PE-08 non ci entrano), `TrovaLettura`, `SegnaleVisto` e `SegnaliDellaVoce`.
 
 ## Le proiezioni delle impronte [T]
 
@@ -69,10 +73,10 @@ markmap:
 
 - Importa: la libreria standard, `google/uuid`, `platform/jsoncanonico`. Nient'altro del progetto: niente database,
   niente orologio, niente `core/rfq`.
-- **Limite noto**: la lista chiusa dei pacchetti puri (`core/estrazione/evidenze/dipendenze_test.go`, `vietatiAiPuri`)
-  vieta a un pacchetto puro tutto `internal/core/rfq/`. Perche' `propostabom` usi questo DTO serve l'eccezione per nome
-  in quella lista, oppure lo spostamento del pacchetto in una foglia fuori da `core/rfq` (proposta di emendamento e
-  richiesta alla corsia motore nel resoconto della corsia persistenza di V1).
+- La lista chiusa dei pacchetti puri (`core/estrazione/evidenze/dipendenze_test.go`, `vietatiAiPuri`) vieta a un
+  pacchetto puro tutto `internal/core/rfq/`: questo pacchetto ci sta come foglia dei pacchetti del motore A
+  (`pacchettiMotoreA`) con l'eccezione per nome fra i vietati ai puri (`eccezioniAiVietati`; decisione P-10 dell'ondata
+  A di V1), e `propostabom` lo importa.
 
 ## Test
 
@@ -90,6 +94,11 @@ markmap:
   - che cosa cambia quale impronta (C-15, C-19, O-01), null come assente;
   - il limite di peso, la completezza del contesto (anche `calcolo.impronta_indice` e i null con il contesto attivo),
     la copia compatta byte per byte (N-01), i segnali, le voci.
+- **L1**, `lettura_codice_proposto_test.go` (DECA PE-08, A-25 la parte della foglia): `codice_proposto` e
+  `rev_proposta` di una lettura restituiti da `TrovaLettura`, fuori dalla copia compatta; un codice con uno spazio o di
+  41 byte, una rev minuscola, di 11 byte o con uno spazio sono difetti di forma.
+- L'uscita vera dell'adattatore (`propostabom.ImportaGruppo`) passa `Leggi`, `Componi(Leggi(x).Contenuto)` e `Rileggi`
+  in ogni prova delle scene di `core/valutazione` (`importazione_*_scena_test.go`; A-29, la parte della corsia motore).
 - Le prove con il database stanno in `distintabozza` (`conservazione_db_test.go`).
 
 ## Leggi anche
