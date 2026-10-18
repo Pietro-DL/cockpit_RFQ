@@ -17,7 +17,8 @@ const allegatoInStagingPerHash = `-- name: AllegatoInStagingPerHash :one
 SELECT allegato_id, messaggio_id, contenitore_id, indice, nome_file, path_interno, estensione, content_type, natura, origine, bytes, sha256, stato, path_staging, errore, ricevuto_il, caricato_da FROM allegato
 WHERE sha256 = $1 AND path_staging IS NOT NULL AND path_staging <> ''
   AND allegato_id <> $2
-ORDER BY (stato = 'in_staging') DESC, ricevuto_il
+ORDER BY file_rfq_attivo((SELECT m.thread_id FROM messaggio m WHERE m.messaggio_id = allegato.messaggio_id), allegato.allegato_id) DESC,
+         (stato = 'in_staging') DESC, ricevuto_il
 LIMIT 1
 `
 
@@ -29,7 +30,8 @@ type AllegatoInStagingPerHashParams struct {
 // Un ALTRO allegato con lo stesso contenuto già sceso in staging (voce 1.11). Lo stesso disegno
 // allegato a tre richieste diverse è lo stesso file: scaricarlo tre volte significa tre giri in COM su
 // Outlook e tre copie identiche sul disco. Si esclude l'allegato di partenza, altrimenti troverebbe
-// se stesso e non risponderebbe mai alla domanda che gli viene fatta.
+// se stesso e non risponderebbe mai alla domanda che gli viene fatta. V1 (EM §10.7, G-13): prima le occorrenze
+// attive, poi le altre; chi riusa il percorso lo verifica sotto BloccaContenuto (coda.AccodaStage).
 func (q *Queries) AllegatoInStagingPerHash(ctx context.Context, arg AllegatoInStagingPerHashParams) (Allegato, error) {
 	row := q.db.QueryRow(ctx, allegatoInStagingPerHash, arg.Sha256, arg.Escluso)
 	var i Allegato

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -62,11 +63,17 @@ func AccodaStage(ctx context.Context, q *db.Queries, st staging.Staging, a db.Al
 		return StageGiaPresente, nil, nil
 	}
 	if a.Sha256.Valid && a.Sha256.String != "" {
+		// V1 (EM §10.6, §10.7 G-13): chi adotta un contenuto gia' presente lo verifica sotto il lucchetto per contenuto,
+		// nella transazione che scrive path_staging (un tempo 2 o la cache che lo stanno togliendo prendono lo stesso
+		// lucchetto); le occorrenze attive prima (AllegatoInStagingPerHash).
+		if err := q.BloccaContenuto(ctx, strings.ToLower(strings.TrimSpace(a.Sha256.String))); err != nil {
+			return "", nil, err
+		}
 		gemello, err := q.AllegatoInStagingPerHash(ctx, db.AllegatoInStagingPerHashParams{Sha256: a.Sha256, Escluso: a.AllegatoID})
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return "", nil, fmt.Errorf("allegato già in staging con lo stesso hash: %w", err)
 		}
-		if err == nil && st.Presente(gemello.PathStaging.String) {
+		if err == nil && st.Presente(gemello.PathStaging.String) && verificato(st, gemello.PathStaging.String, a.Sha256.String) {
 			dim := gemello.Bytes
 			if !dim.Valid {
 				dim = a.Bytes
@@ -97,6 +104,17 @@ func AccodaStage(ctx context.Context, q *db.Queries, st staging.Staging, a db.Al
 		return StageGiaInCoda, nil, nil
 	}
 	return StageAccodato, j, nil
+}
+
+// verificato: il file del gemello e' il contenuto con quello sha (EM §10.6: chi adotta ne verifica l'esistenza e lo sha
+// sotto il lucchetto). Uno staging che non sa verificare (le prove con uno staging finto) si fida di Presente.
+func verificato(st staging.Staging, percorso, sha string) bool {
+	if v, ok := st.(interface {
+		Verificato(percorso, sha string) bool
+	}); ok {
+		return v.Verificato(percorso, sha)
+	}
+	return true
 }
 
 // Analizzatore descrive con che cosa si analizza: versione e configurazione mandata al worker. Il suo

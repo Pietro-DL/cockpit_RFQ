@@ -15,9 +15,14 @@
 --      adesso vuol dire far fallire la copia che sta per partire;
 --   2. un'anomalia NAS aperta su un documento con quell'hash: il riconciliatore potrebbe doverlo
 --      ricopiare, ed e' proprio il caso per cui la cache esiste;
---   3. una proposta ancora aperta: l'operatore non ha ancora deciso, e quando decide il file deve
---      esserci;
---   4. un job pendente che lo cita — per hash, per allegato o per documento — qualunque sia il tipo.
+--   3. una proposta ancora aperta di un'occorrenza attiva: l'operatore non ha ancora deciso, e quando decide il
+--      file deve esserci;
+--   4. un job pendente che lo cita — per hash, per allegato o per documento — qualunque sia il tipo;
+--   5. una copia di conservazione in corso (V1, EM §10.5: il pin «conservazione in corso»), che legge i byte dallo
+--      staging;
+--   6. una proposta aperta di un'occorrenza in Altri file (V1, EM §10.5): un pin solo finche' il file della sua copia
+--      verificata non e' nel deposito con la dimensione attesa. Lo decide il custode (Cache), che guarda il deposito;
+--      e' l'ultimo dell'ordine perche' e' l'unico che si puo' sciogliere.
 --
 -- I payload dei job si leggono come testo e non si castano: un payload che non porta quella chiave
 -- da' NULL, e NULL non e' uguale a niente. Un cast a uuid su una chiave assente farebbe fallire la
@@ -33,13 +38,23 @@ pin AS (
     UNION ALL
     SELECT s.sha256, 'proposta ancora aperta', 3 FROM s
      WHERE EXISTS (SELECT 1 FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id
-                    WHERE a.sha256 = s.sha256 AND p.stato = 'aperta')
+                     JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+                    WHERE a.sha256 = s.sha256 AND p.stato = 'aperta' AND file_rfq_attivo(m.thread_id, a.allegato_id))
     UNION ALL
     SELECT s.sha256, 'job pendente', 4 FROM s
      WHERE EXISTS (SELECT 1 FROM job j WHERE j.stato IN ('pronto','in_corso') AND (
                j.payload->>'sha256' = s.sha256::text
             OR EXISTS (SELECT 1 FROM allegato a WHERE a.allegato_id::text = j.payload->>'allegato_id' AND a.sha256 = s.sha256)
             OR EXISTS (SELECT 1 FROM documento d WHERE d.documento_id::text = j.payload->>'documento_id' AND d.sha256 = s.sha256)))
+    UNION ALL
+    SELECT s.sha256, 'conservazione in corso', 5 FROM s
+     WHERE EXISTS (SELECT 1 FROM file_rfq_conservazione c WHERE c.sha256 = s.sha256 AND c.stato = 'in_copia')
+    UNION ALL
+    SELECT s.sha256, 'proposta aperta in Altri file', 6 FROM s
+     WHERE EXISTS (SELECT 1 FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id
+                     JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+                     JOIN file_rfq f ON f.thread_id = m.thread_id AND f.allegato_id = a.allegato_id AND f.stato = 'altri_file'
+                    WHERE a.sha256 = s.sha256 AND p.stato = 'aperta')
 )
 SELECT DISTINCT ON (pin.sha256) pin.sha256::char(64) AS sha256, pin.motivo FROM pin ORDER BY pin.sha256, pin.ordine;
 
@@ -63,11 +78,14 @@ SELECT u.sha256::char(64) AS sha256, max(u.quando)::timestamptz AS ultimo_uso FR
     SELECT d.sha256, d.scritto_il FROM documento d WHERE d.sha256 = ANY(@sha::char(64)[]) AND d.scritto_il IS NOT NULL
 ) u GROUP BY u.sha256;
 
--- name: AzzeraPathStagingPerSha :execrows
--- Il contenuto non c'e' piu': gli allegati che lo nominavano non hanno piu' un percorso. Lo stato
--- resta com'e' — il file e' ricostruibile, da Outlook o dall'archivio — e chi ne ha bisogno lo
--- riscarica o lo riestrae.
-UPDATE allegato SET path_staging = NULL WHERE sha256 = $1 AND path_staging IS NOT NULL;
+-- name: AzzeraPathStagingPerFile :execrows
+-- Il file non c'e' piu': gli allegati che lo nominavano non hanno piu' un percorso. Lo stato resta com'e' — il file e'
+-- ricostruibile, da Outlook o dall'archivio — e chi ne ha bisogno lo riscarica o lo riestrae. V1 (EM §10.6; A2-Q10 A):
+-- solo gli allegati il cui path_staging e' QUEL file (pulito e senza maiuscole, come EContenuto), non tutti quelli con
+-- lo stesso sha: lo stesso contenuto con un'altra estensione e' un altro file, e resta (prima AzzeraPathStagingPerSha).
+UPDATE allegato SET path_staging = NULL
+ WHERE sha256 = sqlc.arg(sha256)::char(64) AND path_staging IS NOT NULL
+   AND lower(replace(path_staging, '/', '\')) = lower(replace(sqlc.arg(percorso)::text, '/', '\'));
 
 -- name: UltimoJobPerChiave :one
 -- L'ultimo job, in qualunque stato, accodato con questa chiave. Serve a chi sta per riaccodare un

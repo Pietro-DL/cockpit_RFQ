@@ -14,7 +14,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -219,9 +221,17 @@ func TestUnCaricamentoInternoPerdeIlSuffissoDecorativo(t *testing.T) {
 				t.Fatal(err)
 			}
 			const nome = "77730000_C_PRT.stp"
-			_, sha := contenutoCasuale(8_000, 300)
+			contenuto, sha := contenutoCasuale(8_000, 300)
 			percorso, err := staging.PercorsoContenuto(b.cartella, sha, nome)
 			if err != nil {
+				t.Fatal(err)
+			}
+			// V1 (EM §10.6, PM23 CO-07b): chi registra un caricamento ne verifica il contenuto nello staging sotto
+			// BloccaContenuto, quindi il file c'e' prima, come lo mette la rotta del caricamento
+			if err := os.MkdirAll(filepath.Dir(percorso), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(percorso, contenuto, 0o644); err != nil {
 				t.Fatal(err)
 			}
 			tx, err := b.pool.Begin(b.ctx)

@@ -12,6 +12,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,6 +24,7 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // RifiutoTipoDaModifica e' la risposta di «Modifica» a un tipo diverso da quello di adesso.
@@ -392,6 +395,11 @@ type Caricato struct {
 	// Origine: `manuale` (versione interna, il valore se vuoto) o `portale` (file del cliente caricato
 	// dalla pagina della RFQ, 14/10). Le voci di un archivio la ereditano.
 	Origine db.OrigineAllegato
+	// Parte (V1, EM §10.6; giro 1, SIC-06): il parziale con i byte della richiesta, non ancora promosso. Se c'e', la
+	// registrazione lo promuove nel contenuto quando, sotto il lucchetto per contenuto, il contenuto non c'e' (un tempo 2
+	// o la cache l'hanno tolto mentre il file arrivava), e lo butta quando c'e'. Vuoto: il contenuto e' gia' al suo posto
+	// e la registrazione lo verifica soltanto.
+	Parte string
 }
 
 // RegistraCaricamento aggiunge il file alla nota come allegato di origine manuale (o quella di f.Origine),
@@ -400,6 +408,9 @@ type Caricato struct {
 // scegliere il posto del file, cosi' due caricamenti insieme non prendono lo stesso indice.
 func RegistraCaricamento(ctx context.Context, q *db.Queries, nota db.Messaggio, utente uuid.UUID, f Caricato) (db.Allegato, error) {
 	if _, err := q.BloccaMessaggio(ctx, nota.MessaggioID); err != nil {
+		return db.Allegato{}, err
+	}
+	if err := AdottaContenuto(ctx, q, f.Sha256, f.Percorso, f.Parte); err != nil {
 		return db.Allegato{}, err
 	}
 	indice, err := q.ProssimoIndiceAllegato(ctx, nota.MessaggioID)
@@ -428,6 +439,33 @@ func RegistraCaricamento(ctx context.Context, q *db.Queries, nota db.Messaggio, 
 		return db.Allegato{}, err
 	}
 	return q.GetAllegato(ctx, a.AllegatoID)
+}
+
+// AdottaContenuto e' la regola di chi adotta un contenuto gia' presente nello staging (V1, EM §10.6; giro 1, TR-09,
+// SIC-06): nella transazione che scrivera' path_staging, dopo il lucchetto per contenuto (BloccaContenuto), si verifica
+// che il file ci sia con lo sha giusto. Se c'e', il parziale (se c'e') si butta e l'orario del file si rinfresca
+// (ToccaContenuto: un aiuto per la cache, non una garanzia: decide la regola dei 10 minuti con i riferimenti appena
+// scritti). Se non c'e', il parziale si promuove; senza un parziale il caricamento si rifiuta, perche' una risposta
+// «caricato» deve sempre corrispondere a un file presente (PM23 CO-07b).
+func AdottaContenuto(ctx context.Context, q *db.Queries, sha, percorso, parte string) error {
+	sha = strings.ToLower(strings.TrimSpace(sha))
+	if err := q.BloccaContenuto(ctx, sha); err != nil {
+		return err
+	}
+	if staging.ContenutoGiaPresente(percorso, sha) {
+		if parte != "" {
+			staging.RimuoviParte(parte)
+		}
+		staging.ToccaContenuto(percorso)
+		return nil
+	}
+	if parte == "" {
+		return Rifiuto("il contenuto non è più nello staging (è stato tolto mentre il file arrivava): ricarica il file")
+	}
+	if err := os.MkdirAll(filepath.Dir(percorso), 0o755); err != nil {
+		return err
+	}
+	return staging.Promuovi(parte, percorso)
 }
 
 // adesso e' l'istante dei caricamenti: una variabile, perche' le prove lo possano fissare.

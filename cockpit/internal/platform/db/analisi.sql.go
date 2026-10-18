@@ -80,7 +80,8 @@ const listProposteAperteStessoFile = `-- name: ListProposteAperteStessoFile :man
 SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il, a.nome_file, a.estensione, a.bytes, a.messaggio_id, a.contenitore_id
 FROM documento_proposta p
 JOIN allegato a ON a.allegato_id = p.allegato_id
-WHERE a.sha256 = $1 AND p.stato = 'aperta'
+JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+WHERE a.sha256 = $1 AND p.stato = 'aperta' AND file_rfq_attivo(m.thread_id, a.allegato_id)
 `
 
 type ListProposteAperteStessoFileRow struct {
@@ -109,7 +110,9 @@ type ListProposteAperteStessoFileRow struct {
 // Tutte le proposte ancora APERTE degli allegati con quello stesso contenuto, in qualunque messaggio e
 // di qualunque cliente. È l'elenco a cui va distribuito il risultato di una sola analisi: lo stesso PDF
 // allegato a tre RFQ non va analizzato tre volte, ma va proposto tre volte, una per RFQ.
-// Le proposte già decise non compaiono: una decisione dell'operatore non si tocca.
+// Le proposte già decise non compaiono: una decisione dell'operatore non si tocca. V1 (EM §10.7, G-2): nemmeno le
+// occorrenze in Altri file o scartate nella Sorgente; i fatti per sha si scrivono lo stesso, e l'occorrenza li riceve
+// quando torna attiva.
 func (q *Queries) ListProposteAperteStessoFile(ctx context.Context, sha256 pgtype.Text) ([]ListProposteAperteStessoFileRow, error) {
 	rows, err := q.db.Query(ctx, listProposteAperteStessoFile, sha256)
 	if err != nil {

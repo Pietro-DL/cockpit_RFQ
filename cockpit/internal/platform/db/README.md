@@ -51,7 +51,8 @@ markmap:
 
 - 35 file, 553 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
   `p4_conferme.sql` con 27 query, 22 piu' le 5 delle correzioni del 13/10; V1: + `v1_formato3.sql` con 43 query e
-  `ConfermaDistintaBozza` in `p4_conferme.sql`).
+  `ConfermaDistintaBozza` in `p4_conferme.sql`). V1, ondata B, corsia file: + `v1_file.sql` con 42 query (36 file, 595
+  query sul ramo `v1-file`), `AzzeraPathStagingPerSha` sostituita da `AzzeraPathStagingPerFile` in `cache.sql`.
 - «Senza chiamanti» = nessun chiamante, né in produzione né nei test; il «+n» fra parentesi conta quelle chiamate soltanto dai test.
 - L'elenco per nome è in «Stato dell'implementazione».
 - **`agente.sql`** — analisi semantica dell'agente
@@ -147,6 +148,11 @@ markmap:
   - Query: 43; senza chiamanti in produzione al primo commit: tutte (le chiamano R1-R7 nel passo 6 del piano della 0023, il motore per `GetSorgenteBozzaAperta`, il servizio dei file per le query dei file); le prova `platform/migrazioni/v1_0023_query_db_test.go`
   - Chi le chiama: per ora solo le prove L4
   - Le colonne `tx` (xid8) non si leggono; le date le scrive il database; ogni lettura porta la RFQ nel `WHERE`: le testate direttamente, versioni ed eventi con una JOIN sulla testata (RC-19); gli eventi si leggono fino a una versione e a pagine
+- **`v1_file.sql`** — il ciclo dei file della Sorgente (V1, ondata B, corsia file; EM §10): le occorrenze e la loro fotografia, il perimetro di un archivio, il modello di S1, le dipendenze D-1…D-15 in una passata, l'unica copia (D-14) in blocco, le righe delle rimozioni e delle copie di conservazione prese `FOR UPDATE` o `SKIP LOCKED` (il custode), i pin del tempo 2 per file, le guardie degli scrittori legacy (`StatoOccorrenzaAllegato`), l'elenco `NonAttivi` (`ListOccorrenzeNonAttiveRfq`)
+  - Tabelle e viste: `file_rfq`, `file_rfq_evento`, `file_rfq_rimozione`, `file_rfq_conservazione`, `esito_intento`, `allegato`, `messaggio`, `documento_proposta`, `documento`, `documento_provenienza`, `componente`, `componente_proposta`, `job`, `annotazione_pdf`, `nas_anomalia`, `fonte_step_evento`, `conferma_strutturale`, `utente`
+  - Query: 42; le chiamano `core/rfq/filerfq` (le scritture del ciclo solo da li': prova statica CO-12), le guardie di `transport/workerapi`, `transport/web` e `core/rfq/documenti`, e il flusso F8 (`ListOccorrenzeNonAttiveRfq`)
+  - Lo scarto col vecchio «Scarta il file» (`scartato_legacy`): proposta scartata da una persona e nessuna riga del ciclo dei file per l'allegato in nessuna RFQ
+- Il predicato `file_rfq_attivo` (V1, R-4 della persistenza, EM §10.7) nelle letture e nei cambi dello staging fuori dalle viste: `proposte.sql` (le tre query della struttura, `FileNelFlusso`), `analisi.sql` (la distribuzione delle letture), `preparazione.sql` (la preparazione e i file fermi; non `ListLavoroPendenteRfq`, che legge il caricatore del motore), `cache.sql` (i pin), `allegati.sql` (il gemello attivo prima, `AllegatoInStagingPerHash`)
 - **`panoramica.sql`** — pagina Richieste
   - Tabelle e viste: `v_cruscotto`, `identificativo_thread`, `componente`, `documento`, `documento_proposta`
   - Query: 3; senza chiamanti: 0
@@ -217,6 +223,10 @@ markmap:
   - Lucchetto: `FOR UPDATE SKIP LOCKED LIMIT 1` dentro un solo `UPDATE`
 - **`BloccaCartella`**
   - Lucchetto: `pg_advisory_xact_lock(hashtextextended('<thread>:<cartella in minuscolo>', 0))`
+- **`BloccaContenuto`** (V1, `v1_formato3.sql`)
+  - Lucchetto: `pg_advisory_xact_lock(hashtextextended('contenuto:<sha256 in minuscolo>', 0))`: chi cancella un contenuto dallo staging e chi lo adotta, nella transazione che scrive `path_staging`, dopo le righe; piu' sha in ordine crescente
+- **`BloccaPropostaDiAllegato`, `GetRimozionePerAggiornare`, `GetConservazionePerAggiornare`, `ListConservazioniVive`** (V1, `v1_file.sql`)
+  - Lucchetto: `FOR UPDATE`; **`BloccaAllegatiPerFotografia`** `FOR SHARE`; le versioni `...SeLibera` del custode e `AnnullaJobPendentiPerChiave` `FOR UPDATE SKIP LOCKED`
 - I trigger della 0020 prendono i loro (`FOR UPDATE`, `FOR SHARE`, `FOR KEY SHARE`): vedi `migrations/README.md`.
 
 ### Confronta e scambia

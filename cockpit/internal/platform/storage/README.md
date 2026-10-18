@@ -152,11 +152,13 @@ markmap:
   - `CartellaParti` (`_parti`), `CartellaContenuti` (`_contenuti`);
   - `PercorsoParte`, `PercorsoContenuto` (`_contenuti/<ab>/<sha256>.<ext>`, `ErrSha256`), `ContenutoGiaPresente` (ricalcola l'hash), `TokenDiParte`, `Promuovi` (`os.Rename`), `RimuoviParte`, `PulisciParti` e `pulisciZipInterrotti`, `PercorsoEstrazione` (`_parti/zip.<token>`)
 - **`cache.go`**
-  - `Cache` (il custode di `_contenuti`) con `Avvia`, `Giro`, `raccogli`, `interroga`, `rimuovi`;
-  - `EsitoCache`;
+  - `Cache` (il custode di `_contenuti`) con `Avvia`, `Giro`, `raccogli`, `interroga`, `sciogliAltriFile`, `rimuovi`;
+  - i campi V1 `CopiaNelDeposito` (il file della copia verificata di un file in Altri file c'e' nel deposito?) e
+    `PrimaDiRimuovere` (solo per le prove di concorrenza);
+  - `EsitoCache`, `MotivoPropostaAltriFile`;
   - `ToccaContenuto`
 - **`stage.go`**
-  - l'interfaccia `Staging` e `FileStaging` (il file c'è ancora?);
+  - l'interfaccia `Staging` e `FileStaging` (il file c'è ancora? `Verificato`: e con lo sha giusto?);
   - `CartellaStaging` (hash breve del Message-ID, solo per il log del worker)
 
 ### Entry point
@@ -190,9 +192,15 @@ markmap:
 - **`ListContenutiPinnati`**: i motivi per non togliere:
   - documento in attesa di copia,
   - anomalia NAS aperta,
-  - proposta aperta,
-  - job `pronto` o `in_corso` che lo cita
-- **`AzzeraPathStagingPerSha`**: `allegato.path_staging = NULL` per quell'hash, nella stessa transazione della cancellazione
+  - proposta aperta di un'occorrenza attiva (V1: `file_rfq_attivo`),
+  - job `pronto` o `in_corso` che lo cita,
+  - copia di conservazione in corso (V1, «conservazione in corso»),
+  - proposta aperta di un'occorrenza in Altri file (V1): il solo pin che si scioglie, quando il file della sua copia verificata
+    c'e' nel deposito (`CopiaNelDeposito`); se manca, la cache non toglie lo staging
+- **`AzzeraPathStagingPerFile`** (V1, prima `AzzeraPathStagingPerSha`): `allegato.path_staging = NULL` per gli allegati che indicano
+  QUEL file (percorso pulito e senza maiuscole), nella stessa transazione della cancellazione: lo stesso contenuto con un'altra
+  estensione e' un altro file, e resta
+- **`BloccaContenuto`** (`v1_formato3.sql`): il lucchetto per contenuto della transazione di `rimuovi`
 
 ### Flussi principali
 
@@ -210,7 +218,9 @@ markmap:
   3. dal meno usato:
      - si salta ciò che è pinnato e ciò che è più giovane di `EtaMinima` (10 minuti);
      - si toglie ciò che è fermo oltre `Retention`, oppure, finché la cache supera `MaxByte`, il meno usato;
-  4. `rimuovi`: in una transazione, azzera `path_staging` degli allegati con quell'hash, cancella il file, commit;
+  4. `rimuovi`: in una transazione, `BloccaContenuto`, poi pin, eta' e riferimenti ricalcolati con la stessa `interroga` (V1, EM
+     §10.6: un caricamento, un riuso del gemello o una «Riattiva» arrivati dopo la passata prendono lo stesso lucchetto, e qui si
+     vede: `errNonPiuRimovibile`); poi azzera `path_staging` degli allegati che indicano quel file, cancella il file, commit;
      - se il file non si cancella il database non cambia.
 
 ### Invarianti
