@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -206,24 +207,51 @@ func TestDistintaUnicaJSSoloPresentazione(t *testing.T) {
 	}
 }
 
-// Le richieste R-2 e R-3 della corsia, fatte nell'ondata B sui due template autorizzati: all'uscita (il form «esci» del
-// layout) le chiavi cockpit.du. della memoria di sessione della scheda si tolgono insieme a quelle dell'editor, e il
-// prefisso del ponte è uno di quelli; il menu della pagina vecchia non dice più che «Prepara i file» rilegge gli STEP
-// già analizzati (lo fa «Rifai l'analisi»).
+// Le richieste R-2 e R-3 della corsia, fatte nell'ondata B sui due template autorizzati. R-3, come corretta nel secondo
+// passaggio: le chiavi cockpit.du. della memoria di sessione della scheda si tolgono solo a uscita avvenuta, sulla
+// pagina senza il form «esci» (la pagina d'accesso) e solo con la marca appena lasciata da «esci»; il clic su «esci»
+// toglie subito solo le chiavi dell'editor, come prima, e un gesto sulla pagina (si è restati) toglie la marca (MAT §5.5
+// n. 7). Il prefisso del ponte è cockpit.du.; il menu della pagina vecchia non dice più che «Prepara i file» rilegge gli
+// STEP già analizzati (lo fa «Rifai l'analisi»).
 func TestDistintaUnicaUscitaETestoDellaPaginaVecchia(t *testing.T) {
 	layout := duFile(t, "web/templates/layout.html")
-	i := strings.Index(layout, `getElementById("esci")`)
-	if i < 0 {
-		t.Fatal("layout.html non ha più il form «esci»")
+	i := strings.Index(layout, `var MARCA = "cockpit.uscita";`)
+	if i < 0 || !strings.Contains(layout[i:], `getElementById("esci")`) {
+		t.Fatal("layout.html non ha più l'uscita con la marca e il form «esci»")
 	}
 	uscita := layout[i:]
 	if j := strings.Index(uscita, "})();"); j > 0 {
 		uscita = uscita[:j]
 	}
-	for _, v := range []string{`k.indexOf("cockpit.editor.") === 0`, `k.indexOf("cockpit.du.") === 0`, "sessionStorage.removeItem(k)"} {
-		if !strings.Contains(uscita, v) {
-			t.Errorf("all'uscita il layout non toglie le chiavi della scheda: manca %s", v)
+	tratto := func(da, a string) string {
+		k := strings.Index(uscita, da)
+		if k < 0 {
+			t.Fatalf("l'uscita del layout non ha %s", da)
 		}
+		s := uscita[k:]
+		if e := strings.Index(s, a); e > 0 {
+			s = s[:e]
+		}
+		return s
+	}
+	for _, v := range []string{`document.addEventListener("pointerdown", resta, true);`, `document.addEventListener("keydown", resta, true);`} {
+		if !strings.Contains(uscita, v) {
+			t.Errorf("l'uscita del layout non ha %s", v)
+		}
+	}
+	accesso := tratto("if (!f) {", "return;")
+	for _, v := range []string{`d.indexOf("cockpit.du.") === 0`, "sessionStorage.removeItem(d)", "Date.now() - quando) < 60000", "sessionStorage.removeItem(MARCA)"} {
+		if !strings.Contains(accesso, v) {
+			t.Errorf("la pagina senza il form «esci» non toglie le chiavi cockpit.du. con la sola marca appena scritta (R-3): manca %s", v)
+		}
+	}
+	invio := tratto(`f.addEventListener("submit"`, "});")
+	if !strings.Contains(invio, `k.indexOf("cockpit.editor.") === 0`) || !strings.Contains(invio, "sessionStorage.removeItem(k)") ||
+		!strings.Contains(invio, "sessionStorage.setItem(MARCA, String(Date.now()))") {
+		t.Error("il clic su «esci» non toglie le chiavi dell'editor o non lascia la marca")
+	}
+	if strings.Contains(invio, "cockpit.du.") {
+		t.Error("il clic su «esci» toglie le chiavi cockpit.du. prima che l'uscita sia avvenuta (MAT §5.5 n. 7)")
 	}
 	if !strings.Contains(duFile(t, duPonte), `const PREFISSO = "cockpit.du.`) {
 		t.Error("il prefisso dei tentativi in sospeso del ponte non comincia con cockpit.du.: l'uscita non lo toglierebbe")
@@ -297,8 +325,17 @@ func TestPonteDistintaUnicaFormaCanonicaETempi(t *testing.T) {
 	if n := strings.Count(codice, "setTimeout("); n != 1 {
 		t.Errorf("%d setTimeout nel ponte, atteso uno solo (il tempo d'inattività del caricamento)", n)
 	}
-	if !regexp.MustCompile(`(?m)^const INATTIVITA = \d+;`).MatchString(src) {
-		t.Error("il ponte non dichiara INATTIVITA")
+	// il tempo d'inattività non è più stretto del tempo massimo che sostituisce (rilievo del secondo passaggio, RQ-F1): un
+	// server che, ricevuto il corpo, risponde entro TEMPO_MASSIMO deve arrivare in fondo come prima
+	inatt := regexp.MustCompile(`(?m)^const INATTIVITA = (\d+);`).FindStringSubmatch(src)
+	massimo := regexp.MustCompile(`(?m)^const TEMPO_MASSIMO = (\d+);`).FindStringSubmatch(src)
+	if inatt == nil || massimo == nil {
+		t.Fatal("il ponte non dichiara INATTIVITA e TEMPO_MASSIMO")
+	}
+	msInatt, _ := strconv.Atoi(inatt[1])
+	msMassimo, _ := strconv.Atoi(massimo[1])
+	if msInatt < msMassimo {
+		t.Errorf("INATTIVITA = %d ms, più corto del tempo massimo delle chiamate JSON (%d ms) che prima valeva anche per il caricamento", msInatt, msMassimo)
 	}
 }
 
@@ -386,6 +423,31 @@ func TestDistintaUnicaDecisioniOndataA(t *testing.T) {
 		if corpo := duFunzione(t, src, f); !strings.Contains(corpo, "const id = idGesto(voce);") || !strings.Contains(corpo, "prima: id ? { azione_id: id } : null") {
 			t.Errorf("%s non porta l'azione_id del gesto cumulativo nel «prima» (PE-05)", f)
 		}
+	}
+	// secondo passaggio, rilievo 1 (DECA §5 n. 1): la regola del giornale di WZ-01, con lo storico (R7) che non si legge,
+	// spegne il CTA come le due partenze (PE-B03), dopo il segno di R4 e prima di guardare l'ultima conferma
+	nm := duFunzione(t, src, "function nessunaModifica(")
+	iR4, iR7, iUltima := strings.Index(nm, "typeof r.uguale_alla_base"), strings.Index(nm, "if (storicoNonLetto()) return STORICO_NON_LETTO;"), strings.Index(nm, "const u = ultimaConferma();")
+	if iR4 < 0 || iR7 < 0 || iUltima < 0 || !(iR4 < iR7 && iR7 < iUltima) {
+		t.Error("nessunaModifica non spegne il CTA con lo storico non letto, dopo R4 e prima dell'ultima conferma (DECA §5 n. 1)")
+	}
+	if !strings.Contains(duFunzione(t, src, "function perchéNoPartenza("), "if (storicoNonLetto()) return STORICO_NON_LETTO;") {
+		t.Error("le partenze non usano la stessa regola dello storico non letto (PE-B03)")
+	}
+	// rilievo 4 (P-18): «Correggi» e «Fissa l'emittente» guardano la rev del nodo come sarà dopo il gesto
+	for _, f := range []string{"function apriCorreggi(", "function apriFissaEmittente("} {
+		if !strings.Contains(duFunzione(t, src, f), "revMinuscoleAmmesse(") {
+			t.Errorf("%s non controlla le minuscole della rev con revMinuscoleAmmesse (P-18)", f)
+		}
+	}
+	// rilievo 5 (PE-B05): il ponte legge l'effetto della variante di R1 solo nella forma attesa
+	ponte := duFile(t, duPonte)
+	if el := duFunzione(t, ponte, "function effettoLeggibile("); !strings.Contains(el, `typeof e.spento !== "string"`) ||
+		!strings.Contains(el, `["sospende", "con_lei", "resta_sospesa", "avvisi"].every((k) => Array.isArray(e[k]))`) {
+		t.Error("effettoLeggibile non richiede spento stringa e gli elenchi dell'effetto")
+	}
+	if !strings.Contains(duFunzione(t, ponte, "export async function leggiBozza("), "&& effettoLeggibile(j.effetto)") {
+		t.Error("la variante di R1 non controlla la forma dell'effetto (effettoLeggibile)")
 	}
 }
 

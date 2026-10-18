@@ -95,15 +95,23 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   52 PE-23: una base formato 2 (la prima conferma formato 3 è ammessa senza modifiche), la conferma dalla fase 2 con la
      pagina che non si rilegge e senza errori JavaScript, «registrato» non offerto dopo, uguale_alla_base di R4 dopo un
      annullamento netto, NESSUNA_MODIFICA di R5
+  53 (secondo passaggio) WZ-01 con lo storico (R7) in 5xx: la bozza dalla conferma e la bozza «registrato» senza gesti
+     hanno il CTA spento con «↻ Aggiorna», e niente dice «nessuna conferma»; R4 su una bozza «registrato» dopo un
+     annullamento netto (RPC PD-01, punto 3)
   54 P-6: il nodo del prodotto segnalato non si «Non include» (casella spenta, «Seleziona tutti i segnalati» lo salta)
-  55 P-7 e PE-09: «Cambia tipo» di un registrato con la variante di R1 e cambia_tipo{componente_id, tipo_nuovo, firma}
+  55 P-7 e PE-09: «Cambia tipo» di un registrato con la variante di R1 e cambia_tipo{componente_id, tipo_nuovo, firma};
+     un effetto con altri nomi non si legge e «Cambia» resta spento (secondo passaggio, PE-B05)
   56 P-15 e P-18 nei dialoghi (codice, rev e descrizione; il codice che non si svuota; la rev della working che non si
-     tocca); «Adotta come codice» con la proiezione e la rev proposta (PE-08)
+     tocca; la rev minuscola del codice manuale che «Correggi» non porta in una correzione; «Fissa l'emittente»);
+     «Adotta come codice» con la proiezione e la rev proposta (PE-08)
   50 E1' lento che avanza: oltre i 120 s delle chiamate JSON, con l'avanzamento, il file entra (§5 n. 3)
-  51 E1' fermo: nessun byte per il tempo d'inattività, il caricamento si ferma e lo dice (§5 n. 3)
+  51 E1' fermo: nessun byte per il tempo d'inattività (120 s), il caricamento si ferma e lo dice (§5 n. 3); la prova
+     aspetta che il banco abbia finito la richiesta lasciata appesa
   34 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
-  49 (per ultima, dopo la 34: esce dalla sessione) all'uscita («esci» del layout) le chiavi cockpit.du. della memoria
-     della scheda si tolgono, le altre restano (richiesta R-3 della corsia)
+  57 (secondo passaggio, dopo la 34) l'uscita annullata: con le modifiche tenute da parte «esci» chiede conferma, si
+     resta, e le chiavi cockpit.du. restano; la pagina d'accesso aperta dopo non le toglie (R-3, MAT §5.5 n. 7)
+  49 (per ultima: esce dalla sessione) all'uscita («esci» del layout) le chiavi cockpit.du. della memoria della scheda
+     si tolgono sulla pagina d'accesso, quelle dell'editor subito, le altre restano (richiesta R-3 della corsia)
 
 Gli esiti che il banco non sa provocare li danno risposte finte di questo script (rispondi_json, page.route), dichiarate
 tali come il banco. I clienti, i codici e i nomi dei file sono inventati (ACME, BETA, ACM-xxxx).
@@ -2857,6 +2865,72 @@ def b52(b):
         b.interruttore("uguale-alla-base", False)
 
 
+@prova("53", "WZ-01 con lo storico (R7) in 5xx: la bozza dalla conferma e quella «registrato» senza gesti hanno il CTA spento con «↻ Aggiorna», niente dice «nessuna conferma»; R4 su una bozza «registrato» dopo un annullamento netto (RPC PD-01, punto 3)")
+def b53(b):
+    p = b.page
+    b.passo("revisione")
+    b.vista("org")
+    cta = p.locator("#du-cta-bom")
+    n_r5 = b.stato()["conti"].get("R5", 0)
+    r7 = re.compile(r"/motore-a/conferme(\?|$)")
+
+    def cta_spento(motivo, cosa):
+        expect(cta).to_be_disabled(timeout=T_LUNGO)
+        verifica(motivo in (cta.get_attribute("title") or ""), "%s: CTA %r, atteso %r" % (cosa, cta.get_attribute("title"), motivo))
+
+    def con_r7_in_errore(cosa):
+        # lo storico in 5xx (risposta finta, dichiarata): la pagina non sa se la base è l'ultima conferma valida formato 3,
+        # e nel dubbio il CTA resta spento come le due partenze (PE-B03). Prima la regola del giornale usciva senza motivo:
+        # CTA e «Conferma BOM» accesi, e una conferma n+1 uguale alla n passava (rilievo 1 del secondo passaggio)
+        g = rispondi_json(500, {"esito": "errore", "testo": "errore interno"}, metodo="GET", volte=100)
+        p.route(r7, g)
+        try:
+            p.click("#du-aggiorna")
+            expect(b.avviso()).to_contain_text("Lettura non riuscita (conferme)", timeout=T_LUNGO)
+            b.salvata(1)
+            cta_spento("lo storico delle conferme non si legge", cosa)
+            expect(p.locator("#du-conferme-non-lette")).to_be_visible()
+            verifica("nessuna conferma" not in p.locator("#du-stato-conferma").inner_text(), "%s: con R7 in errore la pagina dice «nessuna conferma»" % cosa)
+        finally:
+            p.unroute(r7, g)
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        cta_spento("nessuna modifica: la v3 è già confermata", cosa)
+
+    p.click("#du-abbandona")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
+    p.click("#du-da-conferma")
+    b.salvata(1)
+    cta_spento("nessuna modifica: la v3 è già confermata", "la bozza dalla conferma con R7 letto")
+    con_r7_in_errore("la bozza dalla conferma senza gesti")
+    # una bozza «registrato» aperta altrove (sonda), senza gesti, sulla stessa base: lo stesso
+    p.click("#du-abbandona")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
+    b.sonda_post("bozza-registrato")
+    con_r7_in_errore("la bozza «registrato» senza gesti")
+    verifica(b.stato()["conti"].get("R5", 0) == n_r5, "una conferma registrata con lo storico non letto")
+    # R4 sulla bozza «registrato» (il segno del server dal passo 6; nel banco con l'interruttore): «uguale» è lo snapshot
+    # che la partenza della bozza costruirebbe dalla stessa base (RPC PD-01, punto 3, raccomandata a). Dopo un gesto R4
+    # dice falso e il CTA si accende; dopo il suo annullamento R4 dice vero, e il CTA si rispegne
+    b.interruttore("uguale-alla-base", True)
+    try:
+        b.scheda("k-root")
+        b.linguetta("dettaglio")
+        p.click("#du-correggi")
+        p.fill("#f-desc", "Confezionatrice MX-1, prova di R4")
+        b.ok_finestra()
+        b.salvata(2)
+        expect(p.locator("#du-conti")).to_contain_text("blocchi", timeout=T_LUNGO)
+        expect(cta).to_be_enabled(timeout=T_LUNGO)
+        p.click("#du-annulla")
+        b.salvata(3)
+        cta_spento("nessuna modifica: la v3 è già confermata", "la bozza «registrato» dopo l'annullamento netto")
+    finally:
+        b.interruttore("uguale-alla-base", False)
+
+
 @prova("54", "P-6: il nodo del prodotto con il segnale LS-02 non si «Non include»: casella spenta, «Seleziona tutti i segnalati» lo salta, nessun «Non includere» nel pannello")
 def b54(b):
     p = b.page
@@ -2956,6 +3030,36 @@ def b55(b):
         b.chiudi_finestra()
     finally:
         p.unroute(re.compile(r"/motore-a/bozza\?"), senza_effetto)
+    # un effetto con altri nomi (i campi della struct Go EffettoTipo senza tag json: la risposta del banco riscritta qui,
+    # dichiarata; RPC PD-05 aperto): il ponte non lo legge (PONTE_RISPOSTA), il dialogo lo dice e «Cambia» resta spento,
+    # anche per il cambio che il server dice spento. Prima la pagina mostrava «nessun altro effetto» e accendeva «Cambia»
+    # (rilievo 5 del secondo passaggio)
+    nomi_go = {"spento": "Spento", "sospende": "Sospende", "con_lei": "ConLei", "rimozioni": "Rimozioni", "resta_sospesa": "RestaSospesa",
+               "autorizzabile": "Autorizzabile", "step_strutturale": "StepStrutturale", "svuota_step": "SvuotaStep", "avvisi": "Avvisi"}
+
+    def effetto_go(route):
+        if route.request.method == "GET" and "effetto_cambio_tipo=" in route.request.url:
+            resp = route.fetch()
+            j = resp.json()
+            j["effetto"] = {nomi_go.get(k, k): v for k, v in (j.get("effetto") or {}).items()}
+            route.fulfill(response=resp, json=j)
+        else:
+            route.continue_()
+    varianti = re.compile(r"/motore-a/bozza\?")
+    p.route(varianti, effetto_go)
+    try:
+        n_r2 = b.stato()["conti"]["R2"]
+        p.click("#du-cambia-tipo")
+        for tipo in ("commerciale", "sciolto"):
+            p.select_option("#f-tipo", tipo)
+            expect(p.locator("#f-effetto-errore")).to_contain_text("non si legge", timeout=T_LUNGO)
+            expect(p.locator("#f-effetto-righe")).to_have_count(0)
+            expect(ok).to_be_disabled()
+            verifica("non si legge" in (ok.get_attribute("title") or ""), "«Cambia» verso %s con l'effetto dai nomi della struct Go: %r" % (tipo, ok.get_attribute("title")))
+        b.chiudi_finestra()
+        verifica(b.stato()["conti"]["R2"] == n_r2, "un cambio di tipo con l'effetto illeggibile ha scritto la bozza")
+    finally:
+        p.unroute(varianti, effetto_go)
 
 
 @prova("56", "P-15 e P-18 nei dialoghi: codice, rev e descrizione, il codice che non si svuota, la rev della working che non si tocca; «Adotta come codice» con la proiezione e la rev proposta (PE-08)")
@@ -3040,9 +3144,101 @@ def b56(b):
              and dec["identita"] == {"emittente": "partner:beta", "namespace": "beta", "codice": "400123", "rev": "B"}
              and "qualificatori" not in dec["lettura"] and "revisione" not in dec["lettura"] and az[1]["dopo"]["identita"].get("rev") == "B", "«Adotta come codice» con PE-08: %s" % az)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    # P-18 su un pezzo importato (rilievo 4 del secondo passaggio): il codice corretto a mano nella pagina vecchia ha la
+    # rev minuscola (la risposta di R1 cambiata qui, dichiarata). «Adotta come codice» la copia byte per byte (ammesso:
+    # manuale_legacy); «Correggi» con un codice nuovo la porterebbe in una decisione di correzione, dove il server non
+    # ammette minuscole: «Salva nella bozza» resta spento con il motivo, e con la rev in maiuscolo si salva. La correzione
+    # toglie nello stesso gesto la decisione identita di prima del nodo (PE-B16): il banco, come il server, rifiuta una
+    # decisione identita che il suo nodo non cita
+    def manuale_minuscolo(route):
+        if route.request.method == "GET" and "importazione=1" in route.request.url:
+            resp = route.fetch()
+            j = resp.json()
+            for n in (((j.get("importazione") or {}).get("contenuto") or {}).get("proposta") or {}).get("nodi", []):
+                if isinstance(n.get("codice_manuale_legacy"), dict):
+                    n["codice_manuale_legacy"]["rev"] = "a"
+            route.fulfill(response=resp, json=j)
+        else:
+            route.continue_()
+    p.route(letture_r1, manuale_minuscolo)
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        b.scheda("k-11")
+        b.linguetta("dettaglio")
+        li = p.locator("#du-sez-riferimenti li", has_text="codice corretto a mano")
+        expect(li).to_contain_text("ACM-1125")
+        i = b.segna()
+        li.locator("button", has_text="Adotta come codice").click()
+        expect(b.finestra()).to_contain_text("ACM-1125 rev a")
+        p.fill("#f-motivo", "il codice corretto a mano")
+        b.ok_finestra()
+        az = b.ultime_azioni(i)
+        adottata = az[0]["dopo"]
+        verifica([a["azione"] for a in az] == ["decisione_aggiunta", "nodo_modificato"] and adottata.get("riferimento") == "manuale_legacy"
+                 and adottata["identita"].get("rev") == "a" and az[1]["dopo"]["identita"].get("rev") == "a", "«Adotta come codice» del codice manuale con la rev minuscola: %s" % az)
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        n_r2 = b.stato()["conti"]["R2"]
+        p.click("#du-correggi")
+        p.fill("#f-codice", "ACM-1126")
+        p.fill("#f-motivo", "codice nuovo")
+        expect(ok).to_be_disabled()
+        verifica("minuscole" in (ok.get_attribute("title") or ""), "«Correggi» con un codice nuovo e la rev minuscola del codice manuale: %r" % ok.get_attribute("title"))
+        verifica(b.stato()["conti"]["R2"] == n_r2, "«Correggi» con la rev minuscola ha scritto la bozza")
+        p.fill("#f-rev", "A")
+        expect(ok).to_be_enabled()
+        i = b.segna()
+        b.ok_finestra()
+        az = b.ultime_azioni(i)
+        verifica([a["azione"] for a in az] == ["decisione_tolta", "decisione_aggiunta", "nodo_modificato"] and az[0]["prima"]["id"] == adottata["id"]
+                 and az[1]["dopo"]["modo"] == "correzione" and az[1]["dopo"]["identita"] == {"emittente": adottata["identita"]["emittente"], "codice": "ACM-1126", "rev": "A"}
+                 and az[2]["dopo"]["identita"]["decisione"] == az[1]["dopo"]["id"], "«Correggi» dopo «Adotta come codice»: %s" % az)
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        decise = [d for d in b.stato()["bozze"][b.p1]["snapshot"]["decisioni"] if d.get("tipo") == "identita" and d.get("chiave_bozza") == "k-11"]
+        verifica(len(decise) == 1 and decise[0]["id"] == az[1]["dopo"]["id"], "decisioni identita di k-11 nella bozza salvata: %s" % decise)
+    finally:
+        p.unroute(letture_r1, manuale_minuscolo)
+    # «Fissa l'emittente…» di un registrato (P-18): la rev minuscola della working passa byte per byte finché il nodo
+    # resta riusa; con un nodo «modifica» (qui formato_2, la risposta di R1 cambiata, dichiarata) la decisione di
+    # correzione la farebbe nuova, e «Fissa» resta spento con il motivo
+    b.scheda("k-40")
+    b.linguetta("dettaglio")
+    expect(p.locator("#nc-k-40")).to_contain_text("rev a")
+    p.click("#du-fissa-emittente")
+    p.fill("#f-motivo", "prova dell'emittente")
+    expect(ok).to_be_enabled()
+    b.chiudi_finestra()
+
+    def modifica_formato2(route):
+        if route.request.method == "GET" and "eventi=1" in route.request.url:
+            resp = route.fetch()
+            j = resp.json()
+            for n in j.get("snapshot", {}).get("nodi", []):
+                if n.get("chiave_bozza") == "k-40":
+                    n["op"] = "modifica"
+                    n["identita"]["modo"] = "formato_2"
+                    n["identita"]["rev"] = "a"
+            route.fulfill(response=resp, json=j)
+        else:
+            route.continue_()
+    p.route(letture_r1, modifica_formato2)
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        b.scheda("k-40")
+        b.linguetta("dettaglio")
+        p.click("#du-fissa-emittente")
+        p.fill("#f-motivo", "prova dell'emittente")
+        expect(ok).to_be_disabled()
+        verifica("minuscole" in (ok.get_attribute("title") or ""), "«Fissa l'emittente» di un nodo modifica con la rev minuscola: %r" % ok.get_attribute("title"))
+        b.chiudi_finestra()
+    finally:
+        p.unroute(letture_r1, modifica_formato2)
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
 
 
-@prova("50", "E1′ lento che avanza: oltre i 120 s delle chiamate JSON, l'avviso dice l'avanzamento, il file entra (tempo d'inattività, §5 n. 3)")
+@prova("50","E1′ lento che avanza: oltre i 120 s delle chiamate JSON, l'avviso dice l'avanzamento, il file entra (tempo d'inattività, §5 n. 3)")
 def b50(b):
     p = b.page
     b.passo("sorgente")
@@ -3078,25 +3274,30 @@ def b50(b):
     verifica("DISEGNO_LENTO.pdf" in b.stato()["file"], "il file del caricamento lento non è nel banco")
 
 
-@prova("51", "E1′ fermo: nessun byte inviato né ricevuto per il tempo d'inattività (60 s), il caricamento si ferma e lo dice (§5 n. 3)")
+@prova("51", "E1′ fermo: nessun byte inviato né ricevuto per il tempo d'inattività (120 s), il caricamento si ferma e lo dice (§5 n. 3); il banco finisce la richiesta prima della prova seguente")
 def b51(b):
     p = b.page
     b.passo("sorgente")
     p.click("#du-cartella-attivi")
-    # il banco aspetta 75 s prima di leggere la richiesta, poi la lascia cadere: dopo l'invio non si muove niente
-    b.ritardo("POST /thread/{id}/carica", 75000)
+    # il banco aspetta 130 s prima di leggere la richiesta, poi la lascia cadere: dopo l'invio non si muove niente. Il
+    # tempo d'inattività è di 120 s, come il tempo massimo che sostituisce (secondo passaggio: un server che risponde fra
+    # 60 e 120 s dopo il corpo deve arrivare in fondo come prima); i 10 s in più tengono la risposta del banco dopo
+    b.ritardo("POST /thread/{id}/carica", 130000)
     b.modo("E1", "appeso")
     p.set_input_files("#du-carica-file", files=[{"name": "DISEGNO_FERMO.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4\n% fermo\n"}])
     t0 = time.time()
     p.click("#du-carica-invia")
     av = b.avviso()
-    expect(av).to_contain_text("Il caricamento si è fermato", timeout=100000)
+    expect(av).to_contain_text("Il caricamento si è fermato", timeout=150000)
     durata = time.time() - t0
-    verifica(55 <= durata <= 90, "il caricamento fermo si è fermato dopo %.0f s, atteso circa il tempo d'inattività (60 s)" % durata)
-    expect(av).to_contain_text("nessun byte inviato né ricevuto per 60 s")
+    verifica(115 <= durata <= 129, "il caricamento fermo si è fermato dopo %.0f s, atteso circa il tempo d'inattività (120 s)" % durata)
+    expect(av).to_contain_text("nessun byte inviato né ricevuto per 120 s")
     expect(av).to_contain_text("rimanda gli stessi file")
-    verifica("DISEGNO_FERMO.pdf" not in b.stato()["file"], "il caricamento fermo ha registrato il file")
     expect(p.locator("#du-carica-invia")).to_be_enabled()
+    # il banco finisce la richiesta lasciata appesa (consuma il modo «appeso») prima della prova seguente: una E1 di dopo
+    # non deve prendere il 503 destinato a questa, e il server di prova non resta occupato alla chiusura
+    b.attendi(lambda: "E1" not in b.stato().get("modi", {}), "il banco non ha finito la richiesta del caricamento fermo", ms=30000)
+    verifica("DISEGNO_FERMO.pdf" not in b.stato()["file"], "il caricamento fermo ha registrato il file")
 
 
 GUSCIO = [("GET", r"/thread/{T}/distinta-unica"), ("GET", r"/static/[A-Za-z0-9_.\-/]+"), ("GET", r"/stato/worker"), ("GET", r"/favicon\.ico")]
@@ -3149,21 +3350,75 @@ def b34(b):
     verifica(len(usate) > 20, "troppo poche rotte nella sessione: %d" % len(usate))
 
 
-@prova("49", "all'uscita («esci» del layout) le chiavi cockpit.du. della memoria della scheda si tolgono, le altre restano (R-3)")
+TENTATIVO_DI_PROVA = {"nome": "confermaBom", "chiave": "00000000-0000-4000-8000-0000000e0f02", "impronta": "x", "verificato": True,
+                      "quando": "2026-10-18T08:00:00Z", "etichetta": "Conferma BOM"}
+
+
+def chiavi_du(p):
+    return sorted(k for k in p.evaluate("() => Object.keys(sessionStorage)") if k.startswith("cockpit.du."))
+
+
+@prova("57", "l'uscita annullata (R-3, MAT §5.5 n. 7): con le modifiche tenute da parte «esci» chiede conferma, si resta, le chiavi cockpit.du. restano; la pagina d'accesso aperta dopo non le toglie")
+def b57(b):
+    p = b.page
+    b.passo("revisione")
+    b.vista("org")
+    conflitto_e_rileggi(b, "Confezionatrice MX-1, prova dell'uscita")
+    # un tentativo in sospeso della Distinta unica, come lo scrive il ponte (la guardia PONTE_TENTATIVO_IN_SOSPESO)
+    chiave = "cockpit.du.sospeso.%s.%s.bozza:%s" % (b.dati["utente"], b.thread, b.p1)
+    p.evaluate("([k, v]) => sessionStorage.setItem(k, JSON.stringify(v))", [chiave, dict(TENTATIVO_DI_PROVA, risorsa="bozza:" + b.p1)])
+    prima = chiavi_du(p)
+    verifica(chiave in prima, "la chiave di prova non è nella memoria della scheda: %s" % prima)
+    pagina = p.url
+    n_bu = b.beforeunload
+    b.consenti_beforeunload = True
+    try:
+        # «esci», poi «resta» nel dialogo del browser: prima del secondo passaggio le chiavi si toglievano già al clic, e la
+        # pagina restava senza i suoi tentativi in sospeso
+        p.click("#esci button", no_wait_after=True)
+        b.attendi(lambda: b.beforeunload > n_bu, "con le modifiche tenute da parte «esci» non chiede conferma")
+        p.wait_for_timeout(500)
+    finally:
+        b.consenti_beforeunload = False
+    verifica(p.url == pagina, "l'uscita annullata ha lasciato la pagina: %s" % p.url)
+    expect(p.locator("#du-da-parte")).to_be_visible()
+    verifica(chiavi_du(p) == prima, "dopo l'uscita annullata le chiavi cockpit.du. sono cambiate: %s, prima %s" % (chiavi_du(p), prima))
+    # si resta e si lavora: il primo gesto sulla pagina toglie la marca dell'uscita, e la pagina d'accesso aperta dopo
+    # nella stessa scheda (per esempio dopo una sessione scaduta) non toglie le chiavi
+    verifica(p.evaluate("() => sessionStorage.getItem('cockpit.uscita')") is not None, "il clic su «esci» non ha lasciato la marca dell'uscita")
+    p.keyboard.press("Shift")
+    verifica(p.evaluate("() => sessionStorage.getItem('cockpit.uscita')") is None, "dopo un gesto sulla pagina la marca dell'uscita resta")
+    p.click("#du-scarta-da-parte")
+    b.ok_finestra()
+    expect(p.locator("#du-da-parte")).to_have_count(0)
+    p.goto(b.url + "/login")
+    expect(p.locator("form[action='/login']")).to_be_visible(timeout=T_LUNGO)
+    verifica(p.locator("#esci").count() == 0, "la pagina d'accesso del banco ha il form «esci»")
+    verifica(chiavi_du(p) == prima, "la pagina d'accesso aperta dopo l'uscita annullata ha tolto le chiavi: %s" % chiavi_du(p))
+    # pulizia: la chiave di prova si toglie, e si torna alla pagina per la prova seguente
+    p.evaluate("([k]) => sessionStorage.removeItem(k)", [chiave])
+    b.apri()
+
+
+@prova("49", "all'uscita («esci» del layout) le chiavi cockpit.du. si tolgono sulla pagina d'accesso, quelle dell'editor subito, le altre restano (R-3)")
 def b49(b):
     p = b.page
-    # un tentativo in sospeso della Distinta unica (come lo scrive il ponte) e una chiave che non è della pagina
+    # un tentativo in sospeso della Distinta unica (come lo scrive il ponte), una bozza dell'editor e una chiave che non è
+    # della pagina
     chiave = "cockpit.du.sospeso.%s.%s.bozza:%s" % (b.dati["utente"], b.thread, b.p1)
-    p.evaluate("([k, v]) => { sessionStorage.setItem(k, JSON.stringify(v)); sessionStorage.setItem('prova.altra.chiave', '1'); }",
-               [chiave, {"risorsa": "bozza:" + b.p1, "nome": "confermaBom", "chiave": "00000000-0000-4000-8000-0000000e0f02", "impronta": "x",
-                         "verificato": True, "quando": "2026-10-18T08:00:00Z", "etichetta": "Conferma BOM"}])
-    verifica(any(k.startswith("cockpit.du.") for k in p.evaluate("() => Object.keys(sessionStorage)")), "la chiave di prova non è nella memoria della scheda")
+    p.evaluate("([k, v]) => { sessionStorage.setItem(k, JSON.stringify(v)); sessionStorage.setItem('cockpit.editor.prova', '{}'); sessionStorage.setItem('prova.altra.chiave', '1'); }",
+               [chiave, dict(TENTATIVO_DI_PROVA, risorsa="bozza:" + b.p1)])
+    verifica(chiavi_du(p), "la chiave di prova non è nella memoria della scheda")
     with p.expect_navigation():
         p.click("#esci button")
     b.attendi(lambda: urllib.parse.urlsplit(p.url).path == "/login", "l'uscita non porta al login: %s" % p.url)
+    # le chiavi si tolgono sulla pagina d'accesso (lo script del layout, senza il form «esci»), a uscita avvenuta
+    expect(p.locator("form[action='/login']")).to_be_visible(timeout=T_LUNGO)
+    b.attendi(lambda: not chiavi_du(p), "dopo l'uscita restano chiavi della Distinta unica: %s" % chiavi_du(p))
     chiavi = p.evaluate("() => Object.keys(sessionStorage)")
-    verifica(not [k for k in chiavi if k.startswith("cockpit.du.")], "dopo l'uscita restano chiavi della Distinta unica: %s" % chiavi)
     verifica("prova.altra.chiave" in chiavi, "l'uscita ha tolto anche una chiave che non è della pagina: %s" % chiavi)
+    verifica(not [k for k in chiavi if k.startswith("cockpit.editor.")], "dopo l'uscita restano bozze dell'editor: %s" % chiavi)
+    verifica("cockpit.uscita" not in chiavi, "dopo l'uscita resta la marca: %s" % chiavi)
 
 
 def main():

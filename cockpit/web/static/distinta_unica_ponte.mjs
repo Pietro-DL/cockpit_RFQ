@@ -67,9 +67,11 @@ function segnale() {
   return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(TEMPO_MASSIMO) : undefined;
 }
 // il tempo d'inattività del caricamento (E1′, commento di testa): nessun byte inviato né ricevuto per tanto, e il
-// caricamento si ferma. Scelta [T] della corsia: un minuto, largo per una rete che rallenta e per il server che, finito
-// l'invio, scrive i file prima di rispondere
-const INATTIVITA = 60000;
+// caricamento si ferma. Scelta [T] della corsia: non meno del tempo massimo delle chiamate JSON (TEMPO_MASSIMO), che
+// prima valeva per tutto il caricamento. Un server che, ricevuto il corpo, tace mentre scrive i file prima arrivava in
+// fondo entro 120 s, e deve arrivarci ancora: DECA §5 n. 3 toglie un limite, non ne aggiunge uno più stretto. Si ritara
+// quando la corsia file dice il tempo peggiore del server dopo il corpo (RQ-F1); la L1 lo tiene >= TEMPO_MASSIMO
+const INATTIVITA = 120000;
 const FATTO = "Fatto: il server non ha aggiunto altro.";
 const NIENTE = "Niente è cambiato.";
 const SENZA_ESITO =
@@ -459,14 +461,27 @@ export async function anteprimaAutorizzazione(campi) {
   return leggi("anteprimaAutorizzazione", "", "?" + p.toString(), undefined, null);
 }
 
+// effettoLeggibile: «effetto» della variante di R1 nella forma che la pagina legge (proposta PE-B05; RPC PD-05 ancora
+// aperto): spento stringa, anche vuota, ed elenchi sospende, con_lei, resta_sospesa e avvisi, anche vuoti; rimozioni,
+// autorizzabile, step_strutturale e svuota_step, se ci sono, del loro tipo. Un effetto con altri nomi (per esempio quelli
+// della struct Go EffettoTipo senza tag json: «Spento», «Sospende»…) non si legge: senza questo controllo la pagina
+// vedrebbe «nessun altro effetto» e accenderebbe «Cambia» per un cambio che il server dice spento.
+function effettoLeggibile(e) {
+  if (!oggetto(e) || typeof e.spento !== "string") return false;
+  if (!["sospende", "con_lei", "resta_sospesa", "avvisi"].every((k) => Array.isArray(e[k]))) return false;
+  if (e.rimozioni !== undefined && !(Number.isInteger(e.rimozioni) && e.rimozioni >= 0)) return false;
+  if (e.autorizzabile !== undefined && typeof e.autorizzabile !== "boolean") return false;
+  return ["step_strutturale", "svuota_step"].every((k) => e[k] === undefined || typeof e[k] === "string");
+}
+
 // leggiBozza: R1, GET …/motore-a/bozza?prodotto={uuid}[&eventi=1][&importazione=1][&registro=<impronta>][&confronto=1]
 // (EM §9.1). L'oggetto con stato "aperta" o "nessuna_bozza".
 // Con opz.effetto_cambio_tipo (un componente registrato) e opz.tipo_nuovo è la variante di lettura per l'effetto del
 // cambio di tipo (MAT §1.3, BZ-06; decisioni dell'ondata A, PE-09): …&effetto_cambio_tipo={componente}&tipo_nuovo={tipo}
 // → {componente_id, tipo_nuovo, effetto, firma_effetto}, senza scrivere; una variante come ?confronto=1 ed ?eventi=1,
 // non una rotta nuova. La firma va com'è nella decisione cambia_tipo{componente_id, tipo_nuovo, firma_effetto} (EM §3.6
-// riga 13; P-7, P-16). Una risposta senza la firma dell'effetto (una R1 che la variante non la conosce ancora) è
-// PONTE_RISPOSTA: il gesto non parte.
+// riga 13; P-7, P-16). Una risposta senza la firma dell'effetto (una R1 che la variante non la conosce ancora), o con un
+// «effetto» in una forma che la pagina non legge (effettoLeggibile), è PONTE_RISPOSTA: il gesto non parte.
 export async function leggiBozza(prodotto, opz) {
   if (!uuid(prodotto)) throw erroreDedicata("PONTE_ARGOMENTO", 0, "Il prodotto non è un UUID.");
   const o = opz || {};
@@ -477,7 +492,7 @@ export async function leggiBozza(prodotto, opz) {
     const c = o.effetto_cambio_tipo.toLowerCase();
     q += "&effetto_cambio_tipo=" + c + "&tipo_nuovo=" + o.tipo_nuovo;
     return leggi("leggiBozza", "", q, undefined, (j) => typeof j.componente_id === "string" && j.componente_id.toLowerCase() === c && j.tipo_nuovo === o.tipo_nuovo &&
-      typeof j.firma_effetto === "string" && RE_FIRMA_EFFETTO.test(j.firma_effetto) && oggetto(j.effetto));
+      typeof j.firma_effetto === "string" && RE_FIRMA_EFFETTO.test(j.firma_effetto) && effettoLeggibile(j.effetto));
   }
   if (o.eventi) q += "&eventi=1";
   if (o.importazione) q += "&importazione=1";

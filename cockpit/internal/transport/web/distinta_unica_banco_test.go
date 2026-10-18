@@ -102,8 +102,10 @@ type bozzaBanco struct {
 	Eventi                            []m
 	Creata                            time.Time
 	Formato2                          bool
-	// Base: la versione 1 di una bozza aperta dalla conferma o dalla BOM registrata, cioè la conferma di base come la
-	// costruisce il server; con l'interruttore uguale-alla-base R4 confronta la bozza con questa (PE-23)
+	// Base: la versione 1 di una bozza aperta dalla conferma o dalla BOM registrata, cioè lo snapshot che la partenza
+	// della bozza costruisce dalla sua conferma di base; con l'interruttore uguale-alla-base R4 confronta la bozza con
+	// questa (PE-23). Per la partenza «conferma» è la raccomandata (a) del problema 1 di RPC PD-01 (lo snapshot di
+	// da-conferma-1); per «registrato» è la raccomandata (a) del punto 3 (la partenza dalla working, non da-conferma-1)
 	Base m
 }
 
@@ -395,7 +397,10 @@ func (b *bancoDU) monta(mux *http.ServeMux) {
 		}
 	}
 	mux.HandleFunc("GET "+percorsoDistintaUnica, b.s.conMotoreA(conNoStore(admin(b.s.soloRuolo(db.RuoloUtenteAdmin, p.servi)))))
-	mux.HandleFunc("GET /login", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "login") })
+	// la pagina d'accesso del Cockpit (loginForm: layout.html senza utente, quindi senza il form «esci»): è lì che lo
+	// script del layout toglie le chiavi cockpit.du. dopo un'uscita avvenuta (richiesta R-3 della corsia, rilievo del
+	// secondo passaggio dell'ondata B)
+	mux.HandleFunc("GET /login", b.s.loginForm)
 	// l'uscita del layout (il form «esci»): la prova nel browser guarda che cosa resta nella memoria della scheda
 	// (richiesta R-3 della corsia); il banco non ha sessioni, rimanda solo al login
 	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/login", http.StatusSeeOther) })
@@ -839,7 +844,8 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 // costruisciDaRegistrato: la versione 1 delle partenze «conferma» (da-conferma-1, EM §6.12) e «registrato», come la
 // costruirebbe il server: le identità registrate, la base all'ultima conferma. Il banco mette sotto la radice del primo
 // prodotto, dalla conferma, il componente registrato ACM-1400 con l'arco della conferma. La versione 1 resta anche come
-// Base: con l'interruttore uguale-alla-base R4 e R5 confrontano la bozza con lei (PE-23).
+// Base: con l'interruttore uguale-alla-base R4 e R5 confrontano la bozza con lei (PE-23; RPC PD-01, problema 1 e punto
+// 3, raccomandate a: la working del banco non cambia, quindi la partenza «registrato» rifatta adesso darebbe la stessa).
 func (b *bancoDU) costruisciDaRegistrato(bz *bozzaBanco, prod, partenza string) {
 	radice := m{"chiave_bozza": "k-root", "componente_id": prod, "op": "riusa", "tipo": "finito", "origine": "registrato",
 		"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": map[string]string{bdP1: "ACM-1000", bdP2: "ACM-2000"}[prod], "modo": "registrato"}}
@@ -862,8 +868,11 @@ func (b *bancoDU) costruisciDaRegistrato(bz *bozzaBanco, prod, partenza string) 
 }
 
 // ugualeAllaBase: la bozza (lo snapshot del corpo di R4 o R5) è uguale alla sua conferma di base formato 3 (PE-23). Il
-// banco confronta con la versione 1 delle partenze dalla conferma o dalla BOM registrata (Base); una bozza nata da uno
-// STEP non è mai uguale. ok = falso se il banco non lo dice (interruttore spento).
+// banco confronta con la versione 1 della partenza della bozza (Base), sempre e solo con la base uguale all'ultima
+// conferma valida formato 3: per «conferma» lo snapshot di da-conferma-1 (RPC PD-01, problema 1, raccomandata a), per
+// «registrato» quello della partenza dalla working (PD-01, punto 3, raccomandata a; con il solo problema 1 una bozza
+// «registrato» non sarebbe mai uguale). Una bozza nata da uno STEP non è mai uguale. ok = falso se il banco non lo dice
+// (interruttore spento).
 func (b *bancoDU) ugualeAllaBase(prod string, snap m) (uguale, ok bool) {
 	if !b.segnoUguale {
 		return false, false
@@ -875,7 +884,7 @@ func (b *bancoDU) ugualeAllaBase(prod string, snap m) (uguale, ok bool) {
 	numero := bdNum(bz.Base["versione_bom_base"].(m)["numero"])
 	f3 := false
 	for _, c := range b.conferme[prod] {
-		if bdNum(c["numero"]) == numero && bdNum(c["formato"]) == 3 && c["valida"] == true {
+		if bdNum(c["numero"]) == numero && bdNum(c["formato"]) == 3 && c["valida"] == true && c["ultima"] == true {
 			f3 = true
 		}
 	}
@@ -906,6 +915,10 @@ func (b *bancoDU) r2Salva(w http.ResponseWriter, corpo m, prod string) m {
 		bdKo(w, 422, "CORPO_NON_VALIDO", "servono lo snapshot e le azioni", m{"campo": "azioni"})
 		return nil
 	}
+	if campo, testo := bdRegoleIdentita(snap); campo != "" {
+		bdKo(w, 422, "CORPO_NON_VALIDO", testo, m{"campo": campo})
+		return nil
+	}
 	bz.Versione++
 	// il server salva lo snapshot nella forma canonica (EM §3.10): elenchi ordinati, facoltativi vuoti tolti; R1 restituisce
 	// questi byte
@@ -921,6 +934,52 @@ func (b *bancoDU) r2Salva(w http.ResponseWriter, corpo m, prod string) m {
 			"origine": a["origine"], "motivo": a["motivo"], "autore": "AD", "quando": time.Now().UTC()})
 	}
 	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": len(azioni), "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC()}
+}
+
+// bdRegoleIdentita: due regole dello snapshot che il server controlla al salvataggio (distintabozza/formato3.go,
+// validaDecisioni) e su cui la pagina regola i suoi gesti, ricontrollate dal banco perché le prove nel browser vedano un
+// gesto che il server rifiuterebbe (rilievo 4 del secondo passaggio): una decisione identita è citata dal suo nodo
+// (EM §3.6.1: chiave_bozza = il nodo con identita.decisione = il suo id); una rev con minuscole ASCII è ammessa solo se
+// copiata da una fonte che le ammette (P-18, revDallaFonte: nodo riusa o esclude, nodo formato_2, decisione identita con
+// riferimento manuale_legacy). Torna il campo e il testo del rifiuto, o "".
+func bdRegoleIdentita(snap m) (campo, testo string) {
+	nodi := map[string]m{}
+	lista, _ := snap["nodi"].([]any)
+	for _, x := range lista {
+		if n, ok := x.(m); ok {
+			nodi[bdStr(n["chiave_bozza"])] = n
+		}
+	}
+	perID := map[string]m{}
+	decisioni, _ := snap["decisioni"].([]any)
+	for i, x := range decisioni {
+		d, _ := x.(m)
+		perID[bdStr(d["id"])] = d
+		if d["tipo"] != "identita" {
+			continue
+		}
+		id, _ := nodi[bdStr(d["chiave_bozza"])]["identita"].(m)
+		if id == nil || id["modo"] != "decisione" || id["decisione"] != d["id"] {
+			return fmt.Sprintf("decisioni[%d].chiave_bozza", i), fmt.Sprintf("il nodo %s non ha l'identità decisa da %s (modo decisione)", bdStr(d["chiave_bozza"]), bdStr(d["id"]))
+		}
+	}
+	for i, x := range lista {
+		n, _ := x.(m)
+		id, _ := n["identita"].(m)
+		rev := bdStr(id["rev"])
+		if !strings.ContainsAny(rev, "abcdefghijklmnopqrstuvwxyz") {
+			continue
+		}
+		ammessa := n["op"] == "riusa" || n["op"] == "esclude" || id["modo"] == "formato_2"
+		if !ammessa && id["modo"] == "decisione" {
+			d := perID[bdStr(id["decisione"])]
+			ammessa = d != nil && d["tipo"] == "identita" && d["riferimento"] == "manuale_legacy"
+		}
+		if !ammessa {
+			return fmt.Sprintf("nodi[%d].identita.rev", i), fmt.Sprintf("la rev %q ha minuscole: una rev nuova della working è senza minuscole ASCII (EM §3.4.2)", rev)
+		}
+	}
+	return "", ""
 }
 
 // r2Converti: la conversione di una bozza del formato di prima (EM §6.7, forma converti_da): la vecchia si chiude, la
@@ -2054,7 +2113,8 @@ func (b *bancoDU) atto(w http.ResponseWriter, r *http.Request) {
 
 // ---------------------------------------------------------------- la sonda
 
-// sonda: GET /__banco/dati (gli identificativi inventati del banco), GET /__banco/stato (lo stato del banco), POST
+// sonda: GET /__banco/dati (gli identificativi inventati del banco), GET /__banco/stato (lo stato del banco, con i modi
+// non ancora consumati), POST
 // /__banco/modo {rotta, esito} (un esito da provocare una volta), POST /__banco/ritardo {rotta, ms} (un'attesa prima
 // della risposta, una volta; rotta = il pattern del mux), POST /__banco/f8-errore (F8 in errore fino a R11), POST
 // /__banco/proposta (la proposta di oggi cambia), POST /__banco/bozza-altrove (un salvataggio di un collega), POST
@@ -2086,7 +2146,14 @@ func (b *bancoDU) sonda(w http.ResponseWriter, r *http.Request) {
 		for k, v := range b.conti {
 			conti[k] = v
 		}
-		bdJSON(w, http.StatusOK, m{"conti": conti, "corpi_r2": b.corpiR2, "chiavi_r5": b.chiaviR5, "chiavi_r6": b.chiaviR6, "corpi_file": b.corpiFile, "conferme": b.conferme, "legacy": b.legacy, "file": file, "bozze": bozze, "fonte": b.fonte})
+		// i modi provocati e non ancora consumati: una prova che ne mette uno su una richiesta lasciata appesa (DU-B51)
+		// aspetta che sparisca, cioè che il banco abbia finito quella richiesta
+		modi := m{}
+		for k, v := range b.modi {
+			modi[k] = v
+		}
+		bdJSON(w, http.StatusOK, m{"conti": conti, "corpi_r2": b.corpiR2, "chiavi_r5": b.chiaviR5, "chiavi_r6": b.chiaviR6, "corpi_file": b.corpiFile, "conferme": b.conferme, "legacy": b.legacy, "file": file, "bozze": bozze, "fonte": b.fonte,
+			"modi": modi})
 	case r.Method == http.MethodPost && r.URL.Path == "/__banco/modo":
 		var o struct{ Rotta, Esito string }
 		_ = json.NewDecoder(r.Body).Decode(&o)
@@ -2517,6 +2584,16 @@ func TestBancoDistintaUnicaOndataB(t *testing.T) {
 	if r4 := b.bdChiedi(t, "POST", base+"/motore-a/bom/riepilogo", corpo, 200); r4["uguale_alla_base"] != false {
 		t.Errorf("R4 di una bozza cambiata: uguale_alla_base %v", r4["uguale_alla_base"])
 	}
+	// RPC PD-01, punto 3 (raccomandata a): una bozza «registrato» senza gesti sulla stessa base è uguale allo snapshot
+	// della SUA partenza (la working), non a quello di da-conferma-1, che qui ha la radice con l'origine «conferma»
+	b.bdChiedi(t, "POST", base+"/motore-a/bozza/"+bdStr(corpo["bozza_id"])+"/abbandona", m{"versione_attesa": corpo["bozza_versione"]}, 200)
+	reg := crea("registrato")
+	if o := reg["nodi"].([]any)[0].(m)["origine"]; o != "registrato" {
+		t.Errorf("la radice della partenza «registrato» ha l'origine %v: il confronto con da-conferma-1 non si distinguerebbe", o)
+	}
+	if r4 := b.bdChiedi(t, "POST", base+"/motore-a/bom/riepilogo", reg, 200); r4["uguale_alla_base"] != true {
+		t.Errorf("R4 sulla bozza «registrato» senza modifiche, con la base all'ultima conferma formato 3: uguale_alla_base %v", r4["uguale_alla_base"])
+	}
 	b.bdChiedi(t, "POST", "/__banco/interruttore", m{"nome": "uguale-alla-base", "attivo": false}, 204)
 	if r7 := b.bdChiedi(t, "GET", base+"/motore-a/conferme?prodotto="+bdP2, nil, 200); len(r7["conferme"].([]any)) != 2 {
 		t.Errorf("conferme del secondo prodotto: %v", r7["conferme"])
@@ -2533,8 +2610,43 @@ func TestBancoDistintaUnicaOndataB(t *testing.T) {
 		t.Errorf("la voce della radice senza il segnale: %v", radice["segnali"])
 	}
 	b.bdChiedi(t, "POST", "/__banco/interruttore", m{"nome": "radice-segnalata", "attivo": false}, 204)
-	// la prova del tempo d'inattività: il caricamento lasciato cadere non registra niente
+	// le due regole dello snapshot che il banco ricontrolla come il server (bdRegoleIdentita): una decisione identita che
+	// il suo nodo non cita, e una rev minuscola in un nodo creato, sono 422 CORPO_NON_VALIDO e non scrivono
+	copia := func() m {
+		var c m
+		raw, _ := json.Marshal(r1["snapshot"])
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		_ = dec.Decode(&c)
+		return c
+	}
+	salva := func(snap m, chiave string) m {
+		return b.bdChiedi(t, "POST", base+"/motore-a/bozza", m{"bozza_id": r1["bozza_id"], "versione_attesa": r1["versione"], "prodotto_id": bdP1, "vocabolario": 2,
+			"chiave_salvataggio": chiave, "snapshot": snap, "azioni": []any{m{"azione": "nodo_modificato", "chiave_bozza": "k-7", "prima": m{}, "dopo": m{}, "origine": "utente"}}}, 422)
+	}
+	orfana := copia()
+	orfana["decisioni"] = []any{m{"id": "di-1", "tipo": "identita", "chiave_bozza": "k-7", "modo": "correzione", "identita": m{"emittente": "cliente:" + bdCliente, "codice": "ACM-1100"}, "motivo": "prova"}}
+	if rr := salva(orfana, "00000000-0000-4000-8000-0000000e4001"); rr["campo"] != "decisioni[0].chiave_bozza" {
+		t.Errorf("una decisione identita che il suo nodo non cita: %v", rr)
+	}
+	minuscola := copia()
+	for _, x := range minuscola["nodi"].([]any) {
+		if n := x.(m); n["chiave_bozza"] == "k-7" {
+			n["identita"].(m)["rev"] = "a"
+		}
+	}
+	if rr := salva(minuscola, "00000000-0000-4000-8000-0000000e4002"); !strings.HasSuffix(bdStr(rr["campo"]), ".identita.rev") {
+		t.Errorf("una rev minuscola in un nodo creato: %v", rr)
+	}
+	if v := b.bdChiedi(t, "GET", base+"/motore-a/bozza?prodotto="+bdP1, nil, 200)["versione"]; bdNum(v) != bdNum(r1["versione"]) {
+		t.Errorf("un salvataggio rifiutato dalle regole dello snapshot ha scritto la bozza: versione %v", v)
+	}
+	// la prova del tempo d'inattività: il caricamento lasciato cadere non registra niente, e la sonda dice quando il modo
+	// è stato consumato (DU-B51 aspetta che il banco abbia finito la richiesta prima della prova seguente)
 	b.bdChiedi(t, "POST", "/__banco/modo", m{"rotta": "E1", "esito": "appeso"}, 204)
+	if st := b.bdChiedi(t, "GET", "/__banco/stato", nil, 200); st["modi"].(m)["E1"] != "appeso" {
+		t.Errorf("la sonda non dice il modo in attesa: %v", st["modi"])
+	}
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("origine", "portale")
@@ -2552,5 +2664,8 @@ func TestBancoDistintaUnicaOndataB(t *testing.T) {
 	st := b.bdChiedi(t, "GET", "/__banco/stato", nil, 200)
 	if resp.StatusCode != 503 || st["file"].(m)["LENTO_DI_PROVA.pdf"] != nil {
 		t.Errorf("il caricamento lasciato cadere: %d, file nel banco %v", resp.StatusCode, st["file"].(m)["LENTO_DI_PROVA.pdf"])
+	}
+	if _, resta := st["modi"].(m)["E1"]; resta {
+		t.Errorf("il modo del caricamento lasciato cadere non è stato consumato: %v", st["modi"])
 	}
 }

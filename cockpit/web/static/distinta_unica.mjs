@@ -620,6 +620,13 @@ function perchéNoFormaBozza() {
 function ultimaConferma() {
   return arr(S.storico && S.storico.conferme).find((c) => c.ultima) || null;
 }
+// storicoNonLetto: lo storico delle conferme (R7) non si è letto. Allora la pagina non sa se il prodotto ha una conferma
+// né di che formato: le regole che ne dipendono vanno nel verso sicuro, cioè spengono con STORICO_NON_LETTO (le due
+// partenze, PE-B03, e la regola del giornale di WZ-01, nessunaModifica), e niente dice «nessuna conferma» (MAT §5.4).
+function storicoNonLetto() {
+  return !!S.erroreStorico || !S.storico;
+}
+const STORICO_NON_LETTO = "lo storico delle conferme non si legge: ↻ Aggiorna";
 // confermaFormato3: la conferma è del formato 3. Lo dice R7 (EM §9.7: «formato» di ogni conferma), la pagina non lo
 // calcola. Serve alle regole di PE-23 (decisioni dell'ondata A), che distinguono una conferma di base formato 3 da una
 // formato 1 o 2; non è il formato della bozza, che dice R1 (MAT §1.3).
@@ -644,6 +651,10 @@ const PARTENZA_REGISTRATO_NO = "il prodotto ha già una conferma del formato 3: 
 //     valida, formato 3. La prima conferma formato 3 di un prodotto resta ammessa anche se è uguale a una conferma formato
 //     1 o 2, perché aggiunge identità e caselle. Quando il giornale non basta (un annullamento netto), la pagina non
 //     spegne niente: decide R4.
+//   - Con la stessa bozza senza gesti e lo storico (R7) che non si legge, la pagina non sa di che formato è la base: nel
+//     dubbio spegne, con «↻ Aggiorna», come le due partenze (PE-B03). L'unica eccezione è R4 che dà uguale_alla_base
+//     falso, perché il segno del server vale per primo. Per la partenza «registrato» il giornale resta l'unica guardia
+//     anche dopo il passo 6 se PD-01 non sceglie il punto 3 (a): R5 ferma NESSUNA_MODIFICA solo quando R4 dice «uguale».
 function nessunaModifica(r4) {
   if (!bozzaLavorabile() || S.coda.length || S.invio) return "";
   const base = S.salvato.versione_bom_base;
@@ -655,6 +666,7 @@ function nessunaModifica(r4) {
   if (!ev.length) return "";
   const ultimo = ev[ev.length - 1];
   if (ultimo.azione !== "bozza_aperta" || !ogg(ultimo.dopo) || !["conferma", "registrato"].includes(ultimo.dopo.partenza)) return "";
+  if (storicoNonLetto()) return STORICO_NON_LETTO;
   const u = ultimaConferma();
   if (!u || !u.valida || !confermaFormato3(u) || !base || Number(base.numero) !== Number(u.numero)) return "";
   return testo;
@@ -2364,7 +2376,7 @@ function revisioneSenzaBozza() {
 // (PE-23; EM §6.12): si parte da quella.
 function perchéNoPartenza(partenza) {
   if (S.modello && S.modello.congelata) return CONGELATA;
-  if (S.erroreStorico || !S.storico) return "lo storico delle conferme non si legge: ↻ Aggiorna";
+  if (storicoNonLetto()) return STORICO_NON_LETTO;
   if (partenza === "conferma") return ultimaConferma() ? "" : "il prodotto non ha una conferma";
   return haConfermaFormato3() ? PARTENZA_REGISTRATO_NO : "";
 }
@@ -2383,6 +2395,8 @@ function statoConferma() {
   const out = h("span", { class: "du-azioni", id: "du-stato-conferma" });
   const da = ultima ? ultima.confermato_da_nome || ultima.confermato_da_sigla || (ultima.confermato_da ? String(ultima.confermato_da).slice(0, 8) : "") : "";
   if (ultima) out.append(pill(ultima.valida ? "ok" : "ver", ultima.valida ? "v" + ultima.numero + " confermata il " + dataOra(ultima.confermato_il) + (da ? " da " + da : "") : "v" + ultima.numero + " confermata, poi la struttura è cambiata: serve una conferma nuova", "conferma n. " + ultima.numero));
+  // lo storico che non si legge non è «nessuna conferma» (MAT §5.4: niente si mostra come attuale)
+  else if (storicoNonLetto()) out.append(h("span", { id: "du-conferme-non-lette" }, pill("ver", "conferme: non lette (↻ Aggiorna)", S.erroreStorico || "")));
   else out.append(pill("neu", "nessuna conferma"));
   const p = prodottoScelto();
   if (verificaNonCalcolata(ultima)) out.append(pill("neu", "Verificata: non ancora calcolata (arriva in V2)"));
@@ -3162,6 +3176,33 @@ function perchéNoDescrizione(d) {
 function minuscoleAscii(r) {
   return /[a-z]/.test(String(r || ""));
 }
+// revMinuscoleAmmesse: la rev del nodo come sarà DOPO il gesto può avere minuscole ASCII solo se resta copiata byte per
+// byte da una fonte che le ammette (P-18 della persistenza, accolta nelle decisioni dell'ondata A; è la regola di
+// revDallaFonte del server): la working per un nodo riusa o esclude, la bozza formato 2 per un nodo formato_2, il codice
+// corretto a mano nella pagina vecchia (decisione identita con riferimento manuale_legacy). Una decisione di correzione,
+// una ricodifica, un crea o una modifica fanno la rev nuova: senza minuscole. op e identita sono quelli del nodo dopo il
+// gesto; un'identità decisa da una decisione nuova si passa con decisione "" (non è mai manuale_legacy).
+function revMinuscoleAmmesse(op, identita) {
+  if (op === "riusa" || op === "esclude") return true;
+  const id = identita || {};
+  if (id.modo === "formato_2") return true;
+  if (id.modo !== "decisione" || !id.decisione) return false;
+  const d = arr(S.lavoro && S.lavoro.decisioni).find((x) => x.id === id.decisione);
+  return !!(d && d.tipo === "identita" && d.riferimento === "manuale_legacy");
+}
+// citaIdentita: l'identità del nodo è decisa da una decisione identita della bozza (modo decisione).
+function citaIdentita(identita) {
+  const id = identita || {};
+  return id.modo === "decisione" && !!id.decisione && arr(S.lavoro && S.lavoro.decisioni).some((d) => d.id === id.decisione && d.tipo === "identita");
+}
+// togliIdentitaPrecedenti: le decisioni identita che il nodo k ha già nella bozza, da togliere nello stesso gesto che ne
+// aggiunge una nuova (decisione_tolta prima della decisione_aggiunta). Una decisione identita è del nodo che la cita
+// (EM §3.6.1), e il server rifiuta quella che il nodo non cita più (validaDecisioni): una sola per nodo, come la regola
+// di PE-B06 per cambia_tipo (proposta PE-B16 della corsia).
+function togliIdentitaPrecedenti(k) {
+  return arr(S.lavoro && S.lavoro.decisioni).filter((d) => d.tipo === "identita" && d.chiave_bozza === k)
+    .map((d) => ({ azione: "decisione_tolta", chiave_bozza: chiaveEvento(d), prima: clona(d), dopo: null, origine: "utente" }));
+}
 // «Riepilogo RFQ» (MAT TS-08): in lettura, dal modello della pagina e dai contatori della Sorgente.
 function apriRiepilogoRfq() {
   const d = $("#du-menu-rfq");
@@ -3331,8 +3372,9 @@ function ripristina(v) {
 }
 // «✎ Correggi codice, rev e descrizione…» (MAT BZ-05), con le regole di forma di P-15 e la rev di P-18 (decisioni
 // dell'ondata A): la rev che non si tocca resta byte per byte com'è (anche con minuscole, se viene dalla working per un
-// riusa o un esclude); una rev scritta dall'ingegnere si scrive in maiuscolo; in una modifica del componente registrato
-// (codice o rev nuovi) la rev è nuova e non ha minuscole ASCII. Un pezzo importato o registrato ha sempre il codice.
+// riusa o un esclude); una rev scritta dall'ingegnere si scrive in maiuscolo; quando la correzione fa la rev nuova (una
+// modifica del componente registrato, la decisione di correzione di un pezzo importato) una rev rimasta con minuscole
+// ASCII spegne «Salva nella bozza» con il motivo (revMinuscoleAmmesse). Un pezzo importato o registrato ha sempre il codice.
 function apriCorreggi(v) {
   const n = v.nodo;
   const id = n.identita || {};
@@ -3350,7 +3392,7 @@ function apriCorreggi(v) {
     campo("Codice", h("input", { id: "f-codice", value: id.codice || "", maxlength: 60, disabled: !!radice, title: radice ? "è il prodotto della RFQ: il codice non cambia (DB7-3)" : null })),
     campo("Rev", h("input", { id: "f-rev", value: id.rev || "", maxlength: 10 })),
     campo("Descrizione", h("input", { id: "f-desc", value: n.descrizione || "", maxlength: 200 })),
-    campo("Motivo", area("f-motivo", "obbligatorio per correggere un'identità importata o ricodificare", registrato ? 500 : 1000))),
+    campo("Motivo", area("f-motivo", "obbligatorio per correggere un'identità importata o già decisa, o per ricodificare", registrato ? 500 : 1000))),
   [{ testo: "Annulla", chiudi: true }, { testo: "Salva nella bozza", pri: true, id: "f-ok", spento: () => {
     const f = $("#du-finestra");
     const codice = valore(f, "f-codice"), rev = revDa(f), desc = valore(f, "f-desc");
@@ -3359,8 +3401,19 @@ function apriCorreggi(v) {
     if ((importato || registrato) && !codice) return "il codice è obbligatorio: un pezzo importato o registrato ha sempre il codice";
     const no = (cambiaCodice && codice ? perchéNoCodiceNuovo(codice) : "") || (cambiaRev ? perchéNoRev(rev) : "") || perchéNoDescrizione(desc);
     if (no) return no;
-    if (registrato && (cambiaCodice || cambiaRev) && minuscoleAscii(rev)) return "la rev «" + rev + "» ha minuscole: in una modifica del componente la rev è nuova, scrivila senza minuscole";
-    if ((cambiaCodice || cambiaRev) && (importato || (registrato && cambiaCodice)) && !valore(f, "f-motivo")) return "scrivi il motivo";
+    // P-18: la rev lasciata com'era può avere minuscole solo se il nodo, dopo la correzione, la copia ancora dalla sua
+    // fonte (revMinuscoleAmmesse). La decisione di correzione di un pezzo importato e la ricodifica di un registrato la
+    // fanno nuova, anche quando veniva dal codice corretto a mano (manuale_legacy): il server la rifiuterebbe (422)
+    const decisioneNuova = importato || (registrato && cambiaCodice) || citaIdentita(id);
+    if ((cambiaCodice || cambiaRev) && minuscoleAscii(rev)) {
+      const opDopo = registrato && (cambiaCodice || n.op === "riusa") ? "modifica" : n.op;
+      const idDopo = decisioneNuova ? { modo: "decisione", decisione: "" } : id;
+      if (!revMinuscoleAmmesse(opDopo, idDopo)) {
+        return "la rev «" + rev + "» ha minuscole: " + (registrato ? "in una modifica del componente la rev è nuova" : importato ?
+          "con la correzione la rev entra nell'identità decisa e non è più copiata dalla sua fonte" : "dopo la correzione la rev non è più copiata dalla sua fonte") + ", scrivila senza minuscole";
+      }
+    }
+    if ((cambiaCodice || cambiaRev) && decisioneNuova && !valore(f, "f-motivo")) return "scrivi il motivo";
     return "";
   }, fai: () => {
     const f = $("#du-finestra");
@@ -3378,20 +3431,28 @@ function apriCorreggi(v) {
       if (id.namespace && !cambiaCodice) nuova.namespace = id.namespace;
       if (codice) nuova.codice = codice;
       if (rev) nuova.rev = rev;
-      if (importato) {
-        const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: nuova.emittente, codice: codice || undefined, rev: rev || undefined }, motivo };
-        if (nuova.namespace) dec.identita.namespace = nuova.namespace;
-        if (nuova.emittente.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
-        azioni.push({ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" });
-        prima.identita = clona(id);
-        dopo.identita = Object.assign({}, nuova, { modo: "decisione", decisione: dec.id });
-      } else if (registrato && cambiaCodice) {
+      if (registrato && cambiaCodice) {
+        // la ricodifica: il nodo cita lei, e una decisione identita che citava prima (per esempio «Fissa l'emittente») si
+        // toglie nello stesso gesto (togliIdentitaPrecedenti)
         const dec = { id: nuovoIdDecisione("rc"), tipo: "ricodifica", componente_id: n.componente_id, codice_prima: id.codice || "", codice_dopo: codice, motivo, emittente_dopo: nuova.emittente };
-        azioni.push({ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
+        azioni.push(...togliIdentitaPrecedenti(v.k), { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
         prima.identita = clona(id);
         prima.op = n.op;
         dopo.identita = Object.assign({}, nuova, { modo: "decisione", decisione: dec.id });
         dopo.op = "modifica";
+      } else if (importato || citaIdentita(id)) {
+        // la correzione di un pezzo importato, o di un'identità già decisa da una decisione identita (che deve portare la
+        // stessa identità del nodo): una decisione di correzione nuova, che sostituisce quella di prima nello stesso gesto
+        const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: nuova.emittente, codice: codice || undefined, rev: rev || undefined }, motivo };
+        if (nuova.namespace) dec.identita.namespace = nuova.namespace;
+        if (nuova.emittente.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
+        azioni.push(...togliIdentitaPrecedenti(v.k), { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" });
+        prima.identita = clona(id);
+        dopo.identita = Object.assign({}, nuova, { modo: "decisione", decisione: dec.id });
+        if (registrato && n.op === "riusa") {
+          prima.op = n.op;
+          dopo.op = "modifica";
+        }
       } else {
         prima.identita = clona(id);
         dopo.identita = Object.assign({}, id, { codice: codice || undefined, rev: rev || undefined });
@@ -3445,7 +3506,7 @@ function apriTipo(v) {
       st.effetto = j;
     } catch (e) {
       if (giro !== st.giro) return;
-      st.errore = testoErrore(e) + (e && e.codice === "PONTE_RISPOSTA" ? " (la lettura della bozza non dà ancora l'effetto del cambio di tipo)" : "");
+      st.errore = testoErrore(e) + (e && e.codice === "PONTE_RISPOSTA" ? " (la lettura della bozza non dà ancora l'effetto del cambio di tipo, o non nella forma che la pagina legge)" : "");
     }
     st.calcolo = false;
     mostraEffetto();
@@ -3513,7 +3574,8 @@ function tipoPrimaDelCambio(k, d) {
 // righeEffetto: l'effetto del cambio di tipo in parole. La forma di «effetto» non è ancora scritta in EM: la pagina legge
 // i campi dell'anteprima del cambio di tipo che c'è già (EffettoTipo del fascicolo, in minuscolo: spento, sospende,
 // con_lei, rimozioni, resta_sospesa, autorizzabile, step_strutturale, svuota_step, avvisi; proposta di emendamento della
-// corsia) e ignora gli altri.
+// corsia PE-B05) e ignora gli altri. Un effetto in un'altra forma non arriva qui: il ponte lo rifiuta (effettoLeggibile,
+// PONTE_RISPOSTA), e «Cambia» resta spento con «l'effetto del cambio non si legge».
 function righeEffetto(e, v) {
   const o = ogg(e) ? e : {};
   const out = [];
@@ -3900,26 +3962,34 @@ function apriAdotta(v, r, ad) {
     if (ad.rev) dec.identita.rev = ad.rev;
     const dopo = Object.assign({}, dec.identita, { modo: "decisione", decisione: dec.id });
     if (r.tipo === "manuale_legacy") dopo.emittente_presunto = true;
-    fai("adottato " + proiezione, [{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" },
-      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(v.nodo.identita) }, dopo: { identita: dopo }, origine: "utente" }]);
+    // una decisione identita di prima dello stesso nodo si toglie nello stesso gesto (togliIdentitaPrecedenti)
+    fai("adottato " + proiezione, togliIdentitaPrecedenti(v.k).concat([{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" },
+      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(v.nodo.identita) }, dopo: { identita: dopo }, origine: "utente" }]));
   } }]);
 }
+// «Fissa l'emittente…» di un registrato «cliente, presunto»: una decisione identita di correzione con il codice e la rev
+// del nodo. La rev passa byte per byte solo se il nodo resta riusa o esclude (P-18, revMinuscoleAmmesse): con un altro op
+// la decisione di correzione la fa nuova, e una rev con minuscole ASCII spegne «Fissa» con il motivo invece di finire in
+// un 422 del server.
 function apriFissaEmittente(v) {
   const reg = registroBozza();
   const partner = arr(reg && reg.regole && reg.regole.partner).map((p) => p.emittente).filter(Boolean);
   const sel = h("select", { id: "f-emittente" }, [emittenteCliente()].concat(partner).map((e) => h("option", { value: e }, e)));
+  const rev = (v.nodo.identita && v.nodo.identita.rev) || "";
+  const noRev = minuscoleAscii(rev) && !revMinuscoleAmmesse(v.nodo.op, { modo: "decisione", decisione: "" }) ?
+    "la rev «" + rev + "» ha minuscole: con l'emittente fissato la rev entra in una decisione di correzione e va senza minuscole; correggila prima con «✎ Correggi codice, rev e descrizione…»" : "";
   apriFinestra("Fissa l'emittente di " + v.cod, h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "Il componente è «cliente, presunto»: nessuno ha scelto l'emittente. Se in realtà è un codice del fornitore, fissalo con un motivo: la conferma lo certificherà."),
     campo("Emittente", sel), campo("Motivo", area("f-motivo", ""))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Fissa", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
+  [{ testo: "Annulla", chiudi: true }, { testo: "Fissa", pri: true, id: "f-ok", spento: () => noRev || (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
     const f = $("#du-finestra");
     const em = valore(f, "f-emittente");
     const id = v.nodo.identita || {};
     const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: em, codice: id.codice }, motivo: valore(f, "f-motivo") };
     if (id.rev) dec.identita.rev = id.rev;
     if (em.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
-    fai("emittente fissato per " + v.cod, [{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" },
-      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(id) }, dopo: { identita: Object.assign({}, dec.identita, { modo: "decisione", decisione: dec.id }) }, origine: "utente" }]);
+    fai("emittente fissato per " + v.cod, togliIdentitaPrecedenti(v.k).concat([{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" },
+      { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(id) }, dopo: { identita: Object.assign({}, dec.identita, { modo: "decisione", decisione: dec.id }) }, origine: "utente" }]));
   } }]);
 }
 function apriRebase() {
