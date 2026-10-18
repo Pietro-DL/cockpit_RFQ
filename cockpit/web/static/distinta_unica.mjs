@@ -131,6 +131,7 @@ const S = {
   camere: {},
   compressi: {},
   wizard: null,
+  gestiFile: {}, // "file:<allegato>" → l'ultimo gesto con l'esito incerto {nome, allegato, corpo, etichetta, file}, per «Riprova»
   filtro: "tutti",
 };
 let L = null; // la tela in vista: {lay, chiave, vp, mondo, g}
@@ -1501,9 +1502,12 @@ function renderStrisce() {
     // la conferma di questo prodotto verificata «non registrata»: «Riprova la conferma» riapre il wizard, che rilegge il
     // riepilogo e manda lo stesso corpo; il ponte riusa la chiave se il corpo è lo stesso (MAT §5.2; §5.5 n. 4)
     const riprova = s.nome === "confermaBom" && s.verificato && s.risorsa === "bozza:" + S.prodotto && bozzaLavorabile();
-    add("ver", "Un tentativo («" + (s.etichetta || s.nome) + "») non ha un esito certo" + (s.verificato ? ": il server dice che non è ancora registrato." : ": lo verifico con la stessa chiave."),
+    // un gesto di un file verificato «non registrato» con il corpo ancora in memoria: «Riprova» lo rimanda uguale
+    const gf = s.verificato && S.gestiFile[s.risorsa] ? S.gestiFile[s.risorsa] : null;
+    add("ver", "Un tentativo («" + (s.etichetta || s.nome) + "»" + (gf ? " su " + gf.file.nome_file : "") + ") non ha un esito certo" + (s.verificato ? ": il server dice che non è ancora registrato." : ": lo verifico con la stessa chiave."),
       h("span", { class: "du-azioni" }, btn("Verifica ora", () => verificaSospeso(s), { cls: "du-btn--sm", perche: false }),
         riprova ? btn("Riprova la conferma…", riprovaConfermaSospesa, { cls: "du-btn--sm du-btn--pri", id: "du-riprova-sospesa", perche: false }) : null,
+        gf ? btn("Riprova «" + gf.etichetta + "»", () => riprovaGestoFile(s.risorsa), { cls: "du-btn--sm du-btn--pri", id: "du-riprova-" + sid(s.risorsa), perche: false }) : null,
         btn("Abbandona il tentativo…", () => abbandonaTentativo(s), { cls: "du-btn--sm du-btn--ghost", perche: false })), "du-sospeso-" + sid(s.risorsa));
   }
   if (!bozzaAperta()) return;
@@ -2850,6 +2854,27 @@ function richiede(det, tipo) {
 function blocchiFile(det) {
   return arr(det.dipendenze).filter((d) => d.esito === "blocca");
 }
+// I gesti dei file con la chiave (S2, S3, S4, S7). inviaGestoFile tiene in memoria il corpo dell'ultimo tentativo con
+// l'esito incerto, finché il ponte lo tiene in sospeso: «Riprova» lo rimanda uguale, e il ponte riusa la stessa chiave
+// (MAT §5.4, righe S2-S4 e S7: «come R5»; §5.5 n. 4). Dopo una ricarica il corpo non c'è più: restano «Verifica ora» e
+// l'abbandono esplicito del tentativo.
+const GESTI_FILE = { scartaFile: P.scartaFile, altriFile: P.altriFile, riattivaFile: P.riattivaFile, associaStep: P.associaStep };
+async function inviaGestoFile(nome, allegato, corpo, etichetta, f) {
+  const risorsa = "file:" + String(allegato).toLowerCase();
+  const r = await GESTI_FILE[nome](allegato, corpo);
+  const pendente = P.sospesi().find((s) => s.risorsa === risorsa) || null;
+  if (!pendente) delete S.gestiFile[risorsa];
+  else if (r.chiave && pendente.chiave === r.chiave) S.gestiFile[risorsa] = { nome, allegato, corpo: clona(corpo), etichetta, file: f };
+  return r;
+}
+async function riprovaGestoFile(risorsa) {
+  const g = S.gestiFile[risorsa];
+  if (!g) return;
+  avvisa("ok", "«" + g.etichetta + "» su " + g.file.nome_file + ": lo rimando con lo stesso corpo e la stessa chiave…");
+  const r = await inviaGestoFile(g.nome, g.allegato, g.corpo, g.etichetta, g.file);
+  await esitoGestoFile(r, g.file, "");
+  renderStrisce();
+}
 async function esitoGestoFile(r, f, testoOk) {
   if (r.esito === "ok") {
     const dati = r.dati || {};
@@ -2867,9 +2892,16 @@ async function esitoGestoFile(r, f, testoOk) {
     avvisa("da_verificare", "Esito da verificare: non so se il gesto è registrato. Verifico con la stessa chiave.");
     verificaConRiprova(r.chiave, async (j) => {
       if (j.stato === "registrato" || j.stato === "registrato_senza_esito") {
+        delete S.gestiFile["file:" + String(f.allegato_id).toLowerCase()];
         avvisa("ok", "Verificato: il gesto su " + f.nome_file + " è registrato.");
         await caricaSorgente();
         render();
+        return true;
+      }
+      if (j.stato === "non_registrato") {
+        const g = S.gestiFile["file:" + String(f.allegato_id).toLowerCase()];
+        avvisa("no", "«" + (g ? g.etichetta : "Il gesto") + "» su " + f.nome_file + " non è ancora registrato: «Riprova» lo rimanda con lo stesso corpo e la stessa chiave (se la richiesta di prima arriva, riceverai il suo esito); oppure abbandona il tentativo.");
+        renderStrisce();
         return true;
       }
       return false;
@@ -2929,7 +2961,7 @@ async function apriScarta(f) {
     }
     if (scol) corpo.scollega = true;
     if (unica) corpo.conferma_unica_copia = true;
-    const r = await P.scartaFile(f.allegato_id, corpo);
+    const r = await inviaGestoFile("scartaFile", f.allegato_id, corpo, "Scarta", f);
     if (r.esito === "conflitto" && r.codice === "ANTEPRIMA_SUPERATA") {
       chiudiFinestra();
       await caricaSorgente();
@@ -2967,7 +2999,7 @@ async function apriAltriFile(f) {
       corpo.impronta_voci = det.impronta_voci;
     }
     if (scol) corpo.scollega = true;
-    const r = await P.altriFile(f.allegato_id, corpo);
+    const r = await inviaGestoFile("altriFile", f.allegato_id, corpo, "Metti in Altri file", f);
     return esitoGestoFile(r, f, "File messo in Altri file: il contenuto è conservato.");
   } }]);
 }
@@ -2979,7 +3011,7 @@ function apriRiattiva(f) {
         corpo.n_voci = f.n_voci;
         corpo.impronta_voci = f.impronta_voci;
       }
-      const r = await P.riattivaFile(f.allegato_id, corpo);
+      const r = await inviaGestoFile("riattivaFile", f.allegato_id, corpo, "Riattiva", f);
       return esitoGestoFile(r, f, "File riattivato.");
     } }]);
 }
@@ -2999,7 +3031,7 @@ function apriAssocia(a) {
     const motivo = valore($("#du-finestra"), "f-motivo");
     const corpo = { prodotto_id: S.prodotto, codice_atteso: (f.proposta && f.proposta.codice) || "", componente_atteso: (f.proposta && f.proposta.componente_id) || null };
     if (motivo) corpo.motivo = motivo;
-    const r = await P.associaStep(a.allegato_id, corpo);
+    const r = await inviaGestoFile("associaStep", a.allegato_id, corpo, "Associa lo STEP", f);
     if (r.esito === "ok") {
       avvisa("ok", (r.dati && r.dati.testo) || "STEP associato al prodotto.");
       await caricaSorgente();
@@ -3091,6 +3123,7 @@ async function verificaSospeso(s) {
   try {
     const j = await P.esitoIntento(s.chiave);
     if (j.stato === "registrato" || j.stato === "registrato_senza_esito") {
+      delete S.gestiFile[s.risorsa];
       avvisa("ok", "Verificato: «" + (s.etichetta || s.nome) + "» è registrato" + (j.stato === "registrato_senza_esito" ? " (l'esito di allora non è più conservato)" : "") + ".");
       await leggiTutto(false);
     } else if (j.stato === "non_registrato") {
@@ -3118,6 +3151,7 @@ function abbandonaTentativo(s) {
   apriFinestra("Abbandonare il tentativo?", h("p", {}, "La richiesta di prima («" + (s.etichetta || s.nome) + "») potrebbe ancora arrivare: se arriva, la vedrai registrata. Abbandonando la chiave, la pagina permette un gesto nuovo con una chiave nuova."),
     [{ testo: "Annulla", chiudi: true }, { testo: "Abbandona il tentativo", danger: true, id: "f-ok", fai: () => {
       P.abbandonaSospeso(s.risorsa);
+      delete S.gestiFile[s.risorsa];
       avvisa("ok", "Tentativo abbandonato: la richiesta di prima, se arriva, sarà registrata.");
       render();
     } }]);

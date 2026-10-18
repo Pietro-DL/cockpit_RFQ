@@ -42,13 +42,14 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   20 file: «Scarta...» con le dipendenze (D-6 blocca, D-7 scollega, D-14 unica copia), l'archivio con le voci, «Altri
      file» e «Riattiva», 503 NON_CONFIGURATO
   21 S2 con la risposta persa: «Esito da verificare», R6 con la stessa chiave, «registrato»
-  22 «+ Aggiungi file» (E1'): esito per file, «parziale», analisi in corso e poi letto, reinvio «gia' presente»
-  23 gli atti del menu («Prepara i file» senza «auto», «Rifai l'analisi», «Riprova le copie») e «Revoca» con il motivo;
+  22 S3 mai arrivata: R6 «non registrato», «Riprova» dalla striscia con lo stesso corpo e la stessa chiave
+  23 «+ Aggiungi file» (E1'): esito per file, «parziale», analisi in corso e poi letto, reinvio «gia' presente»
+  24 gli atti del menu («Prepara i file» senza «auto», «Rifai l'analisi», «Riprova le copie») e «Revoca» con il motivo;
      R11 «Riallinea i documenti» con F8 in errore; «Apri» e' un link a S5, mai una fetch
-  24 secondo prodotto: lo STEP che non propone una struttura per il prodotto non inventa niente
-  25 D-18: il modello che non si calcola (200 con «errore»): striscia, niente tela; «Aggiorna» lo rifa'
-  26 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
-  27 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
+  25 secondo prodotto: lo STEP che non propone una struttura per il prodotto non inventa niente
+  26 D-18: il modello che non si calcola (200 con «errore»): striscia, niente tela; «Aggiorna» lo rifa'
+  27 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
+  28 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
 
 I clienti, i codici e i nomi dei file sono inventati (ACME, BETA, ACM-xxxx).
 """
@@ -977,8 +978,42 @@ def b21(b):
     expect(p.locator("#du-cartella-scartati")).to_have_text("Scartati (5)", timeout=T_LUNGO)
 
 
-@prova("22", "«+ Aggiungi file» (E1′): parziale per file, in analisi poi letto, «già presente»")
+@prova("22", "S3 mai arrivata: R6 «non registrato», «Riprova» dalla striscia con la stessa chiave")
 def b22(b):
+    p = b.page
+    a3 = b.al["ACM-1120_B.pdf"]
+    risorsa = "file:" + a3
+    p.click("#du-cartella-attivi")
+    catturate = []
+    g = blocca_la_richiesta(catturate)
+    p.route("**/sorgente/file/*/altri-file", g)
+    try:
+        p.click("#du-altri-" + sid(a3))
+        expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS", timeout=T_LUNGO)
+        b.ok_finestra()
+        expect(b.avviso()).to_contain_text("non è ancora registrato", timeout=T_LUNGO)
+    finally:
+        p.unroute("**/sorgente/file/*/altri-file", g)
+    verifica(len(catturate) == 1, "richieste bloccate: %d" % len(catturate))
+    k = catturate[0]["chiave_idempotenza"]
+    striscia = p.locator("#du-sospeso-" + sid(risorsa))
+    expect(striscia).to_contain_text("il server dice che non è ancora registrato", timeout=T_LUNGO)
+    expect(striscia).to_contain_text("ACM-1120_B.pdf")
+    sosp = [x for x in b.sospesi() if x[1]["risorsa"] == risorsa]
+    verifica(len(sosp) == 1 and sosp[0][1]["chiave"] == k and sosp[0][1].get("verificato") is True, "memoria della scheda: %s" % sosp)
+    verifica(b.stato()["file"]["ACM-1120_B.pdf"]["stato"] == "attivo", "una richiesta mai arrivata ha cambiato il file")
+    i = b.segna()
+    p.click("#du-riprova-" + sid(risorsa))
+    expect(b.avviso()).to_contain_text("File messo in Altri file: il contenuto è conservato.", timeout=T_LUNGO)
+    s3 = b.corpi(i, "POST", r"/altri-file$")
+    verifica(len(s3) == 1 and s3[0] == catturate[0], "«Riprova» non rimanda lo stesso corpo con la stessa chiave: %s" % s3)
+    expect(striscia).to_have_count(0)
+    verifica(not [x for x in b.sospesi() if x[1]["risorsa"] == risorsa], "la chiave resta in sospeso dopo «Riprova»")
+    verifica(b.stato()["file"]["ACM-1120_B.pdf"]["stato"] == "altri_file", "il file non è in Altri file nel banco")
+
+
+@prova("23", "«+ Aggiungi file» (E1′): parziale per file, in analisi poi letto, «già presente»")
+def b23(b):
     p = b.page
     p.click("#du-cartella-attivi")
     i = b.segna()
@@ -1005,8 +1040,8 @@ def b22(b):
     expect(esiti.locator('li[data-esito="gia_presente"]')).to_contain_text("già presente", timeout=T_LUNGO)
 
 
-@prova("23", "atti del menu e «Revoca»; R11 con F8 in errore; «Apri» è un link a S5")
-def b23(b):
+@prova("24", "atti del menu e «Revoca»; R11 con F8 in errore; «Apri» è un link a S5")
+def b24(b):
     p = b.page
     i = b.segna()
     p.click("#du-menu-rfq summary")
@@ -1057,8 +1092,8 @@ def b23(b):
     verifica(not b.richieste_da(i, "GET", r"/contenuto$"), "la pagina ha chiesto S5 con una fetch")
 
 
-@prova("24", "secondo prodotto: indirizzo, nessuna struttura inventata")
-def b24(b):
+@prova("25", "secondo prodotto: indirizzo, nessuna struttura inventata")
+def b25(b):
     p = b.page
     a10 = b.al["ACM-1000_rev2.stp"]
     tab2 = p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)
@@ -1079,8 +1114,8 @@ def b24(b):
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
 
 
-@prova("25", "D-18: il modello che non si calcola: striscia, niente tela; «Aggiorna» lo rifà")
-def b25(b):
+@prova("26", "D-18: il modello che non si calcola: striscia, niente tela; «Aggiorna» lo rifà")
+def b26(b):
     p = b.page
     b.passo("revisione")
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
@@ -1096,8 +1131,8 @@ def b25(b):
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
 
 
-@prova("26", "impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale")
-def b26(b):
+@prova("27", "impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale")
+def b27(b):
     p = b.page
     misura = "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
     try:
@@ -1138,8 +1173,8 @@ ATTI = [
 ]
 
 
-@prova("27", "richieste della pagina: guscio, statici, rotte del ponte, sei atti; nessun legacy")
-def b27(b):
+@prova("28", "richieste della pagina: guscio, statici, rotte del ponte, sei atti; nessun legacy")
+def b28(b):
     def compila(elenco):
         return [(m, re.compile("^" + r.replace("{T}", re.escape(b.thread)).replace("{U}", UUID) + "$")) for m, r in elenco]
     guscio, dedicate, atti = compila(GUSCIO), compila(DEDICATE), compila(ATTI)
