@@ -152,8 +152,16 @@ func TestT09GruppoCorrenteDellaSorgente(t *testing.T) {
 			propostabom.NonAttivi{allB: "altri_file"}, sorgenteA, propostabom.GruppoCorrente{Come: "assente", AllegatoID: uidP(allB), Motivo: "occorrenza_non_attiva"}},
 		{"la BOM sulla stessa occorrenza scartata", prodotto(p1, true), []ancoraggio.StrutturaProdotto{bomDi(p1, allA, shaX, r1)},
 			propostabom.NonAttivi{allA: "scartato"}, sorgenteA, propostabom.GruppoCorrente{Come: "assente", AllegatoID: uidP(allA), Motivo: "occorrenza_non_attiva"}},
-		{"una candidata su un'occorrenza scartata non vale", prodotto(p1, false, candidata(allA, shaX, r1)), nil, propostabom.NonAttivi{allA: "scartato"},
+		// P-4 (b) dell'ondata A di V1: la candidata della propria occorrenza non attiva dà occorrenza_non_attiva, con
+		// l'allegato; una candidata non attiva di un'altra occorrenza no.
+		{"la candidata della propria occorrenza scartata (P-4 b)", prodotto(p1, false, candidata(allA, shaX, r1)), nil, propostabom.NonAttivi{allA: "scartato"},
+			sorgenteA, propostabom.GruppoCorrente{Come: "assente", AllegatoID: uidP(allA), Motivo: "occorrenza_non_attiva"}},
+		{"la candidata della propria occorrenza in Altri file (P-4 b)", prodotto(p1, false, candidata(allA, shaX, r1)), nil,
+			propostabom.NonAttivi{allA: "altri_file"}, sorgenteA, propostabom.GruppoCorrente{Come: "assente", AllegatoID: uidP(allA), Motivo: "occorrenza_non_attiva"}},
+		{"la candidata non attiva dell'altra copia non vale", prodotto(p1, false, candidata(allB, shaX, r1)), nil, propostabom.NonAttivi{allB: "scartato"},
 			sorgenteA, propostabom.GruppoCorrente{Come: "assente", Motivo: "nessun_gruppo"}},
+		{"la candidata della propria occorrenza scartata con un'altra radice non vale", prodotto(p1, false, candidata(allA, shaX, r7)), nil,
+			propostabom.NonAttivi{allA: "scartato"}, sorgenteA, propostabom.GruppoCorrente{Come: "assente", Motivo: "nessun_gruppo"}},
 		{"la candidata scartata e la BOM attiva sul portatore", prodotto(p1, true, candidata(allA, shaX, r1)),
 			[]ancoraggio.StrutturaProdotto{bomDi(p1, allB, shaX, r1)}, propostabom.NonAttivi{allA: "scartato"}, sorgenteA,
 			propostabom.GruppoCorrente{Chiave: "bom", Come: "altra_occorrenza", AllegatoID: uidP(allB)}},

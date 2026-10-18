@@ -657,3 +657,66 @@ func contieneTesto(s []string, x string) bool {
 	}
 	return false
 }
+
+// TestA25IlCodicePropostoDelleLetture (A-25; DECA PE-08; EM §3.8): sull'uscita vera dell'adattatore ogni lettura del
+// registro con una proiezione ammissibile porta codice_proposto (e rev_proposta se c'è), uguale a quello dell'identità
+// proposta di una voce con la stessa lettura: le alternative di un nodo discordante, il riferimento del fornitore sulla
+// radice, le identità proposte; ogni codice rispetta CodiceAmmissibile e ogni rev è in maiuscole ASCII.
+func TestA25IlCodicePropostoDelleLetture(t *testing.T) {
+	// le alternative del nodo discordante (A-05): tutte e due proiettano lo stesso tratto
+	th := scenaBOM(t, []nodoF{{"#1", "7120100A", ""}, {"#2", "7120300A", ""}}, []arcoF{{"#1", "#2", 1}})
+	k := calcolaPerIlRegistro(t, th, insiemeConLaFamigliaAlternativa(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+	var alt []map[string]any
+	_ = json.Unmarshal(voceDelRegistro(t, k, nodoB("#2")).Alternative, &alt)
+	if len(alt) != 2 {
+		t.Fatalf("le alternative: %v", alt)
+	}
+	for _, a := range alt {
+		if a["codice_proposto"] != "7120300A" {
+			t.Errorf("un'alternativa senza il codice di partenza: %v", a)
+		}
+	}
+	// il riferimento del fornitore e le identità proposte (A-04)
+	_, hash := insiemeConLegami(t, false)
+	r, _ := insiemeConLegami(t, false, contestoDeiLegami(hash, motorea.OccorrenzaContesto{AllegatoID: aStepB.String()}))
+	g := calcolaPerIlRegistro(t, scenaLegame(t), r).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
+	radice := voceDelRegistro(t, g, nodoB("#1"))
+	trovato := false
+	for _, x := range riferimentiDi(t, radice) {
+		if x.Tipo != "lettura_ruolo" {
+			continue
+		}
+		var l map[string]any
+		_ = json.Unmarshal(x.Lettura, &l)
+		trovato = true
+		if l["codice_proposto"] != "654301" {
+			t.Errorf("il riferimento del fornitore senza il codice di partenza: %v", l)
+		}
+	}
+	if !trovato {
+		t.Fatal("la radice senza il riferimento del fornitore")
+	}
+	for _, v := range g.Proposta.Nodi {
+		if len(v.IdentitaProposta) == 0 {
+			continue
+		}
+		var l map[string]any
+		_ = json.Unmarshal(v.IdentitaProposta, &l)
+		if l["codice_proposto"] != v.CodiceProposto || (v.RevProposta != "" && l["rev_proposta"] != v.RevProposta) {
+			t.Errorf("%s: la lettura dice %v / %v, la voce %q / %q", v.Voce, l["codice_proposto"], l["rev_proposta"], v.CodiceProposto, v.RevProposta)
+		}
+	}
+	// le regole della foglia sull'uscita vera: la rilettura stretta le controlla tutte (importa), qui i valori
+	for _, x := range g.Proposta.File {
+		var ll []map[string]any
+		_ = json.Unmarshal(x.Letture, &ll)
+		for _, l := range ll {
+			if c, ok := l["codice_proposto"].(string); ok && !importazione.CodiceAmmissibile(c) {
+				t.Errorf("un codice di partenza non ammissibile: %v", l)
+			}
+			if rv, ok := l["rev_proposta"].(string); ok && strings.ToUpper(rv) != rv {
+				t.Errorf("una rev di partenza non in maiuscole: %v", l)
+			}
+		}
+	}
+}

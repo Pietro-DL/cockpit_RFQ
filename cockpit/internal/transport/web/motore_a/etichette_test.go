@@ -509,6 +509,16 @@ func TestEtichettaCopreOgniCostante(t *testing.T) {
 	t.Logf("%d domini, %d valori enumerati dalle sorgenti", len(domini), enumerati)
 }
 
+// TestEtichettaDelSegnaleLS02 (decisione P-1 (a) dell'ondata A di V1; EM §11.1): il codice del segnale LS-02, ora in
+// ancoraggio/codici_diagnostica.go, ha la sua etichetta «possibile elemento CAD» (la chiede anche
+// TestEtichettaCopreOgniCostante, che legge quel file). Il contro-indizio lettura_identita non ha un'etichetta: la pagina
+// vecchia non mostra i contro-indizi, e la nuova li scrive con i suoi testi.
+func TestEtichettaDelSegnaleLS02(t *testing.T) {
+	if got := Etichetta("codice_diagnostica", ancoraggio.CodiceSegnaleElementoCAD); got != "possibile elemento CAD" {
+		t.Errorf("etichetta del segnale: %q", got)
+	}
+}
+
 // I testi della tabella: non vuoti, senza spazi ai bordi, senza HTML né quadre (le quadre dicono «sconosciuto»); ci
 // sono i 22 domini del contratto §2.3, quelli della testa e origine_categoria (RAC-11).
 func TestEtichettaTestiPuliti(t *testing.T) {

@@ -64,6 +64,17 @@ const (
 	CodiceCorrezioneDocumentale = "ancoraggio.correzione_documentale"
 )
 
+// Il segnale LS-02 sui nodi degli STEP (V1; elementi_cad.go; addendum ad A1c §2.2): non è una diagnostica ma il codice
+// di un SegnaleNodo, e come ogni codice che il pacchetto produce sta qui (R41 b; decisione P-1 (a) dell'ondata A di V1).
+// Lo copiano il registro d'importazione (nodi[].segnali[]) e la decisione «non includere» (segnale_visto): una volta
+// pubblicato non cambia nome né significato.
+const (
+	// CodiceSegnaleElementoCAD — segnale. Un nodo di uno STEP che ha la forma di un elemento CAD (un cordone di
+	// saldatura o simile) e non di un articolo: la regola elemento_cad_nome_foglia_v1. Solo un segnale, spiegato: non
+	// toglie il nodo, non lo esenta dal 2D, non decide.
+	CodiceSegnaleElementoCAD = "ancoraggio.possibile_elemento_cad"
+)
+
 // Le equivalenze del cartiglio (ProponiAncoraggi, K4; equivalenze.go): un cartiglio che scrive il codice della parte e
 // il documento 3D della stessa parte (cartiglio.riferimento_3d) propone il candidato sul nodo del documento 3D, con le
 // prove. Niente si conferma: il candidato resta proposto (T-B0-09).

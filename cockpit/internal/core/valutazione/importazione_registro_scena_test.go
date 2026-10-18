@@ -482,8 +482,11 @@ func TestA17IlPesoDiDuemilaNodi(t *testing.T) {
 	}
 	c := calcolaPerIlRegistro(t, scenaBOM(t, nodi, archi), insiemeACME(t))
 	inizio := time.Now()
+	if _, err := propostabom.ImportaGruppo(c.ingresso(rifProdB, propostabom.GruppoBOM, nil)); err != nil {
+		t.Fatal(err)
+	}
+	durata := time.Since(inizio) // l'adattatore con Componi, come in R2 e in S6
 	r := c.importa(t, rifProdB, propostabom.GruppoBOM, nil)
-	durata := time.Since(inizio)
 	if len(r.Contenuto.Proposta.Nodi) != 2000 {
 		t.Fatalf("voci %d, attese 2000", len(r.Contenuto.Proposta.Nodi))
 	}
@@ -506,7 +509,7 @@ func TestA17IlPesoDiDuemilaNodi(t *testing.T) {
 	if !strings.Contains(string(r.Contenuto.Proposta.Diagnostiche), `"codice":"capacita.non_supportata"`) {
 		t.Errorf("l'avviso di capacità su tutti i nodi non sta nella testata: %.300s", r.Contenuto.Proposta.Diagnostiche)
 	}
-	t.Logf("A-17: registro di 2000 nodi = %d byte di testo canonico (%.1f MiB; limite %d MiB), composto e riletto in %s",
+	t.Logf("A-17: registro di 2000 nodi = %d byte di testo canonico (%.1f MiB; limite %d MiB), composto (ImportaGruppo) in %s",
 		len(r.Canonico), float64(len(r.Canonico))/(1<<20), importazione.MaxContenuto>>20, durata)
 }
 
@@ -725,4 +728,98 @@ func TestT13NienteOrariNelConfronto(t *testing.T) {
 	if !utf8.Valid(reg.Canonico) {
 		t.Error("il registro non è UTF-8")
 	}
+}
+
+// TestT13LeProiezioniSullUscitaVera (T-13, la parte sulle proiezioni; PM23 §10; EM §3.8.1): sul registro vero
+// dell'adattatore (la scena del collegamento), ogni campo presente di una voce cambiato da solo cambia l'impronta della
+// sua classe e solo quella: i campi «contenuto» impronta_contenuto, i campi «evidenze» impronta_evidenze; per la voce
+// della radice i campi che vengono dallo stato della RFQ (e stato_motore) stanno fra le evidenze (O-01). La classe la dà
+// l'elenco chiuso della foglia (importazione.Classificazione), mai una copia.
+func TestT13LeProiezioniSullUscitaVera(t *testing.T) {
+	reg := calcolaPerIlRegistro(t, scenaCollegamento(t), insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil)
+	base, err := importazione.ImpronteParziali(reg.Canonico)
+	if err != nil {
+		t.Fatal(err)
+	}
+	classi := importazione.Classificazione()
+	radiceEvidenze := map[string]bool{}
+	for _, c := range importazione.CampiDellaRadiceFraLeEvidenze {
+		radiceEvidenze[c] = true
+	}
+	var m map[string]any
+	if err := json.Unmarshal(reg.Canonico, &m); err != nil {
+		t.Fatal(err)
+	}
+	nodi := m["proposta"].(map[string]any)["nodi"].([]any)
+	radice := m["gruppo"].(map[string]any)["radice"].(string)
+	altro := func(v any) any {
+		switch x := v.(type) {
+		case string:
+			return x + "x"
+		case bool:
+			return !x
+		case float64:
+			return x + 1
+		case []any:
+			return append(append([]any(nil), x...), "x")
+		case map[string]any:
+			y := map[string]any{"x_prova": "x"}
+			for k, w := range x {
+				y[k] = w
+			}
+			return y
+		}
+		return "x"
+	}
+	provati := 0
+	for i := range nodi {
+		v := nodi[i].(map[string]any)
+		dellaRadice := v["origine"].(map[string]any)["rif"] == radice
+		campi := map[string]any{}
+		for k, w := range v {
+			if k == "stato_motore" {
+				for s, z := range w.(map[string]any) {
+					campi["stato_motore."+s] = z
+				}
+				continue
+			}
+			campi[k] = w
+		}
+		for campo, valore := range campi {
+			if campo == "voce" || campo == "origine" {
+				continue // cambiarli sposta la voce: non è il cambio di un campo
+			}
+			classe := classi["proposta.nodi[]."+campo]
+			if dellaRadice && (radiceEvidenze[campo] || strings.HasPrefix(campo, "stato_motore.")) {
+				classe = importazione.InEvidenze
+			}
+			if classe != importazione.InContenuto && classe != importazione.InEvidenze {
+				t.Errorf("%s: il campo %s non ha una classe della voce (%q)", v["voce"], campo, classe)
+				continue
+			}
+			copia := map[string]any{}
+			b, _ := json.Marshal(m)
+			_ = json.Unmarshal(b, &copia)
+			cv := copia["proposta"].(map[string]any)["nodi"].([]any)[i].(map[string]any)
+			if s, ok := strings.CutPrefix(campo, "stato_motore."); ok {
+				cv["stato_motore"].(map[string]any)[s] = altro(valore)
+			} else {
+				cv[campo] = altro(valore)
+			}
+			b, _ = json.Marshal(copia)
+			imp, err := importazione.ImpronteParziali(b)
+			if err != nil {
+				t.Fatalf("%s.%s: %v", v["voce"], campo, err)
+			}
+			cambiaC, cambiaE := imp.Contenuto != base.Contenuto, imp.Evidenze != base.Evidenze
+			if (classe == importazione.InContenuto) != cambiaC || (classe == importazione.InEvidenze) != cambiaE || imp.Regole != base.Regole {
+				t.Errorf("%s.%s (classe %s): contenuto cambiato %v, evidenze cambiate %v", v["voce"], campo, classe, cambiaC, cambiaE)
+			}
+			provati++
+		}
+	}
+	if provati < 40 {
+		t.Errorf("campi provati %d: la scena ne ha troppo pochi", provati)
+	}
+	t.Logf("T-13: %d campi delle voci provati sul registro vero", provati)
 }
