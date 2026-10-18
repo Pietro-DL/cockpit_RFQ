@@ -11,7 +11,12 @@
 //   - R3: 409 con la versione superata, 200 con quella corrente;
 //   - R11: gli stati di F8 in attesa diventano eseguito, risolto_da riallinea;
 //   - T-15: nessun percorso (C:\, \\) nelle risposte JSON;
-//   - R-24, «Conferma la fonte»: la riga conferma_documento della storia della fonte del prodotto.
+//   - R-24, «Conferma la fonte»: la riga conferma_documento della storia della fonte del prodotto;
+//   - prima l'esistenza della RFQ, poi la forma (EM §9, REV RS-11): 404 per una RFQ che non c'e' anche con una forma
+//     sbagliata, 422 per la stessa forma su una RFQ che c'e'; 413 per un corpo oltre il limite;
+//   - R-26: la variante ?effetto_cambio_tipo= di R1 da' la firma che l'anteprima del cambio di tipo della pagina legacy
+//     mostra per lo stesso componente e lo stesso tipo; un componente di un'altra RFQ e' 422 FUORI_RFQ, un tipo
+//     sconosciuto 422 CORPO_NON_VALIDO.
 // Le rotte si montano qui accanto a Registra finche' registraMotoreA non le monta (richiesta nel resoconto della corsia).
 // Dati inventati: ACME, codici 712xxxx.
 
@@ -301,6 +306,100 @@ func TestBozzaV1SalvaAbbandonaERiallineaViaHTTP(t *testing.T) {
 	op := operatore(b)
 	if resp, _ := op.chiediJSON(http.MethodPost, base+"/riallinea", `{}`); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("R11 dell'operatore: %d", resp.StatusCode)
+	}
+}
+
+// Prima l'esistenza della RFQ, poi la forma (EM §9, REV RS-11; rilievo della revisione dell'ondata B): ogni rotta con una
+// forma sbagliata da' 404 su una RFQ che non c'e' e 422 su una che c'e'; un corpo oltre 2 MiB + 4 KiB, 413.
+func TestBozzaV1PrimaLEsistenzaPoiLaForma(t *testing.T) {
+	b, s := bancoBozzaV1(t)
+	ad := b.browser("10.0.0.8")
+	ad.login("AD", "prova-ad")
+	assente := "/thread/" + uuid.New().String()
+	presente := "/thread/" + s.thread.String()
+	casi := []struct {
+		nome, metodo, coda, corpo string
+	}{
+		{"R1 senza prodotto", http.MethodGet, "/motore-a/bozza", ""},
+		{"R1 registro non valido", http.MethodGet, "/motore-a/bozza?prodotto=" + s.prodotto.String() + "&registro=xyz", ""},
+		{"R1 effetto con un tipo sconosciuto", http.MethodGet, "/motore-a/bozza?prodotto=" + s.prodotto.String() + "&effetto_cambio_tipo=" + s.sotto.String() + "&tipo_nuovo=pezzo", ""},
+		{"R2 corpo vuoto", http.MethodPost, "/motore-a/bozza", "{}"},
+		{"R3 corpo senza versione", http.MethodPost, "/motore-a/bozza/" + s.bozza.String() + "/abbandona", "{}"},
+		{"R7 conferma non valida", http.MethodGet, "/motore-a/conferme?prodotto=" + s.prodotto.String() + "&conferma=xyz", ""},
+		{"R11 con un corpo", http.MethodPost, "/motore-a/riallinea", `{"tutto":true}`},
+	}
+	for _, c := range casi {
+		for _, x := range []struct {
+			base  string
+			stato int
+		}{{assente, http.StatusNotFound}, {presente, http.StatusUnprocessableEntity}} {
+			var resp *http.Response
+			var testo string
+			if c.metodo == http.MethodGet {
+				resp, testo = ad.fai(c.metodo, x.base+c.coda, nil, false)
+			} else {
+				resp, testo = ad.chiediJSON(c.metodo, x.base+c.coda, c.corpo)
+			}
+			if resp.StatusCode != x.stato || !strings.Contains(testo, `"esito":"rifiutato"`) {
+				t.Errorf("%s su %s: %d %s, atteso %d", c.nome, x.base, resp.StatusCode, testo, x.stato)
+			}
+			controllaSenzaPercorsi(t, c.nome, testo)
+		}
+	}
+	resp, testo := ad.chiediJSON(http.MethodPost, presente+"/motore-a/bozza", strings.Repeat(" ", maxCorpoBozzaV1+1))
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(testo, codiceTroppoGrandeV1) {
+		t.Errorf("R2 oltre il limite: %d %s", resp.StatusCode, testo)
+	}
+}
+
+// R-26 (DECA PE-09; EM §9.1): la variante di R1 con l'effetto del cambio di tipo.
+func TestBozzaV1R26EffettoDelCambioDiTipo(t *testing.T) {
+	b, s := bancoBozzaV1(t)
+	ad := b.browser("10.0.0.8")
+	ad.login("AD", "prova-ad")
+	base := "/thread/" + s.thread.String()
+	_, corpo := ad.fai(http.MethodGet, base+"/motore-a/bozza?prodotto="+s.prodotto.String()+"&effetto_cambio_tipo="+s.sotto.String()+"&tipo_nuovo=sciolto", nil, false)
+	var eff struct {
+		ComponenteID uuid.UUID `json:"componente_id"`
+		TipoNuovo    string    `json:"tipo_nuovo"`
+		Effetto      struct {
+			Codice      string `json:"codice"`
+			TipoAttuale string `json:"tipo_attuale"`
+		} `json:"effetto"`
+		FirmaEffetto string `json:"firma_effetto"`
+	}
+	if err := json.Unmarshal([]byte(corpo), &eff); err != nil || eff.ComponenteID != s.sotto || eff.TipoNuovo != "sciolto" || eff.Effetto.Codice != "7120010" ||
+		eff.Effetto.TipoAttuale != "sottoassieme" {
+		t.Fatalf("effetto: %s", corpo)
+	}
+	// la stessa firma dell'anteprima della pagina legacy (la scheda del componente), per lo stesso componente e tipo
+	_, html := ad.fai(http.MethodGet, base+"/fascicolo/componente/"+s.sotto.String()+"/tipo?tipo=sciolto", nil, true)
+	if legacy := firmaVista(html); legacy == "" || legacy != eff.FirmaEffetto {
+		t.Fatalf("firma di R1 %q, della pagina legacy %q", eff.FirmaEffetto, legacy)
+	}
+	// un componente di un'altra RFQ: 422 FUORI_RFQ
+	cliente2, thread2, comp2 := uuid.New(), uuid.New(), uuid.New()
+	for _, x := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO cliente (cliente_id, cartella_nas, ragione_sociale) VALUES ($1, 'BETAV1', 'BETA S.r.l.')`, []any{cliente2}},
+		{`INSERT INTO thread_offerta (thread_id, cliente_id, canale, data_inizio, oggetto) VALUES ($1, $2, 'outlook', now(), 'RFQ 7130001')`, []any{thread2, cliente2}},
+		{`INSERT INTO componente (componente_id, thread_id, codice, tipo, origine, confermato_da) VALUES ($1, $2, '7130010', 'sottoassieme', 'manuale', $3)`,
+			[]any{comp2, thread2, s.admin}},
+	} {
+		if _, err := b.pool.Exec(b.ctx, x.sql, x.args...); err != nil {
+			t.Fatalf("%v\n%s", err, x.sql)
+		}
+	}
+	resp, testo := ad.fai(http.MethodGet, base+"/motore-a/bozza?prodotto="+s.prodotto.String()+"&effetto_cambio_tipo="+comp2.String()+"&tipo_nuovo=sciolto", nil, false)
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(testo, `"codice":"FUORI_RFQ"`) {
+		t.Errorf("componente di un'altra RFQ: %d %s", resp.StatusCode, testo)
+	}
+	// un tipo sconosciuto: 422 CORPO_NON_VALIDO
+	resp, testo = ad.fai(http.MethodGet, base+"/motore-a/bozza?prodotto="+s.prodotto.String()+"&effetto_cambio_tipo="+s.sotto.String()+"&tipo_nuovo=pezzo", nil, false)
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(testo, `"codice":"CORPO_NON_VALIDO"`) || !strings.Contains(testo, `"campo":"tipo_nuovo"`) {
+		t.Errorf("tipo sconosciuto: %d %s", resp.StatusCode, testo)
 	}
 }
 

@@ -185,11 +185,16 @@ markmap:
   del cambio di tipo con la firma, PE-09); R2 `POST …/bozza` (forma salvataggio; le altre forme 422
   `forma_non_disponibile` fino all'ondata C); R3 `POST …/bozza/{bozza}/abbandona`; R6 `GET …/intento/{chiave}`; R7
   `GET …/conferme?prodotto=` (`&conferma=`, `&importazione=1`); R11 `POST …/riallinea`.
-- I codici: `statoDelCodiceV1` e l'elenco unico `CodiciServerBozzaV1` (T-05, provato contro i cataloghi del ponte); un
-  errore non previsto e' 500 con un testo generico (il dettaglio nel log).
-- Prove: `motore_a_bozza_v1_test.go` (L1: flag, ruoli, rotte montate, codici, T-05, T-12, T-12b),
+- L'ordine dei controlli (EM §9, REV RS-11): gli id del percorso (400), l'esistenza della RFQ (404, `rfqEsisteV1`), il
+  corpo (413) e la forma (422).
+- I codici: `statoDelCodiceV1` e l'elenco unico `CodiciServerBozzaV1` (T-05, provato contro i cataloghi del ponte; R11
+  appena il ponte ha il catalogo di `riallineaDocumenti`); un errore non previsto e' 500 con un testo generico (il
+  dettaglio nel log). Il 500 di R11 (F8 non riuscito) sta nella busta unica `{esito, codice, testo, f8_stato,
+  aggiornati}`; R11 legge l'inizio dall'orologio del database (`OraDelDatabase`), lo stesso di `f8_stato.creato_il`.
+- Prove: `motore_a_bozza_v1_test.go` (L1: flag, ruoli, rotte montate, codici, T-05, T-12 e T-12b con il valore delle
+  costanti calcolato e il mutante della revisione come caso negativo, la busta di R11),
   `motore_a_bozza_v1_db_test.go` (L4: T-04 con il guscio della pagina, R2/R3/R11 via HTTP, T-12 meta' L4, T-15,
-  «Conferma la fonte» di R-24).
+  «Conferma la fonte» di R-24, prima l'esistenza poi la forma, R-26).
 
 ### Le rotte (A1d-P2)
 

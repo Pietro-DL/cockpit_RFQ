@@ -21,6 +21,10 @@ package web
 // acceso, 404 a flag spento). CSRF: http.CrossOriginProtection, globale. Il corpo JSON e' al piu' 2 MiB + 4 KiB, letto in
 // modo stretto (DisallowUnknownFields, niente dopo il valore); oltre, 413.
 //
+// L'ordine dei controlli (EM §9, «prima l'esistenza della RFQ, poi la forma», REV RS-11): gli id del percorso (400), poi
+// l'esistenza della RFQ (404, con una lettura), poi il corpo (413) e la forma del corpo e della query (422); la
+// transazione del core ricontrolla la RFQ sotto il suo lucchetto.
+//
 // I codici (EM §9): 400 un id del percorso non valido; 404 la RFQ non c'e' (o il flag e' spento); 409 BOZZA_VERSIONE,
 // BASE_SUPERATA, ANTEPRIMA_SUPERATA, CHIAVE_RIUSATA (esito «conflitto»); 413; 422 CORPO_NON_VALIDO (con campo e motivo),
 // FUORI_RFQ, BOZZA_ALTRO_PRODOTTO, FILE_NON_ATTIVO, MOTIVO_OBBLIGATORIO; 500 ogni altro errore, con un testo generico e il
@@ -167,6 +171,9 @@ var CodiciServerBozzaV1 = []CodiceRotta{
 	{"R6", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R7", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R7", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
+	// R11: un corpo che non e' vuoto ne' {} (PB-17); il ponte non ha ancora il catalogo di riallineaDocumenti (RQ-3): T-05 lo
+	// confronta appena c'e'
+	{"R11", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
 }
 
 // scriviJSONBozzaV1: JSON senza l'escape HTML di encoding/json (lo snapshot di R1 e' byte per byte quello salvato: «&»,
@@ -201,6 +208,20 @@ func (s *Server) rispondiErroreBozzaV1(w http.ResponseWriter, r *http.Request, t
 		}
 	}
 	s.scriviJSONBozzaV1(w, r, stato, corpo)
+}
+
+// rfqEsisteV1: la RFQ del percorso c'e' (una lettura fuori transazione: la transazione del core la ricontrolla sotto il
+// lucchetto); altrimenti 404 RFQ_INESISTENTE, prima di leggere la forma della richiesta (EM §9, REV RS-11). ok falso:
+// risposta gia' scritta.
+func (s *Server) rfqEsisteV1(w http.ResponseWriter, r *http.Request, thread uuid.UUID) bool {
+	if _, err := db.New(s.Pool).GetThread(r.Context(), thread); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = &distintabozza.Errore{Codice: distintabozza.CodiceRFQInesistente, Messaggio: "la RFQ non c'e'"}
+		}
+		s.rispondiErroreBozzaV1(w, r, thread, err)
+		return false
+	}
+	return true
 }
 
 // idDelPercorsoV1 legge un id del percorso: 400 se non e' un UUID (ok falso, risposta gia' scritta).
@@ -297,7 +318,7 @@ func vuotoSeNil(xx []string) []string {
 // bozzaV1Leggi: R1 (EM §9.1).
 func (s *Server) bozzaV1Leggi(w http.ResponseWriter, r *http.Request) {
 	thread, ok := s.idDelPercorsoV1(w, r, "id")
-	if !ok {
+	if !ok || !s.rfqEsisteV1(w, r, thread) {
 		return
 	}
 	q := r.URL.Query()
@@ -400,7 +421,7 @@ func (s *Server) bozzaV1Effetto(w http.ResponseWriter, r *http.Request, thread, 
 // riconciliazione, verifiche, versione ed eventi) e' tutta in distintabozza.SalvaFormato3.
 func (s *Server) bozzaV1Salva(w http.ResponseWriter, r *http.Request) {
 	thread, ok := s.idDelPercorsoV1(w, r, "id")
-	if !ok {
+	if !ok || !s.rfqEsisteV1(w, r, thread) {
 		return
 	}
 	raw, ok := s.leggiCorpoV1(w, r)
@@ -429,7 +450,7 @@ func (s *Server) bozzaV1Abbandona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bozza, ok := s.idDelPercorsoV1(w, r, "bozza")
-	if !ok {
+	if !ok || !s.rfqEsisteV1(w, r, thread) {
 		return
 	}
 	raw, ok := s.leggiCorpoV1(w, r)
@@ -471,7 +492,7 @@ func (s *Server) bozzaV1Intento(w http.ResponseWriter, r *http.Request) {
 // bozzaV1Storico: R7 (EM §9.7).
 func (s *Server) bozzaV1Storico(w http.ResponseWriter, r *http.Request) {
 	thread, ok := s.idDelPercorsoV1(w, r, "id")
-	if !ok {
+	if !ok || !s.rfqEsisteV1(w, r, thread) {
 		return
 	}
 	q := r.URL.Query()
@@ -504,11 +525,15 @@ func (s *Server) bozzaV1Storico(w http.ResponseWriter, r *http.Request) {
 	s.scriviJSONBozzaV1(w, r, http.StatusOK, out)
 }
 
-// rispostaR11 e' la risposta di R11: lo stato di F8 dopo il riallineamento e quanti stati di F8 sono cambiati.
+// rispostaR11 e' la risposta di R11: lo stato di F8 dopo il riallineamento e quanti stati di F8 sono cambiati. Con F8
+// non riuscito e' un 500 nella busta unica degli errori (EM §9, REV RS-08: {esito, codice, testo, …}), con f8_stato e
+// aggiornati in piu'.
 type rispostaR11 struct {
+	Esito      string `json:"esito,omitempty"`
+	Codice     string `json:"codice,omitempty"`
+	Testo      string `json:"testo,omitempty"`
 	F8Stato    string `json:"f8_stato"`
 	Aggiornati int    `json:"aggiornati"`
-	Testo      string `json:"testo,omitempty"`
 }
 
 // bozzaV1Riallinea: R11 (C3 §1.2; EM §9.8), invariato: rifa' F8 sull'intera RFQ e porta gli stati di F8 non eseguiti,
@@ -516,7 +541,7 @@ type rispostaR11 struct {
 // il registro. Il corpo, se c'e', e' vuoto ({}).
 func (s *Server) bozzaV1Riallinea(w http.ResponseWriter, r *http.Request) {
 	thread, ok := s.idDelPercorsoV1(w, r, "id")
-	if !ok {
+	if !ok || !s.rfqEsisteV1(w, r, thread) {
 		return
 	}
 	raw, ok := s.leggiCorpoV1(w, r)
@@ -529,16 +554,15 @@ func (s *Server) bozzaV1Riallinea(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if _, err := db.New(s.Pool).GetThread(ctx, thread); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			err = &distintabozza.Errore{Codice: distintabozza.CodiceRFQInesistente, Messaggio: "la RFQ non c'e'"}
-		}
+	q := db.New(s.Pool)
+	// l'inizio si legge dall'orologio del database, quello di f8_stato.creato_il: con l'orologio dell'applicazione uno
+	// stato creato da una R5 concorrente dopo l'inizio potrebbe passare per «creato prima» (o il contrario)
+	inizio, err := q.OraDelDatabase(ctx)
+	if err != nil {
 		s.rispondiErroreBozzaV1(w, r, thread, err)
 		return
 	}
-	inizio := time.Now()
 	errF8 := s.smistatore()(context.WithoutCancel(ctx), thread, fascicolo.Ambito{Rfq: true})
-	q := db.New(s.Pool)
 	righe, err := q.ListF8DaRiallineare(ctx, db.ListF8DaRiallineareParams{ThreadID: thread, PrimaDi: inizio})
 	if err != nil {
 		s.rispondiErroreBozzaV1(w, r, thread, err)
@@ -562,11 +586,16 @@ func (s *Server) bozzaV1Riallinea(w http.ResponseWriter, r *http.Request) {
 		if s.Log != nil {
 			s.Log.Error("motore A, R11: F8 non riuscito", "thread", thread, "err", errF8)
 		}
-		s.scriviJSONBozzaV1(w, r, http.StatusInternalServerError, rispostaR11{F8Stato: "errore", Aggiornati: out.Aggiornati,
-			Testo: "Riallineamento dei documenti non riuscito: riprova. Il dettaglio è nel log del server."})
+		s.scriviJSONBozzaV1(w, r, http.StatusInternalServerError, erroreR11(out.Aggiornati))
 		return
 	}
 	s.scriviJSONBozzaV1(w, r, http.StatusOK, out)
+}
+
+// erroreR11: la risposta di R11 con F8 non riuscito (500), nella busta unica degli errori (EM §9, REV RS-08).
+func erroreR11(aggiornati int) rispostaR11 {
+	return rispostaR11{Esito: "errore", Codice: codiceErroreV1, F8Stato: "errore", Aggiornati: aggiornati,
+		Testo: "Riallineamento dei documenti non riuscito: riprova. Il dettaglio è nel log del server."}
 }
 
 // testoErroreF8: il testo dell'errore di F8 per f8_stato.errore (ck_f8_errore: non vuoto, al piu' 2000 caratteri).

@@ -175,6 +175,11 @@ SELECT f8_id, chiave_intento, conferma_id, stato, tentativi, creato_il
  WHERE thread_id = sqlc.arg(thread_id) AND stato <> 'eseguito' AND creato_il <= sqlc.arg(prima_di)
  ORDER BY f8_id;
 
+-- name: OraDelDatabase :one
+-- L'ora del database (clock_timestamp), lo stesso orologio di f8_stato.creato_il: R11 la legge prima di rifare F8, e
+-- porta a eseguito solo gli stati creati fino a quell'ora.
+SELECT clock_timestamp()::timestamptz AS ora;
+
 -- name: SegnaF8Eseguito :execrows
 -- Uno stato di F8 portato a eseguito (finale) da R11, con un tentativo in piu'.
 UPDATE f8_stato SET stato = 'eseguito', errore = NULL, risolto_da = 'riallinea', tentativi = tentativi + 1

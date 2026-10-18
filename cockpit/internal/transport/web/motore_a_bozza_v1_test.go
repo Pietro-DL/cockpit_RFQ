@@ -4,13 +4,17 @@ package web
 // R7, R11), con httptest e senza database:
 //   - flag spento: ogni metodo su ogni indirizzo risponde come un indirizzo che non esiste, prima della sessione (Pool nil);
 //   - flag acceso: senza sessione il rimando al login con no-store; gli altri metodi 405 con Allow e no-store; chi non e'
-//     admin il 403 di nega; l'admin arriva al gestore (i rifiuti che non leggono il database: 400, 422, 413);
+//     admin il 403 di nega; l'admin arriva al gestore (il 400 di un id del percorso, che viene prima di ogni lettura del
+//     database: l'esistenza della RFQ, il 413 e i 422 della forma li provano le L4, EM §9 «prima l'esistenza»);
 //   - le rotte si montano accanto a quelle di Registra senza conflitti di pattern (anche dopo che registraMotoreA le monta);
 //   - la traduzione degli errori: ogni codice dell'elenco unico (CodiciServerBozzaV1) con il suo stato, l'esito
 //     «conflitto» per i 409, il 500 generico senza dettaglio (T-15: nessun percorso nella risposta);
 //   - T-05: l'elenco unico dei codici del server contro i cataloghi del ponte (CONFLITTI per i 409, RIFIUTI per i 422);
 //   - T-12 (meta' L1, TestV1NessunaBozzaFormato2Nuova): R2 salva solo con SalvaFormato3, nessun codice di produzione chiama
-//     il salvataggio formato 2; T-12b (meta' L1): nessuna strada del Go scrive una conferma formato 2.
+//     il salvataggio formato 2 (anche dentro distintabozza, senza il nome del pacchetto) ne' scrive una testata di bozza con
+//     un formato che non vale 3; T-12b (meta' L1): nessuna strada del Go scrive una conferma con un formato che non vale 3
+//     (il valore delle costanti e delle conversioni int16(...) si calcola, non si indovina dal nome). Tutte e due provano il
+//     mutante del revisore come caso negativo.
 // Dati inventati: UUID 00000000-0000-4000-8000-0000000000nn (mwUUID).
 
 import (
@@ -26,8 +30,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -132,7 +138,8 @@ func TestBozzaV1AccesoSenzaSessioneEAltriMetodi(t *testing.T) {
 }
 
 // Il ruolo: la catena meno autenticato (che legge la sessione dal database). Per l'admin il gestore parte e rifiuta la
-// richiesta prima di toccare il database (Pool nil): un id che non e' un UUID (400), un corpo che non si legge (422).
+// richiesta prima di toccare il database (Pool nil): un id del percorso che non e' un UUID (400), che viene prima
+// dell'esistenza della RFQ (EM §9: prima l'esistenza, poi la forma; i 422 della forma e il 404 sono nelle L4).
 func TestBozzaV1SoloLAdmin(t *testing.T) {
 	s := mwServer(t, motorea_web.Regole{Accesa: true, Stato: motorea_web.StatoIndiceAssente})
 	id := mwUUID(1).String()
@@ -142,17 +149,12 @@ func TestBozzaV1SoloLAdmin(t *testing.T) {
 		h                             http.HandlerFunc
 		stato                         int
 	}{
-		{"R1 senza prodotto", http.MethodGet, "/thread/" + id + "/motore-a/bozza", "", map[string]string{"id": id}, s.bozzaV1Leggi, http.StatusUnprocessableEntity},
-		{"R1 registro non valido", http.MethodGet, "/thread/" + id + "/motore-a/bozza?prodotto=" + id + "&registro=xyz", "", map[string]string{"id": id}, s.bozzaV1Leggi, http.StatusUnprocessableEntity},
-		{"R1 effetto senza componente", http.MethodGet, "/thread/" + id + "/motore-a/bozza?prodotto=" + id + "&tipo_nuovo=sciolto", "", map[string]string{"id": id}, s.bozzaV1Leggi, http.StatusUnprocessableEntity},
-		{"R1 effetto con un tipo sconosciuto", http.MethodGet, "/thread/" + id + "/motore-a/bozza?prodotto=" + id + "&effetto_cambio_tipo=" + id + "&tipo_nuovo=pezzo", "", map[string]string{"id": id}, s.bozzaV1Leggi, http.StatusUnprocessableEntity},
-		{"R2 corpo vuoto", http.MethodPost, "/thread/" + id + "/motore-a/bozza", "{}", map[string]string{"id": id}, s.bozzaV1Salva, http.StatusUnprocessableEntity},
+		{"R1 thread non valido", http.MethodGet, "/thread/xyz/motore-a/bozza?prodotto=" + id, "", map[string]string{"id": "xyz"}, s.bozzaV1Leggi, http.StatusBadRequest},
 		{"R2 thread non valido", http.MethodPost, "/thread/xyz/motore-a/bozza", "{}", map[string]string{"id": "xyz"}, s.bozzaV1Salva, http.StatusBadRequest},
 		{"R3 bozza non valida", http.MethodPost, "/thread/" + id + "/motore-a/bozza/xyz/abbandona", "{}", map[string]string{"id": id, "bozza": "xyz"}, s.bozzaV1Abbandona, http.StatusBadRequest},
-		{"R3 corpo senza versione", http.MethodPost, "/thread/" + id + "/motore-a/bozza/" + id + "/abbandona", "{}", map[string]string{"id": id, "bozza": id}, s.bozzaV1Abbandona, http.StatusUnprocessableEntity},
 		{"R6 chiave non valida", http.MethodGet, "/thread/" + id + "/motore-a/intento/xyz", "", map[string]string{"id": id, "chiave": "xyz"}, s.bozzaV1Intento, http.StatusBadRequest},
-		{"R7 conferma non valida", http.MethodGet, "/thread/" + id + "/motore-a/conferme?prodotto=" + id + "&conferma=xyz", "", map[string]string{"id": id}, s.bozzaV1Storico, http.StatusUnprocessableEntity},
-		{"R11 con un corpo", http.MethodPost, "/thread/" + id + "/motore-a/riallinea", `{"tutto":true}`, map[string]string{"id": id}, s.bozzaV1Riallinea, http.StatusUnprocessableEntity},
+		{"R7 thread non valido", http.MethodGet, "/thread/xyz/motore-a/conferme?prodotto=" + id, "", map[string]string{"id": "xyz"}, s.bozzaV1Storico, http.StatusBadRequest},
+		{"R11 thread non valido", http.MethodPost, "/thread/xyz/motore-a/riallinea", `{}`, map[string]string{"id": "xyz"}, s.bozzaV1Riallinea, http.StatusBadRequest},
 	}
 	for _, c := range casi {
 		porta := s.conMotoreA(conNoStore(s.soloRuolo(db.RuoloUtenteAdmin, c.h)))
@@ -186,15 +188,14 @@ func TestBozzaV1SoloLAdmin(t *testing.T) {
 	}
 }
 
-// Il corpo oltre 2 MiB + 4 KiB: 413 TROPPO_GRANDE, prima di leggerlo.
+// Il corpo oltre 2 MiB + 4 KiB: 413 TROPPO_GRANDE (leggiCorpoV1, senza database; nelle rotte viene dopo l'esistenza
+// della RFQ, che le L4 provano).
 func TestBozzaV1CorpoTroppoGrande(t *testing.T) {
 	s := mwServer(t, motorea_web.Regole{Accesa: true, Stato: motorea_web.StatoIndiceAssente})
 	req := httptest.NewRequest(http.MethodPost, "/thread/"+mwUUID(1).String()+"/motore-a/bozza", bytes.NewReader(bytes.Repeat([]byte(" "), maxCorpoBozzaV1+1)))
-	req.SetPathValue("id", mwUUID(1).String())
-	req = req.WithContext(context.WithValue(req.Context(), ctxUtente, &db.Utente{UtenteID: mwUUID(9), Ruolo: db.RuoloUtenteAdmin}))
-	rec, panico := mwServi(http.HandlerFunc(s.bozzaV1Salva), req)
-	if panico != nil || rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), codiceTroppoGrandeV1) {
-		t.Fatalf("%v %d %s", panico, rec.Code, rec.Body)
+	rec := httptest.NewRecorder()
+	if _, ok := s.leggiCorpoV1(rec, req); ok || rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), codiceTroppoGrandeV1) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }
 
@@ -274,6 +275,26 @@ func TestBozzaV1RispostaErrore(t *testing.T) {
 	}
 }
 
+// Il 500 di R11 (F8 non riuscito) sta nella busta unica degli errori {esito, codice, testo, …} (EM §9, REV RS-08), con
+// f8_stato e aggiornati in piu'; il 200 ha solo f8_stato e aggiornati.
+func TestBozzaV1R11NellaBustaUnica(t *testing.T) {
+	b, err := json.Marshal(erroreR11(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["esito"] != "errore" || m["codice"] != codiceErroreV1 || m["testo"] == "" || m["f8_stato"] != "errore" || m["aggiornati"] != float64(2) || bzHaPercorsi(string(b)) {
+		t.Errorf("500 di R11: %s", b)
+	}
+	ok, _ := json.Marshal(rispostaR11{F8Stato: "eseguito", Aggiornati: 1})
+	if string(ok) != `{"f8_stato":"eseguito","aggiornati":1}` {
+		t.Errorf("200 di R11: %s", ok)
+	}
+}
+
 // bzHaPercorsi: T-15, una lettera di unita' (C:\) o una barra rovescia in una risposta JSON.
 var reBzPercorso = regexp.MustCompile(`[A-Za-z]:\\\\|\\\\`)
 
@@ -324,7 +345,8 @@ func TestBozzaV1T05CodiciControIlPonte(t *testing.T) {
 		return out
 	}
 	conflitti, rifiuti := catalogo("CONFLITTI"), catalogo("RIFIUTI")
-	funzione := map[string]string{"R1": "leggiBozza", "R2": "salvaBozza", "R3": "abbandonaBozza", "R6": "esitoIntento", "R7": "storicoConferme"}
+	funzione := map[string]string{"R1": "leggiBozza", "R2": "salvaBozza", "R3": "abbandonaBozza", "R6": "esitoIntento", "R7": "storicoConferme",
+		"R11": "riallineaDocumenti"}
 	contiene := func(xx []string, x string) bool {
 		for _, y := range xx {
 			if y == x {
@@ -339,6 +361,12 @@ func TestBozzaV1T05CodiciControIlPonte(t *testing.T) {
 		f, ok := funzione[c.Rotta]
 		if !ok {
 			t.Errorf("%s: rotta senza funzione del ponte", c.Rotta)
+			continue
+		}
+		if _, ha := rifiuti[f]; !ha && c.Rotta == "R11" {
+			// il ponte non ha ancora il catalogo dei rifiuti di riallineaDocumenti: richiesta RQ-3 alla corsia interfaccia;
+			// appena c'e', la prova lo confronta come gli altri
+			t.Logf("%s %s: il ponte non ha ancora RIFIUTI.%s (RQ-3)", c.Rotta, c.Codice, f)
 			continue
 		}
 		switch c.Stato {
@@ -362,8 +390,11 @@ func TestBozzaV1T05CodiciControIlPonte(t *testing.T) {
 }
 
 // T-12, meta' L1 (TestV1NessunaBozzaFormato2Nuova): il gestore di R2 legge il corpo con LeggiRichiestaR2 e salva solo con
-// SalvaFormato3; nessun codice di produzione (fuori dalle prove) chiama il salvataggio formato 2 (distintabozza.Salva) ne'
-// scrive una testata di bozza con il formato 2. La meta' L4 manda un corpo formato 2 a R2 e conta le righe.
+// SalvaFormato3; nessun codice di produzione (fuori dalle prove) chiama il salvataggio formato 2 (distintabozza.Salva, e
+// Salva senza il nome del pacchetto dentro distintabozza) ne' costruisce i parametri di una testata di bozza
+// (InsertDistintaBozzaParams, InsertDistintaBozzaConIDParams) con un Formato che non vale 3, tranne il Salva del formato 2
+// stesso, che nessuno chiama. Il mutante del revisore (una chiamata a Salva dentro il pacchetto, una testata con
+// FormatoSnapshot) e' il caso negativo. La meta' L4 manda un corpo formato 2 a R2 e conta le righe.
 func TestV1NessunaBozzaFormato2Nuova(t *testing.T) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "motore_a_bozza_v1.go", nil, 0)
@@ -390,36 +421,35 @@ func TestV1NessunaBozzaFormato2Nuova(t *testing.T) {
 	if !chiamate["distintabozza.LeggiRichiestaR2"] || !chiamate["distintabozza.SalvaFormato3"] || chiamate["distintabozza.Salva"] {
 		t.Errorf("bozzaV1Salva chiama %v: attesi LeggiRichiestaR2 e SalvaFormato3, mai Salva", chiamate)
 	}
-	radice := bzRadiceModulo(t)
-	for _, file := range bzFileGoDiProduzione(t, radice) {
-		pf, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ast.Inspect(pf, func(n ast.Node) bool {
-			if c, ok := n.(*ast.CallExpr); ok {
-				if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
-					if x, ok := sel.X.(*ast.Ident); ok && x.Name == "distintabozza" && sel.Sel.Name == "Salva" {
-						t.Errorf("%s: chiama distintabozza.Salva (il salvataggio formato 2)", file)
-					}
-				}
-			}
-			return true
-		})
+	m := bzLeggiModulo(t)
+	if v := bzViolazioniT12(m, m.file); len(v) > 0 {
+		t.Errorf("T-12: %s", strings.Join(v, "\n"))
+	}
+	// il caso negativo: il mutante del revisore, aggiunto ai file del pacchetto distintabozza
+	if v := bzViolazioniT12(m, []bzFileGo{bzMutante(m)}); len(v) != 2 {
+		t.Errorf("T-12 sul mutante: %d violazioni, attese 2 (Salva senza il pacchetto, la testata con FormatoSnapshot):\n%s", len(v), strings.Join(v, "\n"))
+	}
+	if v := bzViolazioniT12(m, []bzFileGo{bzBuono(m)}); len(v) != 0 {
+		t.Errorf("T-12 sul caso buono: %s", strings.Join(v, "\n"))
 	}
 }
 
-// T-12b, meta' L1: nessuna strada del Go scrive una conferma formato 2. Le query che scrivono conferma_strutturale sono
-// una sola (InsertConfermaStrutturale, con il formato come parametro), e nessun costruttore dei suoi parametri nel codice
-// di produzione mette il formato 2 (un letterale 2 o una costante con «2» nel nome); nessun SQL scritto a mano nel Go
-// scrive la testata della conferma.
+// reInsertConferma: una scrittura di conferma_strutturale scritta in SQL.
+var reInsertConferma = regexp.MustCompile(`(?is)INSERT\s+INTO\s+conferma_strutturale\s*\(([^)]*)\)\s*VALUES\s*\(`)
+
+// T-12b, meta' L1: nessuna strada del Go scrive una conferma con un formato che non vale 3. Le query che scrivono
+// conferma_strutturale sono una sola (InsertConfermaStrutturale, con il formato come parametro); ogni chiamata del codice di
+// produzione le passa i parametri in un letterale (cosi' il Formato si verifica), e il Formato del letterale e' una
+// costante che vale 3: il valore si calcola dalle costanti del modulo e dalle conversioni (int16(FormatoSnapshot) vale 2),
+// non si indovina dal nome; un Formato che non e' costante non passa. Nessun SQL scritto a mano nel Go scrive la testata
+// della conferma. Il mutante del revisore e' il caso negativo.
 func TestV1T12bNessunaConfermaFormato2(t *testing.T) {
 	radice := bzRadiceModulo(t)
 	query, err := filepath.Glob(filepath.Join(radice, "internal", "platform", "db", "queries", "*.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	reInsert := regexp.MustCompile(`(?is)INSERT\s+INTO\s+conferma_strutturale\s*\(([^)]*)\)\s*VALUES\s*\(`)
+	reInsert := reInsertConferma
 	scrittori := 0
 	for _, q := range query {
 		b, err := os.ReadFile(q)
@@ -440,55 +470,325 @@ func TestV1T12bNessunaConfermaFormato2(t *testing.T) {
 	if scrittori != 1 {
 		t.Errorf("%d query scrivono conferma_strutturale, attesa una (InsertConfermaStrutturale)", scrittori)
 	}
-	for _, file := range bzFileGoDiProduzione(t, radice) {
-		b, err := os.ReadFile(file)
+	m := bzLeggiModulo(t)
+	if v := bzViolazioniT12b(m, m.file); len(v) > 0 {
+		t.Errorf("T-12b: %s", strings.Join(v, "\n"))
+	}
+	// il caso negativo: il mutante del revisore (Formato: FormatoSnapshot e int16(FormatoSnapshot)), piu' un Formato non
+	// costante e una chiamata con i parametri in una variabile
+	if v := bzViolazioniT12b(m, []bzFileGo{bzMutante(m)}); len(v) != 4 {
+		t.Errorf("T-12b sul mutante: %d violazioni, attese 4:\n%s", len(v), strings.Join(v, "\n"))
+	}
+	if v := bzViolazioniT12b(m, []bzFileGo{bzBuono(m)}); len(v) != 0 {
+		t.Errorf("T-12b sul caso buono: %s", strings.Join(v, "\n"))
+	}
+}
+
+// bzFileGo: un file sorgente di produzione, con il percorso d'importazione del suo pacchetto.
+type bzFileGo struct {
+	percorso, pacchetto string
+	src                 []byte
+}
+
+// bzModulo: il nome del modulo, i suoi file di produzione e le costanti intere di primo livello, per pacchetto.
+type bzModulo struct {
+	nome     string
+	file     []bzFileGo
+	costanti map[string]map[string]int64
+}
+
+func bzLeggiModulo(t *testing.T) bzModulo {
+	t.Helper()
+	radice := bzRadiceModulo(t)
+	gm, err := os.ReadFile(filepath.Join(radice, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := bzModulo{}
+	for _, r := range strings.Split(strings.ReplaceAll(string(gm), "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(r, "module ") {
+			m.nome = strings.TrimSpace(strings.TrimPrefix(r, "module "))
+		}
+	}
+	if m.nome == "" {
+		t.Fatal("go.mod senza module")
+	}
+	for _, p := range bzFileGoDiProduzione(t, radice) {
+		rel, err := filepath.Rel(radice, filepath.Dir(p))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.HasSuffix(file, ".sql.go") {
+		src, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.file = append(m.file, bzFileGo{percorso: p, pacchetto: m.nome + "/" + filepath.ToSlash(rel), src: src})
+	}
+	m.costanti = bzCostanti(t, m.file)
+	if v := m.costanti[m.nome+"/internal/core/rfq/distintabozza"]; v["FormatoSnapshot3"] != 3 || v["FormatoSnapshot"] != 2 {
+		t.Fatalf("le costanti dei formati non si leggono: %v", v)
+	}
+	return m
+}
+
+// bzImportazioni: nome locale → percorso d'importazione dei pacchetti importati da un file.
+func bzImportazioni(f *ast.File) map[string]string {
+	out := map[string]string{}
+	for _, is := range f.Imports {
+		p, err := strconv.Unquote(is.Path.Value)
+		if err != nil {
 			continue
 		}
-		if reInsert.Match(b) {
-			t.Errorf("%s: SQL scritto a mano che scrive conferma_strutturale", file)
+		nome := path.Base(p)
+		if is.Name != nil {
+			nome = is.Name.Name
 		}
-		pf, err := parser.ParseFile(token.NewFileSet(), file, b, 0)
+		out[nome] = p
+	}
+	return out
+}
+
+type bzCostante struct {
+	pacchetto string
+	imp       map[string]string
+	e         ast.Expr
+}
+
+// bzCostanti: le costanti di primo livello con un valore intero che si calcola (un letterale, un'altra costante, una
+// conversione), per pacchetto.
+func bzCostanti(t *testing.T, ff []bzFileGo) map[string]map[string]int64 {
+	t.Helper()
+	da := map[string]map[string]bzCostante{}
+	for _, f := range ff {
+		pf, err := parser.ParseFile(token.NewFileSet(), f.percorso, f.src, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ast.Inspect(pf, func(n ast.Node) bool {
-			cl, ok := n.(*ast.CompositeLit)
-			if !ok {
-				return true
+		imp := bzImportazioni(pf)
+		for _, d := range pf.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
 			}
-			sel, ok := cl.Type.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "InsertConfermaStrutturaleParams" {
-				return true
-			}
-			for _, el := range cl.Elts {
-				kv, ok := el.(*ast.KeyValueExpr)
+			for _, sp := range gd.Specs {
+				vs, ok := sp.(*ast.ValueSpec)
 				if !ok {
 					continue
 				}
-				if k, ok := kv.Key.(*ast.Ident); ok && k.Name == "Formato" {
-					switch v := kv.Value.(type) {
-					case *ast.BasicLit:
-						if v.Value == "2" {
-							t.Errorf("%s: InsertConfermaStrutturaleParams con Formato 2", file)
+				for i, n := range vs.Names {
+					if i < len(vs.Values) {
+						if da[f.pacchetto] == nil {
+							da[f.pacchetto] = map[string]bzCostante{}
+						}
+						da[f.pacchetto][n.Name] = bzCostante{pacchetto: f.pacchetto, imp: imp, e: vs.Values[i]}
+					}
+				}
+			}
+		}
+	}
+	out := map[string]map[string]int64{}
+	for giro := 0; giro < 8; giro++ {
+		for p, mm := range da {
+			for n, c := range mm {
+				if v, ok := bzValuta(c.e, c.pacchetto, c.imp, out); ok {
+					if out[p] == nil {
+						out[p] = map[string]int64{}
+					}
+					out[p][n] = v
+					delete(mm, n)
+				}
+			}
+		}
+	}
+	return out
+}
+
+var bzTipiInteri = map[string]bool{"int": true, "int8": true, "int16": true, "int32": true, "int64": true, "uint": true, "uint8": true,
+	"uint16": true, "uint32": true, "uint64": true}
+
+// bzValuta: il valore intero di un'espressione costante (letterale, costante del pacchetto o di un pacchetto importato,
+// conversione a un tipo intero, parentesi); ok falso se non e' costante.
+func bzValuta(e ast.Expr, pacchetto string, imp map[string]string, cost map[string]map[string]int64) (int64, bool) {
+	switch x := e.(type) {
+	case *ast.BasicLit:
+		if x.Kind == token.INT {
+			v, err := strconv.ParseInt(x.Value, 0, 64)
+			return v, err == nil
+		}
+	case *ast.ParenExpr:
+		return bzValuta(x.X, pacchetto, imp, cost)
+	case *ast.Ident:
+		v, ok := cost[pacchetto][x.Name]
+		return v, ok
+	case *ast.SelectorExpr:
+		if id, ok := x.X.(*ast.Ident); ok {
+			if p, ok := imp[id.Name]; ok {
+				v, ok := cost[p][x.Sel.Name]
+				return v, ok
+			}
+		}
+	case *ast.CallExpr:
+		if id, ok := x.Fun.(*ast.Ident); ok && len(x.Args) == 1 && bzTipiInteri[id.Name] {
+			return bzValuta(x.Args[0], pacchetto, imp, cost)
+		}
+	}
+	return 0, false
+}
+
+// bzNomeTipo: il nome del tipo di un letterale composto (db.X o X).
+func bzNomeTipo(e ast.Expr) string {
+	switch x := e.(type) {
+	case *ast.SelectorExpr:
+		return x.Sel.Name
+	case *ast.Ident:
+		return x.Name
+	}
+	return ""
+}
+
+// bzFormato3: "" se il letterale ha il campo Formato con una costante che vale 3; altrimenti il difetto.
+func bzFormato3(cl *ast.CompositeLit, pacchetto string, imp map[string]string, cost map[string]map[string]int64) string {
+	for _, el := range cl.Elts {
+		kv, ok := el.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		if k, ok := kv.Key.(*ast.Ident); ok && k.Name == "Formato" {
+			v, ok := bzValuta(kv.Value, pacchetto, imp, cost)
+			switch {
+			case !ok:
+				return "Formato non costante: non si verifica"
+			case v != distintabozza.FormatoSnapshot3:
+				return fmt.Sprintf("Formato %d", v)
+			}
+			return ""
+		}
+	}
+	return "senza Formato"
+}
+
+// bzViolazioniT12: le chiamate al salvataggio formato 2 e le testate di bozza con un formato che non vale 3 (commento di
+// TestV1NessunaBozzaFormato2Nuova).
+func bzViolazioniT12(m bzModulo, ff []bzFileGo) []string {
+	bozza := m.nome + "/internal/core/rfq/distintabozza"
+	var out []string
+	for _, f := range ff {
+		pf, err := parser.ParseFile(token.NewFileSet(), f.percorso, f.src, 0)
+		if err != nil {
+			out = append(out, f.percorso+": "+err.Error())
+			continue
+		}
+		imp := bzImportazioni(pf)
+		for _, d := range pf.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			dentroSalva := ok && fd.Recv == nil && fd.Name.Name == "Salva" && f.pacchetto == bozza
+			ast.Inspect(d, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.CallExpr:
+					switch fn := x.Fun.(type) {
+					case *ast.SelectorExpr:
+						if id, ok := fn.X.(*ast.Ident); ok && imp[id.Name] == bozza && fn.Sel.Name == "Salva" {
+							out = append(out, f.percorso+": chiama distintabozza.Salva (il salvataggio formato 2)")
 						}
 					case *ast.Ident:
-						if strings.Contains(v.Name, "2") {
-							t.Errorf("%s: InsertConfermaStrutturaleParams con Formato %s", file, v.Name)
+						if f.pacchetto == bozza && fn.Name == "Salva" && !dentroSalva {
+							out = append(out, f.percorso+": chiama Salva (il salvataggio formato 2) dentro distintabozza")
 						}
-					case *ast.SelectorExpr:
-						if strings.Contains(v.Sel.Name, "2") {
-							t.Errorf("%s: InsertConfermaStrutturaleParams con Formato %s", file, v.Sel.Name)
+					}
+				case *ast.CompositeLit:
+					if tipo := bzNomeTipo(x.Type); (tipo == "InsertDistintaBozzaParams" || tipo == "InsertDistintaBozzaConIDParams") && !dentroSalva {
+						if msg := bzFormato3(x, f.pacchetto, imp, m.costanti); msg != "" {
+							out = append(out, fmt.Sprintf("%s: %s con %s", f.percorso, tipo, msg))
 						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	return out
+}
+
+// bzViolazioniT12b: le scritture di una conferma che T-12b non accetta (commento di TestV1T12bNessunaConfermaFormato2).
+func bzViolazioniT12b(m bzModulo, ff []bzFileGo) []string {
+	var out []string
+	for _, f := range ff {
+		if strings.HasSuffix(f.percorso, ".sql.go") {
+			continue
+		}
+		if reInsertConferma.Match(f.src) {
+			out = append(out, f.percorso+": SQL scritto a mano che scrive conferma_strutturale")
+		}
+		pf, err := parser.ParseFile(token.NewFileSet(), f.percorso, f.src, 0)
+		if err != nil {
+			out = append(out, f.percorso+": "+err.Error())
+			continue
+		}
+		imp := bzImportazioni(pf)
+		ast.Inspect(pf, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.CompositeLit:
+				if bzNomeTipo(x.Type) == "InsertConfermaStrutturaleParams" {
+					if msg := bzFormato3(x, f.pacchetto, imp, m.costanti); msg != "" {
+						out = append(out, f.percorso+": InsertConfermaStrutturaleParams con "+msg)
+					}
+				}
+			case *ast.CallExpr:
+				if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "InsertConfermaStrutturale" {
+					cl, ok := (*ast.CompositeLit)(nil), false
+					if len(x.Args) == 2 {
+						cl, ok = x.Args[1].(*ast.CompositeLit)
+					}
+					if !ok || bzNomeTipo(cl.Type) != "InsertConfermaStrutturaleParams" {
+						out = append(out, f.percorso+": InsertConfermaStrutturale con i parametri fuori da un letterale (il Formato non si verifica)")
 					}
 				}
 			}
 			return true
 		})
 	}
+	return out
+}
+
+// bzMutante: il mutante del revisore (rev-pers-confini, zz_mutante.go), nel pacchetto distintabozza: una conferma con la
+// costante del formato 2 e con la sua conversione, una con un Formato non costante, una chiamata con i parametri in una
+// variabile, una chiamata a Salva senza il nome del pacchetto, una testata di bozza con il formato 2.
+func bzMutante(m bzModulo) bzFileGo {
+	return bzFileGo{percorso: "distintabozza/zz_mutante.go", pacchetto: m.nome + "/internal/core/rfq/distintabozza", src: []byte(`package distintabozza
+
+import (
+	"context"
+
+	"promatec/cockpit/internal/platform/db"
+)
+
+func mutanteFormato2(ctx context.Context, q *db.Queries, pool Avviatore, s Salvataggio, f int16) {
+	_, _ = q.InsertConfermaStrutturale(ctx, db.InsertConfermaStrutturaleParams{Formato: FormatoSnapshot})
+	_, _ = q.InsertConfermaStrutturale(ctx, db.InsertConfermaStrutturaleParams{Formato: int16(FormatoSnapshot)})
+	p := db.InsertConfermaStrutturaleParams{Formato: f}
+	_, _ = q.InsertConfermaStrutturale(ctx, p)
+	_, _ = Salva(ctx, pool, s)
+	_, _ = q.InsertDistintaBozza(ctx, db.InsertDistintaBozzaParams{Formato: FormatoSnapshot})
+}
+`)}
+}
+
+// bzBuono: le stesse scritture con il formato 3 (la costante e la sua conversione): nessuna violazione.
+func bzBuono(m bzModulo) bzFileGo {
+	return bzFileGo{percorso: "distintabozza/zz_buono.go", pacchetto: m.nome + "/internal/core/rfq/distintabozza", src: []byte(`package distintabozza
+
+import (
+	"context"
+
+	"promatec/cockpit/internal/platform/db"
+)
+
+func buonoFormato3(ctx context.Context, q *db.Queries) {
+	_, _ = q.InsertConfermaStrutturale(ctx, db.InsertConfermaStrutturaleParams{Formato: FormatoSnapshot3})
+	_, _ = q.InsertConfermaStrutturale(ctx, db.InsertConfermaStrutturaleParams{Formato: int16(FormatoSnapshot3)})
+	_, _ = q.InsertDistintaBozza(ctx, db.InsertDistintaBozzaParams{Formato: FormatoSnapshot3})
+}
+`)}
 }
 
 // bzRadiceModulo: la cartella di go.mod (le prove girano nella cartella del pacchetto).

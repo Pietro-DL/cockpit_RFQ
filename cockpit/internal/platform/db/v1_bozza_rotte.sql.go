@@ -856,6 +856,19 @@ func (q *Queries) ListRfqDellaChiave(ctx context.Context, chiave uuid.UUID) ([]u
 	return items, nil
 }
 
+const oraDelDatabase = `-- name: OraDelDatabase :one
+SELECT clock_timestamp()::timestamptz AS ora
+`
+
+// L'ora del database (clock_timestamp), lo stesso orologio di f8_stato.creato_il: R11 la legge prima di rifare F8, e
+// porta a eseguito solo gli stati creati fino a quell'ora.
+func (q *Queries) OraDelDatabase(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, oraDelDatabase)
+	var ora time.Time
+	err := row.Scan(&ora)
+	return ora, err
+}
+
 const segnaF8Errore = `-- name: SegnaF8Errore :execrows
 UPDATE f8_stato SET stato = 'errore', errore = $1, tentativi = tentativi + 1
  WHERE f8_id = $2 AND thread_id = $3 AND stato <> 'eseguito'

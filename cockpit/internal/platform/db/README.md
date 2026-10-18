@@ -149,7 +149,7 @@ markmap:
   - Le colonne `tx` (xid8) non si leggono; le date le scrive il database; ogni lettura porta la RFQ nel `WHERE`: le testate direttamente, versioni ed eventi con una JOIN sulla testata (RC-19); gli eventi si leggono fino a una versione e a pagine
 - **`v1_bozza_rotte.sql`** — V1, ondata B (corsia persistenza, passo 6 del piano della 0023, prima parte): le letture dello stato della RFQ e delle rotte della bozza nel formato 3, gli aggiornamenti di `f8_stato` di R11, la testata di una bozza convertita, l'allegato della storia della fonte degli atti esistenti
   - Tabelle e viste: `componente`, `componente_relazione`, `conferma_strutturale` (testate), `documento`, `documento_provenienza`, `allegato` + `messaggio` (con `file_rfq_attivo`), `documento_proposta`, `thread_offerta` (anche FOR KEY SHARE per R6), `distinta_bozza` (insert con l'id della conversione), `distinta_bozza_versione`, `esito_intento`, `file_rfq_evento`, `associazione_evento`, `f8_stato` (letture e i due UPDATE di R11), `file_rfq`, `file_rfq_rimozione`, `file_rfq_conservazione`, `utente`, `distinta_importazione`
-  - Query: 21; chi le chiama: `core/rfq/confermabom` (lo stato della RFQ), `core/rfq/distintabozza` (R1, R2, R6, R7, conversione), `core/rfq/fascicolo` (`GetAllegatoDelDocumento`) e `transport/web` (R11). Lo schema non cambia: nessuna migrazione
+  - Query: 22; chi le chiama: `core/rfq/confermabom` (lo stato della RFQ), `core/rfq/distintabozza` (R1, R2, R6, R7, conversione), `core/rfq/fascicolo` (`GetAllegatoDelDocumento`) e `transport/web` (R11, con `OraDelDatabase`: l'inizio del riallineamento sull'orologio del database, dal secondo passaggio dell'ondata B). Lo schema non cambia: nessuna migrazione
 - **`panoramica.sql`** — pagina Richieste
   - Tabelle e viste: `v_cruscotto`, `identificativo_thread`, `componente`, `documento`, `documento_proposta`
   - Query: 3; senza chiamanti: 0
@@ -300,7 +300,8 @@ markmap:
     commenti) e `p4_conferme.sql.go`, e nasce `v1_formato3.sql.go`. sqlc non conosce `unnest` a piu' argomenti: le
     coppie (sha256, chiave) si scrivono con due `unnest` nella lista del SELECT, che PostgreSQL scorre insieme.
   - V1, ondata B: la stessa v1.31.1 su una copia; nasce `v1_bozza_rotte.sql.go`, nient'altro cambia. sqlc non vede la
-    nullabilita' delle colonne di un LEFT JOIN LATERAL: `GetStatiCorrentiFile` le porta con `COALESCE`.
+    nullabilita' delle colonne di un LEFT JOIN LATERAL: `GetStatiCorrentiFile` le porta con `COALESCE`. Nel secondo
+    passaggio la query `OraDelDatabase` cambia solo `v1_bozza_rotte.sql.go`.
 - **Dopo:** `go build ./...`, `go vet ./internal/platform/db/`, e le prove L4 dei package che usano le query toccate.
 
 ### Aggiungere una query
