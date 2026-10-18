@@ -32,6 +32,8 @@ type Config struct {
 	Agente     Agente       `toml:"agente"`     // [agente] — checkpoint 3R §9
 	Sicurezza  Sicurezza    `toml:"sicurezza"`  // [sicurezza] — checkpoint 3R, blocco 4
 	MotoreA    MotoreA      `toml:"motore_a"`   // [motore_a] — giro 5, A1d: la Distinta nuova, solo admin
+	// [conservazione] — V1 (EM §10.5): il deposito degli «Altri file» della Sorgente (conservazione.go)
+	Conservazione Conservazione `toml:"conservazione"`
 
 	// Avvisi sono le cose del file che non fermano l'avvio ma vanno dette nel log: le voci che non
 	// esistono (un refuso, che altrimenti vale come se la riga non ci fosse) e quelle che si leggono ma
@@ -700,6 +702,12 @@ func CaricaConRete(percorso string, rete Rete) (*Config, error) {
 		return nil, err
 	}
 	if err := c.normalizzaMotoreA(); err != nil {
+		return nil, err
+	}
+	// V1 (EM §10.5): il deposito degli «Altri file», relativo alla cartella di questo file, controllato contro lo
+	// staging, il NAS e le radici di produzione (conservazione.go)
+	c.Conservazione.Radice = assoluto(dir, c.Conservazione.Radice)
+	if err := c.normalizzaConservazione(); err != nil {
 		return nil, err
 	}
 	return c, nil

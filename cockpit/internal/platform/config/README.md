@@ -38,6 +38,10 @@ markmap:
   - i percorsi (`cartellaDelFile`, `assoluto`, `conDisco`);
   - gli avvisi (`vociSenzaEffetto` → `Config.Avvisi`);
   - le letture derivate (`Capacita`, `RetentionCache`, `CacheMaxByte`, `IntervalloIntegrita`, `PercorsoLog`, `ETLS`, `Schema`, `HostPubblico`, `RadiceDiProduzione`, `SuLoopback`, `DataDal`, `RuoliAmmessi`)
+- **`conservazione.go`** (V1, corsia file) — Responsabilità:
+  - il tipo `Conservazione` (`[conservazione].radice`) e `Configurata`;
+  - `normalizzaConservazione`: un disco locale (niente UNC, niente lettere di rete), mai sovrapposta allo staging, alla radice del NAS o a una delle radici di produzione (ne' sotto ne' sopra), i percorsi confrontati risolti (`percorsoRisolto`, `confrontabile`, `sovrapposti`)
+- **`conservazione_windows.go`, `conservazione_altri.go`** — `unitaDiRete`: `GetDriveTypeW` (`DRIVE_REMOTE`) su Windows, sempre falso altrove
 
 ## Entry point
 
@@ -76,7 +80,7 @@ markmap:
 
 #### I percorsi relativi
 
-- I percorsi relativi di `[nas].radice`, `[nas].staging`, `[server].log_file`, `tls_cert`, `tls_key` (anche quelli di `-tls-cert` e `-tls-key`) e `[motore_a].regole` si leggono dalla cartella del file di configurazione, resa assoluta (`cartellaDelFile`), non dalla cartella da cui parte il processo.
+- I percorsi relativi di `[nas].radice`, `[nas].staging`, `[server].log_file`, `tls_cert`, `tls_key` (anche quelli di `-tls-cert` e `-tls-key`), `[motore_a].regole` e `[conservazione].radice` si leggono dalla cartella del file di configurazione, resa assoluta (`cartellaDelFile`), non dalla cartella da cui parte il processo.
 - Restano come sono (`assoluto`):
   - il valore vuoto,
   - un percorso assoluto,
@@ -145,6 +149,12 @@ markmap:
 - **`dry_run`**
   - Default: `false`
   - Verifica / effetto: deprecata: `true` spegne `nas_scrittura` e lo dice fra gli avvisi
+
+#### `[conservazione]` (V1, la Distinta unica)
+
+- **`radice`**
+  - Default: vuota = la conservazione degli «Altri file» non e' configurata («Metti in Altri file» risponde 503 `NON_CONFIGURATO`)
+  - Verifica / effetto: relativa = dalla cartella del file; su un disco locale (un UNC o una lettera di rete fermano l'avvio); mai uguale, sotto o sopra `[nas].staging`, `[nas].radice` o una `radici_produzione` (errore con la voce che si sovrappone). La cartella e il segnaposto li crea il server all'avvio (`core/rfq/filerfq.PreparaDeposito`), non il caricamento della configurazione. La procedura (spostare il deposito, la copia di sicurezza) e' in `cockpit.toml.example`
 
 #### `[sicurezza]`
 

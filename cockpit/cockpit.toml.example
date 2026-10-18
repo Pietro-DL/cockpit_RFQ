@@ -182,6 +182,33 @@ radici_produzione = ['\\server-nas\preventivi']
 # si arriva a tutti senza rileggere tutto ogni volta.
 intervallo_integrita_s = 900
 
+[conservazione]
+# V1, la Distinta unica: il deposito degli «Altri file» della Sorgente. «Metti in Altri file» vi scrive una copia
+# verificata (sha256) del file PRIMA di cambiarne lo stato; «Riattiva» la riprende per rimettere i byte nello staging;
+# il custode del ciclo dei file toglie le copie che non servono piu' (dopo «Riattiva» o «Scarta»). Non e' la cartella
+# ALTRO del NAS (sul NAS non si scrive niente) e non e' una cache: il custode della cache dello staging non la guarda.
+# Serve solo con [motore_a] acceso: a flag spento nessuno la usa.
+#
+# Le regole, controllate all'avvio (se non tornano il server non parte, e l'errore dice quale voce):
+#   - un disco LOCALE del server: niente percorsi UNC (\\server\...) ne' lettere mappate sulla rete;
+#   - fuori dallo staging, dalla radice del NAS e da ogni radici_produzione, e mai sopra una di loro (dentro lo
+#     staging la cache la svuoterebbe; sul NAS sarebbe una scrittura sul NAS);
+#   - un percorso relativo vale dalla cartella di questo file.
+# Assente o vuota: la conservazione non e' configurata, «Metti in Altri file» risponde 503 NON_CONFIGURATO (e lo dice
+# la pagina) e il resto della Sorgente funziona.
+#
+# La procedura:
+#   1. la cartella la crea il server al primo avvio, con dentro _parti (le copie in corso) e il segnaposto
+#      .cockpit-deposito, che porta l'identificativo del deposito: ogni copia registrata nel database lo ricorda;
+#   2. la copia di sicurezza di questa cartella la decide chi gestisce il server, insieme a quella del database: i file
+#      senza il database, o il database senza i file, non bastano a ripristinare gli «Altri file»;
+#   3. per spostare il deposito: fermare il server, spostare la cartella INTERA (segnaposto compreso), cambiare qui la
+#      radice e riavviare. Se nel database ci sono copie verificate e la radice nuova non ha il loro segnaposto, il
+#      server non parte e lo dice: e' la protezione dal puntare per sbaglio una cartella vuota mentre i file sono altrove;
+#   4. i file del deposito e il segnaposto non si cancellano a mano: le copie si tolgono con il loro rilascio, e i
+#      parziali rimasti in _parti da oltre 24 ore li toglie il custode.
+radice = 'C:\Cockpit\server\conservazione'
+
 [outlook]
 cartelle = ["Inbox", "Sent Items"]
 # Ogni quanti secondi accodare un sync PERIODICO per casella. 0 = nessun sync a tempo. Con il
