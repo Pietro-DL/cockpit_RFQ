@@ -11,15 +11,19 @@ markmap:
 
 ## Scopo
 
-- Lo schema del database in file numerati `NNNN_nome.sql`, dalla 0001 alla 0022.
+- Lo schema del database in file numerati `NNNN_nome.sql`, dalla 0001 alla 0023.
 - Il binario li porta dentro di sé (`embed.go`) e li applica da solo all'avvio, in ordine, uno per transazione
   (`internal/platform/migrazioni`).
 - Gli stessi file sono lo schema che sqlc legge per generare `internal/platform/db`: una migrazione nuova è anche
   codice Go nuovo.
-- **Stato alla 0022 (l'ultima, P4 del giro 5: nei soli rami locali finché non è spinta):** 88 tabelle, 11 viste,
-  47 enum, 40 funzioni (14 + 26 della 0022), 88 trigger (21 + 67 della 0022; contati sul catalogo di `cockpit_test`).
-  La 0022 ridefinisce la vista `v_fascicolo` (deroga dichiarata, direttiva 11) e dichiara la sua variante
-  (`schema_variante`).
+- **Stato alla 0023 (l'ultima, V1 del giro 5: nei soli rami locali finché non è spinta e applicata solo ai database
+  di prova):** 94 tabelle, 11 viste, 47 enum, 52 funzioni proprie (14 + 26 della 0022 + 12 della 0023), 115 trigger
+  (21 + 67 della 0022 + 27 della 0023; contati sul catalogo di `cockpit_test`).
+  - La 0022 ridefinisce la vista `v_fascicolo` (deroga dichiarata, direttiva 11) e dichiara la sua variante
+    (`schema_variante`).
+  - La 0023 estende la 0022 per il formato 3 senza riscriverla (la ratifica 05 §1 la ammette per l'impossibilità
+    tecnica provata: sette punti della 0022 vietano il formato 3), ridefinisce cinque viste con lo stesso testo più il
+    predicato `file_rfq_attivo` (deroga dichiarata) e dichiara la sua variante.
 - PostgreSQL 16 o successivo, come dice il README principale:
   - le prove L4 girano sulla 16 (`scripts/db-test.ps1`);
   - `UNIQUE NULLS NOT DISTINCT` vuole almeno la 15.
@@ -167,6 +171,32 @@ markmap:
     - i codici d'errore `P4X01`–`P4X07` dei trigger
     - nessun valore di enum nuovo, nessuna colonna o vincolo esistente toccato, nessuna riga riscritta, nessun
       riempimento; `SET LOCAL lock_timeout = '30s'`
+
+- **`0023_distinta_formato3.sql`** · Blocco: giro 5, A1d, V1 (direttiva 23; piano della 0023)
+  - Che cosa introduce:
+    - il formato 3 della bozza e della conferma: `ck_distinta_bozza_formato`, `ck_conferma_formato`, `ck_conferma_bozza`,
+      `ck_conferma_snapshot`, `ck_conferma_chiave`, `ck_esito_intento_gesto` e `ck_esito_intento_conferma` tolti e rimessi
+      con lo stesso nome (il ramo formato 2 dice esattamente quello di prima); il formato 3 vuole la bozza, la chiave e
+      nodi con l'identità
+    - `distinta_importazione` (il registro d'importazione del Motore A, immutabile, con le quattro impronte e la radice
+      della fonte; `P4X08`), citato con FK dalle versioni della bozza (`importazione_id`) e dalle conferme
+      (`importazione_id`, `importazioni_citate`)
+    - su `distinta_bozza_versione`: `importazione_id`, `chiave_salvataggio`, `impronta_richiesta`; lo snapshot ha il
+      formato della testata (trigger)
+    - su `conferma_strutturale_componente`: `emittente`, `emittente_presunto`, `namespace` (l'identità certificata, con
+      la regola della grammatica in `ck_csc_identita`), solo e sempre nel formato 3
+    - `conferma_strutturale_non_incluso` (LS-02: la traccia per nodo di «non includere», solo formato 3)
+    - il controllo al COMMIT della conferma formato 3 (identità decisa, archi, nodi non inclusi) nelle quattro funzioni
+      della 0022 sostituite (`distinta_bozza_versione_nasce`, `conferma_strutturale_nasce`, `conferma_strutturale_contenuto`,
+      `conferma_strutturale_completa`: corpo della 0022 byte per byte più le righe marcate «(0023)», prova T-11)
+    - il gesto `conferma_bom_v3` e i quattro gesti della Sorgente; il gesto della conferma dice il suo formato (`P4X03`)
+    - il ciclo dei file della Sorgente: `file_rfq` (stato dell'occorrenza: attivo, altri_file, scartato),
+      `file_rfq_evento`, `file_rfq_rimozione`, `file_rfq_conservazione` (`P4X09`), il predicato `file_rfq_attivo`
+    - `v_fascicolo`, `v_step_prodotto`, `v_thread_da_riesaminare`, `v_cruscotto`, `v_codici_candidati_thread` ridefinite
+      con lo stesso testo più il predicato `file_rfq_attivo` (deroga dichiarata: senza righe in `file_rfq` le stesse righe)
+    - nessuna riga esistente riscritta, nessun riempimento, nessun valore di enum nuovo; `SET LOCAL lock_timeout = '30s'`;
+      variante `0023-v1-formato3-file-20261018a`
+  - Ritorno manuale: `scripts/0023_indietro.sql` (sotto, «Tornare indietro»).
 
 ## Lo schema per dominio
 
@@ -353,6 +383,33 @@ markmap:
   BOM congelata `BOM01`. La validita' la calcola `v_fascicolo`.
 - `schema_variante` (0022): la variante del testo della migrazione, confrontata dal migratore.
 
+### Distinta formato 3 e ciclo dei file (0023, V1)
+
+- `distinta_bozza` (0022 → 0023): `formato` 2 o 3; il formato di una bozza aperta non cambia (la conversione è una
+  bozza nuova, `P4X04`). `distinta_bozza_versione` (0022 → 0023): lo snapshot ha il formato della testata; nel
+  formato 3 i nodi sono un array con l'identità, la versione porta la chiave del salvataggio (unica) e, con
+  `sorgente.importazione`, il registro della stessa RFQ e dello stesso prodotto con l'impronta, il gruppo e la fonte
+  dello snapshot; i registri citati dalle decisioni sono dello stesso prodotto (`P4X04`).
+- `distinta_importazione` (0023): una riga per (RFQ, prodotto, impronta); fonte e allegati citati della RFQ e attivi
+  (`P4X08`); `contenuto` fino a 16 MiB, legato alle colonne dal CHECK; non si modifica e non si cancella (`P4X02`).
+- `conferma_strutturale` (0022 → 0023): formato 1, 2 o 3; il formato 3 chiude una bozza formato 3 con lo stesso
+  registro, cita in `importazioni_citate` tutti e soli i registri dello snapshot (trigger), e al COMMIT ogni componente
+  certificato porta l'identità decisa del suo nodo (codice byte per byte, rev, emittente, presunzione, namespace), ogni
+  arco certificato è un arco dello snapshot con la stessa origine e la stessa qta, e i nodi non inclusi sono tutte e
+  sole le decisioni `non_includere` (`P4X01`).
+- `conferma_strutturale_componente.emittente`, `emittente_presunto`, `namespace` (0023): solo nel formato 3 (trigger);
+  l'emittente è `cliente:<uuid>` o `partner:<id minuscolo senza spazi, «:» o «/»>` (`ck_csc_identita`).
+- `conferma_strutturale_non_incluso` (0023): una riga per decisione `non_includere`, solo nella transazione della
+  conferma formato 3, con l'allegato della RFQ e lo sha256 del nodo; immutabile (`P4X01`).
+- `esito_intento` (0022 → 0023): dieci gesti; `conferma_bom_v2` per una conferma formato 2, `conferma_bom_v3` per una
+  formato 3 (`P4X03`).
+- `file_rfq` (0023): nessuna riga = attivo; la riga nasce al primo gesto in `altri_file` o `scartato` con la fotografia
+  dell'allegato; transizioni attivo → altri_file | scartato, altri_file → attivo | scartato, scartato terminale; versione
+  +1; al COMMIT altri_file vuole una copia verificata, scartato la riga della rimozione, ogni transizione il suo evento
+  (`P4X09`). `file_rfq_evento` (0023): solo aggiunte (`P4X02`). `file_rfq_rimozione` (0023): una per occorrenza, nasce
+  in attesa dallo scarto; da un errore non ritentabile si esce solo con `eseguita` / `bonificato`. `file_rfq_conservazione`
+  (0023): un file per riga, percorso calcolato dal database; una sola copia viva per occorrenza.
+
 ### Integrità del NAS
 
 - `nas_anomalia` (0013): una aperta per documento.
@@ -460,13 +517,13 @@ markmap:
 - **`v_thread_fase`** · Ultima definizione: 0001
   - Che cosa: fase aperta di una RFQ con giorni e semaforo SLA
   - Chi la legge: `v_cruscotto`
-- **`v_fascicolo`** · Ultima definizione: 0020
+- **`v_fascicolo`** · Ultima definizione: 0023 (stesse colonne, più il predicato `file_rfq_attivo`)
   - Che cosa: una riga per (componente attivo, documento richiesto) con l'esito
   - Chi la legge: `v_thread_bloccanti`, `ListFascicolo`
 - **`v_thread_bloccanti`** · Ultima definizione: 0018
   - Che cosa: contatori del fascicolo per RFQ
   - Chi la legge: `v_cruscotto`, `GetBloccantiThread`, `GateCongelamento`
-- **`v_cruscotto`** · Ultima definizione: 0018
+- **`v_cruscotto`** · Ultima definizione: 0023 (stesse colonne, più il predicato `file_rfq_attivo`)
   - Che cosa: una riga per RFQ non fusa
   - Chi la legge: `ListRichiestePanoramica`, `CercaThreadAperti`, `GetCruscottoRiga`
 - **`v_inbox`** · Ultima definizione: 0017
@@ -475,19 +532,19 @@ markmap:
 - **`v_componente_albero`** · Ultima definizione: 0020
   - Che cosa: l'albero dai componenti radice, un percorso per riga
   - Chi la legge: nessuna query (solo le prove)
-- **`v_codici_candidati_thread`** · Ultima definizione: 0018
+- **`v_codici_candidati_thread`** · Ultima definizione: 0023 (stesse colonne, più il predicato `file_rfq_attivo`)
   - Che cosa: i codici visti da una RFQ, una riga per evidenza
   - Chi la legge: `ListCodiciCandidatiThread`
 - **`v_documento_storia`** · Ultima definizione: 0020
   - Che cosa: la catena delle revisioni di ogni documento
   - Chi la legge: `ListStoriaDocumento`
-- **`v_step_prodotto`** · Ultima definizione: 0020
+- **`v_step_prodotto`** · Ultima definizione: 0023 (stesse colonne, più il predicato `file_rfq_attivo`)
   - Che cosa: lo STEP di ogni finito attivo e l'esito
   - Chi la legge: `ListStepProdotto`, `GetStepProdotto`, `ListGateStep`, `SnapshotComponenti`
 - **`v_bom_versioni`** · Ultima definizione: 0020
   - Che cosa: versioni con `superata` e `corrente` derivate
   - Chi la legge: `ListBomVersioni`
-- **`v_thread_da_riesaminare`** · Ultima definizione: 0020
+- **`v_thread_da_riesaminare`** · Ultima definizione: 0023 (stesse colonne, più il predicato `file_rfq_attivo`)
   - Che cosa: che cosa va riguardato dopo una revisione della BOM
   - Chi la legge: `ListThreadDaRiesaminare`
 - `v_cruscotto` dipende da `v_thread_bloccanti`, che dipende da `v_fascicolo`:
@@ -533,7 +590,7 @@ markmap:
 ## Scrivere una migrazione nuova
 
 1. **Il nome.**
-   - `migrations/NNNN_nome.sql` con il numero successivo all'ultimo (oggi `0022`), quattro cifre, minuscole e `_`.
+   - `migrations/NNNN_nome.sql` con il numero successivo all'ultimo (oggi `0023`), quattro cifre, minuscole e `_`.
    - I numeri seguono l'ordine in cui le migrazioni si applicano, non quello dei blocchi del piano (0006, 0007).
 2. **Niente da registrare in Go.**
    - `embed.go` incorpora `migrations/*.sql`: il file entra nel binario alla prossima build, e il server lo applica
@@ -602,6 +659,10 @@ markmap:
     - Vale solo su un database alla 18 esatta
 - **`scripts/0021_indietro.sql`** · Da → a: 21 → 20
   - Che cosa non riporta: le note sui disegni, se si sceglie di perderle
+- **`scripts/0023_indietro.sql`** · Da → a: 23 → 22
+  - si rifiuta con lo schema non alla 23, con una riga formato 3, con una riga nelle sei tabelle nuove, con un valore
+    nelle otto colonne nuove o con un gesto della 23; rimette vincoli, funzioni, viste e commenti della 22 byte per byte
+    (fine riga compresi: va preso dallo stesso checkout del binario); provato da `TestV1IlRitornoManualeDalla23Alla22`
 - La 0019, la 0020 e la 0022 non hanno un ritorno manuale: solo il backup.
 
 ## Invarianti
@@ -622,7 +683,7 @@ markmap:
 
 - `embed.go` (package `cockpit`, radice del modulo) incorpora i file in `cockpit.FS`.
   - Li leggono `platform/migrazioni` (tramite `app/runtime` e `platform/testutil`) e sqlc.
-- Le prove di `platform/migrazioni` leggono anche `scripts/0018_indietro.sql` e `scripts/0021_indietro.sql` dal
+- Le prove di `platform/migrazioni` leggono anche `scripts/0018_indietro.sql`, `scripts/0021_indietro.sql` e `scripts/0023_indietro.sql` dal
   disco.
 
 ## Test
@@ -630,7 +691,12 @@ markmap:
 - File (`internal/platform/migrazioni/`):
   - **`migrazioni_test.go`** · Livello: L1
     - Che cosa: verifica statica delle migrazioni vere; rifiuto di `REFERENCES` in avanti, enum usato nello stesso
-      file, versione non registrata, buchi di numerazione, nome non valido
+      file, versione non registrata, buchi di numerazione, nome non valido; l'ultima è la 0023; le impronte delle
+      storiche 0001-0022; le varianti dalla 0022 in poi legate alla loro impronta
+  - **`corpi_0023_test.go`** · Livello: L1
+    - Che cosa: T-11, le quattro funzioni sostituite dalla 0023 hanno il corpo della 0022 più le sole righe marcate
+      «(0023)», le cinque viste il testo di oggi più il solo predicato `file_rfq_attivo`; lo script di ritorno rimette
+      funzioni, viste e commenti della 22 byte per byte
   - **`migrazioni_db_test.go`** · Livello: L4
     - Che cosa: da vuoto e idempotente (S1), migrazione fallita a metà (S3), file che non si registra, database più
       recente del binario, fondazioni su dati, vincoli della 0002
@@ -657,13 +723,27 @@ markmap:
     - Che cosa: coperture e `v_fascicolo` (concordi con `v_thread_bloccanti`, `v_cruscotto`, `ListFascicolo`,
       `ContaBloccantiLogici`; senza coperture uguale alla 0020), registro delle bozze, fonti secondarie e
       risoluzione al COMMIT, le due varianti della 0022, i mutanti sopravvissuti della revisione B1/Q1
+  - **`v1_0023_db_test.go`** · Livello: L4
+    - Che cosa: le righe di prova della 0023 (registri, bozza formato 3, la conferma formato 3 e le sue varianti, le
+      transizioni dei file) e i casi del catalogo dei vincoli della 0023 (M-32: il catalogo di `p4_0022_db_test.go`
+      copre le tabelle della 22 e della 23, 215 vincoli FK e CHECK)
+  - **`v1_0023_trigger_db_test.go`** · Livello: L4
+    - Che cosa: M-04, M-04b, M-09b, M-10, M-11, M-13, M-14, M-15, M-16, M-17, M-19, M-20, M-30, M-34
+  - **`v1_0023_file_db_test.go`** · Livello: L4
+    - Che cosa: il ciclo dei file (M-22…M-28), le cinque viste senza i file non attivi (M-31), M-33 sulle righe di prova
+  - **`v1_0023_compat_db_test.go`** · Livello: L4
+    - Che cosa: 22 → 23 con righe formato 1 e 2 (U-01), viste uguali (U-02), formato 2 stretto e formato 3 nuovo
+      (U-03, U-04), la conversione nella sua parte di database (U-05), il binario della 22 fermato (U-07), il ritorno
+      23 → 22 e i suoi rifiuti (U-09)
+  - **`v1_0023_query_db_test.go`** · Livello: L4
+    - Che cosa: le query sqlc della 0023 (`v1_formato3.sql` e le aggiunte di `p4_conferme.sql`) sullo schema 23
   - **`larghezze_db_test.go`** · Livello: L4
     - Che cosa: `codice` e `rev` larghe almeno quanto `classificazione.MaxCodice` / `MaxRev`
 - L4: `COCKPIT_TEST_DSN=… go test -tags integrazione -count=1 -p 1 ./internal/platform/migrazioni/`.
 
 ## Stato dell'implementazione
 
-- Lo schema è completo fino alla 0022.
+- Lo schema è completo fino alla 0023 (V1: applicata solo ai database di prova).
 - La 0022 (P4) esiste prima della maggior parte del codice che la usa: in B1 scrive solo la bozza
   (`core/rfq/distintabozza`); conferme, esiti, F8, correzioni, associazioni, fonte STEP e attestazioni li scrivono
   per ora solo le prove (B2-B4). I contatori e la storia delle deroghe li muovono già i trigger, da ogni scrittore.

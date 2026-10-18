@@ -176,14 +176,16 @@ func schema22ConStoria(t *testing.T) *pgxpool.Pool {
 
 // ------------------------------------------------------------------ installazione, avvii, riapplicazione
 
+// Riscritta per V1 (piano della 0023, §9.2; prova U-08): da zero lo schema arriva alla 23, con le tabelle della 22 e
+// della 23; un secondo avvio non riapplica niente.
 func TestP4La22DaZeroEDueAvviiIdentici(t *testing.T) {
 	p := testutil.Pool(t)
 	testutil.SchemaPulito(t, p)
 	ctx := context.Background()
-	if !applicata(t, p, 22) || uno22[int32](t, p, `SELECT max(versione) FROM schema_versione`) != 22 {
-		t.Fatal("dopo SchemaPulito lo schema non e' alla 22")
+	if !applicata(t, p, 22) || !applicata(t, p, 23) || uno22[int32](t, p, `SELECT max(versione) FROM schema_versione`) != 23 {
+		t.Fatal("dopo SchemaPulito lo schema non e' alla 23 (con la 22)")
 	}
-	for _, tab := range tabelle22 {
+	for _, tab := range append(append([]string{}, tabelle22...), tabelle23...) {
 		if !uno22[bool](t, p, fmt.Sprintf(`SELECT to_regclass('public.%s') IS NOT NULL`, tab)) {
 			t.Errorf("manca la tabella %s", tab)
 		}
@@ -207,18 +209,12 @@ func TestP4La22DaZeroEDueAvviiIdentici(t *testing.T) {
 }
 
 // Il testo della 0022 rieseguito su uno schema che ce l'ha gia' si ferma al primo oggetto e non cambia niente:
-// il migratore non la rilancerebbe (versione gia' registrata), ma anche a mano non lascia mezzo schema.
+// il migratore non la rilancerebbe (versione gia' registrata), ma anche a mano non lascia mezzo schema. Riscritta per
+// V1 (piano della 0023, §9.2): la 0022 si cerca per numero, non come l'ultima.
 func TestP4La0022NonSiRiapplica(t *testing.T) {
 	p := schema22ConStoria(t)
 	ctx := context.Background()
-	migs, err := migrazioni.Elenca(risorse.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := migs[len(migs)-1]
-	if m.Versione != 22 {
-		t.Fatalf("ultima migrazione %s", m.Nome)
-	}
+	m := migrazioneNumero(t, 22)
 	prima := impronta18(t, p)
 	righe := uno22[int](t, p, `SELECT (SELECT count(*) FROM conferma_strutturale) + (SELECT count(*) FROM distinta_bozza_evento) + (SELECT count(*) FROM working_contatore)`)
 	tx, err := p.Begin(ctx)
@@ -394,8 +390,10 @@ func TestP4Upgrade21a22ConRigheSintetiche(t *testing.T) {
 			t.Errorf("l'upgrade ha scritto %d righe in %s (attese %d)", n, tab, atteso)
 		}
 	}
-	// lo schema che esce dall'upgrade e quello installato da zero sono lo stesso schema
-	testutil.SchemaPulito(t, p)
+	// lo schema che esce dall'upgrade e quello installato da zero fino alla 22 sono lo stesso schema. Riscritta per V1
+	// (piano della 0023, §9.2, MIG-03): SchemaFinoA(22) al posto di SchemaPulito, che con la 0023 arriverebbe alla 23;
+	// la prova continua a dire che 21 → 22 produce lo schema della 22.
+	testutil.SchemaFinoA(t, p, 22)
 	if d := differenze(catDopo, impronta18(t, p)); d != "" {
 		t.Errorf("lo schema dopo 21 → 22 non e' quello da zero:\n%s", d)
 	}
@@ -458,7 +456,7 @@ var righeValide22 = map[string]riga{
 }
 
 func insertCon(tab string, cambi map[string]string) string {
-	r := righeValide22[tab]
+	r := rigaValida(tab)
 	var cols, vals []string
 	for _, c := range r {
 		v := c.expr
@@ -480,7 +478,15 @@ func insertCon(tab string, cambi map[string]string) string {
 			vals = append(vals, v)
 		}
 	}
-	return sost22.Replace(fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tab, strings.Join(cols, ", "), strings.Join(vals, ", ")))
+	// una colonna d'identita' nominata (la copia di conservazione: il percorso ripete conservazione_id) vuole
+	// OVERRIDING SYSTEM VALUE
+	sovrascrivi := ""
+	for _, c := range cols {
+		if c == "conservazione_id" {
+			sovrascrivi = " OVERRIDING SYSTEM VALUE"
+		}
+	}
+	return e23(fmt.Sprintf("INSERT INTO %s (%s)%s VALUES (%s)", tab, strings.Join(cols, ", "), sovrascrivi, strings.Join(vals, ", ")))
 }
 
 // casoVincolo: una riga valida con qualche colonna cambiata viola esattamente un vincolo. I trigger utente della
@@ -688,12 +694,15 @@ func vincoloViolato(err error) string {
 }
 
 // Ogni vincolo FK e CHECK delle 15 tabelle ha una prova che lo viola da solo; il controllo finale confronta con il
-// catalogo, cosi' un vincolo nuovo senza prova fa fallire la prova.
+// catalogo, cosi' un vincolo nuovo senza prova fa fallire la prova. Riscritta per V1 (piano della 0023, §9.2, M-32): il
+// catalogo copre anche le sei tabelle della 0023 e i vincoli nuovi delle otto colonne aggiunte alle tabelle della 22,
+// con i casi di v1_0023_db_test.go (righeValide23, casiVincoli23).
 func TestP4OgniVincoloFKECheckDella0022(t *testing.T) {
-	p := schema22ConStoria(t)
+	p := schema23ConStoria(t)
 	ctx := context.Background()
+	tabelle := append(append([]string{}, tabelle22...), tabelle23...)
 	// prima la riga valida di ogni tabella passa (trigger spenti): un caso fallisce per il suo vincolo, non per la base
-	for tab := range righeValide22 {
+	for _, tab := range tabelle {
 		tx, err := p.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -707,7 +716,7 @@ func TestP4OgniVincoloFKECheckDella0022(t *testing.T) {
 		_ = tx.Rollback(ctx)
 	}
 	provati := map[string]bool{}
-	for _, c := range casiVincoli22 {
+	for _, c := range append(append([]casoVincolo{}, casiVincoli22...), casiVincoli23...) {
 		t.Run(c.atteso, func(t *testing.T) {
 			tx, err := p.Begin(ctx)
 			if err != nil {
@@ -742,7 +751,7 @@ func TestP4OgniVincoloFKECheckDella0022(t *testing.T) {
 		})
 	}
 	righe, err := p.Query(ctx, `SELECT conname::text FROM pg_constraint
-		WHERE connamespace = 'public'::regnamespace AND contype IN ('f', 'c') AND conrelid::regclass::text = ANY($1) ORDER BY 1`, tabelle22)
+		WHERE connamespace = 'public'::regnamespace AND contype IN ('f', 'c') AND conrelid::regclass::text = ANY($1) ORDER BY 1`, tabelle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -757,9 +766,9 @@ func TestP4OgniVincoloFKECheckDella0022(t *testing.T) {
 		}
 	}
 	if len(mancano) > 0 {
-		t.Errorf("vincoli FK/CHECK della 0022 senza una prova passata (%d su %d): %s", len(mancano), len(tutti), strings.Join(mancano, ", "))
+		t.Errorf("vincoli FK/CHECK della 0022 e della 0023 senza una prova passata (%d su %d): %s", len(mancano), len(tutti), strings.Join(mancano, ", "))
 	}
-	t.Logf("vincoli FK e CHECK della 0022 provati: %d su %d", len(tutti)-len(mancano), len(tutti))
+	t.Logf("vincoli FK e CHECK della 0022 e della 0023 provati: %d su %d", len(tutti)-len(mancano), len(tutti))
 }
 
 // ------------------------------------------------------------------ il contatore e tutti gli scrittori

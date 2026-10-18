@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -754,12 +755,24 @@ func TestP4DueVariantiDella0022(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m22 := migs[len(migs)-1]
+	// Riscritta per V1 (piano della 0023, §9.2, MIG-03): la 0022 si cerca per numero, non come l'ultima
+	i22 := -1
+	for i, m := range migs {
+		if m.Versione == 22 {
+			i22 = i
+		}
+	}
+	if i22 < 0 {
+		t.Fatal("la 0022 non c'e'")
+	}
+	m22 := migs[i22]
 	if m22.Variante == "" {
 		t.Fatal("la 0022 non dichiara la sua variante")
 	}
 	dsn := testutil.DSN(t)
-	rifiutata := func(nome string) {
+	// binario: le migrazioni che conosce l'apertura in sola lettura (con la 0023 un database alla 22 si legge solo con un
+	// binario della 22: un binario della 23 lo rifiuta prima, con SchemaDiverso)
+	rifiutata := func(nome string, binario fs.FS) {
 		t.Helper()
 		prima := impronta18(t, p)
 		n, err := migrazioni.Applica(ctx, p, risorse.FS, testutil.LogSilenzioso())
@@ -772,7 +785,7 @@ func TestP4DueVariantiDella0022(t *testing.T) {
 		if d := differenze(prima, impronta18(t, p)); d != "" {
 			t.Errorf("%s: il migratore fermato ha cambiato lo schema:\n%s", nome, d)
 		}
-		if pool, err := migrazioni.ApriInLettura(ctx, dsn, risorse.FS); !errors.As(err, &vd) {
+		if pool, err := migrazioni.ApriInLettura(ctx, dsn, binario); !errors.As(err, &vd) {
 			if pool != nil {
 				pool.Close()
 			}
@@ -795,11 +808,11 @@ func TestP4DueVariantiDella0022(t *testing.T) {
 	}
 
 	esegui22(t, p, `UPDATE schema_variante SET variante = '0022-un-altro-testo' WHERE versione = 22`)
-	rifiutata("un'altra variante")
+	rifiutata("un'altra variante", risorse.FS)
 	esegui22(t, p, `DELETE FROM schema_variante`)
-	rifiutata("riga della variante assente")
+	rifiutata("riga della variante assente", risorse.FS)
 	esegui22(t, p, `DROP TABLE schema_variante`)
-	rifiutata("tabella delle varianti assente")
+	rifiutata("tabella delle varianti assente", risorse.FS)
 
 	// la 0022 senza la sezione della variante sopra la 21 (com'era il testo 5416295c per il migratore)
 	testutil.SchemaFinoA(t, p, 21)
@@ -819,12 +832,19 @@ func TestP4DueVariantiDella0022(t *testing.T) {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	rifiutata("0022 senza variante")
+	rifiutata("0022 senza variante", fsFinoA(t, 22))
+	var sd *migrazioni.SchemaDiverso
+	if pool, err := migrazioni.ApriInLettura(ctx, dsn, risorse.FS); !errors.As(err, &sd) || sd.DelDatabase != 22 || sd.DelBinario != 23 {
+		if pool != nil {
+			pool.Close()
+		}
+		t.Errorf("0022 senza variante: il binario della 23 doveva rifiutare il database alla 22 con SchemaDiverso, ottenuto %v", err)
+	}
 
 	// un file che dichiara una variante e non la registra non si applica (come la riga di schema_versione)
 	testutil.SchemaFinoA(t, p, 21)
 	falsi := append([]migrazioni.Migrazione(nil), migs...)
-	falsi[len(falsi)-1].Variante = "un-altra-dichiarazione"
+	falsi[i22].Variante = "un-altra-dichiarazione"
 	if _, err := migrazioni.ApplicaElenco(ctx, p, falsi, 22, testutil.LogSilenzioso()); err == nil || !strings.Contains(err.Error(), "dichiara la variante") {
 		t.Errorf("file che non registra la variante dichiarata: %v", err)
 	}

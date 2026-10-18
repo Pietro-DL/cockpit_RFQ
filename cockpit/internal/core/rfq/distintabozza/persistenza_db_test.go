@@ -150,7 +150,7 @@ func TestLeQueryDellaBozzaConRiletturaDalDatabase(t *testing.T) {
 	if _, err := qt.BloccaThread(ctx, s.thread); err != nil {
 		t.Fatal(err)
 	}
-	r, err := qt.InsertDistintaBozza(ctx, db.InsertDistintaBozzaParams{ThreadID: s.thread, ProdottoID: s.altroFinito, BaseNumero: 0,
+	r, err := qt.InsertDistintaBozza(ctx, db.InsertDistintaBozzaParams{ThreadID: s.thread, ProdottoID: s.altroFinito, Formato: FormatoSnapshot, BaseNumero: 0,
 		BaseContatore: 3, FirmaBase: firmaProva, FonteAllegatoID: uuid.NullUUID{UUID: s.allegato, Valid: true},
 		FonteSha256: pgtype.Text{String: shaProva('b'), Valid: true}, FonteGruppo: pgtype.Text{String: "cand:x:ACM-6000", Valid: true}, UtenteID: s.utente})
 	if err != nil {

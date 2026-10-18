@@ -3512,10 +3512,10 @@ type ComponenteRelazione struct {
 }
 
 // La conferma ufficiale della struttura di un prodotto: progressiva (numero) e immutabile. Formato 1 (giro 4,
-// senza_riepilogo_v2) o 2 (R5, con chiave di idempotenza). Diversa da bom_versione e da BOM.Verificata.
-// mono_pezzo con motivo, senza figli e con lo STEP autorizzato sulla radice. criterio_verifica: step, mono_pezzo
-// o nessuno. La struttura ufficiale nasce da questa conferma umana, non dall'accettazione dello STEP
-// (D-SHOCK-S1 B).
+// senza_riepilogo_v2), 2 (R5, con chiave di idempotenza) o 3 (V1: R5 con chiave di idempotenza, chiude sempre una bozza
+// formato 3, cita i registri d'importazione). Diversa da bom_versione e da BOM.Verificata. mono_pezzo con motivo, senza
+// figli e con lo STEP autorizzato sulla radice. criterio_verifica: step, mono_pezzo o nessuno. La struttura ufficiale
+// nasce da questa conferma umana, non dall'accettazione dello STEP (D-SHOCK-S1 B).
 type ConfermaStrutturale struct {
 	ConfermaID       uuid.UUID     `json:"conferma_id"`
 	ThreadID         uuid.UUID     `json:"thread_id"`
@@ -3576,6 +3576,11 @@ type ConfermaStrutturale struct {
 	ConfermatoDa      uuid.UUID       `json:"confermato_da"`
 	ConfermatoIl      time.Time       `json:"confermato_il"`
 	Tx                pgtype.Uint64   `json:"tx"`
+	// Formato 3: il registro d'importazione della versione che la conferma chiude (sorgente.importazione). NULL nei formati
+	// 1 e 2.
+	ImportazioneID uuid.NullUUID `json:"importazione_id"`
+	// Formato 3: tutti i registri d'importazione citati dallo snapshot (la sorgente e le decisioni). NULL nei formati 1 e 2.
+	ImportazioniCitate []uuid.UUID `json:"importazioni_citate"`
 }
 
 // Gli archi del perimetro con la qta al COMMIT: la gerarchia e' verificata solo se gli archi correnti
@@ -3586,10 +3591,11 @@ type ConfermaStrutturaleArco struct {
 	FiglioID   uuid.UUID   `json:"figlio_id"`
 	Qta        int32       `json:"qta"`
 	Posizione  pgtype.Text `json:"posizione"`
-	// Da dove viene l'arco: step (estratto dalla fonte STEP), utente (deciso da una persona), conferma o
-	// registrato (gia' nella conferma precedente o nella working). Obbligatoria in formato 2 (trigger). La ricalcola il
-	// server in R4/R5 confrontando con la fonte dichiarata, mai copiata da quello che dice la pagina: un arco
-	// disegnato a mano non diventa «estratto dallo STEP» (D-SHOCK-S1 B, E2.1; origine_gerarchia si calcola da qui).
+	// Da dove viene l'arco certificato: step (estratto dalla fonte STEP), utente (deciso da una persona), conferma o
+	// registrato (gia' nella conferma precedente o nella working). Obbligatoria nei formati 2 e 3 (trigger). Formato 2: la
+	// ricalcola il server in R4/R5, mai copiata dalla pagina. Formato 3: e' quella dichiarata dallo snapshot
+	// (archi[].origine), verificata da R4 e R5 e dal controllo al COMMIT; se la verifica fallisce la conferma si rifiuta, mai
+	// una riscrittura. Un arco disegnato a mano non diventa «estratto dallo STEP» (D-SHOCK-S1 B, E2.1).
 	Origine pgtype.Text `json:"origine"`
 }
 
@@ -3607,6 +3613,31 @@ type ConfermaStrutturaleComponente struct {
 	Tipo              TipoComponente `json:"tipo"`
 	StepStrutturaleID uuid.NullUUID  `json:"step_strutturale_id"`
 	StepSha256        pgtype.Text    `json:"step_sha256"`
+	// Emittente dell'identita' certificata (formato 3): cliente:<uuid> o partner:<id>. NULL nei formati 1 e 2.
+	Emittente pgtype.Text `json:"emittente"`
+	// Vero se l'emittente certificato e' una presunzione (componente legacy, nodo scritto a mano, nodo formato_2): la
+	// conferma non la trasforma in un'identita' certa. NULL nei formati 1 e 2.
+	EmittentePresunto pgtype.Bool `json:"emittente_presunto"`
+	// Namespace dell'identita' certificata (formato 3), se l'identita' decisa ne ha uno. NULL nei formati 1 e 2.
+	Namespace pgtype.Text `json:"namespace"`
+}
+
+// Nodi non inclusi nella BOM da una conferma formato 3 (LS-02): una riga per decisione non_includere, con la casella
+// d'origine, il motivo, il segnale visto e le righe di proposta chiuse. Immutabile.
+type ConfermaStrutturaleNonIncluso struct {
+	ConfermaID   uuid.UUID        `json:"conferma_id"`
+	ThreadID     uuid.UUID        `json:"thread_id"`
+	Sha256       string           `json:"sha256"`
+	Chiave       string           `json:"chiave"`
+	AllegatoID   uuid.UUID        `json:"allegato_id"`
+	Gruppo       string           `json:"gruppo"`
+	DecisioneID  string           `json:"decisione_id"`
+	AzioneID     uuid.UUID        `json:"azione_id"`
+	MotivoCodice string           `json:"motivo_codice"`
+	Motivo       string           `json:"motivo"`
+	Segnale      *json.RawMessage `json:"segnale"`
+	RigheChiuse  []uuid.UUID      `json:"righe_chiuse"`
+	ArchiChiusi  json.RawMessage  `json:"archi_chiusi"`
 }
 
 type ContattoFornitore struct {
@@ -3824,7 +3855,8 @@ type DistintaBozzaRegistro struct {
 	Tx         pgtype.Uint64 `json:"tx"`
 }
 
-// Lo snapshot formato 2 completo di ogni versione salvata della bozza, con la base e la fonte di quel momento.
+// Lo snapshot completo (formato 2 o 3, uguale al formato della testata: trigger) di ogni versione salvata della bozza,
+// con la base e la fonte di quel momento; nel formato 3 anche il registro d'importazione e la chiave del salvataggio.
 // Non si riscrive.
 type DistintaBozzaVersione struct {
 	BozzaID         uuid.UUID       `json:"bozza_id"`
@@ -3841,6 +3873,40 @@ type DistintaBozzaVersione struct {
 	SalvataDa       uuid.UUID       `json:"salvata_da"`
 	SalvataIl       time.Time       `json:"salvata_il"`
 	Tx              pgtype.Uint64   `json:"tx"`
+	// Formato 3: il registro d'importazione di sorgente.importazione (stessa RFQ, stesso prodotto, stesso gruppo e stessa
+	// fonte: trigger). NULL nel formato 2 e per una bozza formato 3 senza registro.
+	ImportazioneID uuid.NullUUID `json:"importazione_id"`
+	// Formato 3: la chiave del salvataggio R2, con impronta_richiesta: un reinvio con la stessa chiave non scrive un
+	// doppione. Obbligatoria nel formato 3, NULL nel formato 2.
+	ChiaveSalvataggio uuid.NullUUID `json:"chiave_salvataggio"`
+	ImprontaRichiesta pgtype.Text   `json:"impronta_richiesta"`
+}
+
+// Registro d'importazione del Motore A (V1, formato 3): la proposta per un prodotto e un gruppo, com'era al momento
+// dell'importazione, con versioni, grammatiche, partner e contesto. Immutabile, citato dalle versioni della bozza e dalle
+// conferme. impronta e' la chiave; impronta_contenuto si confronta alla riapertura; impronta_evidenze e' solo
+// informativa; impronta_regole dice se sono cambiate le regole. Non si cancella in V1.
+type DistintaImportazione struct {
+	ImportazioneID       uuid.UUID     `json:"importazione_id"`
+	ThreadID             uuid.UUID     `json:"thread_id"`
+	ProdottoID           uuid.UUID     `json:"prodotto_id"`
+	Impronta             string        `json:"impronta"`
+	ImprontaContenuto    string        `json:"impronta_contenuto"`
+	ImprontaEvidenze     string        `json:"impronta_evidenze"`
+	ImprontaRegole       string        `json:"impronta_regole"`
+	FormatoRegistro      int16         `json:"formato_registro"`
+	VersioneImportazione string        `json:"versione_importazione"`
+	Gruppo               string        `json:"gruppo"`
+	FonteAllegatoID      uuid.NullUUID `json:"fonte_allegato_id"`
+	FonteSha256          pgtype.Text   `json:"fonte_sha256"`
+	// Il rif della radice del gruppo importato (contenuto.gruppo.radice): con fonte_allegato_id e fonte_sha256 ritrova il
+	// gruppo corrente della sorgente senza leggere il contenuto.
+	FonteRadice    pgtype.Text     `json:"fonte_radice"`
+	AllegatiCitati []uuid.UUID     `json:"allegati_citati"`
+	Contenuto      json.RawMessage `json:"contenuto"`
+	CreataDa       uuid.UUID       `json:"creata_da"`
+	CreataIl       time.Time       `json:"creata_il"`
+	Tx             pgtype.Uint64   `json:"tx"`
 }
 
 type Documento struct {
@@ -3966,6 +4032,95 @@ type FaseLog struct {
 	Esito          NullEsitoFase `json:"esito"`
 	Note           pgtype.Text   `json:"note"`
 	BomVersioneID  uuid.NullUUID `json:"bom_versione_id"`
+}
+
+// Stato dell'occorrenza di un file nella RFQ (attivo, altri_file, scartato), con la fotografia al primo gesto.
+// Nessuna riga = attivo. Lo scrive solo il servizio del ciclo dei file.
+type FileRfq struct {
+	ThreadID      uuid.UUID       `json:"thread_id"`
+	AllegatoID    uuid.UUID       `json:"allegato_id"`
+	Stato         string          `json:"stato"`
+	Versione      int32           `json:"versione"`
+	MessaggioID   uuid.UUID       `json:"messaggio_id"`
+	Canale        Canale          `json:"canale"`
+	ContenitoreID uuid.NullUUID   `json:"contenitore_id"`
+	Indice        int16           `json:"indice"`
+	NomeFile      string          `json:"nome_file"`
+	PathInterno   pgtype.Text     `json:"path_interno"`
+	Estensione    pgtype.Text     `json:"estensione"`
+	Sha256        pgtype.Text     `json:"sha256"`
+	Bytes         pgtype.Int8     `json:"bytes"`
+	Origine       OrigineAllegato `json:"origine"`
+	RicevutoIl    time.Time       `json:"ricevuto_il"`
+	CaricatoDa    uuid.NullUUID   `json:"caricato_da"`
+	CreatoDa      uuid.UUID       `json:"creato_da"`
+	CreatoIl      time.Time       `json:"creato_il"`
+	AggiornatoDa  uuid.UUID       `json:"aggiornato_da"`
+	AggiornatoIl  time.Time       `json:"aggiornato_il"`
+}
+
+// Copia verificata nel deposito di conservazione degli «Altri file» (fuori dallo staging e dal NAS): un file per riga,
+// <thread_id>\<allegato_id>.<conservazione_id>.<ext>, calcolato dal database.
+type FileRfqConservazione struct {
+	ConservazioneID     int64         `json:"conservazione_id"`
+	ThreadID            uuid.UUID     `json:"thread_id"`
+	AllegatoID          uuid.UUID     `json:"allegato_id"`
+	Sha256              string        `json:"sha256"`
+	Bytes               pgtype.Int8   `json:"bytes"`
+	PercorsoRelativo    string        `json:"percorso_relativo"`
+	DepositoID          uuid.UUID     `json:"deposito_id"`
+	SorgenteByte        pgtype.Text   `json:"sorgente_byte"`
+	Stato               string        `json:"stato"`
+	Causa               pgtype.Text   `json:"causa"`
+	Errore              pgtype.Text   `json:"errore"`
+	Tentativi           int32         `json:"tentativi"`
+	ProssimoTentativoIl *time.Time    `json:"prossimo_tentativo_il"`
+	ChiaveIdempotenza   uuid.NullUUID `json:"chiave_idempotenza"`
+	IniziataIl          time.Time     `json:"iniziata_il"`
+	VerificatoIl        *time.Time    `json:"verificato_il"`
+	AggiornatoIl        time.Time     `json:"aggiornato_il"`
+	ConclusoIl          *time.Time    `json:"concluso_il"`
+}
+
+// Vita dei file della Sorgente: decisioni ed esiti, in sola aggiunta.
+type FileRfqEvento struct {
+	EventoID          int64            `json:"evento_id"`
+	ThreadID          uuid.UUID        `json:"thread_id"`
+	AllegatoID        uuid.UUID        `json:"allegato_id"`
+	Azione            string           `json:"azione"`
+	StatoPrima        pgtype.Text      `json:"stato_prima"`
+	StatoDopo         pgtype.Text      `json:"stato_dopo"`
+	Motivo            pgtype.Text      `json:"motivo"`
+	Fotografia        *json.RawMessage `json:"fotografia"`
+	Dipendenze        *json.RawMessage `json:"dipendenze"`
+	Esito             *json.RawMessage `json:"esito"`
+	AltroAllegatoID   uuid.NullUUID    `json:"altro_allegato_id"`
+	Origine           string           `json:"origine"`
+	AutoreID          uuid.NullUUID    `json:"autore_id"`
+	ChiaveIdempotenza uuid.NullUUID    `json:"chiave_idempotenza"`
+	Quando            time.Time        `json:"quando"`
+	Tx                pgtype.Uint64    `json:"tx"`
+}
+
+// Rimozione dallo staging dopo uno scarto: passo tracciato, idempotente e recuperabile. «File eliminato» solo con
+// eseguita/rimosso. Un errore non ritentabile si chiude solo con eseguita/bonificato, quando il file di percorso_trovato
+// non esiste piu'.
+type FileRfqRimozione struct {
+	RimozioneID         int64       `json:"rimozione_id"`
+	ThreadID            uuid.UUID   `json:"thread_id"`
+	AllegatoID          uuid.UUID   `json:"allegato_id"`
+	EventoID            int64       `json:"evento_id"`
+	Sha256              pgtype.Text `json:"sha256"`
+	PercorsoTrovato     pgtype.Text `json:"percorso_trovato"`
+	Stato               string      `json:"stato"`
+	Motivo              string      `json:"motivo"`
+	Ritentabile         bool        `json:"ritentabile"`
+	Errore              pgtype.Text `json:"errore"`
+	Tentativi           int32       `json:"tentativi"`
+	ProssimoTentativoIl *time.Time  `json:"prossimo_tentativo_il"`
+	CreatoIl            time.Time   `json:"creato_il"`
+	AggiornatoIl        time.Time   `json:"aggiornato_il"`
+	ConclusoIl          *time.Time  `json:"concluso_il"`
 }
 
 // La storia della fonte STEP di un prodotto finito: scelta, rifiuto con motivo, sostituzione con la fonte di
@@ -4499,10 +4654,6 @@ type VDocumentoStoria struct {
 	Corrente     bool          `json:"corrente"`
 }
 
-// Completezza del fascicolo per componente attivo e tipo richiesto. Ridefinita dalla 0022 (deroga dichiarata,
-// D-SHOCK-DOC-02): le colonne della 0020 restano uguali; copertura_id in coda dice quale copertura valida
-// soddisfa il requisito, quando non c'e' un documento proprio. La leggono v_thread_bloccanti, v_cruscotto, il
-// Fascicolo, il gate del congelamento (ContaBloccantiLogici) e la fotografia del Motore A.
 type VFascicolo struct {
 	ThreadID        uuid.UUID           `json:"thread_id"`
 	ComponenteID    uuid.UUID           `json:"componente_id"`
