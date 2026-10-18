@@ -259,6 +259,14 @@ markmap:
   - Le prove fissate sulla 22 sono riscritte di proposito (piano della 0023, §9.2): da zero e due avvii (alla 23), la
     0022 cercata per numero, 21 → 22 confrontata con `SchemaFinoA(22)`, le due varianti della 0022 (la 0022 per numero;
     con la 0023 un database alla 22 si legge in sola lettura solo con un binario della 22)
+- **`v1_t14_db_test.go`** (V1, prova T-14, la parte del database; passo 2 del piano della 0023)
+  - Livello: L4
+  - Che cosa prova: i casi di `distintabozza.CasiT14` (gli stessi della parte L1, che li confronta con il validatore
+    delle grammatiche) passano dal CHECK `ck_csc_identita` con l'esito di `EmittenteAmmissibile` e
+    `NamespaceAmmissibile`, tetti di sicurezza compresi
+  - Il caso delle maiuscole non ASCII dipende da `lower()` del database: con LC_CTYPE C (il database di prova) il CHECK
+    le accetta e il Go no, e il caso risulta SALTATA-AMBIENTE (differenza da decidere: resoconto della corsia
+    persistenza di V1)
 - **`larghezze_db_test.go`**
   - Livello: L4
   - Che cosa prova: le colonne `codice` e `rev` larghe almeno quanto `classificazione` dichiara

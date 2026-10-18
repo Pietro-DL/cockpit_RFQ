@@ -489,7 +489,8 @@ func TestV1M30LaChiaveDelSalvataggioEUnica(t *testing.T) {
 		base_contatore, firma_base, salvata_da) VALUES ('{B1}', 2, '{"formato": 2}', repeat('c', 64), 0, 0, repeat('1', 64), '{U}')`)
 }
 
-// M-34 (parte del database; T-14 in distintabozza confronta le tre regole): l'id del partner segue la regola della
+// M-34 (parte del database; T-14 confronta le tre regole: la grammatica e il Go in distintabozza, il CHECK in
+// v1_t14_db_test.go, con gli stessi casi di distintabozza.CasiT14): l'id del partner segue la regola della
 // grammatica (minuscolo, senza spazi, «:» o «/»), con un tetto di sicurezza largo; il namespace solo non vuoto.
 func TestV1M34LEmittenteDellaGrammatica(t *testing.T) {
 	p := schema23ConStoria(t)

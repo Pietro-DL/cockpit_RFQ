@@ -77,6 +77,32 @@ markmap:
   - `Errore` con codice, motivo, campo, `Motivi` e `Conflitto`; i codici `CORPO_NON_VALIDO`, `FUORI_RFQ`,
     `RFQ_INESISTENTE`, `BOZZA_VERSIONE`, `BASE_SUPERATA`; i valori da confrontare con `errors.Is`
     (`ErrConflittoVersione`, `ErrAltraBozzaAperta`, `ErrAzioniNonRiconciliate`…); `ErrSnapshotIncoerente`
+- **`formato3.go`** (V1, passo 2 del piano della 0023; emendamento di V1, EM §3)
+  - `Snapshot3` e i suoi tipi (`Sorgente3` con `importazione`, `Nodo3` con `Identita` decisa e le caselle
+    `{allegato_id, gruppo, rif}`, `Arco3` con `step`), `FormatoSnapshot3`, `VocabolarioFormato3`
+  - `LeggiSnapshot3`: lettura stretta (come il formato 2) e le regole di forma del formato 3 senza il database: i sei
+    modi dell'identita' con l'op e le caselle, la presunzione dell'emittente dove non dipende dal database
+    (`emittente_presunto_diverso`), caselle e step con l'occorrenza, il gruppo e lo sha256 della sorgente
+    (`rif_fuori_importazione`), un rif in un nodo solo, la radice con la casella se c'e' un registro, `qta` sempre
+    (`arco_senza_quantita`), il nodo in modo decisione legato alla sua decisione `identita` o `ricodifica` con la stessa
+    identita', una `non_includere` per rif e mai sul rif di una casella (EM §7.2)
+  - la regola dell'**NFC** (N-01): solo descrizioni, motivi e posizioni; l'identita' e le copie dal registro byte per
+    byte; la **forma canonica** (`Canonico`, `Impronta`), `RegistriCitati`
+  - la regola unica della forma dell'emittente: `EmittenteAmmissibile`, `NamespaceAmmissibile` (la grammatica, con il
+    tetto di sicurezza del CHECK `ck_csc_identita`), `EmittenteCliente`, `PresunzioneAttesa`, i casi di T-14
+    (`CasiT14`, esportati perche' la parte L4 in `platform/migrazioni` usi gli stessi)
+- **`decisioni3.go`**
+  - `Decisione3`: le 16 decisioni (i 13 tipi del contratto rev. 3, `identita`, `non_includere`, `scollega_documento`)
+    con una forma chiusa per tipo (`formeDecisione`: campi obbligatori e facoltativi), `LeggiDecisione3`; `cambia_tipo`
+    porta il tipo nuovo in `tipo_nuovo` (proposta di emendamento: «tipo» e' la chiave del tipo della decisione)
+- **`lettori.go`**
+  - `RileggiVersione` (le versioni nei formati 2 e 3, con l'impronta ricontrollata), `LeggiSnapshotConferma` (le
+    conferme nei formati 1, 2 e 3: un contenuto illeggibile torna con `NonLeggibile` e i byte grezzi, mai nascosto)
+  - la testata del formato 3 in R1 (`TestataFormato3`, `ImportazioneLetta`, `RegistroCitato`, `VocabolarioDelFormato`)
+    e il passaggio fra il DTO del registro e le righe di `distinta_importazione` (`TestataImportazione`,
+    `RileggiImportazione`, `ParametriImportazione`)
+- **`importazione/`** (pacchetto a parte): il registro d'importazione del Motore A (EM §3.8), una foglia senza database
+  e senza `core/rfq`, perche' lo usi anche l'adattatore puro `propostabom` (vedi il suo README)
 
 ## Entry point
 
@@ -179,8 +205,9 @@ markmap:
 ## Dipendenze
 
 - Importa: `core/inbox/classificazione` (solo `CodiceAmmissibile`, `RevAmmissibile`, `MaxCodice`, `MaxRev`),
-  `platform/db`, `platform/jsoncanonico`, pgx (`pgx`, `pgconn`, `pgtype`), `google/uuid`, `golang.org/x/text/unicode/norm`
-  (NFC).
+  `core/rfq/distintabozza/importazione` (V1), `platform/db`, `platform/jsoncanonico`, pgx (`pgx`, `pgconn`, `pgtype`),
+  `google/uuid`, `golang.org/x/text/unicode/norm` (NFC).
+- Le prove del formato 3 importano anche `core/registro/regole/grammatica` (T-14: il validatore delle grammatiche).
 - Mai `transport`, `app`, `ai`; mai `core/rfq/fascicolo` nel codice di prodotto (le prove lo importano: i limiti
   `MaxVociBozza` e `MaxQtaArco` e `RimuoviComponente`).
 - Non e' nella lista chiusa del Motore A (`core/estrazione/evidenze/dipendenze_test.go`, `pacchettiMotoreA`): ci
@@ -198,6 +225,12 @@ markmap:
     destinazione di una fonte secondaria, il mono_pezzo non applicabile
   - `guasti_test.go`: un guasto del database non e' `FUORI_RFQ`; i rifiuti di Salva prima della transazione;
     l'impronta ricontrollata; i codici e i motivi del contratto
+  - V1 (passo 2): `formato3_test.go` (lettura e rilettura, le regole di forma con il campo e il motivo, N-01 nella
+    parte L1, i registri citati, T-14 contro il validatore delle grammatiche); `decisioni3_test.go` (le 16 forme
+    chiuse, assente = null = vuoto, l'NFC solo sui motivi); `lettori_test.go` (formati 1, 2 e 3, lo storico che non
+    nasconde, il registro e le sue righe); `conservazione_test.go` (i casi C-01…C-34 della tabella di conservazione,
+    eseguiti sulla forma canonica, e T-01, che con `COCKPIT_EM_V1` li confronta con la tabella dell'emendamento);
+    gli aiuti in `formato3_aiuti_test.go`
 - **L4** (`-tags integrazione`, `COCKPIT_TEST_DSN` su `cockpit_test`, `-p 1`): `persistenza_db_test.go`
   - le query di `p4_conferme.sql` che usa la bozza, una per una, con la rilettura e il perimetro della RFQ
   - **la bozza dei 35 nodi** (partenza dal registrato, fonte e caselle, tre esclusioni, due aggiunte di cui una senza
@@ -210,11 +243,18 @@ markmap:
     R1 e il perimetro; il rebase e `BASE_SUPERATA`
   - la conservazione: una bozza abbandonata da oltre 90 giorni si cancella con versioni ed eventi, il registro resta
     e il prodotto non si rimuove; una confermata non si cancella mai
+  - V1 (passo 2): `conservazione_db_test.go`, `TestV1ConservazioneFormato3`: il registro e la versione 1 di una bozza
+    formato 3 scritti con le query della 0023 e riletti; i casi C-01…C-34 sul registro e sullo snapshot riletti dal
+    database, e N-01 nel testo di jsonb (codice e letterale con l'accento combinante, descrizione in NFC). Conferma e
+    storico arrivano con il passo 6
 
 ## Stato dell'implementazione
 
 - Fatto (B1 + correzioni del 13/10): persistenza, riconciliazione con il vocabolario della rev. 3, partenze `vuota` e
   `registrato`, letture, abbandono, le prove L1 e L4.
+- V1, passo 2 (18/10): il DTO del formato 3 (snapshot, 16 decisioni, registro d'importazione nel pacchetto
+  `importazione`), i lettori dei formati 1-3, la canonicalizzazione con la regola dell'NFC, i validatori di forma e i
+  limiti. `Salva`, `Leggi` e le altre funzioni qui sopra restano del formato 2: R1-R7 nel formato 3 sono il passo 6.
 - **NON ANCORA IMPLEMENTATO**: le rotte R1-R3 (B2); le partenze `conferma` e `step` (B2); il controllo dei
   `componente_id` e delle proposte della bozza contro la RFQ e del codice registrato (B2); la firma del perimetro
   ricalcolata e i `rif_scaduti` controllati nel rebase (B2); la forma completa delle decisioni (B2);
