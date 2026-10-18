@@ -146,7 +146,41 @@ markmap:
   - A1d-P1: il tipo delle regole caricate all'avvio (`motore_a.Regole`, campo `Server.MotoreA`). A1d-P2: il servizio
     e le due rotte JSON. A1d-P3: il ramo dei gesti di `threadFrammento` (`dalMotoreA`, `rispondiMotoreA`) e il ponte
     statico `web/static/motore_a_gesti.mjs`. La pagina arriva con A1d-P4.
+- **La Sorgente: il ciclo dei file (V1, ondata B, corsia file)**
+  - File: `sorgente.go`, `sorgente_carica.go`, `sorgente_guardie.go`. Vedi «Modulo Sorgente».
 - Il front-end (template, CSS, `fascicolo.mjs`, pdf.js) è descritto in `web/README.md`.
+
+## Modulo Sorgente (V1, ondata B, corsia file)
+
+- **Le rotte** (EM §10.9), dietro `[motore_a]` e solo per gli amministratori (`conMotoreA` → `conXMotivo` → `conNoStore` →
+  `soloAdmin`, con la riga gemella: 404 a flag spento, 405 con `Allow` a flag acceso; CSRF globale):
+  - S1 `GET /thread/{id}/sorgente[?file=…][&scartati=1]`: il modello dei file (`filerfq.Servizio.Modello`);
+  - S2, S3, S4 `POST …/sorgente/file/{allegato}/scarta | altri-file | riattiva`: i gesti con chiave d'intento, poi `dopoIlGesto`;
+  - S5 `GET …/sorgente/file/{allegato}/contenuto?modo=anteprima|scarica`: i byte per tutti i formati (un PDF vero inline in
+    anteprima, il resto `application/octet-stream` da scaricare; `nosniff`, CSP `sandbox`, `no-store`, Range e HEAD da
+    `http.ServeContent`); dallo staging solo il posto del contenuto (`EContenuto`), poi il NAS, poi la copia di conservazione.
+    Il NAS in sola lettura (`nasSoloLettura`): niente `Segnala` ne' `VerificaFileAperto` dell'anteprima legacy; un file che
+    manca non e' una sorgente, uno «in dubbio» si rilegge per lo sha senza registrare la verifica (EM §8.5: nessuna scrittura
+    nelle letture);
+  - E1′, il ramo JSON di `POST /thread/{id}/carica` (`caricaRFQ` sceglie il ramo da `Accept: application/json`): multipart con
+    `origine` (portale | interna) e i file, un esito per file; il ramo HTML resta quello di prima, agli operatori. Un
+    `Content-Length` oltre il limite totale e' 413 prima del corpo; ogni parte «file», anche senza nome, conta nei 50 file; un nome
+    che `allegato.nome_file` non accetta (UTF-8, caratteri di controllo, 300 caratteri) e' un rifiuto del solo file.
+- **La busta** (EM §10.10): `{esito, codice, testo, …}` («conflitto» per un 409, «rifiutato» per gli altri); un 5xx di un gesto e'
+  `{"esito": "da_verificare", "chiave_idempotenza": …}`; ogni errore porta `X-Motivo` con il codice della busta (DECA PE-29), e
+  le risposte d'errore senza busta (il 403 di `soloAdmin`, il 401 della sessione da htmx, il 405 della riga gemella, il 416 e il
+  412 di `http.ServeContent`) un codice per lo stato (`conXMotivo`, `motivoDelloStato`). Il 302 della sessione scaduta senza htmx
+  non e' un errore e non lo porta. L'ordine dei controlli e' fisso: flag, sessione e ruolo, id della RFQ (400), RFQ (404), poi il
+  corpo. Nessun percorso nei corpi ne' nelle risposte.
+- **Le guardie dei gesti legacy** su un file in Altri file o scartato (EM §10.7; `sorgente_guardie.go`): «assegna», la conferma
+  (voce e lotto), «Documentazione generale» e il vecchio «Scarta il file» rifiutano con «Niente è cambiato»; «Scarica» salta i
+  file non attivi e lo dice (G-8), «Riscarica» rifiuta (G-9); il ramo HTML di «carica» salta i doppioni scartati e scrive
+  l'evento `ricaricato_dopo_scarto` con origine `legacy`.
+- **Le prove**: `sorgente_db_test.go` (L4: PP-01…PP-08, PP-11, R-20, R-20b, R-21, R-30, AF-02, AF-08, AF-10, CO-04, i gesti dalla
+  rotta), `sorgente_rilievi_db_test.go` (L4, i rilievi della revisione: S5 dal NAS in sola lettura, X-Motivo su ogni errore di
+  S5, E1′ con il 413 prima del corpo, le parti senza nome e i nomi non validi, la conferma del lotto su un file in Altri file),
+  `sorgente_rotte_test.go` (L1: PP-10, `conXMotivo`, i nomi dei file di E1′), `motore_a_ponte_test.go` (PP-09: le POST della
+  Sorgente e il ramo JSON di «carica» fra le dedicate del mondo chiuso del ponte).
 
 ## Modulo Distinta nuova del motore A (giro 5, A1d)
 

@@ -36,3 +36,7 @@ func (FileStaging) Presente(percorso string) bool {
 	st, err := os.Stat(percorso)
 	return err == nil && !st.IsDir()
 }
+
+// Verificato: il file c'e' e ha quello sha (ContenutoGiaPresente). V1 (EM §10.6): chi adotta un contenuto gia'
+// presente lo verifica cosi', sotto il lucchetto per contenuto.
+func (FileStaging) Verificato(percorso, sha string) bool { return ContenutoGiaPresente(percorso, sha) }

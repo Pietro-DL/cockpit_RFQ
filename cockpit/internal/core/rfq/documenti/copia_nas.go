@@ -171,6 +171,13 @@ func cercaSorgente(ctx context.Context, q *db.Queries, d db.Documento) (string, 
 				return a.PathStaging.String, nil, nil
 			}
 		}
+		// V1 (EM §10.7, G-12): un'occorrenza in Altri file o scartata nella Sorgente non e' mai il bersaglio di una
+		// riestrazione o di un download (i suoi byte, se ci sono, si leggono lo stesso qui sopra)
+		if attiva, err := occorrenzaAttiva(ctx, q, a.AllegatoID); err != nil {
+			return "", nil, err
+		} else if !attiva {
+			continue
+		}
 		if sparito == nil {
 			sparito = &all[i]
 		}

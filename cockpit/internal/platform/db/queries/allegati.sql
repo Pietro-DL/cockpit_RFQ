@@ -25,11 +25,13 @@ WHERE allegato_id = $1;
 -- Un ALTRO allegato con lo stesso contenuto già sceso in staging (voce 1.11). Lo stesso disegno
 -- allegato a tre richieste diverse è lo stesso file: scaricarlo tre volte significa tre giri in COM su
 -- Outlook e tre copie identiche sul disco. Si esclude l'allegato di partenza, altrimenti troverebbe
--- se stesso e non risponderebbe mai alla domanda che gli viene fatta.
+-- se stesso e non risponderebbe mai alla domanda che gli viene fatta. V1 (EM §10.7, G-13): prima le occorrenze
+-- attive, poi le altre; chi riusa il percorso lo verifica sotto BloccaContenuto (coda.AccodaStage).
 SELECT * FROM allegato
 WHERE sha256 = sqlc.arg(sha256) AND path_staging IS NOT NULL AND path_staging <> ''
   AND allegato_id <> sqlc.arg(escluso)
-ORDER BY (stato = 'in_staging') DESC, ricevuto_il
+ORDER BY file_rfq_attivo((SELECT m.thread_id FROM messaggio m WHERE m.messaggio_id = allegato.messaggio_id), allegato.allegato_id) DESC,
+         (stato = 'in_staging') DESC, ricevuto_il
 LIMIT 1;
 
 -- name: SetAllegatoStato :exec

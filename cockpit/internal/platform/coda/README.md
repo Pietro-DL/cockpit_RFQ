@@ -55,6 +55,9 @@ markmap:
     - `ScadenzaInterattiva`, `OpzioniInterattive`.
 - **`stage.go`** — responsabilità:
   - `AccodaStage` con i due controlli prima del download (`EsitoStage`: `StageAccodato`, `StageGiaInCoda`, `StageGiaPresente`, `StageRiusato`);
+    - V1 (EM §10.6, §10.7 G-13): il riuso del gemello sotto `BloccaContenuto`, nella transazione di chi chiama, con le
+      occorrenze attive prima (`AllegatoInStagingPerHash`) e il contenuto del gemello verificato (`Verificato`, lo sha
+      ricalcolato) prima di scrivere `path_staging`: chi chiama deve stare in una transazione;
   - `Analizzatore` (`Hash`), `AccodaAnalisi`, `ChiaveAnalisi`.
 
 ## Entry point

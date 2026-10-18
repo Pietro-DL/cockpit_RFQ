@@ -21,11 +21,14 @@ WHERE sha256 = sqlc.arg(sha256) AND versione_analizzatore = sqlc.arg(versione_an
 -- Tutte le proposte ancora APERTE degli allegati con quello stesso contenuto, in qualunque messaggio e
 -- di qualunque cliente. È l'elenco a cui va distribuito il risultato di una sola analisi: lo stesso PDF
 -- allegato a tre RFQ non va analizzato tre volte, ma va proposto tre volte, una per RFQ.
--- Le proposte già decise non compaiono: una decisione dell'operatore non si tocca.
+-- Le proposte già decise non compaiono: una decisione dell'operatore non si tocca. V1 (EM §10.7, G-2): nemmeno le
+-- occorrenze in Altri file o scartate nella Sorgente; i fatti per sha si scrivono lo stesso, e l'occorrenza li riceve
+-- quando torna attiva.
 SELECT p.*, a.nome_file, a.estensione, a.bytes, a.messaggio_id, a.contenitore_id
 FROM documento_proposta p
 JOIN allegato a ON a.allegato_id = p.allegato_id
-WHERE a.sha256 = sqlc.arg(sha256) AND p.stato = 'aperta';
+JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+WHERE a.sha256 = sqlc.arg(sha256) AND p.stato = 'aperta' AND file_rfq_attivo(m.thread_id, a.allegato_id);
 
 -- ------------------------------------------------------------------ A4 (B8.A4a): l'analizzatore corrente
 -- name: ImpostaAnalizzatoreCorrente :exec

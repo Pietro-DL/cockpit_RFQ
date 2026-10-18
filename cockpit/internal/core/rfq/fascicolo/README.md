@@ -136,6 +136,9 @@ markmap:
   - `RevisioneProponibile`
   - `NotaInterna` / `ChiaveNotaInterna`
   - `RegistraCaricamento` / `Caricato`
+    - V1 (EM §10.6, SIC-06): `AdottaContenuto`, dopo `BloccaMessaggio` e prima della riga: sotto `BloccaContenuto` il
+      contenuto gia' presente si verifica (sha ricalcolato) e si usa, altrimenti si promuove il parziale della richiesta
+      (`Caricato.Parte`); senza parziale e senza contenuto la registrazione rifiuta («ricarica il file»)
   - `MaxQtaArco`
 - **`preparazione.go`**
   - `AssicuraProdottiDellaRichiesta`, `PreparaFile` / `RiletturaFatti`, `LavoroInCorso` (B8.7b)
@@ -147,6 +150,9 @@ markmap:
   - `pianifica` (puro: riferimenti `c:` / `p:` / `k:`, perimetro, dati cambiati nel frattempo, cicli sul grafo finale; limiti `MaxArchiVoluti` archi voluti e quattro volte tanti archi visti, ciascuno con il suo messaggio)
   - `ApplicaStrutturaVoluta`, `conAlias`
   - `componenteNato` (una proposta che ha cambiato codice nel frattempo è un rifiuto «riapri l'editor»)
+- **`smistamento_flusso.go`** (il flusso F8): V1 (EM §10.7, «i lettori da adeguare») — `LeggiStatoFlusso` salta le occorrenze
+  non attive nella Sorgente (`ListOccorrenzeNonAttiveRfq`): un file in Altri file o scartato col ciclo dei file non riceve una
+  destinazione, non fa da ancora e non passa avanti nelle analisi
 
 ## Entry point
 

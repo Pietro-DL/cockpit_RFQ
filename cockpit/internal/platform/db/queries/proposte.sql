@@ -228,7 +228,8 @@ WHERE thread_id = sqlc.arg(thread_id) AND allegato_id = sqlc.arg(allegato_id)
 -- Ogni allegato con questo contenuto in una RFQ aperta, non unita a un'altra, da una fonte del cliente e
 -- non escluso: i fatti di uno STEP diventano proposte in ognuna (A1.2, fan-out D50, A5.4.10), ciascuna con
 -- le regole del suo cliente. Prima (ListAllegatiStessoFileConRfq) erano tutte le RFQ, anche chiuse o unite,
--- con i file dei fornitori.
+-- con i file dei fornitori. V1 (EM §10.7, G-3): solo le occorrenze attive; un file in Altri file o scartato
+-- nella Sorgente non porta la struttura nella sua RFQ.
 SELECT sqlc.embed(a), m.thread_id AS rfq_id
   FROM allegato a
   JOIN messaggio m ON m.messaggio_id = a.messaggio_id
@@ -237,33 +238,40 @@ SELECT sqlc.embed(a), m.thread_id AS rfq_id
    AND m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota')
    AND NOT EXISTS (SELECT 1 FROM documento_proposta p
                     WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL)
+   AND file_rfq_attivo(m.thread_id, a.allegato_id)
  ORDER BY m.thread_id, a.ricevuto_il, a.allegato_id;
 
 -- name: ListStepDellaRfq :many
 -- Gli STEP arrivati in una RFQ e scaricati (lo SHA si sa) da cui la struttura si legge: da una fonte del
--- cliente e non esclusi (Smistamento F5, E26). Uno STEP escluso non si autorizza, e resta inerte.
+-- cliente e non esclusi (Smistamento F5, E26). Uno STEP escluso non si autorizza, e resta inerte. V1 (EM §10.7):
+-- solo le occorrenze attive, come l'elenco degli STEP della Sorgente.
 SELECT a.* FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
  WHERE m.thread_id = $1 AND lower(a.estensione) IN ('stp', 'step') AND a.sha256 IS NOT NULL
    AND m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota')
    AND NOT EXISTS (SELECT 1 FROM documento_proposta p
                     WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL)
+   AND file_rfq_attivo(m.thread_id, a.allegato_id)
  ORDER BY a.ricevuto_il, a.allegato_id;
 
 -- name: ListStepDaAnalizzareDellaRfq :many
 -- Tutti gli STEP della RFQ scaricati, per l'analisi: tutti gli STEP si analizzano, sempre (decisione
 -- dell'utente del 27/09), anche quelli esclusi o di un fornitore. L'analisi e' un fatto del contenuto; e'
--- la lettura della struttura nella RFQ (ListStepDellaRfq) che li lascia fuori.
+-- la lettura della struttura nella RFQ (ListStepDellaRfq) che li lascia fuori. V1 (EM §10.7, G-11): le occorrenze
+-- in Altri file o scartate nella Sorgente si saltano (analisi mancanti, «Rianalizza», riaccodatura mirata di LS-01);
+-- il loro contenuto si analizza lo stesso per le altre occorrenze attive.
 SELECT a.* FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
  WHERE m.thread_id = $1 AND lower(a.estensione) IN ('stp', 'step') AND a.sha256 IS NOT NULL
+   AND file_rfq_attivo(m.thread_id, a.allegato_id)
  ORDER BY a.ricevuto_il, a.allegato_id;
 
 -- name: FileNelFlusso :one
 -- L'allegato e' di una fonte del cliente e non e' escluso: la sua struttura si legge nella RFQ. La
 -- guardia di ApplicaStruttura, per chi ci arriva senza passare dalle due query sopra (i fatti riusati
--- dopo uno stage).
+-- dopo uno stage). V1 (EM §10.7, G-6): e l'occorrenza e' attiva nella sua RFQ.
 SELECT (m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota')
         AND NOT EXISTS (SELECT 1 FROM documento_proposta p
-                         WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL))::bool AS nel_flusso
+                         WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL)
+        AND file_rfq_attivo(m.thread_id, a.allegato_id))::bool AS nel_flusso
   FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
  WHERE a.allegato_id = $1;
 

@@ -85,6 +85,17 @@ func LeggiStatoFlusso(ctx context.Context, q *db.Queries, thread uuid.UUID, an c
 	if err != nil {
 		return s, err
 	}
+	// V1 (EM §10.7, «i lettori da adeguare»): F8 non da' una destinazione a un file non attivo nella Sorgente (in Altri
+	// file o scartato col ciclo dei file), e un file non attivo non fa da ancora ne' passa avanti nelle analisi: per il
+	// flusso non c'e'. Lo scarto col vecchio «Scarta il file» resta quello di prima (la proposta esclusa).
+	nonAttivi := map[uuid.UUID]bool{}
+	na, err := q.ListOccorrenzeNonAttiveRfq(ctx, thread)
+	if err != nil {
+		return s, err
+	}
+	for _, x := range na {
+		nonAttivi[x.AllegatoID] = true
+	}
 	proposte, err := q.ListProposteDocumentoThread(ctx, tid)
 	if err != nil {
 		return s, err
@@ -128,6 +139,9 @@ func LeggiStatoFlusso(ctx context.Context, q *db.Queries, thread uuid.UUID, an c
 		}
 	}
 	for _, r := range file {
+		if nonAttivi[r.AllegatoID] {
+			continue
+		}
 		f := FileFlusso{AllegatoID: r.AllegatoID, Sha: r.Sha256.String, Nome: r.NomeFile, Estensione: r.Estensione.String,
 			PathInterno: r.PathInterno.String, Zip: r.NomeContenitore.String, RicevutoIl: r.RicevutoIl, Contenitore: r.Contenitore,
 			DelCliente: r.DelCliente}

@@ -16,9 +16,10 @@ import (
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
-	"promatec/cockpit/internal/platform/storage/archivio"
+	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/storage/staging"
 )
 
@@ -176,7 +177,7 @@ func (s *Server) scarica(w http.ResponseWriter, r *http.Request) {
 
 // contiDownload tiene separato ciò che è stato chiesto al worker da ciò che c'era già. Dire «3 download
 // richiesti» quando i file erano già sul disco è una bugia piccola che però fa aspettare l'operatore.
-type contiDownload struct{ accodati, gia, riusati int }
+type contiDownload struct{ accodati, gia, riusati, nonAttivi int }
 
 func (c contiDownload) frase() string {
 	var parti []string
@@ -189,6 +190,10 @@ func (c contiDownload) frase() string {
 	if c.riusati > 0 {
 		parti = append(parti, fmt.Sprintf("%d riusati da un allegato con lo stesso contenuto", c.riusati))
 	}
+	// V1 (EM §10.7, G-8): i file in Altri file o scartati nella Distinta nuova non si scaricano, e si dice
+	if c.nonAttivi > 0 {
+		parti = append(parti, fmt.Sprintf("%d saltati perché in Altri file o scartati nella Distinta nuova", c.nonAttivi))
+	}
 	if len(parti) == 0 {
 		return "Nessun allegato da scaricare."
 	}
@@ -198,7 +203,7 @@ func (c contiDownload) frase() string {
 // fraseSeCe e' la frase, preceduta da uno spazio, solo se qualcosa e' stato chiesto: dopo la creazione di una
 // RFQ i file utili li prepara il sistema (B8.7b), e «nessun allegato da scaricare» direbbe il contrario.
 func (c contiDownload) fraseSeCe() string {
-	if c.accodati+c.gia+c.riusati == 0 {
+	if c.accodati+c.gia+c.riusati+c.nonAttivi == 0 {
 		return ""
 	}
 	return " " + c.frase()
@@ -227,6 +232,13 @@ func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messagg
 		}
 		a, err := q.GetAllegato(ctx, aid)
 		if err != nil || a.MessaggioID != m.MessaggioID || a.ContenitoreID.Valid || a.Natura == db.NaturaAllegatoInline {
+			continue
+		}
+		// V1 (EM §10.7, G-8): un file in Altri file o scartato nella Distinta nuova non si scarica
+		if stato, err := statoOccorrenza(ctx, q, a.AllegatoID); err != nil {
+			return c, err
+		} else if !filerfq.Attivo(stato) {
+			c.nonAttivi++
 			continue
 		}
 		esito, _, err := coda.AccodaStage(ctx, q, staging.FileStaging{}, a, m, copia, 1)
@@ -266,6 +278,18 @@ func (s *Server) riscarica(w http.ResponseWriter, r *http.Request) {
 	}
 	if !m.ThreadID.Valid {
 		s.pannelloConAvviso(w, r, m.MessaggioID, "Prima crea o aggancia la RFQ.")
+		return
+	}
+	// V1 (EM §10.7, G-9): un file scartato si ricarica, uno in Altri file si riattiva prima
+	switch stato, err := statoOccorrenza(ctx, q, a.AllegatoID); {
+	case err != nil:
+		http.Error(w, err.Error(), 500)
+		return
+	case stato == filerfq.StatoScartato:
+		s.pannelloConAvviso(w, r, m.MessaggioID, "Niente è cambiato: il file è stato scartato in questa RFQ. Per riaverlo, ricaricalo.")
+		return
+	case stato == filerfq.StatoAltriFile:
+		s.pannelloConAvviso(w, r, m.MessaggioID, "Niente è cambiato: il file è in Altri file. Riattivalo prima.")
 		return
 	}
 	c, err := s.copiaDownload(ctx, q, a.MessaggioID, sessioneDa(ctx))
@@ -382,6 +406,11 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	tipo db.TipoDocumento, codice, rev, nota string, comp uuid.NullUUID, correggi bool, scelta sceltaRevisione) (string, error) {
 	if p.Stato != db.StatoPropostaAperta {
 		return "", errors.New("proposta già decisa")
+	}
+	// V1 (EM §10.7): un file in Altri file o scartato nella Distinta nuova non diventa un documento dalle pagine legacy
+	// (conferma della voce, del lotto, «Documentazione generale»)
+	if err := rifiutoFileNonAttivo(ctx, q, a.AllegatoID); err != nil {
+		return "", err
 	}
 	// `da_determinare` non è una destinazione (checkpoint 3R §5): non ha una sottocartella sul NAS,
 	// perché «non so che cosa sia» non è una cartella. Il messaggio dice che cosa fare invece di
@@ -620,6 +649,15 @@ func (s *Server) scarta(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Stato != db.StatoPropostaAperta {
 		s.pannelloConAvviso(w, r, m.MessaggioID, "La proposta era già stata decisa: nessun cambiamento.")
+		return
+	}
+	// V1 (EM §10.7): il vecchio «Scarta il file» su un file in Altri file nella Distinta nuova rifiuta (la proposta resta
+	// aperta, e «Riattiva» non riaprirebbe una decisione)
+	if stato, err := statoOccorrenza(ctx, q, a.AllegatoID); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	} else if stato == filerfq.StatoAltriFile {
+		s.pannelloConAvviso(w, r, m.MessaggioID, "Niente è cambiato: "+testoFileInAltriFile+".")
 		return
 	}
 	if _, err := q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: pid, Stato: db.StatoPropostaScartata, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {

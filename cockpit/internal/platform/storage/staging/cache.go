@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/platform/db"
@@ -55,7 +55,20 @@ type Cache struct {
 	// Adesso: l'orologio. Nil = time.Now. E' un campo perche' la prova deve poter far invecchiare un
 	// contenuto di quaranta giorni senza aspettarli.
 	Adesso func() time.Time
+	// CopiaNelDeposito (V1, EM §10.5): dice se il file di una copia di conservazione verificata c'e' nel deposito degli
+	// «Altri file» con la dimensione attesa. Una proposta aperta di un'occorrenza in Altri file smette di tenere il
+	// contenuto nello staging solo quando la sua copia c'e' davvero. Nil = deposito non configurato: la proposta resta
+	// un pin (il lato che non cancella).
+	CopiaNelDeposito func(percorsoRelativo string, depositoID uuid.UUID, bytes int64) bool
+	// PrimaDiRimuovere: solo per le prove (PM23 CO-07, CO-11, CO-15): si chiama fra la passata che decide e la
+	// transazione che cancella, cioe' nel punto in cui un caricamento o una «Riattiva» possono arrivare. Nil in
+	// produzione.
+	PrimaDiRimuovere func(sha string)
 }
+
+// MotivoPropostaAltriFile e' il pin «proposta aperta» di un'occorrenza in Altri file (ListContenutiPinnati, ordine 6):
+// vale solo finche' il file della sua copia verificata non e' nel deposito (EM §10.5).
+const MotivoPropostaAltriFile = "proposta aperta in Altri file"
 
 // EsitoCache e' che cosa ha fatto una passata.
 type EsitoCache struct {
@@ -193,7 +206,14 @@ func (c *Cache) Giro(ctx context.Context) (EsitoCache, error) {
 		default:
 			continue
 		}
-		n, err := c.rimuovi(ctx, k)
+		if c.PrimaDiRimuovere != nil {
+			c.PrimaDiRimuovere(k.sha)
+		}
+		n, err := c.rimuovi(ctx, k, c.Retention > 0 && adesso.Sub(k.ultimoUso) > c.Retention)
+		if errors.Is(err, errNonPiuRimovibile) {
+			c.Log.Info("contenuto non rimosso dalla cache: ricontrollato sotto il lucchetto, serve ancora", "sha", k.sha[:12], "perche'", err.Error())
+			continue
+		}
 		if err != nil {
 			c.Log.Warn("contenuto non rimosso dalla cache", "sha", k.sha[:12], "err", err)
 			continue
@@ -249,53 +269,166 @@ func (c *Cache) interroga(ctx context.Context, q *db.Queries, contenuti []*conte
 			k.ultimoUso = u.UltimoUso
 		}
 	}
-	voci, err := q.ListVociDiArchivio(ctx, sha)
+	figliDi, err := VociDiArchivi(ctx, q, sha)
 	if err != nil {
-		return fmt.Errorf("voci degli archivi: %w", err)
+		return err
 	}
 	daChiedere := sha
-	figliDi := map[string][]string{}
-	for _, v := range voci {
-		z, f := strings.TrimSpace(v.Archivio), strings.TrimSpace(v.Voce)
-		figliDi[z] = append(figliDi[z], f)
-		if _, c := perSha[f]; !c {
-			daChiedere = append(daChiedere, f)
+	for _, figli := range figliDi {
+		for _, f := range figli {
+			if _, c := perSha[f]; !c {
+				daChiedere = append(daChiedere, f)
+			}
 		}
 	}
-	pin, err := q.ListContenutiPinnati(ctx, daChiedere)
+	motivi, err := PinDiContenuti(ctx, q, daChiedere, c.CopiaNelDeposito)
 	if err != nil {
-		return fmt.Errorf("contenuti pinnati: %w", err)
-	}
-	motivi := make(map[string]string, len(pin))
-	for _, p := range pin {
-		motivi[strings.TrimSpace(p.Sha256)] = p.Motivo
+		return err
 	}
 	for _, k := range contenuti {
 		k.pin = motivi[k.sha]
 		if k.pin != "" {
 			continue
 		}
-		for _, f := range figliDi[k.sha] {
-			if m := motivi[f]; m != "" {
-				k.pin = "archivio con una voce ancora in uso (" + m + ")"
-				break
-			}
+		k.pin = PinDiUnaVoce(figliDi[k.sha], motivi)
+	}
+	return nil
+}
+
+// VociDiArchivi: per ogni archivio fra questi contenuti, gli sha delle voci estratte da lui (ListVociDiArchivio), in
+// ordine. E' la meta' «archivio → voci» della funzione dei pin: la usano la passata qui sopra e il tempo 2 dello scarto
+// (V1, EM §10.4 passo 8: «i pin si calcolano con la stessa funzione della cache, con la regola archivio → voci»).
+func VociDiArchivi(ctx context.Context, q *db.Queries, sha []string) (map[string][]string, error) {
+	voci, err := q.ListVociDiArchivio(ctx, sha)
+	if err != nil {
+		return nil, fmt.Errorf("voci degli archivi: %w", err)
+	}
+	figliDi := map[string][]string{}
+	for _, v := range voci {
+		z, f := strings.TrimSpace(v.Archivio), strings.TrimSpace(v.Voce)
+		figliDi[z] = append(figliDi[z], f)
+	}
+	for z := range figliDi {
+		sort.Strings(figliDi[z])
+	}
+	return figliDi, nil
+}
+
+// PinDiUnaVoce: il pin di un archivio per la regola archivio → voci: la prima voce (in ordine) con un pin, o "". Un
+// archivio e' pinnato se lo e' una sua voce, anche una voce che sul disco non c'e' piu': da lui si riestrae.
+func PinDiUnaVoce(voci []string, motivi map[string]string) string {
+	for _, f := range voci {
+		if m := motivi[f]; m != "" {
+			return "archivio con una voce ancora in uso (" + m + ")"
+		}
+	}
+	return ""
+}
+
+// PinDiContenuti: i pin di questi contenuti con la stessa funzione della passata, cioe' ListContenutiPinnati e il pin
+// «proposta aperta in Altri file» che cade quando la copia verificata e' nel deposito (copiaNelDeposito; nil = deposito
+// non configurato: il pin resta). Senza la regola archivio → voci, che applica chi chiama (VociDiArchivi,
+// PinDiUnaVoce). Un contenuto senza pin non sta nella mappa.
+func PinDiContenuti(ctx context.Context, q *db.Queries, sha []string, copiaNelDeposito func(string, uuid.UUID, int64) bool) (map[string]string, error) {
+	pin, err := q.ListContenutiPinnati(ctx, sha)
+	if err != nil {
+		return nil, fmt.Errorf("contenuti pinnati: %w", err)
+	}
+	motivi := make(map[string]string, len(pin))
+	var altriFile []string
+	for _, p := range pin {
+		s := strings.TrimSpace(p.Sha256)
+		motivi[s] = p.Motivo
+		if p.Motivo == MotivoPropostaAltriFile {
+			altriFile = append(altriFile, s)
+		}
+	}
+	if err := sciogliAltriFile(ctx, q, copiaNelDeposito, altriFile, motivi); err != nil {
+		return nil, err
+	}
+	return motivi, nil
+}
+
+// sciogliAltriFile: per i contenuti il cui unico pin e' una proposta aperta di un'occorrenza in Altri file, il pin
+// cade se OGNI copia verificata di quelle occorrenze c'e' nel deposito con la dimensione attesa (EM §10.5). Se il file
+// del deposito manca, il pin resta: la cache non toglie lo staging di un file in Altri file senza byte nel deposito
+// (PM23 AF-15), e la Sorgente segnala l'anomalia.
+func sciogliAltriFile(ctx context.Context, q *db.Queries, copiaNelDeposito func(string, uuid.UUID, int64) bool, sha []string,
+	motivi map[string]string) error {
+	if len(sha) == 0 || copiaNelDeposito == nil {
+		return nil
+	}
+	copie, err := q.ListConservazioniCopiatePerSha(ctx, sha)
+	if err != nil {
+		return fmt.Errorf("copie di conservazione dei file in Altri file: %w", err)
+	}
+	trovate := map[string]bool{}
+	mancante := map[string]bool{}
+	for _, cp := range copie {
+		s := strings.TrimSpace(cp.Sha256)
+		trovate[s] = true
+		if !cp.Bytes.Valid || !copiaNelDeposito(cp.PercorsoRelativo, cp.DepositoID, cp.Bytes.Int64) {
+			mancante[s] = true
+		}
+	}
+	for _, s := range sha {
+		if trovate[s] && !mancante[s] {
+			delete(motivi, s)
 		}
 	}
 	return nil
 }
 
-// rimuovi toglie un contenuto: prima gli allegati che lo nominano perdono il percorso, poi il file
-// sparisce, e le due cose stanno nella stessa transazione. Se il file non si lascia cancellare, il
-// database non cambia. Se il commit fallisce dopo la cancellazione resta un percorso che non porta
-// a niente: e' la condizione che il blocco 4C gia' gestisce («contenuto non piu' in staging»).
-func (c *Cache) rimuovi(ctx context.Context, k *contenuto) (int64, error) {
+// errNonPiuRimovibile: ricontrollato sotto BloccaContenuto, il contenuto serve ancora (un pin nuovo, un riferimento
+// appena scritto, un file rinfrescato). Non e' un errore: la passata va avanti.
+var errNonPiuRimovibile = errors.New("contenuto di nuovo in uso")
+
+// rimuovi toglie un contenuto: prima gli allegati che nominano QUEL file perdono il percorso, poi il file sparisce, e
+// le due cose stanno nella stessa transazione. Se il file non si lascia cancellare, il database non cambia. Se il commit
+// fallisce dopo la cancellazione resta un percorso che non porta a niente: e' la condizione che il blocco 4C gia'
+// gestisce («contenuto non piu' in staging»).
+//
+// V1 (EM §10.6; giro 1, TR-09): chi cancella ricalcola sotto il lucchetto per contenuto (BloccaContenuto), nella
+// transazione che cancella, pin, eta' e riferimenti, con la stessa funzione della passata (interroga, con la regola
+// archivio → voci), prima di os.Remove. La passata ha deciso con dati di qualche istante prima: un caricamento, un
+// riuso del gemello o una «Riattiva» che nel frattempo hanno adottato il contenuto prendono lo stesso lucchetto, e qui
+// si vede. perEta: la passata l'ha scelto per la retention (va ricontrollata), non per la capienza.
+func (c *Cache) rimuovi(ctx context.Context, k *contenuto, perEta bool) (int64, error) {
 	tx, err := c.Pool.Begin(ctx)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	n, err := db.New(tx).AzzeraPathStagingPerSha(ctx, pgtype.Text{String: k.sha, Valid: true})
+	q := db.New(tx)
+	if err := q.BloccaContenuto(ctx, k.sha); err != nil {
+		return 0, err
+	}
+	ora := &contenuto{percorso: k.percorso, sha: k.sha, bytes: k.bytes}
+	st, err := os.Stat(k.percorso)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// gia' sparito: restano solo i riferimenti a QUEL file, che non portano piu' a niente
+		ora.ultimoUso = time.Time{}
+	case err != nil:
+		return 0, err
+	default:
+		ora.ultimoUso = st.ModTime()
+	}
+	if err := c.interroga(ctx, q, []*contenuto{ora}); err != nil {
+		return 0, err
+	}
+	if st != nil {
+		adesso := c.adesso()
+		switch {
+		case ora.pin != "":
+			return 0, fmt.Errorf("%w: %s", errNonPiuRimovibile, ora.pin)
+		case adesso.Sub(ora.ultimoUso) < c.etaMinima():
+			return 0, fmt.Errorf("%w: usato da meno di %s", errNonPiuRimovibile, c.etaMinima())
+		case perEta && c.Retention > 0 && adesso.Sub(ora.ultimoUso) <= c.Retention:
+			return 0, fmt.Errorf("%w: usato dentro la retention", errNonPiuRimovibile)
+		}
+	}
+	n, err := q.AzzeraPathStagingPerFile(ctx, db.AzzeraPathStagingPerFileParams{Sha256: k.sha, Percorso: k.percorso})
 	if err != nil {
 		return 0, err
 	}

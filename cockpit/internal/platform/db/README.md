@@ -49,10 +49,11 @@ markmap:
 
 ### Le query per file
 
-- 37 file, 578 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
+- 38 file, 620 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
   `p4_conferme.sql` con 27 query, 22 piu' le 5 delle correzioni del 13/10; V1: + `v1_formato3.sql` con 43 query e
   `ConfermaDistintaBozza` in `p4_conferme.sql`; V1, ondata B, corsia persistenza: + `v1_bozza_rotte.sql` con 22 query;
-  V1, corsia motore: + `v1_motore.sql` con 3 query).
+  V1, corsia motore: + `v1_motore.sql` con 3 query; V1, ondata B, corsia file: + `v1_file.sql` con 42 query,
+  `AzzeraPathStagingPerSha` sostituita da `AzzeraPathStagingPerFile` in `cache.sql`).
 - «Senza chiamanti» = nessun chiamante, né in produzione né nei test; il «+n» fra parentesi conta quelle chiamate soltanto dai test.
 - L'elenco per nome è in «Stato dell'implementazione».
 - **`agente.sql`** — analisi semantica dell'agente
@@ -154,6 +155,11 @@ markmap:
 - **`v1_bozza_rotte.sql`** — V1, ondata B (corsia persistenza, passo 6 del piano della 0023, prima parte): le letture dello stato della RFQ e delle rotte della bozza nel formato 3, gli aggiornamenti di `f8_stato` di R11, la testata di una bozza convertita, l'allegato della storia della fonte degli atti esistenti
   - Tabelle e viste: `componente`, `componente_relazione`, `conferma_strutturale` (testate), `documento`, `documento_provenienza`, `allegato` + `messaggio` (con `file_rfq_attivo`), `documento_proposta`, `thread_offerta` (anche FOR KEY SHARE per R6), `distinta_bozza` (insert con l'id della conversione), `distinta_bozza_versione`, `esito_intento`, `file_rfq_evento`, `associazione_evento`, `f8_stato` (letture e i due UPDATE di R11), `file_rfq`, `file_rfq_rimozione`, `file_rfq_conservazione`, `utente`, `distinta_importazione`
   - Query: 22; chi le chiama: `core/rfq/confermabom` (lo stato della RFQ), `core/rfq/distintabozza` (R1, R2, R6, R7, conversione), `core/rfq/fascicolo` (`GetAllegatoDelDocumento`) e `transport/web` (R11, con `OraDelDatabase`: l'inizio del riallineamento sull'orologio del database, dal secondo passaggio dell'ondata B). Lo schema non cambia: nessuna migrazione
+- **`v1_file.sql`** — il ciclo dei file della Sorgente (V1, ondata B, corsia file; EM §10): le occorrenze e la loro fotografia, il perimetro di un archivio, il modello di S1, le dipendenze D-1…D-15 in una passata, l'unica copia (D-14) in blocco, le righe delle rimozioni e delle copie di conservazione prese `FOR UPDATE` o `SKIP LOCKED` (il custode, che le scorre a pagine per chiave: `ListIdRimozioniDaRiprendere`, `ListIdRimozioniNonRitentabili`, `ListIdConservazioniDaRiprendere` con `dopo`), i pin del tempo 2 per file, le guardie degli scrittori legacy (`StatoOccorrenzaAllegato`), l'elenco `NonAttivi` (`ListOccorrenzeNonAttiveRfq`). Lo scarto col vecchio «Scarta il file» (`scartato_legacy`, e lo stato «scartata» delle altre occorrenze) ha la stessa definizione in ogni query: proposta scartata da una persona, nessuna riga o la riga in attivo nella RFQ dell'occorrenza, nessun evento `scarta` del ciclo per l'allegato
+  - Tabelle e viste: `file_rfq`, `file_rfq_evento`, `file_rfq_rimozione`, `file_rfq_conservazione`, `esito_intento`, `allegato`, `messaggio`, `documento_proposta`, `documento`, `documento_provenienza`, `componente`, `componente_proposta`, `job`, `annotazione_pdf`, `nas_anomalia`, `fonte_step_evento`, `conferma_strutturale`, `utente`
+  - Query: 42; le chiamano `core/rfq/filerfq` (le scritture del ciclo solo da li': prova statica CO-12), le guardie di `transport/workerapi`, `transport/web` e `core/rfq/documenti`, e il flusso F8 (`ListOccorrenzeNonAttiveRfq`)
+  - Lo scarto col vecchio «Scarta il file» (`scartato_legacy`): proposta scartata da una persona e nessuna riga del ciclo dei file per l'allegato in nessuna RFQ
+- Il predicato `file_rfq_attivo` (V1, R-4 della persistenza, EM §10.7) nelle letture e nei cambi dello staging fuori dalle viste: `proposte.sql` (le tre query della struttura, `FileNelFlusso`), `analisi.sql` (la distribuzione delle letture), `preparazione.sql` (la preparazione e i file fermi; non `ListLavoroPendenteRfq`, che legge il caricatore del motore), `cache.sql` (i pin), `allegati.sql` (il gemello attivo prima, `AllegatoInStagingPerHash`)
 - **`panoramica.sql`** — pagina Richieste
   - Tabelle e viste: `v_cruscotto`, `identificativo_thread`, `componente`, `documento`, `documento_proposta`
   - Query: 3; senza chiamanti: 0
@@ -224,6 +230,10 @@ markmap:
   - Lucchetto: `FOR UPDATE SKIP LOCKED LIMIT 1` dentro un solo `UPDATE`
 - **`BloccaCartella`**
   - Lucchetto: `pg_advisory_xact_lock(hashtextextended('<thread>:<cartella in minuscolo>', 0))`
+- **`BloccaContenuto`** (V1, `v1_formato3.sql`)
+  - Lucchetto: `pg_advisory_xact_lock(hashtextextended('contenuto:<sha256 in minuscolo>', 0))`: chi cancella un contenuto dallo staging e chi lo adotta, nella transazione che scrive `path_staging`, dopo le righe; piu' sha in ordine crescente
+- **`BloccaPropostaDiAllegato`, `GetRimozionePerAggiornare`, `GetConservazionePerAggiornare`, `ListConservazioniVive`** (V1, `v1_file.sql`)
+  - Lucchetto: `FOR UPDATE`; **`BloccaAllegatiPerFotografia`** `FOR SHARE`; le versioni `...SeLibera` del custode e `AnnullaJobPendentiPerChiave` `FOR UPDATE SKIP LOCKED`
 - I trigger della 0020 prendono i loro (`FOR UPDATE`, `FOR SHARE`, `FOR KEY SHARE`): vedi `migrations/README.md`.
 
 ### Confronta e scambia

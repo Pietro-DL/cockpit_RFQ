@@ -48,8 +48,10 @@ func TestIlFlussoScriveSoloLeDestinazioni(t *testing.T) {
 		"GetThread": true, "GetCliente": true, "ListIdentificativi": true, "ListComponentiThread": true, "ListRelazioniAttive": true,
 		"ListComponenteProposteThread": true, "ListRelazioneProposteThread": true, "ListFileDelFlusso": true,
 		"ListProposteDocumentoThread": true, "ListShaConFattiCorrenti": true, "ListLavoroPendenteRfq": true, "ListUltimiJobPerChiavi": true,
-		"GetAnalisiFatti":    true,
-		"ScriviDestinazione": true,
+		"GetAnalisiFatti": true,
+		// V1 (EM §10.7): le occorrenze non attive nella Sorgente, una SELECT, che il flusso salta
+		"ListOccorrenzeNonAttiveRfq": true,
+		"ScriviDestinazione":         true,
 	}
 	file, err := filepath.Glob("smistamento_*.go")
 	if err != nil {

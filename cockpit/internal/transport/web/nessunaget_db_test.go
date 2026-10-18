@@ -266,6 +266,12 @@ func TestNessunaGetScrive(t *testing.T) {
 		{"/thread/" + s.thread.String() + "/motore-a?vista=rfq", false, true, true},
 		{"/thread/" + s.thread.String() + "/motore-a?vista=boh&prodotto=boh", false, true, true},
 		{"/thread/" + s.thread.String() + "/motore-a?vista=documenti", true, true, true},
+		// V1, corsia file (PM23 T-04 per S1 e S5, passo 5): le due GET della Sorgente, dell'amministratore. S1 risponde
+		// 200 (anche con il dettaglio di un file e con gli scartati); S5 serve i byte o dice perche' no, mai con un 5xx
+		{"/thread/" + s.thread.String() + "/sorgente", false, true, true},
+		{"/thread/" + s.thread.String() + "/sorgente?scartati=1&file=" + s.letto.String(), false, true, true},
+		{"/thread/" + s.thread.String() + "/sorgente/file/" + s.letto.String() + "/contenuto", false, false, true},
+		{"/thread/" + s.thread.String() + "/sorgente/file/" + s.pdfFermo.String() + "/contenuto?modo=scarica", false, false, true},
 	}
 	clienteMA := uuidSQL(t, b, `SELECT cliente_id FROM thread_offerta WHERE thread_id = $1`, s.thread)
 	mwAccendi(t, b, mwRegoleACME(t, clienteMA, "Acme S.p.A.", 20*time.Second))

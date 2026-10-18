@@ -15,6 +15,7 @@ import (
 	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/rfq/documenti"
+	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
@@ -51,6 +52,9 @@ type Servizi struct {
 
 	// MotoreA: le regole della Distinta nuova del motore A, preparate all'avvio da [motore_a] (giro 5, A1d; piano 7.4.5).
 	MotoreA motorea_web.Regole
+
+	// CicloFile: il servizio del ciclo dei file della Sorgente (V1, EM §10), con il deposito degli «Altri file».
+	CicloFile *filerfq.Servizio
 }
 
 // CostruisciServizi mette insieme i pezzi: lo scrittore del NAS, lo scheduler, la cache dei
@@ -100,7 +104,15 @@ func CostruisciServizi(ctx context.Context, cfg *config.Config, pool *pgxpool.Po
 		log.Warn("[retention].giorni_staging e' deprecata: vale come cache_gg", "giorni", cfg.Retention.GiorniStaging,
 			"nota", "scrivere cache_gg = "+strconv.Itoa(cfg.Retention.GiorniStaging)+" e togliere la riga")
 	}
-	(&staging.Cache{Pool: pool, Staging: radiceStaging, Log: log, Retention: cfg.RetentionCache(), MaxByte: cfg.CacheMaxByte()}).Avvia(ctx)
+	// V1 (EM §10.5): il deposito degli «Altri file» e il servizio del ciclo dei file (ciclo_file.go). Un deposito che non
+	// torna con le copie registrate ferma l'avvio; la cache non toglie lo staging di un file in Altri file finche' la sua
+	// copia non c'e' nel deposito (CopiaNelDeposito).
+	cicloFile, err := preparaCicloFile(ctx, cfg, pool, radiceStaging, log)
+	if err != nil {
+		return nil, err
+	}
+	(&staging.Cache{Pool: pool, Staging: radiceStaging, Log: log, Retention: cfg.RetentionCache(), MaxByte: cfg.CacheMaxByte(),
+		CopiaNelDeposito: cicloFile.CopiaNelDeposito()}).Avvia(ctx)
 	// L'analisi semantica (checkpoint 3R §9). Spenta se non la si accende in [agente], e comunque
 	// spenta se manca la chiave: `DaAmbiente` restituisce nil, e un servizio senza modello non chiama
 	// nessuno. Il testo delle mail dei clienti esce verso un servizio esterno, e quella e' una cosa
@@ -122,6 +134,7 @@ func CostruisciServizi(ctx context.Context, cfg *config.Config, pool *pgxpool.Po
 	// La Distinta nuova del motore A (giro 5, A1d): spenta non apre file; accesa legge l'indice delle regole una volta,
 	// qui, dopo Semina, e un indice assente o rifiutato non ferma l'avvio (lo dice il log, la pagina mostra l'errore).
 	motoreA := preparaMotoreA(cfg.MotoreA, log)
+	cicloFile.Contesti = contestiPerIlCicloFile(motoreA) // D-13: i contesti partner che citano un file
 	esecutore := &EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}
 	ricognitore := &documenti.Ricognitore{Pool: pool, NAS: scrittore, Log: log, Ogni: cfg.IntervalloIntegrita()}
 	// D30: lo staging automatico si accende dal file di configurazione ([staging] automatico = true) e
@@ -134,7 +147,7 @@ func CostruisciServizi(ctx context.Context, cfg *config.Config, pool *pgxpool.Po
 	return &Servizi{Pool: pool, Scrittore: scrittore, Ingest: servizioIngest, Agente: servizioAgente,
 		Esecutore: esecutore, Ricognitore: ricognitore,
 		RadiceStaging: radiceStaging, OpzioniSync: opzioniSync, IntervalloSync: intervalloSync,
-		SyncApertura: syncApertura, MotoreA: motoreA}, nil
+		SyncApertura: syncApertura, MotoreA: motoreA, CicloFile: cicloFile}, nil
 }
 
 // Avvia fa partire i due che aspettavano il server dei worker: l'esecutore dei job del server e il
@@ -145,4 +158,10 @@ func (s *Servizi) Avvia(ctx context.Context) {
 	// il NAS e basta, e un server che non scrive puo' benissimo accorgersi che un file dichiarato nel
 	// fascicolo non c'e' piu'. Si spegne solo con [nas].intervallo_integrita_s = 0.
 	s.Ricognitore.Avvia(ctx)
+	// V1: il custode del ciclo dei file (EM §10.4, §10.5): riprende rimozioni e rilasci, chiude le copie con il battito
+	// fermo, toglie i parziali vecchi del deposito, una volta al giorno controlla la bonifica. Parte qui, dopo che la
+	// strada d'ingresso e' collegata (Ascolta).
+	if s.CicloFile != nil {
+		(&filerfq.Custode{S: s.CicloFile}).Avvia(ctx)
+	}
 }

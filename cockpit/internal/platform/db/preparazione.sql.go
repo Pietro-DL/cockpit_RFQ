@@ -55,6 +55,7 @@ SELECT a.allegato_id, a.messaggio_id, a.nome_file, a.bytes
    AND a.stato = 'grezzo' AND a.errore IS NULL AND a.path_staging IS NULL
    AND p.stato = 'aperta' AND coalesce((p.dettagli ->> 'pre_spunta')::boolean, false)
    AND (a.bytes IS NULL OR a.bytes <= $2::bigint)
+   AND file_rfq_attivo(m.thread_id, a.allegato_id)  -- V1 (EM §10.7, G-10): un file non attivo non si scarica da solo
  ORDER BY m.data_evento, a.indice
 `
 
@@ -109,6 +110,7 @@ SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a
   JOIN messaggio m ON m.messaggio_id = a.messaggio_id
  WHERE m.thread_id = $1 AND a.natura = 'file' AND a.stato = 'in_staging'
    AND a.path_staging IS NOT NULL AND a.sha256 IS NOT NULL
+   AND file_rfq_attivo(m.thread_id, a.allegato_id)  -- V1 (EM §10.7, G-10): un file non attivo non si estrae ne' si analizza
  ORDER BY m.data_evento, a.contenitore_id NULLS FIRST, a.indice
 `
 
