@@ -7,8 +7,10 @@ package migrazioni_test
 // conferma_strutturale_componente, e il CHECK da' lo stesso esito di EmittenteAmmissibile e NamespaceAmmissibile, tetti
 // di sicurezza e bianchi Unicode compresi. Il confronto delle minuscole del CHECK usa lower() del database: con una
 // LC_CTYPE che non conosce le maiuscole non ASCII (C, il database di prova) il caso delle lettere non ASCII maiuscole e'
-// la deviazione dichiarata P-17 (T-14 FALLITA per quel caso finche' non e' decisa): la prova la fissa (il CHECK accetta,
-// il Go rifiuta), cosi' una deviazione diversa, o in piu', la fa fallire.
+// la deviazione accettata P-17 (a) (decisione [T] dell'integratore sulle proposte dell'ondata A, 18/10: il CHECK e' una
+// difesa in piu', non la regola; le maiuscole non ASCII le rifiutano il Go e la grammatica, e R5 e' l'unico scrittore;
+// il requisito resta PostgreSQL 16+, niente pg_c_utf8 ne' ICU). La prova la fissa (il CHECK accetta, il Go rifiuta),
+// cosi' una deviazione diversa, o in piu', la fa fallire.
 
 import (
 	"context"
@@ -35,7 +37,7 @@ func TestV1T14LaRegolaDellEmittenteDelDatabase(t *testing.T) {
 	t.Logf("LC_CTYPE del database di prova: %s; lower() conosce le maiuscole non ASCII: %v", ctype, piega)
 	for _, c := range distintabozza.CasiT14() {
 		t.Run(c.Nome, func(t *testing.T) {
-			// la deviazione dichiarata P-17: qui il CHECK accetta e il Go rifiuta (atteso del CHECK capovolto)
+			// la deviazione accettata P-17 (a): qui il CHECK accetta e il Go rifiuta (atteso del CHECK capovolto)
 			deviazione := c.MaiuscolaNonASCII && !piega
 			emittente, namespace := letteraleSQL("partner:beta"), "NULL"
 			if c.Partner != "" {
@@ -60,10 +62,10 @@ func TestV1T14LaRegolaDellEmittenteDelDatabase(t *testing.T) {
 			}
 			if deviazione {
 				if !accettato || distintabozza.EmittenteAmmissibile("partner:"+c.Partner) {
-					t.Errorf("la deviazione dichiarata P-17 non e' piu' quella: CHECK accettato = %v, Go = %v", accettato,
+					t.Errorf("la deviazione accettata P-17 (a) non e' piu' quella: CHECK accettato = %v, Go = %v", accettato,
 						distintabozza.EmittenteAmmissibile("partner:"+c.Partner))
 				}
-				t.Logf("FALLITA (deviazione dichiarata P-17, da decidere): con LC_CTYPE %s il CHECK accetta partner:%s, la grammatica e il Go lo rifiutano", ctype, c.Partner)
+				t.Logf("deviazione accettata (P-17 a): con LC_CTYPE %s il CHECK accetta partner:%s, la grammatica e il Go lo rifiutano (R5, l'unico scrittore, passa dal Go)", ctype, c.Partner)
 				return
 			}
 			if accettato != c.Atteso {

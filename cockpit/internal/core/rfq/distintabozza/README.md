@@ -103,6 +103,20 @@ markmap:
   - `Decisione3`: le 16 decisioni (i 13 tipi del contratto rev. 3, `identita`, `non_includere`, `scollega_documento`)
     con una forma chiusa per tipo (`formeDecisione`: campi obbligatori e facoltativi), `LeggiDecisione3`; `cambia_tipo`
     porta il tipo nuovo in `tipo_nuovo` (proposta di emendamento: «tipo» e' la chiave del tipo della decisione)
+  - ondata B (PE-27, decisione [T] dell'integratore del 18/10): `scollega_documento` ha il campo facoltativo
+    `da_decisione`, l'id della decisione `escludi` da cui nasce lo svincolo; lo snapshot vuole un'esclusione dello stesso
+    snapshot e dello stesso componente (altrimenti 422 `CORPO_NON_VALIDO` sul campo), cosi' «↺ Ripristina» toglie
+    l'esclusione e i suoi svincoli nello stesso gesto
+- **`vocabolario2.go`** (ondata B)
+  - il vocabolario 2 del giornale del formato 3 (EM §9.2): i verbi del vocabolario 1, `proposta_riallineata` (solo del
+    server) e `file_lasciato`; la tabella delle forme di prima e dopo per verbo (PE-03, con gli esempi dei casi condivisi
+    `transport/web/e2e/distinta_unica_casi.json`); l'elenco chiuso dei motivi di `file_svincolato` in `dopo.motivo`
+    (PE-04, PE-22: `nodo_escluso`); il prima di `annulla` e `rifai`, null oppure `{azione_id}` (PE-05)
+- **`verifiche3.go`** (ondata B)
+  - le verifiche contro un registro, senza il database (EM §6.2): V-5 sul segnale visto (`versione_servizio` =
+    `regole.versioni.ancoraggio` del registro, PE-17), V-3 sulla voce intera, V-1 e V-3 della lettura di una decisione
+    `identita` (la lettura legata alla voce, la copia byte per byte, il codice manuale), l'identita' di un nodo in modo
+    `proposta` (`rev_proposta` vuota = rev assente, PE-11)
 - **`lettori.go`**
   - `RileggiVersione` (le versioni nei formati 2 e 3, con l'impronta ricontrollata), `LeggiSnapshotConferma` (le
     conferme nei formati 1, 2 e 3: un contenuto illeggibile torna con `NonLeggibile` e i byte grezzi, mai nascosto)

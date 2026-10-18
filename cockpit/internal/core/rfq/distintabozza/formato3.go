@@ -434,8 +434,10 @@ type CasoT14 struct {
 	OltreIlTetto bool
 	// MaiuscolaNonASCII: il CHECK confronta con lower() del database, che conosce le maiuscole non ASCII solo con una
 	// LC_CTYPE che le conosce (non con C): su un database con LC_CTYPE C il CHECK accetta quello che il Go rifiuta. E'
-	// la deviazione dichiarata P-17 del resoconto della corsia persistenza (T-14 FALLITA per questo caso finche' non e'
-	// decisa): la prova del database la fissa, e il caso torna nel confronto normale dove lower() le conosce.
+	// la deviazione accettata P-17 (a) (decisione [T] dell'integratore sulle proposte dell'ondata A, 18/10): il CHECK
+	// ck_csc_identita e' una difesa in piu', non la regola; le maiuscole non ASCII le rifiutano il Go e la grammatica, e
+	// R5 e' l'unico scrittore. La prova del database fissa la deviazione (una diversa, o in piu', la fa fallire), e il
+	// caso torna nel confronto normale dove lower() le conosce.
 	MaiuscolaNonASCII bool
 }
 
@@ -824,6 +826,25 @@ func (s *Snapshot3) validaDecisioni(nodi map[string]Nodo3, rifDi map[string]stri
 			if n.Identita.Modo != ModoDecisione || n.Identita.Decisione != d.ID {
 				return corpo(campo+".chiave_bozza", "il nodo %s non ha l'identita' decisa da %s (modo decisione)", d.ChiaveBozza, d.ID)
 			}
+		}
+	}
+	// lo svincolo nato da un'esclusione cita la decisione escludi dello stesso snapshot, dello stesso componente: un id
+	// che non c'e', o che non e' un'esclusione di quel componente, e' un difetto di forma (PE-27, decisione [T]
+	// dell'integratore del 18/10). Cosi' «↺ Ripristina» toglie l'esclusione e i suoi svincoli nello stesso gesto: una
+	// bozza che toglie l'una senza gli altri non si salva.
+	for i, d := range s.Decisioni {
+		if d.Tipo != DecisioneScollegaDocumento || d.DaDecisione == "" {
+			continue
+		}
+		campo := fmt.Sprintf("decisioni[%d].da_decisione", i)
+		x, ok := perID[d.DaDecisione]
+		switch {
+		case !ok:
+			return corpo(campo, "la decisione %s non c'e' in questa bozza: uno svincolo nato da un'esclusione cita l'esclusione", d.DaDecisione)
+		case x.Tipo != DecisioneEscludi:
+			return corpo(campo, "la decisione %s e' %s, non un'esclusione (escludi)", d.DaDecisione, x.Tipo)
+		case x.ComponenteID == nil || d.ComponenteID == nil || *x.ComponenteID != *d.ComponenteID:
+			return corpo(campo, "l'esclusione %s e' di un altro componente: lo svincolo e' di un'associazione del componente escluso", d.DaDecisione)
 		}
 	}
 	for i, n := range s.Nodi {
