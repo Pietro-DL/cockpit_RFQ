@@ -131,7 +131,6 @@ const S = {
   camere: {},
   compressi: {},
   wizard: null,
-  esitoGestoFile: {}, // allegato → testo dell'ultimo esito
   filtro: "tutti",
 };
 let L = null; // la tela in vista: {lay, chiave, vp, mondo, g}
@@ -514,14 +513,18 @@ function nuovoIdDecisione(pref) {
 function confermaInSospeso() {
   return P.sospesi().find((s) => s.nome === "confermaBom" && s.risorsa === "bozza:" + S.prodotto) || null;
 }
-function perchéNoModifica() {
+// perchéNoModifica: perché un gesto sulla bozza non parte, o "". Con o.riprova una conferma in sospeso già verificata
+// «non registrata» non ferma il wizard: è la strada di «Riprova la conferma», lo stesso corpo con la stessa chiave, anche
+// dopo una ricarica della pagina (MAT §5.2, «verificato: non registrata»; §5.5 n. 4). Le modifiche restano ferme.
+function perchéNoModifica(o) {
   if (!S.modello || S.erroreModello) return "il modello della pagina non si legge: niente tela, bozza né wizard (D-18)";
   if (!bozzaAperta()) return "nessuna bozza: la BOM di lavoro nasce dalla scelta dello STEP nella Sorgente";
   if (bozzaDaConvertire()) return "la bozza è nel formato di prima: per lavorarla va convertita";
   if (S.modello.congelata) return "la BOM è congelata: revisione e congelamento non sono in questa pagina";
   if (S.salvataggio.stato === "conflitto") return "la bozza è cambiata altrove: rileggi la bozza salvata";
   if (S.salvataggio.stato === "rifiutata") return "il server ha rifiutato l'ultimo salvataggio: rileggi la bozza salvata";
-  if (confermaInSospeso()) return "una conferma è in sospeso: verificala, o abbandona il tentativo";
+  const sosp = confermaInSospeso();
+  if (sosp && !(o && o.riprova && sosp.verificato)) return sosp.verificato ? "una conferma è in sospeso (non ancora registrata): riprovala con lo stesso corpo, o abbandona il tentativo" : "una conferma è in sospeso: verificala, o abbandona il tentativo";
   if (S.wizard && S.wizard.stato === "conferma") return "conferma in corso";
   return "";
 }
@@ -712,17 +715,21 @@ function programmaRiepilogo() {
 async function riepilogoSfondo() {
   if (!bozzaLavorabile() || S.invio || S.coda.length) return;
   const v = S.bozza.versione;
+  let nuovo = false;
   try {
     const r = await P.riepilogoBom(corpoBozza());
     if (bozzaLavorabile() && S.bozza.versione === v && !S.coda.length) {
       S.riepilogo = r;
       S.riepilogoStato = "aggiornato";
+      nuovo = true;
     }
   } catch (e) {
     S.riepilogoStato = "errore";
     S.riepilogoErrore = testoErrore(e);
   }
   renderBarra();
+  // l'Elenco mostra gli stati delle preassociazioni che dà R4: si ridisegna con il riepilogo nuovo
+  if (nuovo && S.passo === "revisione" && S.vista === "elenco") renderCorpo();
 }
 
 // ---------------------------------------------------------------- registro d'importazione, voci, caselle
@@ -1491,8 +1498,12 @@ function renderStrisce() {
   if (S.erroreBozza && S.passo === "revisione") add("ko", "La bozza non si legge: " + S.erroreBozza, null, "du-errore-bozza");
   const sosp = P.sospesi();
   for (const s of sosp) {
+    // la conferma di questo prodotto verificata «non registrata»: «Riprova la conferma» riapre il wizard, che rilegge il
+    // riepilogo e manda lo stesso corpo; il ponte riusa la chiave se il corpo è lo stesso (MAT §5.2; §5.5 n. 4)
+    const riprova = s.nome === "confermaBom" && s.verificato && s.risorsa === "bozza:" + S.prodotto && bozzaLavorabile();
     add("ver", "Un tentativo («" + (s.etichetta || s.nome) + "») non ha un esito certo" + (s.verificato ? ": il server dice che non è ancora registrato." : ": lo verifico con la stessa chiave."),
       h("span", { class: "du-azioni" }, btn("Verifica ora", () => verificaSospeso(s), { cls: "du-btn--sm", perche: false }),
+        riprova ? btn("Riprova la conferma…", riprovaConfermaSospesa, { cls: "du-btn--sm du-btn--pri", id: "du-riprova-sospesa", perche: false }) : null,
         btn("Abbandona il tentativo…", () => abbandonaTentativo(s), { cls: "du-btn--sm du-btn--ghost", perche: false })), "du-sospeso-" + sid(s.risorsa));
   }
   if (!bozzaAperta()) return;
@@ -1796,7 +1807,6 @@ function rigaFile(f) {
     const c = f.conservazione.stato;
     traccia.push(c === "copiata" ? "Conservato (copia verificata)." : c === "in_copia" ? "Conservazione in corso." : c === "mancante" ? "Copia nel deposito mancante: il file resta nello staging." : "Conservazione: " + c + ".");
   }
-  if (S.esitoGestoFile[f.allegato_id]) traccia.push(" " + S.esitoGestoFile[f.allegato_id]);
   return h("li", { class: cls, id: "du-file-" + sid(f.allegato_id), "data-stato": f.stato || "attivo" },
     h("div", {}, h("div", { class: "du-fr-nome" }, f.nome_file), h("div", { class: "du-fr-meta" }, meta)),
     h("div", {}),
@@ -2195,6 +2205,9 @@ function apriFinestra(titolo, corpo, azioni, o) {
     corpo, err, piede);
   f.hidden = false;
   velo.hidden = false;
+  // il contenitore della finestra resta lo stesso fra un dialogo e l'altro: l'ascoltatore del dialogo di prima va tolto,
+  // o i suoi controlli leggerebbero campi che non ci sono più
+  staccaAggiorna(f);
   f.__aggiorna = aggiornaBottoni;
   f.addEventListener("input", aggiornaBottoni);
   f.addEventListener("change", aggiornaBottoni);
@@ -2204,9 +2217,16 @@ function apriFinestra(titolo, corpo, azioni, o) {
   if (o && o.dopo) o.dopo(f);
   return { f, err, aggiorna: aggiornaBottoni };
 }
+function staccaAggiorna(f) {
+  if (!f.__aggiorna) return;
+  f.removeEventListener("input", f.__aggiorna);
+  f.removeEventListener("change", f.__aggiorna);
+  f.__aggiorna = null;
+}
 function chiudiFinestra() {
   const f = $("#du-finestra");
   if (!f || f.hidden) return;
+  staccaAggiorna(f);
   f.hidden = true;
   f.replaceChildren();
   if (!S.wizard) $("#du-velo").hidden = true;
@@ -2652,31 +2672,42 @@ async function dopoFormaServer(r, testoOk) {
     S.ultimaForma = r.dati && r.dati.importazione ? r.dati.importazione : null;
     await caricaModello();
     await caricaBozza();
+    // la proposta in vista nella Sorgente porta l'effetto sulla bozza di prima (S6 con «bozza»): si rilegge
+    if (S.anteprimaAllegato) await guarda(S.anteprimaAllegato, S.anteprimaGruppo, true);
     render();
     return true;
   }
   return esitoFormaKo(r);
 }
+// esitoFormaKo: il rifiuto di una forma costruita dal server (MAT §5.4, riga R2). Torna true quando il dialogo va chiuso:
+// con ANTEPRIMA_SUPERATA, gruppo_su_altra_occorrenza e stessa_sorgente il dialogo aperto porta un'impronta o un gruppo
+// che non valgono più, e ripetere da lì fallirebbe allo stesso modo; la pagina rilegge la proposta e il gesto si rifà
+// dal pulsante. Negli altri casi (motivo mancante, versione, motore occupato) il dialogo resta aperto con il motivo.
 function esitoFormaKo(r) {
   const err = $("#du-finestra-errore");
   let testo = r.testo || "Il server non ha accettato il gesto.";
+  let chiudi = false;
   if (r.codice === "ANTEPRIMA_SUPERATA") {
-    testo = "La proposta è cambiata mentre guardavi: rivedila.";
+    testo = "La proposta è cambiata mentre guardavi: rivedila, poi ripeti il gesto.";
+    chiudi = true;
     const gc = r.dati && r.dati.gruppo_corrente;
     if (S.anteprimaAllegato) guarda(S.anteprimaAllegato, gc && gc.chiave ? gc.chiave : "", true);
   } else if (r.motivo === "gruppo_su_altra_occorrenza" && r.dati && r.dati.allegato_id) {
     testo = "Questo gruppo sta su un'altra copia dello stesso file: guarda la proposta su quella copia.";
+    chiudi = true;
     guarda(r.dati.allegato_id, "", true);
   } else if (r.motivo === "stessa_sorgente") {
     testo = "È la struttura della bozza: per prendere la proposta di oggi usa «Aggiorna alla proposta di oggi».";
+    chiudi = true;
   } else if (r.codice === "BOZZA_VERSIONE") {
     testo = "La bozza è cambiata altrove: rileggila e ripeti il gesto.";
   } else if (r.codice === "CALCOLO_OCCUPATO" || r.codice === "CALCOLO_SCADUTO" || r.codice === "NON_CONFIGURATO") {
     testo = "Il motore è occupato, riprova fra poco: niente è stato scritto.";
   }
-  if (err) err.textContent = testo + (r.codice ? " (" + r.codice + (r.motivo ? ", " + r.motivo : "") + ")" : "");
-  avvisa(r.esito === "conflitto" ? "conflitto" : r.esito === "no" ? "no" : "errore", testo);
-  return false;
+  const conCodice = testo + (r.codice ? " (" + r.codice + (r.motivo ? ", " + r.motivo : "") + ")" : "");
+  if (err && !chiudi) err.textContent = conCodice;
+  avvisa(r.esito === "conflitto" ? "conflitto" : r.esito === "no" ? "no" : "errore", chiudi ? conCodice : testo);
+  return chiudi;
 }
 function sorgenteDi(a, gr) {
   return { allegato_id: a.allegato_id, sha256: a.sha256, gruppo: gr.gruppo };
@@ -2692,12 +2723,12 @@ function apriUsaPerBom(a, gr) {
     const crea = { partenza: "step", sorgente: sorgenteDi(a, gr), impronta_contenuto: gr.impronta_contenuto };
     if (motivo) crea.motivo = motivo;
     const r = await P.creaBozza({ bozza_id: null, versione_attesa: 0, prodotto_id: S.prodotto, vocabolario: 2, crea });
-    const ok = await dopoFormaServer(r, "Bozza creata dalla proposta dello STEP.");
-    if (ok) {
+    const chiudi = await dopoFormaServer(r, "Bozza creata dalla proposta dello STEP.");
+    if (r.esito === "ok") {
       S.passo = "revisione";
       render();
     }
-    return ok;
+    return chiudi;
   } }]);
 }
 async function apriCambiaSorgente(a, gr) {
@@ -2822,9 +2853,10 @@ function blocchiFile(det) {
 async function esitoGestoFile(r, f, testoOk) {
   if (r.esito === "ok") {
     const dati = r.dati || {};
+    // l'esito del gesto va nell'avviso; la riga del file mostra solo lo stato che S1 dice adesso (la rimozione o la
+    // conservazione possono andare avanti dopo la risposta: una frase di allora la contraddirebbe)
     const rim = arr(dati.rimozioni).map((x) => x.testo).filter(Boolean).join(" ");
     const t = rim || dati.testo || testoOk;
-    S.esitoGestoFile[f.allegato_id] = t;
     avvisa("ok", t + (dati.riproposto ? " (riproposto: era già registrato)" : ""));
     await caricaSorgente();
     await caricaModello();
@@ -3073,6 +3105,15 @@ async function verificaSospeso(s) {
   renderStrisce();
   renderBarra();
 }
+// riprovaConfermaSospesa: «Riprova la conferma» dalla striscia (dopo una ricarica il wizard di prima non c'è più): la
+// Revisione nell'Organigramma e il wizard, che rilegge il riepilogo. Mai da sola: la conferma parte solo dal clic su
+// «Conferma BOM» (MAT §5.2).
+async function riprovaConfermaSospesa() {
+  S.passo = "revisione";
+  S.vista = "org";
+  render();
+  await apriWizard();
+}
 function abbandonaTentativo(s) {
   apriFinestra("Abbandonare il tentativo?", h("p", {}, "La richiesta di prima («" + (s.etichetta || s.nome) + "») potrebbe ancora arrivare: se arriva, la vedrai registrata. Abbandonando la chiave, la pagina permette un gesto nuovo con una chiave nuova."),
     [{ testo: "Annulla", chiudi: true }, { testo: "Abbandona il tentativo", danger: true, id: "f-ok", fai: () => {
@@ -3161,7 +3202,7 @@ function renderBarra() {
 }
 function perchéNoConferma() {
   if (S.vista !== "org") return "il riepilogo della BOM si apre dall'Organigramma";
-  const no = perchéNoModifica();
+  const no = perchéNoModifica({ riprova: true });
   if (no) return no;
   if (S.bozza.base && S.bozza.base.stato === "superata") return "la base è superata: fai prima il rebase";
   return "";
@@ -3488,6 +3529,7 @@ function esitoWizard(w) {
     CHIAVE_RIUSATA: "Questo tentativo ha già un esito diverso: verifica lo storico e rileggi.",
     BLOCCHI: "Niente è registrato, la bozza resta: risolvi i blocchi.",
     CONGELATA: "La BOM è congelata: niente è registrato.",
+    PONTE_TENTATIVO_IN_SOSPESO: "La conferma di prima non ha un esito certo e questo corpo è diverso: niente è partito. Verifica il tentativo, o abbandonalo dalla striscia in alto, poi conferma di nuovo.",
   };
   const blocchi = arr(e.dati && e.dati.blocchi);
   return h("div", { class: "du-esito du-esito--ko", id: "du-wz-esito", "data-esito": e.tipo, "data-codice": e.codice || "" }, h("b", {}, (testi[e.codice] || e.testo || "La conferma non è riuscita.") + (e.codice ? " (" + e.codice + ")" : "")),
