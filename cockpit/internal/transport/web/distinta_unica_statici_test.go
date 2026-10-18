@@ -254,7 +254,8 @@ func TestPonteDistintaUnicaRiprovaDeiFile(t *testing.T) {
 
 // Le regole del ponte rifatte dopo la revisione della corsia: l'impronta di R5 sulla forma canonica di EM §3.10 (lo
 // stesso contenuto in un altro ordine riusa la chiave), il testo vero di PONTE_IN_VOLO (la scrittura non è partita, la
-// coda sta nella pagina) e il tempo massimo di ogni richiesta (una richiesta appesa non tiene la risorsa per sempre).
+// coda sta nella pagina), il tempo massimo delle chiamate JSON e degli atti (una richiesta appesa non tiene la risorsa
+// per sempre) e, per il caricamento, il tempo d'inattività al posto del tempo massimo (ondata B).
 func TestPonteDistintaUnicaFormaCanonicaETempi(t *testing.T) {
 	src := duFile(t, duPonte)
 	if !regexp.MustCompile(`(?m)^export function formaCanonica\(`).MatchString(src) ||
@@ -273,6 +274,47 @@ func TestPonteDistintaUnicaFormaCanonicaETempi(t *testing.T) {
 	if n := strings.Count(src, "signal: segnale(),"); n != 2 {
 		t.Errorf("%d fetch con il tempo massimo, attese due (chiama ed esegui)", n)
 	}
+	// E1′: un tempo d'inattività, non un tempo massimo totale (decisioni dell'ondata A, §5 n. 3). Il caricamento passa da
+	// inviaConInattivita (XMLHttpRequest, che dice i byte inviati), che riarma il tempo a ogni byte inviato o ricevuto; non
+	// passa da chiama né da AbortSignal.timeout. XMLHttpRequest e setTimeout stanno solo lì
+	carica := duFunzione(t, src, "export async function carica(")
+	if !strings.Contains(carica, "inviaConInattivita(") || strings.Contains(carica, "chiama(") || strings.Contains(carica, "segnale(") {
+		t.Error("carica (E1′) non passa da inviaConInattivita, o ha ancora il tempo massimo delle chiamate JSON")
+	}
+	invio := duFunzione(t, src, "function inviaConInattivita(")
+	for _, v := range []string{"new XMLHttpRequest()", `x.upload.addEventListener("progress"`, `x.addEventListener("progress", riarma)`, "setTimeout(", "INATTIVITA", `"PONTE_INATTIVITA"`} {
+		if !strings.Contains(invio, v) {
+			t.Errorf("inviaConInattivita non ha %s", v)
+		}
+	}
+	if strings.Contains(invio, "AbortSignal") {
+		t.Error("inviaConInattivita ha un tempo massimo totale (AbortSignal)")
+	}
+	codice := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(src, "")
+	if n := strings.Count(codice, "XMLHttpRequest"); n != 1 {
+		t.Errorf("%d XMLHttpRequest nel ponte, atteso uno solo (il caricamento)", n)
+	}
+	if n := strings.Count(codice, "setTimeout("); n != 1 {
+		t.Errorf("%d setTimeout nel ponte, atteso uno solo (il tempo d'inattività del caricamento)", n)
+	}
+	if !regexp.MustCompile(`(?m)^const INATTIVITA = \d+;`).MatchString(src) {
+		t.Error("il ponte non dichiara INATTIVITA")
+	}
+}
+
+// duFunzione: il testo di una funzione di primo livello del ponte, dalla sua riga alla graffa che la chiude a capo riga
+// («\n}»).
+func duFunzione(t *testing.T, src, inizio string) string {
+	t.Helper()
+	i := strings.Index(src, "\n"+inizio)
+	if i < 0 {
+		t.Fatalf("la funzione %q non c'è", inizio)
+	}
+	j := strings.Index(src[i+1:], "\n}")
+	if j < 0 {
+		t.Fatalf("la funzione %q non si chiude", inizio)
+	}
+	return src[i+1 : i+1+j+2]
 }
 
 // Le azioni che V1 non ha restano visibili e spente con il motivo scritto accanto (MAT §6.1; D23:294), e la pagina ha
@@ -293,7 +335,7 @@ func TestDistintaUnicaAzioniNonDisponibiliECode(t *testing.T) {
 }
 
 // I casi di contratto condivisi (e2e/distinta_unica_casi.json): li esegue la prova nel browser con le funzioni della
-// pagina (DU-B30) e li può leggere la L1 del server per l'altra metà di T-16. Qui la loro forma: ogni caso ha un nome,
+// pagina (DU-B33) e li può leggere la L1 del server per l'altra metà di T-16. Qui la loro forma: ogni caso ha un nome,
 // gli eventi o le azioni e l'atteso; i verbi sono quelli del vocabolario 2 (EM §9.2); le azioni del giornale hanno n.
 func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("e2e", "distinta_unica_casi.json"))
@@ -396,9 +438,10 @@ func TestPonteDistintaUnicaCataloghi(t *testing.T) {
 	attesiR := map[string][]string{ // EM §9.1-§9.7, §10.9
 		"leggiBozza": {"FUORI_RFQ", "CORPO_NON_VALIDO"},
 		"salvaBozza": r2r, "creaBozza": r2r, "cambiaSorgente": r2r, "riallineaProposta": r2r, "convertiBozza": r2r,
-		"abbandonaBozza":  {"FUORI_RFQ", "CORPO_NON_VALIDO"},
-		"riepilogoBom":    {"CORPO_NON_VALIDO", "FUORI_RFQ"},
-		"confermaBom":     {"BLOCCHI", "CONGELATA", "CORPO_NON_VALIDO", "FUORI_RFQ"},
+		"abbandonaBozza": {"FUORI_RFQ", "CORPO_NON_VALIDO"},
+		"riepilogoBom":   {"CORPO_NON_VALIDO", "FUORI_RFQ"},
+		// NESSUNA_MODIFICA: decisioni dell'ondata A, PE-23 (R5 rifiuta una bozza uguale alla conferma di base formato 3)
+		"confermaBom":     {"BLOCCHI", "CONGELATA", "NESSUNA_MODIFICA", "CORPO_NON_VALIDO", "FUORI_RFQ"},
 		"esitoIntento":    {"FUORI_RFQ"},
 		"storicoConferme": {"FUORI_RFQ", "CORPO_NON_VALIDO"},
 		"carica":          {"NESSUN_FILE_CARICATO", "CORPO_NON_VALIDO"},
