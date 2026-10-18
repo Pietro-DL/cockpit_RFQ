@@ -247,7 +247,7 @@ func Salva(ctx context.Context, pool Avviatore, s Salvataggio) (Salvato, error) 
 	fonteAll, fonteSha, fonteGruppo := colonneFonte(nuovo.Sorgente)
 	if s.BozzaID == nil {
 		r, err := q.InsertDistintaBozza(ctx, db.InsertDistintaBozzaParams{
-			ThreadID: s.ThreadID, ProdottoID: s.ProdottoID, BaseConfermaID: nullUUID(base.ConfermaID),
+			ThreadID: s.ThreadID, ProdottoID: s.ProdottoID, Formato: FormatoSnapshot, BaseConfermaID: nullUUID(base.ConfermaID),
 			BaseNumero: int32(base.Numero), BaseContatore: base.Contatore, FirmaBase: base.Firma,
 			FonteAllegatoID: fonteAll, FonteSha256: fonteSha, FonteGruppo: fonteGruppo, UtenteID: s.UtenteID,
 		})

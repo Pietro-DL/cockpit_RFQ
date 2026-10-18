@@ -84,6 +84,36 @@ func (q *Queries) BloccaDistintaBozza(ctx context.Context, arg BloccaDistintaBoz
 	return i, err
 }
 
+const confermaDistintaBozza = `-- name: ConfermaDistintaBozza :execrows
+UPDATE distinta_bozza
+   SET stato = 'confermata', chiusa_da = $1, chiusa_il = now()
+ WHERE bozza_id = $2 AND thread_id = $3 AND stato = 'aperta'
+   AND versione = $4
+`
+
+type ConfermaDistintaBozzaParams struct {
+	ChiusaDa uuid.NullUUID `json:"chiusa_da"`
+	BozzaID  uuid.UUID     `json:"bozza_id"`
+	ThreadID uuid.UUID     `json:"thread_id"`
+	Versione int32         `json:"versione"`
+}
+
+// V1 (0023): la chiusura «confermata» della bozza alla versione che la conferma chiude, nella transazione di R5 e dopo
+// la testata della conferma (il ciclo vuole la conferma che la cita, scritta prima; il controllo al COMMIT vuole la
+// bozza chiusa). Confronta e scambia: 0 righe se nel frattempo e' cambiata o chiusa.
+func (q *Queries) ConfermaDistintaBozza(ctx context.Context, arg ConfermaDistintaBozzaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, confermaDistintaBozza,
+		arg.ChiusaDa,
+		arg.BozzaID,
+		arg.ThreadID,
+		arg.Versione,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const contaDistintaBozzaEventi = `-- name: ContaDistintaBozzaEventi :one
 SELECT count(*)::int AS n FROM distinta_bozza_evento e
   JOIN distinta_bozza b ON b.bozza_id = e.bozza_id
@@ -135,7 +165,7 @@ SELECT conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senz
        firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id,
        bozza_versione, fonte_allegato_id, fonte_sha256, fonte_gruppo, origine, snapshot, impronta_snapshot, delta,
        mappa, decisioni, mono_pezzo, mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza,
-       confermato_da, confermato_il
+       confermato_da, confermato_il, importazione_id, importazioni_citate
   FROM conferma_strutturale
  WHERE thread_id = $1 AND conferma_id = $2
 `
@@ -146,38 +176,40 @@ type GetConfermaStrutturaleParams struct {
 }
 
 type GetConfermaStrutturaleRow struct {
-	ConfermaID        uuid.UUID       `json:"conferma_id"`
-	ThreadID          uuid.UUID       `json:"thread_id"`
-	ProdottoID        uuid.UUID       `json:"prodotto_id"`
-	Numero            int32           `json:"numero"`
-	PrecedenteID      uuid.NullUUID   `json:"precedente_id"`
-	Formato           int16           `json:"formato"`
-	SenzaRiepilogoV2  bool            `json:"senza_riepilogo_v2"`
-	FirmaStruttura    string          `json:"firma_struttura"`
-	FirmaAnteprima    pgtype.Text     `json:"firma_anteprima"`
-	BaseConfermaID    uuid.NullUUID   `json:"base_conferma_id"`
-	BaseContatore     int64           `json:"base_contatore"`
-	FirmaBase         pgtype.Text     `json:"firma_base"`
-	Contatore         int64           `json:"contatore"`
-	ContatoreDati     int64           `json:"contatore_dati"`
-	BozzaID           uuid.NullUUID   `json:"bozza_id"`
-	BozzaVersione     pgtype.Int4     `json:"bozza_versione"`
-	FonteAllegatoID   uuid.NullUUID   `json:"fonte_allegato_id"`
-	FonteSha256       pgtype.Text     `json:"fonte_sha256"`
-	FonteGruppo       pgtype.Text     `json:"fonte_gruppo"`
-	Origine           json.RawMessage `json:"origine"`
-	Snapshot          json.RawMessage `json:"snapshot"`
-	ImprontaSnapshot  string          `json:"impronta_snapshot"`
-	Delta             json.RawMessage `json:"delta"`
-	Mappa             json.RawMessage `json:"mappa"`
-	Decisioni         json.RawMessage `json:"decisioni"`
-	MonoPezzo         bool            `json:"mono_pezzo"`
-	MonoPezzoMotivo   pgtype.Text     `json:"mono_pezzo_motivo"`
-	CriterioVerifica  string          `json:"criterio_verifica"`
-	Verifica          json.RawMessage `json:"verifica"`
-	ChiaveIdempotenza uuid.NullUUID   `json:"chiave_idempotenza"`
-	ConfermatoDa      uuid.UUID       `json:"confermato_da"`
-	ConfermatoIl      time.Time       `json:"confermato_il"`
+	ConfermaID         uuid.UUID       `json:"conferma_id"`
+	ThreadID           uuid.UUID       `json:"thread_id"`
+	ProdottoID         uuid.UUID       `json:"prodotto_id"`
+	Numero             int32           `json:"numero"`
+	PrecedenteID       uuid.NullUUID   `json:"precedente_id"`
+	Formato            int16           `json:"formato"`
+	SenzaRiepilogoV2   bool            `json:"senza_riepilogo_v2"`
+	FirmaStruttura     string          `json:"firma_struttura"`
+	FirmaAnteprima     pgtype.Text     `json:"firma_anteprima"`
+	BaseConfermaID     uuid.NullUUID   `json:"base_conferma_id"`
+	BaseContatore      int64           `json:"base_contatore"`
+	FirmaBase          pgtype.Text     `json:"firma_base"`
+	Contatore          int64           `json:"contatore"`
+	ContatoreDati      int64           `json:"contatore_dati"`
+	BozzaID            uuid.NullUUID   `json:"bozza_id"`
+	BozzaVersione      pgtype.Int4     `json:"bozza_versione"`
+	FonteAllegatoID    uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256        pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo        pgtype.Text     `json:"fonte_gruppo"`
+	Origine            json.RawMessage `json:"origine"`
+	Snapshot           json.RawMessage `json:"snapshot"`
+	ImprontaSnapshot   string          `json:"impronta_snapshot"`
+	Delta              json.RawMessage `json:"delta"`
+	Mappa              json.RawMessage `json:"mappa"`
+	Decisioni          json.RawMessage `json:"decisioni"`
+	MonoPezzo          bool            `json:"mono_pezzo"`
+	MonoPezzoMotivo    pgtype.Text     `json:"mono_pezzo_motivo"`
+	CriterioVerifica   string          `json:"criterio_verifica"`
+	Verifica           json.RawMessage `json:"verifica"`
+	ChiaveIdempotenza  uuid.NullUUID   `json:"chiave_idempotenza"`
+	ConfermatoDa       uuid.UUID       `json:"confermato_da"`
+	ConfermatoIl       time.Time       `json:"confermato_il"`
+	ImportazioneID     uuid.NullUUID   `json:"importazione_id"`
+	ImportazioniCitate []uuid.UUID     `json:"importazioni_citate"`
 }
 
 // Una conferma della RFQ, intera (snapshot, delta, mappa, decisioni compresi).
@@ -217,6 +249,8 @@ func (q *Queries) GetConfermaStrutturale(ctx context.Context, arg GetConfermaStr
 		&i.ChiaveIdempotenza,
 		&i.ConfermatoDa,
 		&i.ConfermatoIl,
+		&i.ImportazioneID,
+		&i.ImportazioniCitate,
 	)
 	return i, err
 }
@@ -359,7 +393,8 @@ func (q *Queries) GetDistintaBozzaEvento(ctx context.Context, arg GetDistintaBoz
 
 const getDistintaBozzaVersione = `-- name: GetDistintaBozzaVersione :one
 SELECT v.bozza_id, v.versione, v.snapshot, v.impronta, v.base_conferma_id, v.base_numero, v.base_contatore, v.firma_base,
-       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il
+       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il, v.importazione_id, v.chiave_salvataggio,
+       v.impronta_richiesta
   FROM distinta_bozza_versione v
   JOIN distinta_bozza b ON b.bozza_id = v.bozza_id
  WHERE v.bozza_id = $1 AND b.thread_id = $2 AND v.versione = $3
@@ -372,22 +407,25 @@ type GetDistintaBozzaVersioneParams struct {
 }
 
 type GetDistintaBozzaVersioneRow struct {
-	BozzaID         uuid.UUID       `json:"bozza_id"`
-	Versione        int32           `json:"versione"`
-	Snapshot        json.RawMessage `json:"snapshot"`
-	Impronta        string          `json:"impronta"`
-	BaseConfermaID  uuid.NullUUID   `json:"base_conferma_id"`
-	BaseNumero      int32           `json:"base_numero"`
-	BaseContatore   int64           `json:"base_contatore"`
-	FirmaBase       string          `json:"firma_base"`
-	FonteAllegatoID uuid.NullUUID   `json:"fonte_allegato_id"`
-	FonteSha256     pgtype.Text     `json:"fonte_sha256"`
-	FonteGruppo     pgtype.Text     `json:"fonte_gruppo"`
-	SalvataDa       uuid.UUID       `json:"salvata_da"`
-	SalvataIl       time.Time       `json:"salvata_il"`
+	BozzaID           uuid.UUID       `json:"bozza_id"`
+	Versione          int32           `json:"versione"`
+	Snapshot          json.RawMessage `json:"snapshot"`
+	Impronta          string          `json:"impronta"`
+	BaseConfermaID    uuid.NullUUID   `json:"base_conferma_id"`
+	BaseNumero        int32           `json:"base_numero"`
+	BaseContatore     int64           `json:"base_contatore"`
+	FirmaBase         string          `json:"firma_base"`
+	FonteAllegatoID   uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256       pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo       pgtype.Text     `json:"fonte_gruppo"`
+	SalvataDa         uuid.UUID       `json:"salvata_da"`
+	SalvataIl         time.Time       `json:"salvata_il"`
+	ImportazioneID    uuid.NullUUID   `json:"importazione_id"`
+	ChiaveSalvataggio uuid.NullUUID   `json:"chiave_salvataggio"`
+	ImprontaRichiesta pgtype.Text     `json:"impronta_richiesta"`
 }
 
-// Una versione salvata di una bozza della RFQ, con lo snapshot.
+// Una versione salvata di una bozza della RFQ, con lo snapshot (e, dalla 0023, registro e chiave del salvataggio).
 func (q *Queries) GetDistintaBozzaVersione(ctx context.Context, arg GetDistintaBozzaVersioneParams) (GetDistintaBozzaVersioneRow, error) {
 	row := q.db.QueryRow(ctx, getDistintaBozzaVersione, arg.BozzaID, arg.ThreadID, arg.Versione)
 	var i GetDistintaBozzaVersioneRow
@@ -405,6 +443,9 @@ func (q *Queries) GetDistintaBozzaVersione(ctx context.Context, arg GetDistintaB
 		&i.FonteGruppo,
 		&i.SalvataDa,
 		&i.SalvataIl,
+		&i.ImportazioneID,
+		&i.ChiaveSalvataggio,
+		&i.ImprontaRichiesta,
 	)
 	return i, err
 }
@@ -475,7 +516,8 @@ const getUltimaConfermaStrutturale = `-- name: GetUltimaConfermaStrutturale :one
 SELECT conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senza_riepilogo_v2, firma_struttura,
        firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id,
        bozza_versione, fonte_allegato_id, fonte_sha256, fonte_gruppo, origine, impronta_snapshot, mono_pezzo,
-       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il
+       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il, importazione_id,
+       importazioni_citate
   FROM conferma_strutturale
  WHERE thread_id = $1 AND prodotto_id = $2
  ORDER BY numero DESC
@@ -488,34 +530,36 @@ type GetUltimaConfermaStrutturaleParams struct {
 }
 
 type GetUltimaConfermaStrutturaleRow struct {
-	ConfermaID        uuid.UUID       `json:"conferma_id"`
-	ThreadID          uuid.UUID       `json:"thread_id"`
-	ProdottoID        uuid.UUID       `json:"prodotto_id"`
-	Numero            int32           `json:"numero"`
-	PrecedenteID      uuid.NullUUID   `json:"precedente_id"`
-	Formato           int16           `json:"formato"`
-	SenzaRiepilogoV2  bool            `json:"senza_riepilogo_v2"`
-	FirmaStruttura    string          `json:"firma_struttura"`
-	FirmaAnteprima    pgtype.Text     `json:"firma_anteprima"`
-	BaseConfermaID    uuid.NullUUID   `json:"base_conferma_id"`
-	BaseContatore     int64           `json:"base_contatore"`
-	FirmaBase         pgtype.Text     `json:"firma_base"`
-	Contatore         int64           `json:"contatore"`
-	ContatoreDati     int64           `json:"contatore_dati"`
-	BozzaID           uuid.NullUUID   `json:"bozza_id"`
-	BozzaVersione     pgtype.Int4     `json:"bozza_versione"`
-	FonteAllegatoID   uuid.NullUUID   `json:"fonte_allegato_id"`
-	FonteSha256       pgtype.Text     `json:"fonte_sha256"`
-	FonteGruppo       pgtype.Text     `json:"fonte_gruppo"`
-	Origine           json.RawMessage `json:"origine"`
-	ImprontaSnapshot  string          `json:"impronta_snapshot"`
-	MonoPezzo         bool            `json:"mono_pezzo"`
-	MonoPezzoMotivo   pgtype.Text     `json:"mono_pezzo_motivo"`
-	CriterioVerifica  string          `json:"criterio_verifica"`
-	Verifica          json.RawMessage `json:"verifica"`
-	ChiaveIdempotenza uuid.NullUUID   `json:"chiave_idempotenza"`
-	ConfermatoDa      uuid.UUID       `json:"confermato_da"`
-	ConfermatoIl      time.Time       `json:"confermato_il"`
+	ConfermaID         uuid.UUID       `json:"conferma_id"`
+	ThreadID           uuid.UUID       `json:"thread_id"`
+	ProdottoID         uuid.UUID       `json:"prodotto_id"`
+	Numero             int32           `json:"numero"`
+	PrecedenteID       uuid.NullUUID   `json:"precedente_id"`
+	Formato            int16           `json:"formato"`
+	SenzaRiepilogoV2   bool            `json:"senza_riepilogo_v2"`
+	FirmaStruttura     string          `json:"firma_struttura"`
+	FirmaAnteprima     pgtype.Text     `json:"firma_anteprima"`
+	BaseConfermaID     uuid.NullUUID   `json:"base_conferma_id"`
+	BaseContatore      int64           `json:"base_contatore"`
+	FirmaBase          pgtype.Text     `json:"firma_base"`
+	Contatore          int64           `json:"contatore"`
+	ContatoreDati      int64           `json:"contatore_dati"`
+	BozzaID            uuid.NullUUID   `json:"bozza_id"`
+	BozzaVersione      pgtype.Int4     `json:"bozza_versione"`
+	FonteAllegatoID    uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256        pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo        pgtype.Text     `json:"fonte_gruppo"`
+	Origine            json.RawMessage `json:"origine"`
+	ImprontaSnapshot   string          `json:"impronta_snapshot"`
+	MonoPezzo          bool            `json:"mono_pezzo"`
+	MonoPezzoMotivo    pgtype.Text     `json:"mono_pezzo_motivo"`
+	CriterioVerifica   string          `json:"criterio_verifica"`
+	Verifica           json.RawMessage `json:"verifica"`
+	ChiaveIdempotenza  uuid.NullUUID   `json:"chiave_idempotenza"`
+	ConfermatoDa       uuid.UUID       `json:"confermato_da"`
+	ConfermatoIl       time.Time       `json:"confermato_il"`
+	ImportazioneID     uuid.NullUUID   `json:"importazione_id"`
+	ImportazioniCitate []uuid.UUID     `json:"importazioni_citate"`
 }
 
 // L'ultima conferma di un prodotto della RFQ: quella col numero piu' alto (contratto v2 §0 n. 8). Se e' ancora
@@ -552,6 +596,8 @@ func (q *Queries) GetUltimaConfermaStrutturale(ctx context.Context, arg GetUltim
 		&i.ChiaveIdempotenza,
 		&i.ConfermatoDa,
 		&i.ConfermatoIl,
+		&i.ImportazioneID,
+		&i.ImportazioniCitate,
 	)
 	return i, err
 }
@@ -581,17 +627,18 @@ func (q *Queries) GetWorkingContatore(ctx context.Context, threadID uuid.UUID) (
 const insertDistintaBozza = `-- name: InsertDistintaBozza :one
 
 
-INSERT INTO distinta_bozza (thread_id, prodotto_id, base_conferma_id, base_numero, base_contatore, firma_base,
+INSERT INTO distinta_bozza (thread_id, prodotto_id, formato, base_conferma_id, base_numero, base_contatore, firma_base,
                             fonte_allegato_id, fonte_sha256, fonte_gruppo, creata_da, aggiornata_da)
-VALUES ($1, $2, $3, $4,
-        $5, $6, $7, $8,
-        $9, $10, $10)
+VALUES ($1, $2, $3, $4, $5,
+        $6, $7, $8, $9,
+        $10, $11, $11)
 RETURNING bozza_id, creata_il
 `
 
 type InsertDistintaBozzaParams struct {
 	ThreadID        uuid.UUID     `json:"thread_id"`
 	ProdottoID      uuid.UUID     `json:"prodotto_id"`
+	Formato         int16         `json:"formato"`
 	BaseConfermaID  uuid.NullUUID `json:"base_conferma_id"`
 	BaseNumero      int32         `json:"base_numero"`
 	BaseContatore   int64         `json:"base_contatore"`
@@ -625,11 +672,14 @@ type InsertDistintaBozzaRow struct {
 // ------------------------------------------------------------------ la bozza della distinta
 // La testata di una bozza nuova: nasce aperta alla versione 0 (trigger distinta_bozza_ciclo) e, nella stessa
 // transazione, riceve la versione 1 con InsertDistintaBozzaVersione (FK differita al COMMIT). Base e fonte qui sono
-// quelle della versione 1: il trigger della versione le riscrive comunque con le sue.
+// quelle della versione 1: il trigger della versione le riscrive comunque con le sue. V1 (0023): il formato si passa
+// (2 o 3, ck_distinta_bozza_formato) e non cambia piu' (trigger del ciclo); lo snapshot di ogni versione ha il formato
+// della testata (trigger della versione).
 func (q *Queries) InsertDistintaBozza(ctx context.Context, arg InsertDistintaBozzaParams) (InsertDistintaBozzaRow, error) {
 	row := q.db.QueryRow(ctx, insertDistintaBozza,
 		arg.ThreadID,
 		arg.ProdottoID,
+		arg.Formato,
 		arg.BaseConfermaID,
 		arg.BaseNumero,
 		arg.BaseContatore,
@@ -688,30 +738,36 @@ func (q *Queries) InsertDistintaBozzaEvento(ctx context.Context, arg InsertDisti
 const insertDistintaBozzaVersione = `-- name: InsertDistintaBozzaVersione :one
 INSERT INTO distinta_bozza_versione (bozza_id, versione, snapshot, impronta, base_conferma_id, base_numero,
                                      base_contatore, firma_base, fonte_allegato_id, fonte_sha256, fonte_gruppo,
-                                     salvata_da)
+                                     salvata_da, importazione_id, chiave_salvataggio, impronta_richiesta)
 VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, $9,
-        $10, $11, $12)
+        $10, $11, $12, $13,
+        $14, $15)
 RETURNING salvata_il
 `
 
 type InsertDistintaBozzaVersioneParams struct {
-	BozzaID         uuid.UUID       `json:"bozza_id"`
-	Versione        int32           `json:"versione"`
-	Snapshot        json.RawMessage `json:"snapshot"`
-	Impronta        string          `json:"impronta"`
-	BaseConfermaID  uuid.NullUUID   `json:"base_conferma_id"`
-	BaseNumero      int32           `json:"base_numero"`
-	BaseContatore   int64           `json:"base_contatore"`
-	FirmaBase       string          `json:"firma_base"`
-	FonteAllegatoID uuid.NullUUID   `json:"fonte_allegato_id"`
-	FonteSha256     pgtype.Text     `json:"fonte_sha256"`
-	FonteGruppo     pgtype.Text     `json:"fonte_gruppo"`
-	SalvataDa       uuid.UUID       `json:"salvata_da"`
+	BozzaID           uuid.UUID       `json:"bozza_id"`
+	Versione          int32           `json:"versione"`
+	Snapshot          json.RawMessage `json:"snapshot"`
+	Impronta          string          `json:"impronta"`
+	BaseConfermaID    uuid.NullUUID   `json:"base_conferma_id"`
+	BaseNumero        int32           `json:"base_numero"`
+	BaseContatore     int64           `json:"base_contatore"`
+	FirmaBase         string          `json:"firma_base"`
+	FonteAllegatoID   uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256       pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo       pgtype.Text     `json:"fonte_gruppo"`
+	SalvataDa         uuid.UUID       `json:"salvata_da"`
+	ImportazioneID    uuid.NullUUID   `json:"importazione_id"`
+	ChiaveSalvataggio uuid.NullUUID   `json:"chiave_salvataggio"`
+	ImprontaRichiesta pgtype.Text     `json:"impronta_richiesta"`
 }
 
 // Una versione salvata, con lo snapshot intero. Porta la testata alla sua versione (trigger
-// distinta_bozza_versione_avanza): solo se la bozza e' aperta alla versione precedente, altrimenti P4X04.
+// distinta_bozza_versione_avanza): solo se la bozza e' aperta alla versione precedente, altrimenti P4X04. V1 (0023):
+// nel formato 3 il registro della sorgente (importazione_id, che il trigger confronta con lo snapshot) e la chiave del
+// salvataggio con l'impronta della richiesta (obbligatorie: ck_dbv_chiave_salvataggio); nel formato 2 NULL.
 func (q *Queries) InsertDistintaBozzaVersione(ctx context.Context, arg InsertDistintaBozzaVersioneParams) (time.Time, error) {
 	row := q.db.QueryRow(ctx, insertDistintaBozzaVersione,
 		arg.BozzaID,
@@ -726,6 +782,9 @@ func (q *Queries) InsertDistintaBozzaVersione(ctx context.Context, arg InsertDis
 		arg.FonteSha256,
 		arg.FonteGruppo,
 		arg.SalvataDa,
+		arg.ImportazioneID,
+		arg.ChiaveSalvataggio,
+		arg.ImprontaRichiesta,
 	)
 	var salvata_il time.Time
 	err := row.Scan(&salvata_il)
@@ -866,7 +925,7 @@ func (q *Queries) ListConfermaStrutturaleArchi(ctx context.Context, arg ListConf
 }
 
 const listConfermaStrutturaleComponenti = `-- name: ListConfermaStrutturaleComponenti :many
-SELECT k.conferma_id, k.thread_id, k.componente_id, k.radice, k.chiave_bozza, k.codice, k.rev, k.descrizione, k.tipo, k.step_strutturale_id, k.step_sha256 FROM conferma_strutturale_componente k
+SELECT k.conferma_id, k.thread_id, k.componente_id, k.radice, k.chiave_bozza, k.codice, k.rev, k.descrizione, k.tipo, k.step_strutturale_id, k.step_sha256, k.emittente, k.emittente_presunto, k.namespace FROM conferma_strutturale_componente k
  WHERE k.conferma_id = $1 AND k.thread_id = $2
  ORDER BY k.radice DESC, k.codice, k.componente_id
 `
@@ -898,6 +957,9 @@ func (q *Queries) ListConfermaStrutturaleComponenti(ctx context.Context, arg Lis
 			&i.Tipo,
 			&i.StepStrutturaleID,
 			&i.StepSha256,
+			&i.Emittente,
+			&i.EmittentePresunto,
+			&i.Namespace,
 		); err != nil {
 			return nil, err
 		}
@@ -914,7 +976,8 @@ const listConfermeStrutturali = `-- name: ListConfermeStrutturali :many
 SELECT conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senza_riepilogo_v2, firma_struttura,
        firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id,
        bozza_versione, fonte_allegato_id, fonte_sha256, fonte_gruppo, origine, impronta_snapshot, mono_pezzo,
-       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il
+       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il, importazione_id,
+       importazioni_citate
   FROM conferma_strutturale
  WHERE thread_id = $1 AND prodotto_id = $2
  ORDER BY numero
@@ -926,34 +989,36 @@ type ListConfermeStrutturaliParams struct {
 }
 
 type ListConfermeStrutturaliRow struct {
-	ConfermaID        uuid.UUID       `json:"conferma_id"`
-	ThreadID          uuid.UUID       `json:"thread_id"`
-	ProdottoID        uuid.UUID       `json:"prodotto_id"`
-	Numero            int32           `json:"numero"`
-	PrecedenteID      uuid.NullUUID   `json:"precedente_id"`
-	Formato           int16           `json:"formato"`
-	SenzaRiepilogoV2  bool            `json:"senza_riepilogo_v2"`
-	FirmaStruttura    string          `json:"firma_struttura"`
-	FirmaAnteprima    pgtype.Text     `json:"firma_anteprima"`
-	BaseConfermaID    uuid.NullUUID   `json:"base_conferma_id"`
-	BaseContatore     int64           `json:"base_contatore"`
-	FirmaBase         pgtype.Text     `json:"firma_base"`
-	Contatore         int64           `json:"contatore"`
-	ContatoreDati     int64           `json:"contatore_dati"`
-	BozzaID           uuid.NullUUID   `json:"bozza_id"`
-	BozzaVersione     pgtype.Int4     `json:"bozza_versione"`
-	FonteAllegatoID   uuid.NullUUID   `json:"fonte_allegato_id"`
-	FonteSha256       pgtype.Text     `json:"fonte_sha256"`
-	FonteGruppo       pgtype.Text     `json:"fonte_gruppo"`
-	Origine           json.RawMessage `json:"origine"`
-	ImprontaSnapshot  string          `json:"impronta_snapshot"`
-	MonoPezzo         bool            `json:"mono_pezzo"`
-	MonoPezzoMotivo   pgtype.Text     `json:"mono_pezzo_motivo"`
-	CriterioVerifica  string          `json:"criterio_verifica"`
-	Verifica          json.RawMessage `json:"verifica"`
-	ChiaveIdempotenza uuid.NullUUID   `json:"chiave_idempotenza"`
-	ConfermatoDa      uuid.UUID       `json:"confermato_da"`
-	ConfermatoIl      time.Time       `json:"confermato_il"`
+	ConfermaID         uuid.UUID       `json:"conferma_id"`
+	ThreadID           uuid.UUID       `json:"thread_id"`
+	ProdottoID         uuid.UUID       `json:"prodotto_id"`
+	Numero             int32           `json:"numero"`
+	PrecedenteID       uuid.NullUUID   `json:"precedente_id"`
+	Formato            int16           `json:"formato"`
+	SenzaRiepilogoV2   bool            `json:"senza_riepilogo_v2"`
+	FirmaStruttura     string          `json:"firma_struttura"`
+	FirmaAnteprima     pgtype.Text     `json:"firma_anteprima"`
+	BaseConfermaID     uuid.NullUUID   `json:"base_conferma_id"`
+	BaseContatore      int64           `json:"base_contatore"`
+	FirmaBase          pgtype.Text     `json:"firma_base"`
+	Contatore          int64           `json:"contatore"`
+	ContatoreDati      int64           `json:"contatore_dati"`
+	BozzaID            uuid.NullUUID   `json:"bozza_id"`
+	BozzaVersione      pgtype.Int4     `json:"bozza_versione"`
+	FonteAllegatoID    uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256        pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo        pgtype.Text     `json:"fonte_gruppo"`
+	Origine            json.RawMessage `json:"origine"`
+	ImprontaSnapshot   string          `json:"impronta_snapshot"`
+	MonoPezzo          bool            `json:"mono_pezzo"`
+	MonoPezzoMotivo    pgtype.Text     `json:"mono_pezzo_motivo"`
+	CriterioVerifica   string          `json:"criterio_verifica"`
+	Verifica           json.RawMessage `json:"verifica"`
+	ChiaveIdempotenza  uuid.NullUUID   `json:"chiave_idempotenza"`
+	ConfermatoDa       uuid.UUID       `json:"confermato_da"`
+	ConfermatoIl       time.Time       `json:"confermato_il"`
+	ImportazioneID     uuid.NullUUID   `json:"importazione_id"`
+	ImportazioniCitate []uuid.UUID     `json:"importazioni_citate"`
 }
 
 // ------------------------------------------------------------------ le conferme strutturali (sola lettura in B1)
@@ -997,6 +1062,8 @@ func (q *Queries) ListConfermeStrutturali(ctx context.Context, arg ListConfermeS
 			&i.ChiaveIdempotenza,
 			&i.ConfermatoDa,
 			&i.ConfermatoIl,
+			&i.ImportazioneID,
+			&i.ImportazioniCitate,
 		); err != nil {
 			return nil, err
 		}
@@ -1069,7 +1136,8 @@ func (q *Queries) ListDistintaBozzaEventi(ctx context.Context, arg ListDistintaB
 
 const listDistintaBozzaVersioni = `-- name: ListDistintaBozzaVersioni :many
 SELECT v.bozza_id, v.versione, v.snapshot, v.impronta, v.base_conferma_id, v.base_numero, v.base_contatore, v.firma_base,
-       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il
+       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il, v.importazione_id, v.chiave_salvataggio,
+       v.impronta_richiesta
   FROM distinta_bozza_versione v
   JOIN distinta_bozza b ON b.bozza_id = v.bozza_id
  WHERE v.bozza_id = $1 AND b.thread_id = $2
@@ -1082,19 +1150,22 @@ type ListDistintaBozzaVersioniParams struct {
 }
 
 type ListDistintaBozzaVersioniRow struct {
-	BozzaID         uuid.UUID       `json:"bozza_id"`
-	Versione        int32           `json:"versione"`
-	Snapshot        json.RawMessage `json:"snapshot"`
-	Impronta        string          `json:"impronta"`
-	BaseConfermaID  uuid.NullUUID   `json:"base_conferma_id"`
-	BaseNumero      int32           `json:"base_numero"`
-	BaseContatore   int64           `json:"base_contatore"`
-	FirmaBase       string          `json:"firma_base"`
-	FonteAllegatoID uuid.NullUUID   `json:"fonte_allegato_id"`
-	FonteSha256     pgtype.Text     `json:"fonte_sha256"`
-	FonteGruppo     pgtype.Text     `json:"fonte_gruppo"`
-	SalvataDa       uuid.UUID       `json:"salvata_da"`
-	SalvataIl       time.Time       `json:"salvata_il"`
+	BozzaID           uuid.UUID       `json:"bozza_id"`
+	Versione          int32           `json:"versione"`
+	Snapshot          json.RawMessage `json:"snapshot"`
+	Impronta          string          `json:"impronta"`
+	BaseConfermaID    uuid.NullUUID   `json:"base_conferma_id"`
+	BaseNumero        int32           `json:"base_numero"`
+	BaseContatore     int64           `json:"base_contatore"`
+	FirmaBase         string          `json:"firma_base"`
+	FonteAllegatoID   uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256       pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo       pgtype.Text     `json:"fonte_gruppo"`
+	SalvataDa         uuid.UUID       `json:"salvata_da"`
+	SalvataIl         time.Time       `json:"salvata_il"`
+	ImportazioneID    uuid.NullUUID   `json:"importazione_id"`
+	ChiaveSalvataggio uuid.NullUUID   `json:"chiave_salvataggio"`
+	ImprontaRichiesta pgtype.Text     `json:"impronta_richiesta"`
 }
 
 // Tutte le versioni di una bozza della RFQ, dalla prima: la storia degli snapshot, per rifare il giornale. Solo per
@@ -1122,6 +1193,9 @@ func (q *Queries) ListDistintaBozzaVersioni(ctx context.Context, arg ListDistint
 			&i.FonteGruppo,
 			&i.SalvataDa,
 			&i.SalvataIl,
+			&i.ImportazioneID,
+			&i.ChiaveSalvataggio,
+			&i.ImprontaRichiesta,
 		); err != nil {
 			return nil, err
 		}

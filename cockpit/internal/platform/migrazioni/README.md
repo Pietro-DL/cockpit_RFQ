@@ -153,7 +153,8 @@ markmap:
 - **Dichiarato nel README principale e _non_ verificato dal codice:** «un file già applicato non va più modificato».
   - Una modifica a un file già registrato passa inosservata e non viene riapplicata, salvo per i file con una
     variante (dalla 0022): un testo nuovo con una variante nuova trova il database con la vecchia e si ferma
-    (`*VarianteDiversa`). La prova L1 `TestP4VarianteDella0022` lega la variante della 0022 alla sua impronta.
+    (`*VarianteDiversa`). Le prove L1 `TestP4VarianteDella0022` e `TestV1VarianteDella0023` legano la variante di ogni
+    migrazione dalla 0022 in poi alla sua impronta.
 - **L'apertura in lettura non migra e non scrive** (P-02): `lettura.go` non chiama mai `Applica`, e il pool di
   `ApriInLettura` ha `default_transaction_read_only=on` in ogni connessione. Con uno schema diverso il pool si
   chiude prima di qualunque lettura.
@@ -175,9 +176,18 @@ markmap:
   - Che cosa prova:
     - la verifica statica delle migrazioni vere;
     - riferimento in avanti, enum usato nello stesso file, versione non registrata, versioni con buchi, nome non valido;
-    - G10 riscritta per P4 (`TestDopoP4LUltimaMigrazioneEla22`): l'ultima e' la `0022_p4_conferme_working.sql`;
-    - le impronte sha256 delle 0001..0021 lette dal binario, fine riga portati a LF
-      (`TestP4LeMigrazioniStoricheNonCambiano`: un file applicato non si tocca piu')
+    - G10 riscritta per V1 (`TestDopoV1LUltimaMigrazioneEla23`): l'ultima e' la `0023_distinta_formato3.sql`;
+    - le impronte sha256 delle 0001..0022 lette dal binario, fine riga portati a LF
+      (`TestP4LeMigrazioniStoricheNonCambiano`: un file applicato non si tocca piu'; con V1 la 0022 e' storica);
+    - le varianti dalla 0022 in poi, ognuna legata alla sua impronta (`TestP4VarianteDella0022`,
+      `TestV1VarianteDella0023`)
+- **`corpi_0023_test.go`** (V1, prova T-11)
+  - Livello: L1
+  - Che cosa prova: le quattro funzioni che la 0023 sostituisce hanno il corpo della 0022 byte per byte salvo le righe
+    marcate «(0023)» (confronto riga per riga: ogni blocco di differenze ha dalla parte della 0023 solo righe marcate, e
+    nessuna riga della 0022 sparisce senza una riga nuova al suo posto); le cinque viste ridefinite hanno il testo di
+    oggi con il solo predicato `file_rfq_attivo`; `scripts/0023_indietro.sql` rimette funzioni, viste e commenti della
+    22 byte per byte
 - **`migrazioni_db_test.go`**
   - Livello: L4
   - Che cosa prova:
@@ -239,6 +249,30 @@ markmap:
       21 → `*VarianteDiversa` dal migratore e dall'apertura in sola lettura, schema invariato;
     - i mutanti sopravvissuti alla revisione delle prove B1/Q1 (conferma, ciclo della bozza, attestazioni, F8,
       storia delle deroghe)
+- **`v1_0023_db_test.go`, `v1_0023_trigger_db_test.go`, `v1_0023_file_db_test.go`, `v1_0023_compat_db_test.go`,
+  `v1_0023_query_db_test.go`** (V1, piano della 0023 §8-§9)
+  - Livello: L4
+  - Che cosa prova: il catalogo dei vincoli della 0023 (M-32, insieme a quello della 0022: 215 vincoli FK e CHECK), i
+    trigger del formato 3 e del registro (M-04…M-20, M-30, M-34 nella parte del database), il ciclo dei file e le viste
+    (M-21…M-31, M-33 sulle righe di prova), la compatibilita' 22 → 23 → 22 (U-01…U-05 nella parte del database, U-07,
+    U-09 con lo script eseguito com'e' sul disco e il catalogo confrontato a meno dei CR; U-08 e' la prova da zero di
+    `p4_0022_db_test.go`) e le query sqlc della 0023, compreso il ripristino di un nodo non incluso con la conferma di
+    base (OT-06)
+  - Il controllo del prodotto nei trigger della versione e della nascita della conferma si prova con un registro di un
+    altro prodotto sulla stessa fonte e nello stesso gruppo (R4), cosi' che a distinguerli resti solo il prodotto
+  - Le prove fissate sulla 22 sono riscritte di proposito (piano della 0023, §9.2): da zero e due avvii (alla 23), la
+    0022 cercata per numero, 21 → 22 confrontata con `SchemaFinoA(22)`, le due varianti della 0022 (la 0022 per numero;
+    con la 0023 un database alla 22 si legge in sola lettura solo con un binario della 22)
+- **`v1_t14_db_test.go`** (V1, prova T-14, la parte del database; passo 2 del piano della 0023)
+  - Livello: L4
+  - Che cosa prova: i casi di `distintabozza.CasiT14` (gli stessi della parte L1, che li confronta con il validatore
+    delle grammatiche) passano dal CHECK `ck_csc_identita` con l'esito di `EmittenteAmmissibile` e
+    `NamespaceAmmissibile`, tetti di sicurezza e bianchi Unicode compresi (un id o un namespace di soli tab o spazi
+    tipografici e' vuoto anche per il CHECK)
+  - Il caso delle maiuscole non ASCII dipende da `lower()` del database: con LC_CTYPE C (il database di prova) il CHECK
+    le accetta e il Go no. E' la deviazione dichiarata P-17 del resoconto della corsia persistenza di V1 (T-14 FALLITA
+    per quel caso finche' non e' decisa): la prova la fissa (il CHECK accetta, il Go rifiuta, lo scrive nel log), e una
+    deviazione diversa o in piu' la fa fallire
 - **`larghezze_db_test.go`**
   - Livello: L4
   - Che cosa prova: le colonne `codice` e `rev` larghe almeno quanto `classificazione` dichiara
@@ -268,11 +302,12 @@ markmap:
 
 ## Stato dell'implementazione
 
-- Completo, schema fino alla 0022 (P4, giro 5, A1d: la bozza della distinta, le conferme strutturali e i registri;
-  file nei soli rami locali finche' non e' spinto).
+- Completo, schema fino alla 0023 (V1, giro 5, A1d: il formato 3 della bozza e della conferma, il registro
+  d'importazione, i nodi non inclusi, il ciclo dei file della Sorgente; file nei soli rami locali finche' non e' spinto,
+  applicato solo ai database di prova). La 0022 (P4) resta com'era.
 - La 0022 ha `SET LOCAL lock_timeout = '30s'`: si applica a server e worker fermi; con una transazione aperta su
   `componente`, `componente_relazione` o `deroga_fabbisogno` si annulla dopo 30 secondi e il server non parte.
-- Nessun verso «giù»: il ritorno è il backup, e per la 0018 e la 0021 uno script manuale in `scripts/`.
+- Nessun verso «giù»: il ritorno è il backup, e per la 0018, la 0021 e la 0023 uno script manuale in `scripts/`.
 - **Limiti:**
   - niente hash dei file applicati (dalla 0022 una variante dichiarata, confrontata da `ControllaVarianti`);
   - la verifica statica è per espressioni regolari (non riconosce, per esempio, `REFERENCES schema.tabella` né identificatori fra virgolette);

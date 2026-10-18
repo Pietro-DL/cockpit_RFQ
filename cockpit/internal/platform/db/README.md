@@ -49,8 +49,9 @@ markmap:
 
 ### Le query per file
 
-- 34 file, 509 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
-  `p4_conferme.sql` con 27 query, 22 piu' le 5 delle correzioni del 13/10).
+- 35 file, 553 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
+  `p4_conferme.sql` con 27 query, 22 piu' le 5 delle correzioni del 13/10; V1: + `v1_formato3.sql` con 43 query e
+  `ConfermaDistintaBozza` in `p4_conferme.sql`).
 - «Senza chiamanti» = nessun chiamante, né in produzione né nei test; il «+n» fra parentesi conta quelle chiamate soltanto dai test.
 - L'elenco per nome è in «Stato dell'implementazione».
 - **`agente.sql`** — analisi semantica dell'agente
@@ -138,6 +139,13 @@ markmap:
   - Tabelle e viste: `distinta_bozza`, `distinta_bozza_versione`, `distinta_bozza_evento`, `conferma_strutturale`, `conferma_strutturale_componente`, `conferma_strutturale_arco`, `esito_intento`, `working_contatore`; in lettura `componente` (il prodotto e il perimetro registrato), `componente_relazione` (gli archi della working), `allegato` + `messaggio` (la fonte)
   - Query: 27; senza chiamanti: 0 (+7: `ListDistinteBozzeProdotto`, `ListConfermeStrutturali`, `GetConfermaStrutturale`, `ListConfermaStrutturaleComponenti`, `ListConfermaStrutturaleArchi`, `InsertEsitoIntento`, `GetEsitoIntento`, che useranno B2 e B3)
   - Chi le chiama: `core/rfq/distintabozza`
+  - V1 (0023): `InsertDistintaBozza` passa il formato; `InsertDistintaBozzaVersione`, `GetDistintaBozzaVersione` e
+    `ListDistintaBozzaVersioni` portano registro e chiave del salvataggio; le letture delle conferme portano
+    `importazione_id` e `importazioni_citate`; `ConfermaDistintaBozza` chiude la bozza nella transazione di R5
+- **`v1_formato3.sql`** — la 0023 di V1 (giro 5, A1d; direttiva 23): bozza formato 3, registro d'importazione, conferma formato 3, R4/R6/R7, atti della fonte, ciclo dei file della Sorgente
+  - Tabelle e viste: `distinta_importazione`, `distinta_bozza`, `distinta_bozza_versione`, `conferma_strutturale` e il suo contenuto, `conferma_strutturale_non_incluso`, `componente` (`InsertComponenteSenzaFusione`, senza ON CONFLICT), `associazione_evento`, `f8_stato`, `fonte_step_evento`, `attestazione_fascicolo`, `componente_proposta` e `relazione_proposta` in lettura, `file_rfq`, `file_rfq_evento`, `file_rfq_rimozione`, `file_rfq_conservazione`, `documento_proposta` in lettura (D-6)
+  - Query: 43; senza chiamanti in produzione al primo commit: tutte (le chiamano R1-R7 nel passo 6 del piano della 0023, il motore per `GetSorgenteBozzaAperta`, il servizio dei file per le query dei file); le prova `platform/migrazioni/v1_0023_query_db_test.go`
+  - Chi le chiama: per ora solo le prove L4
   - Le colonne `tx` (xid8) non si leggono; le date le scrive il database; ogni lettura porta la RFQ nel `WHERE`: le testate direttamente, versioni ed eventi con una JOIN sulla testata (RC-19); gli eventi si leggono fino a una versione e a pagine
 - **`panoramica.sql`** — pagina Richieste
   - Tabelle e viste: `v_cruscotto`, `identificativo_thread`, `componente`, `documento`, `documento_proposta`
@@ -283,6 +291,11 @@ markmap:
     `CoperturaDocumento`, `DistintaBozzaRegistro`, `SchemaVariante`; 4 campi nuovi in `FonteStepEvento`; `CoperturaID`
     in coda a `VFascicolo`; i commenti) e la sola `ListFascicolo` di `fascicolo.sql.go` (`SELECT *` su `v_fascicolo`:
     `copertura_id` in coda); `copertura_id` e' `NullUUID` per l'override di `sqlc.yaml`.
+  - V1 (0023): la stessa v1.31.1, compilata offline dalla cache dei moduli (un modulo di appoggio fuori dal worktree,
+    `GOFLAGS=-mod=mod GOPROXY=off GOSUMDB=off`), su una copia: rigenerare l'albero senza cambiamenti dava gli stessi
+    file byte per byte (a meno dei fine riga); con la 0023 cambiano `models.go` (5 struct nuove, le colonne nuove e i
+    commenti) e `p4_conferme.sql.go`, e nasce `v1_formato3.sql.go`. sqlc non conosce `unnest` a piu' argomenti: le
+    coppie (sha256, chiave) si scrivono con due `unnest` nella lista del SELECT, che PostgreSQL scorre insieme.
 - **Dopo:** `go build ./...`, `go vet ./internal/platform/db/`, e le prove L4 dei package che usano le query toccate.
 
 ### Aggiungere una query

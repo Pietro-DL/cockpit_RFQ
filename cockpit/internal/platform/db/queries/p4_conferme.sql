@@ -18,23 +18,28 @@
 -- name: InsertDistintaBozza :one
 -- La testata di una bozza nuova: nasce aperta alla versione 0 (trigger distinta_bozza_ciclo) e, nella stessa
 -- transazione, riceve la versione 1 con InsertDistintaBozzaVersione (FK differita al COMMIT). Base e fonte qui sono
--- quelle della versione 1: il trigger della versione le riscrive comunque con le sue.
-INSERT INTO distinta_bozza (thread_id, prodotto_id, base_conferma_id, base_numero, base_contatore, firma_base,
+-- quelle della versione 1: il trigger della versione le riscrive comunque con le sue. V1 (0023): il formato si passa
+-- (2 o 3, ck_distinta_bozza_formato) e non cambia piu' (trigger del ciclo); lo snapshot di ogni versione ha il formato
+-- della testata (trigger della versione).
+INSERT INTO distinta_bozza (thread_id, prodotto_id, formato, base_conferma_id, base_numero, base_contatore, firma_base,
                             fonte_allegato_id, fonte_sha256, fonte_gruppo, creata_da, aggiornata_da)
-VALUES (sqlc.arg(thread_id), sqlc.arg(prodotto_id), sqlc.narg(base_conferma_id), sqlc.arg(base_numero),
+VALUES (sqlc.arg(thread_id), sqlc.arg(prodotto_id), sqlc.arg(formato), sqlc.narg(base_conferma_id), sqlc.arg(base_numero),
         sqlc.arg(base_contatore), sqlc.arg(firma_base), sqlc.narg(fonte_allegato_id), sqlc.narg(fonte_sha256),
         sqlc.narg(fonte_gruppo), sqlc.arg(utente_id), sqlc.arg(utente_id))
 RETURNING bozza_id, creata_il;
 
 -- name: InsertDistintaBozzaVersione :one
 -- Una versione salvata, con lo snapshot intero. Porta la testata alla sua versione (trigger
--- distinta_bozza_versione_avanza): solo se la bozza e' aperta alla versione precedente, altrimenti P4X04.
+-- distinta_bozza_versione_avanza): solo se la bozza e' aperta alla versione precedente, altrimenti P4X04. V1 (0023):
+-- nel formato 3 il registro della sorgente (importazione_id, che il trigger confronta con lo snapshot) e la chiave del
+-- salvataggio con l'impronta della richiesta (obbligatorie: ck_dbv_chiave_salvataggio); nel formato 2 NULL.
 INSERT INTO distinta_bozza_versione (bozza_id, versione, snapshot, impronta, base_conferma_id, base_numero,
                                      base_contatore, firma_base, fonte_allegato_id, fonte_sha256, fonte_gruppo,
-                                     salvata_da)
+                                     salvata_da, importazione_id, chiave_salvataggio, impronta_richiesta)
 VALUES (sqlc.arg(bozza_id), sqlc.arg(versione), sqlc.arg(snapshot), sqlc.arg(impronta), sqlc.narg(base_conferma_id),
         sqlc.arg(base_numero), sqlc.arg(base_contatore), sqlc.arg(firma_base), sqlc.narg(fonte_allegato_id),
-        sqlc.narg(fonte_sha256), sqlc.narg(fonte_gruppo), sqlc.arg(salvata_da))
+        sqlc.narg(fonte_sha256), sqlc.narg(fonte_gruppo), sqlc.arg(salvata_da), sqlc.narg(importazione_id),
+        sqlc.narg(chiave_salvataggio), sqlc.narg(impronta_richiesta))
 RETURNING salvata_il;
 
 -- name: InsertDistintaBozzaEvento :exec
@@ -68,9 +73,10 @@ SELECT * FROM distinta_bozza
  ORDER BY creata_il, bozza_id;
 
 -- name: GetDistintaBozzaVersione :one
--- Una versione salvata di una bozza della RFQ, con lo snapshot.
+-- Una versione salvata di una bozza della RFQ, con lo snapshot (e, dalla 0023, registro e chiave del salvataggio).
 SELECT v.bozza_id, v.versione, v.snapshot, v.impronta, v.base_conferma_id, v.base_numero, v.base_contatore, v.firma_base,
-       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il
+       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il, v.importazione_id, v.chiave_salvataggio,
+       v.impronta_richiesta
   FROM distinta_bozza_versione v
   JOIN distinta_bozza b ON b.bozza_id = v.bozza_id
  WHERE v.bozza_id = sqlc.arg(bozza_id) AND b.thread_id = sqlc.arg(thread_id) AND v.versione = sqlc.arg(versione);
@@ -79,7 +85,8 @@ SELECT v.bozza_id, v.versione, v.snapshot, v.impronta, v.base_conferma_id, v.bas
 -- Tutte le versioni di una bozza della RFQ, dalla prima: la storia degli snapshot, per rifare il giornale. Solo per
 -- la diagnosi e le prove (LeggiStoria): una rotta che la esponga vuole un tetto o le pagine (RC-17).
 SELECT v.bozza_id, v.versione, v.snapshot, v.impronta, v.base_conferma_id, v.base_numero, v.base_contatore, v.firma_base,
-       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il
+       v.fonte_allegato_id, v.fonte_sha256, v.fonte_gruppo, v.salvata_da, v.salvata_il, v.importazione_id, v.chiave_salvataggio,
+       v.impronta_richiesta
   FROM distinta_bozza_versione v
   JOIN distinta_bozza b ON b.bozza_id = v.bozza_id
  WHERE v.bozza_id = sqlc.arg(bozza_id) AND b.thread_id = sqlc.arg(thread_id)
@@ -120,6 +127,15 @@ SELECT COALESCE(max(e.n), 0)::int AS n FROM distinta_bozza_evento e
 -- frattempo e' cambiata, chiusa o non e' della RFQ). chiusa_il la riscrive comunque il trigger con now().
 UPDATE distinta_bozza
    SET stato = 'abbandonata', chiusa_da = sqlc.arg(chiusa_da), chiusa_il = now(), motivo_chiusura = sqlc.narg(motivo)
+ WHERE bozza_id = sqlc.arg(bozza_id) AND thread_id = sqlc.arg(thread_id) AND stato = 'aperta'
+   AND versione = sqlc.arg(versione);
+
+-- name: ConfermaDistintaBozza :execrows
+-- V1 (0023): la chiusura «confermata» della bozza alla versione che la conferma chiude, nella transazione di R5 e dopo
+-- la testata della conferma (il ciclo vuole la conferma che la cita, scritta prima; il controllo al COMMIT vuole la
+-- bozza chiusa). Confronta e scambia: 0 righe se nel frattempo e' cambiata o chiusa.
+UPDATE distinta_bozza
+   SET stato = 'confermata', chiusa_da = sqlc.arg(chiusa_da), chiusa_il = now()
  WHERE bozza_id = sqlc.arg(bozza_id) AND thread_id = sqlc.arg(thread_id) AND stato = 'aperta'
    AND versione = sqlc.arg(versione);
 
@@ -185,7 +201,8 @@ SELECT a.allegato_id, a.nome_file, a.sha256 FROM allegato a
 SELECT conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senza_riepilogo_v2, firma_struttura,
        firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id,
        bozza_versione, fonte_allegato_id, fonte_sha256, fonte_gruppo, origine, impronta_snapshot, mono_pezzo,
-       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il
+       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il, importazione_id,
+       importazioni_citate
   FROM conferma_strutturale
  WHERE thread_id = sqlc.arg(thread_id) AND prodotto_id = sqlc.arg(prodotto_id)
  ORDER BY numero;
@@ -196,7 +213,8 @@ SELECT conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senz
 SELECT conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senza_riepilogo_v2, firma_struttura,
        firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id,
        bozza_versione, fonte_allegato_id, fonte_sha256, fonte_gruppo, origine, impronta_snapshot, mono_pezzo,
-       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il
+       mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza, confermato_da, confermato_il, importazione_id,
+       importazioni_citate
   FROM conferma_strutturale
  WHERE thread_id = sqlc.arg(thread_id) AND prodotto_id = sqlc.arg(prodotto_id)
  ORDER BY numero DESC
@@ -214,7 +232,7 @@ SELECT conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senz
        firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id,
        bozza_versione, fonte_allegato_id, fonte_sha256, fonte_gruppo, origine, snapshot, impronta_snapshot, delta,
        mappa, decisioni, mono_pezzo, mono_pezzo_motivo, criterio_verifica, verifica, chiave_idempotenza,
-       confermato_da, confermato_il
+       confermato_da, confermato_il, importazione_id, importazioni_citate
   FROM conferma_strutturale
  WHERE thread_id = sqlc.arg(thread_id) AND conferma_id = sqlc.arg(conferma_id);
 
