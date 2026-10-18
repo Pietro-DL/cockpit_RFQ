@@ -14,9 +14,12 @@ package web
 //   - la catena è quella delle rotte di motore-a (motore_a.go): conMotoreA (flag [motore_a] spento = il 404 del router,
 //     prima della sessione) → conNoStore → soloAdmin → gestore, con la riga gemella senza metodo (405 a flag acceso,
 //     404 a flag spento);
-//   - all'apertura nessuna scrittura (D-18; D23:337; EM §6.10 n. 4): la sola lettura è l'esistenza della RFQ con la sua
-//     testata (GetThread, una SELECT con il pool, senza transazione); la riga della sessione la tocca autenticato, come
-//     su ogni rotta (eccezione RO-DOMINIO già dichiarata);
+//   - all'apertura nessuna scrittura (D-18; D23:337; EM §6.10 n. 4): il gestore legge l'esistenza della RFQ con la sua
+//     testata (GetThread, una SELECT con il pool, senza transazione) e, come ogni pagina con il layout, lo stato della
+//     barra (s.stato, postazione.go: postazioni, worker, caselle, novità, sincronizzazione; solo List e Conta, nessuna
+//     scrittura); la riga della sessione la tocca autenticato, come su ogni rotta (eccezione RO-DOMINIO già dichiarata).
+//     La prova L4 dell'insieme (T-04, TestNessunaGetScrive con questa rotta) è dell'integrazione: la L1-07 controlla solo
+//     il testo del gestore;
 //   - id non valido = 400; RFQ inesistente = 404 (anche con HEAD); un errore della lettura non è un 404: la pagina 200
 //     con l'errore scritto e il dettaglio solo nel log (D-18 = A: «mai una pagina vuota»);
 //   - nessun percorso del disco, nessun dato del motore nel guscio: solo UUID e testi della testata.

@@ -60,6 +60,12 @@ const (
 	bdA8       = "00000000-0000-4000-8000-0000000a0008" // voce 1 dello zip
 	bdA9       = "00000000-0000-4000-8000-0000000a0009" // voce 2 dello zip
 	bdA10      = "00000000-0000-4000-8000-0000000a000a" // secondo STEP (cambio della fonte)
+	bdA11      = "00000000-0000-4000-8000-0000000a000b" // PDF associato al componente registrato ACM-1400 (AR)
+	bdA12      = "00000000-0000-4000-8000-0000000a000c" // PDF di ACM-1400 già documento confermato
+	bdA13      = "00000000-0000-4000-8000-0000000a000d" // secondo zip con due voci (Altri file e Riattiva)
+	bdA14      = "00000000-0000-4000-8000-0000000a000e" // voce 1 del secondo zip
+	bdA15      = "00000000-0000-4000-8000-0000000a000f" // voce 2 del secondo zip
+	bdC40      = "00000000-0000-4000-8000-000000004000" // il componente registrato ACM-1400 (un registrato che non è la radice)
 	bdShaStep  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	bdShaStep2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
@@ -82,18 +88,20 @@ type fileBanco struct {
 	ID, Proposta, Nome, Est, Sha, Origine, Canale, Stato, Contenitore string
 	Versione                                                          int
 	Analisi                                                           string
-	Rimozione, Conservazione, Scarto                                  m
+	Rimozione, Conservazione, Scarto, AltriFile, Documento            m
 	Codice, Rev, Componente                                           string
 	letture                                                           int
 }
 
-// bozzaBanco: la bozza aperta di un prodotto (EM §9.1, §9.2).
+// bozzaBanco: la bozza aperta di un prodotto (EM §9.1, §9.2). Formato2: una bozza del formato di prima, che R1 dice
+// da convertire (EM §6.7).
 type bozzaBanco struct {
 	ID, Stato, Registro, ChiaveUltimo string
 	Versione                          int
 	Snapshot                          m
 	Eventi                            []m
 	Creata                            time.Time
+	Formato2                          bool
 }
 
 type intentoBanco struct {
@@ -126,6 +134,9 @@ type bancoDU struct {
 	ritardi          map[string]time.Duration // rotta (il pattern del mux) → attesa prima della risposta, una volta
 	f8Errore         bool                     // il riallineamento dei documenti dopo l'ultima conferma è in errore, finché R11 non lo rifà
 	versioneProposta int                      // cambia l'impronta di oggi del gruppo (la «proposta cambiata»)
+	congelata        bool                     // la BOM del thread è congelata (fascicolo.congelato di /dati)
+	s6Incerta        bool                     // S6 dà una sola candidata, incerta: nessuna in vista finché non la si sceglie
+	baseSuperata     bool                     // R1 dice la base superata, finché un salvataggio con «rebase» non la porta alla corrente
 }
 
 // nuovoBancoDU: il banco, con i dati di partenza. Il server del Cockpit è quello delle prove (template e statici
@@ -158,8 +169,17 @@ func (b *bancoDU) partenza() {
 		nuovo(bdA8, "voce_1.pdf", "pdf", bdSha("a8"), "portale", "portale", "", ""),
 		nuovo(bdA9, "voce_2.pdf", "pdf", bdSha("a9"), "portale", "portale", "", ""),
 		nuovo(bdA10, "ACM-1000_rev2.stp", "stp", bdShaStep2, "portale", "portale", "ACM-1000", "D"),
+		nuovo(bdA11, "ACM-1400_A.pdf", "pdf", bdSha("a11"), "portale", "posta", "ACM-1400", "A"),
+		nuovo(bdA12, "ACM-1400_ASSIEME.pdf", "pdf", bdSha("a12"), "portale", "posta", "ACM-1400", "A"),
+		nuovo(bdA13, "pacchetto2.zip", "zip", bdSha("a13"), "portale", "portale", "", ""),
+		nuovo(bdA14, "voce_3.pdf", "pdf", bdSha("a14"), "portale", "portale", "", ""),
+		nuovo(bdA15, "voce_4.pdf", "pdf", bdSha("a15"), "portale", "portale", "", ""),
 	}
 	b.file[7].Contenitore, b.file[8].Contenitore = bdA7, bdA7
+	b.file[13].Contenitore, b.file[14].Contenitore = bdA13, bdA13
+	// le associazioni registrate (AR) del componente ACM-1400: una aperta, una già documento confermato (MAT §4.3 riga 3)
+	b.file[10].Componente, b.file[11].Componente = bdC40, bdC40
+	b.file[11].Documento = m{"documento_id": "00000000-0000-4000-8000-0000000f0d12", "stato": "confermato", "confermato_il": "2026-10-10T09:00:00Z"}
 	// lo STEP secondario della fonte (EM §9.9): la forma è quella proposta nel resoconto della corsia
 	b.fonte = m{"voce": bdProposta(bdA1), "documento_id": "00000000-0000-4000-8000-0000000f0d01", "sha256": bdShaStep, "conferma_ammessa": false,
 		"motivo": "lo STEP non è associato al prodotto: associalo dalla Sorgente", "confermata": false, "autorizzata": false,
@@ -235,6 +255,14 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 	nodi[3].(m)["associazioni_proposte"] = []any{m{"allegato_id": bdA3, "motivo": "codice nel nome del file", "livello": "medio"}}
 	nodi[2].(m)["riferimenti"] = []any{m{"tipo": "documentale", "valore": "400123", "esito": "concorde", "fonte": "cartiglio"},
 		m{"tipo": "lettura_ruolo", "ruolo": "riferimento", "lettura": bdLettura(bdA5, "l:dxf", "400123", "partner:beta", "beta"), "fonte": "PIASTRA_400123.dxf"}}
+	// il componente registrato della riga legacy decisa (P-3, EM §6.1): ACM-1400 è un registrato che non è la radice
+	nodi[8].(m)["decisione_esistente"] = m{"componente_id": bdC40, "codice": "ACM-1400", "rev": "A"}
+	// il P/N equivalente K4 di un PDF del fornitore (EM §3.8, riferimenti[]): l'avviso EQUIVALENTE_NON_ADOTTATO finché una
+	// decisione non lo adotta o lo rifiuta (EM §3.6.1)
+	nodi[9].(m)["riferimenti"] = []any{m{"tipo": "equivalente_k4", "equivalente": m{"namespace": "beta", "base": "400777", "emittente": "partner:beta",
+		"prove": []any{m{"allegato_id": bdA2, "entita": "e1", "lettura_codice": "l:pdf:pn", "lettura_riferimento": "l:pdf:rif", "fonte": "cartiglio"}}}, "fonte": "ACM-1100_A.pdf"}}
+	// il codice corretto a mano nella pagina vecchia: solo evidenza, si adotta con una decisione (EM §3.8, §3.6.1)
+	nodi[3].(m)["codice_manuale_legacy"] = m{"codice": "ACM-1125", "rev": "A", "riga_legacy": "00000000-0000-4000-8000-0000000c0011"}
 	if versione > 0 {
 		nodi[3].(m)["codice_proposto"] = "ACM-1121"
 		nodi[3].(m)["identita_proposta"] = bdLettura(allegato, "l:#11", "ACM-1121", cli, "acme")
@@ -287,6 +315,12 @@ func (b *bancoDU) statoDiPartenza(reg m, impronta string) m {
 		if o["chiave"] == "#1" {
 			nodi = append(nodi, m{"chiave_bozza": "k-root", "componente_id": bdP1, "op": "riusa", "tipo": "finito", "descrizione": "Confezionatrice MX-1", "origine": "registrato",
 				"caselle": []any{casella}, "identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": "ACM-1000", "rev": "C", "modo": "registrato"}})
+			continue
+		}
+		if de, _ := v["decisione_esistente"].(m); de != nil && bdStr(de["componente_id"]) != bdP1 {
+			// P-3: la voce con un componente registrato è un riuso, con l'identità registrata (cliente, presunto)
+			nodi = append(nodi, m{"chiave_bozza": k, "componente_id": de["componente_id"], "op": "riusa", "tipo": v["tipo_proposto"].(m)["valore"], "descrizione": v["grezzi"].(m)["nome"],
+				"origine": "step", "caselle": []any{casella}, "identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": de["codice"], "rev": de["rev"], "modo": "registrato"}})
 			continue
 		}
 		id := m{}
@@ -451,7 +485,7 @@ func (b *bancoDU) dati(w http.ResponseWriter, r *http.Request) {
 		m{"rif": "prodotto:ACM-2000", "componente_id": bdP2, "codice_richiesto": "ACM-2000", "descrizione": "Nastro di carico", "prodotto_verificato": false, "motivi": []any{}},
 	}
 	o := m{"thread_id": bdThread, "vista": "distinta", "prodotto": scelto, "testa": m{"cliente": "ACME Macchine", "oggetto": "RFQ ACME-0418", "riferimento_cliente": "ACME-0418", "stato_thread": "APERTA"},
-		"esito":     m{"thread": []any{m{"thread_id": bdThread, "cliente_id": bdCliente, "valutato": true, "prodotti_valutati": prodotti, "fascicolo": m{"congelato": false}}}},
+		"esito":     m{"thread": []any{m{"thread_id": bdThread, "cliente_id": bdCliente, "valutato": true, "prodotti_valutati": prodotti, "fascicolo": m{"congelato": b.congelata}}}},
 		"confronto": m{}, "errore": "", "calcolato": time.Now().UTC(), "f8_stato": map[bool]string{false: "eseguito", true: "errore"}[b.f8Errore]}
 	if scelto == "prodotto:ACM-1000" {
 		gruppi := []any{}
@@ -461,7 +495,17 @@ func (b *bancoDU) dati(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			reg := b.registro(a, f.Sha, b.versioneProposta)
-			gruppi = append(gruppi, m{"chiave": bdGruppo(a, f.Sha), "tipo": "cand", "allegato_id": a, "radice": "nodo:" + f.Sha + ":#1", "nome_file": f.Nome, "impronta_contenuto": reg["impronta_contenuto"]})
+			// per la fascia «Quale struttura guardare» (MAT SG-01): radice letta, compatibilità con il prodotto, stato della
+			// struttura (LS-01) e nodi segnalati (LS-02), con i nomi proposti nel resoconto della corsia (PE-01)
+			letta, comp := "ACM-1000", "compatibile"
+			if a == bdA10 {
+				letta = "ACM-1000-R2"
+			}
+			if b.s6Incerta && a == bdA1 {
+				comp = "incerta"
+			}
+			gruppi = append(gruppi, m{"chiave": bdGruppo(a, f.Sha), "tipo": "cand", "allegato_id": a, "radice": "nodo:" + f.Sha + ":#1", "radice_letterale": letta, "compatibilita": comp,
+				"struttura": m{"versione": 3, "completa": true, "motivo": ""}, "segnalati": 3, "nome_file": f.Nome, "impronta_contenuto": reg["impronta_contenuto"]})
 		}
 		o["gruppi"] = gruppi
 		o["fonte"] = b.fonte
@@ -515,9 +559,20 @@ func (b *bancoDU) r1(w http.ResponseWriter, r *http.Request) {
 		bdJSON(w, http.StatusOK, m{"stato": "nessuna_bozza", "versione_corrente": bdVersioneCorrente(b.conferme[prod])})
 		return
 	}
-	o := m{"stato": "aperta", "formato": 3, "vocabolario": 2, "bozza_id": bz.ID, "versione": bz.Versione, "snapshot": bz.Snapshot, "impronta": bdSha(fmt.Sprint(bz.Snapshot)),
+	if bz.Formato2 {
+		// una bozza del formato di prima: R1 la dà com'era, con la conversione necessaria (EM §9.1, §6.7)
+		bdJSON(w, http.StatusOK, m{"stato": "aperta", "formato": 2, "vocabolario": 1, "bozza_id": bz.ID, "versione": bz.Versione, "snapshot": bz.Snapshot,
+			"impronta": bdSha(bdCanonico(bz.Snapshot)), "conversione": m{"necessaria": true, "forma": "converti_da"}, "creata_il": bz.Creata, "aggiornata_il": bz.Creata,
+			"eventi": len(bz.Eventi), "versione_corrente": bdVersioneCorrente(b.conferme[prod]), "base": m{"stato": "valida", "motivi": []any{}}, "rif_scaduti": []any{}, "vassoio": []any{}})
+		return
+	}
+	base := m{"stato": "valida", "motivi": []any{}}
+	if b.baseSuperata {
+		base = m{"stato": "superata", "motivi": []any{"conferma_cambiata"}}
+	}
+	o := m{"stato": "aperta", "formato": 3, "vocabolario": 2, "bozza_id": bz.ID, "versione": bz.Versione, "snapshot": bz.Snapshot, "impronta": bdSha(bdCanonico(bz.Snapshot)),
 		"chiave_ultimo_salvataggio": bz.ChiaveUltimo, "creata_da": duUUID(77).String(), "creata_il": bz.Creata, "aggiornata_da": duUUID(77).String(), "aggiornata_il": time.Now().UTC(),
-		"eventi": len(bz.Eventi), "versione_corrente": bdVersioneCorrente(b.conferme[prod]), "base": m{"stato": "valida", "motivi": []any{}}, "rif_scaduti": []any{}, "vassoio": []any{},
+		"eventi": len(bz.Eventi), "versione_corrente": bdVersioneCorrente(b.conferme[prod]), "base": base, "rif_scaduti": []any{}, "vassoio": []any{},
 		"importazioni_citate": []any{}}
 	if bz.Registro != "" {
 		reg := b.registri[bz.Registro]
@@ -628,8 +683,7 @@ func (b *bancoDU) r2(w http.ResponseWriter, r *http.Request) {
 	case corpo["riallinea_proposta"] != nil:
 		risposta = b.r2Riallinea(w, corpo, prod)
 	case corpo["converti_da"] != nil:
-		bdKo(w, 422, "CORPO_NON_VALIDO", "nessuna bozza da convertire nel banco", m{"motivo": "partenza_non_ammessa"})
-		return
+		risposta = b.r2Converti(w, corpo, prod)
 	default:
 		risposta = b.r2Salva(w, corpo, prod)
 	}
@@ -692,7 +746,7 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 		imp := bdImpronta(reg)
 		b.registri[imp] = reg
 		bz.Registro = imp
-		bz.Snapshot = b.statoDiPartenza(reg, imp)
+		bz.Snapshot = bdSnapshotCanonico(b.statoDiPartenza(reg, imp))
 		if abbandona != nil && vecchia != nil {
 			vecchia.Stato = "abbandonata"
 			b.conti["ripartenze"]++
@@ -700,7 +754,7 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 		b.bozze[prod] = bz
 		b.eventoServer(bz, "bozza_aperta", m{"partenza": "step", "importazione": imp})
 		b.eventoServer(bz, "sorgente_scelta", m{"allegato_id": a, "gruppo": reg["gruppo"].(m)["chiave"]})
-		return m{"bozza_id": bz.ID, "formato": 3, "versione": 1, "nuova_versione": true, "riproposto": false, "eventi": 2, "impronta": bdSha(fmt.Sprint(bz.Snapshot)), "salvata_il": time.Now().UTC(),
+		return m{"bozza_id": bz.ID, "formato": 3, "versione": 1, "nuova_versione": true, "riproposto": false, "eventi": 2, "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC(),
 			"snapshot": bz.Snapshot, "importazione": m{"importazione_id": "00000000-0000-4000-8000-0000000b1001", "impronta": imp, "impronta_contenuto": reg["impronta_contenuto"],
 				"impronta_evidenze": reg["impronta_evidenze"], "riusata": false}}
 	case "conferma", "registrato":
@@ -708,13 +762,27 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 			bdKo(w, 422, "CORPO_NON_VALIDO", "il prodotto non ha una conferma", m{"motivo": "partenza_non_ammessa"})
 			return nil
 		}
-		bz.Snapshot = m{"formato": 3, "prodotto_id": prod, "versione_bom_base": m{"conferma_id": nil, "numero": len(b.conferme[prod]), "contatore": 13}, "firma_base": strings.Repeat("3", 64),
-			"nodi": []any{m{"chiave_bozza": "k-root", "componente_id": prod, "op": "riusa", "tipo": "finito", "origine": "registrato",
-				"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": map[string]string{bdP1: "ACM-1000", bdP2: "ACM-2000"}[prod], "modo": "registrato"}}},
-			"archi": []any{}, "decisioni": []any{}, "documenti_preassociati": []any{}}
+		radice := m{"chiave_bozza": "k-root", "componente_id": prod, "op": "riusa", "tipo": "finito", "origine": "registrato",
+			"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": map[string]string{bdP1: "ACM-1000", bdP2: "ACM-2000"}[prod], "modo": "registrato"}}
+		nodi, archi := []any{radice}, []any{}
+		base := m{"conferma_id": nil, "numero": len(b.conferme[prod]), "contatore": 13}
+		if partenza == "conferma" {
+			// da-conferma-1 (EM §6.12): i nodi e gli archi della conferma, identità registrate; il banco ne mette uno sotto la
+			// radice, il componente registrato ACM-1400, con l'arco della conferma
+			radice["origine"] = "conferma"
+			u := b.conferme[prod][len(b.conferme[prod])-1]
+			base["conferma_id"] = u["conferma_id"]
+			if prod == bdP1 {
+				nodi = append(nodi, m{"chiave_bozza": "k-40", "componente_id": bdC40, "op": "riusa", "tipo": "sottoassieme", "descrizione": "Supporto saldato", "origine": "conferma",
+					"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": "ACM-1400", "rev": "A", "modo": "registrato"}})
+				archi = append(archi, m{"padre": "k-root", "figlio": "k-40", "qta": 1, "origine": "conferma"})
+			}
+		}
+		bz.Snapshot = bdSnapshotCanonico(m{"formato": 3, "prodotto_id": prod, "versione_bom_base": base, "firma_base": strings.Repeat("3", 64),
+			"nodi": nodi, "archi": archi, "decisioni": []any{}, "documenti_preassociati": []any{}})
 		b.bozze[prod] = bz
 		b.eventoServer(bz, "bozza_aperta", m{"partenza": partenza})
-		return m{"bozza_id": bz.ID, "formato": 3, "versione": 1, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(fmt.Sprint(bz.Snapshot)), "salvata_il": time.Now().UTC(), "snapshot": bz.Snapshot}
+		return m{"bozza_id": bz.ID, "formato": 3, "versione": 1, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC(), "snapshot": bz.Snapshot}
 	}
 	bdKo(w, 422, "CORPO_NON_VALIDO", "partenza non ammessa", m{"motivo": "partenza_non_ammessa"})
 	return nil
@@ -745,14 +813,51 @@ func (b *bancoDU) r2Salva(w http.ResponseWriter, corpo m, prod string) m {
 		return nil
 	}
 	bz.Versione++
-	bz.Snapshot = snap
+	// il server salva lo snapshot nella forma canonica (EM §3.10): elenchi ordinati, facoltativi vuoti tolti; R1 restituisce
+	// questi byte
+	bz.Snapshot = bdSnapshotCanonico(snap)
+	if corpo["rebase"] != nil {
+		// il rebase porta la base alla corrente (EM §9.2): la base non è più superata
+		b.baseSuperata = false
+	}
 	for _, x := range azioni {
 		a := x.(m)
 		n := len(bz.Eventi) + 1
 		bz.Eventi = append(bz.Eventi, m{"n": n, "versione": bz.Versione, "vocabolario": 2, "azione": a["azione"], "chiave": a["chiave_bozza"], "prima": a["prima"], "dopo": a["dopo"],
 			"origine": a["origine"], "motivo": a["motivo"], "autore": "AD", "quando": time.Now().UTC()})
 	}
-	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": len(azioni), "impronta": bdSha(fmt.Sprint(snap)), "salvata_il": time.Now().UTC()}
+	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": len(azioni), "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC()}
+}
+
+// r2Converti: la conversione di una bozza del formato di prima (EM §6.7, forma converti_da): la vecchia si chiude, la
+// nuova (formato 3, senza registro) si apre nella stessa scrittura.
+func (b *bancoDU) r2Converti(w http.ResponseWriter, corpo m, prod string) m {
+	cd := corpo["converti_da"].(m)
+	vecchia := b.bozze[prod]
+	if vecchia == nil || vecchia.Stato != "aperta" || !vecchia.Formato2 {
+		bdKo(w, 422, "CORPO_NON_VALIDO", "nessuna bozza del formato di prima da convertire", m{"motivo": "conversione_ambigua"})
+		return nil
+	}
+	if bdStr(cd["bozza_id"]) != vecchia.ID || bdNum(cd["versione_attesa"]) != vecchia.Versione {
+		bdKo(w, 409, "BOZZA_VERSIONE", "La bozza da convertire è cambiata.", m{"motivo": "versione_diversa", "versione": vecchia.Versione})
+		return nil
+	}
+	if bdStr(cd["motivo"]) == "" {
+		bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "La conversione vuole il motivo.", m{"campo": "converti_da.motivo"})
+		return nil
+	}
+	vecchia.Stato = "abbandonata"
+	b.nBozze++
+	bz := &bozzaBanco{ID: fmt.Sprintf("00000000-0000-4000-8000-0000000b%04d", b.nBozze), Stato: "aperta", Versione: 1, Creata: time.Now().UTC()}
+	bz.Snapshot = bdSnapshotCanonico(m{"formato": 3, "prodotto_id": prod, "versione_bom_base": m{"conferma_id": nil, "numero": len(b.conferme[prod]), "contatore": 13}, "firma_base": strings.Repeat("3", 64),
+		"nodi": []any{m{"chiave_bozza": "k-root", "componente_id": prod, "op": "riusa", "tipo": "finito", "origine": "registrato",
+			"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": "ACM-1000", "rev": "C", "modo": "registrato"}}},
+		"archi": []any{}, "decisioni": []any{}, "documenti_preassociati": []any{}})
+	b.bozze[prod] = bz
+	b.conti["conversioni"]++
+	b.eventoServer(bz, "bozza_aperta", m{"partenza": "formato_2", "da_bozza": vecchia.ID})
+	return m{"bozza_id": bz.ID, "formato": 3, "versione": 1, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC(),
+		"snapshot": bz.Snapshot, "righe_cadute": []any{}}
 }
 
 func (b *bancoDU) r2CambiaSorgente(w http.ResponseWriter, corpo m, prod string) m {
@@ -777,9 +882,9 @@ func (b *bancoDU) r2CambiaSorgente(w http.ResponseWriter, corpo m, prod string) 
 	b.registri[imp] = reg
 	bz.Registro = imp
 	bz.Versione++
-	bz.Snapshot = b.statoDiPartenza(reg, imp)
+	bz.Snapshot = bdSnapshotCanonico(b.statoDiPartenza(reg, imp))
 	b.eventoServer(bz, "sorgente_cambiata", m{"allegato_id": a, "gruppo": reg["gruppo"].(m)["chiave"], "da_rivedere": []any{}})
-	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(fmt.Sprint(bz.Snapshot)), "salvata_il": time.Now().UTC(),
+	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC(),
 		"snapshot": bz.Snapshot, "importazione": m{"importazione_id": "00000000-0000-4000-8000-0000000b1002", "impronta": imp, "impronta_contenuto": reg["impronta_contenuto"], "riusata": false,
 			"fuori_per_cambio_fonte": []any{}, "caselle_riscritte": []any{}, "archi_riscritti": []any{}, "identita_aggiornate": []any{m{"chiave_bozza": "k-7"}}, "da_rivedere": []any{}, "decisioni_cadute": []any{}}}
 }
@@ -812,8 +917,10 @@ func (b *bancoDU) r2Riallinea(w http.ResponseWriter, corpo m, prod string) m {
 			n["identita"].(m)["codice"] = "ACM-1121"
 		}
 	}
+	bz.Snapshot = bdSnapshotCanonico(snap)
+	snap = bz.Snapshot
 	b.eventoServer(bz, "proposta_riallineata", m{"importazione": imp, "algoritmo": "riancoraggio-1", "da_rivedere": []any{}, "identita_aggiornate": []any{"k-11"}})
-	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(fmt.Sprint(snap)), "salvata_il": time.Now().UTC(),
+	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(bdCanonico(snap)), "salvata_il": time.Now().UTC(),
 		"snapshot": snap, "importazione": m{"importazione_id": "00000000-0000-4000-8000-0000000b1003", "impronta": imp, "impronta_contenuto": oggi["impronta_contenuto"], "riusata": false,
 			"identita_aggiornate": []any{m{"chiave_bozza": "k-11", "prima": "ACM-1120", "dopo": "ACM-1121"}}, "da_rivedere": []any{}, "nuovi_nodi_proposti": []any{}}}
 }
@@ -826,8 +933,13 @@ func (b *bancoDU) r3(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, bz := range b.bozze {
 		if bz.ID == r.PathValue("b") {
-			if bz.Stato != "aperta" || bdNum(corpo["versione_attesa"]) != bz.Versione {
-				bdKo(w, 409, "BOZZA_VERSIONE", "la bozza è cambiata o chiusa", m{"motivo": "versione_diversa"})
+			if bz.Stato != "aperta" {
+				// il reinvio dopo una risposta persa trova la bozza già chiusa (EM §8.4)
+				bdKo(w, 409, "BOZZA_VERSIONE", "La bozza è già chiusa.", m{"motivo": "bozza_chiusa"})
+				return
+			}
+			if bdNum(corpo["versione_attesa"]) != bz.Versione {
+				bdKo(w, 409, "BOZZA_VERSIONE", "La bozza è cambiata altrove.", m{"motivo": "versione_diversa", "versione": bz.Versione})
 				return
 			}
 			b.conti["R3"]++
@@ -913,6 +1025,81 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 				"figli": []any{}, "occorrenze_toccate": []any{bdA1}, "prodotti_con_lo_stesso_step": []any{}, "fabbisogni_tolti_dopo_conferma": []any{m{"tipo_documento": "disegno_2d", "bloccante": true}}}})
 	}
 	avvisi := []any{m{"codice": "VERIFICA_DOPO_COMMIT", "testo": "BOM.Verificata si calcola sulla struttura confermata, dopo il commit"}}
+	// le regole minime del banco per D1, mono_pezzo, svincoli, esclusi con documenti ed equivalenti K4 (EM §8.1, §8.2): non
+	// sono quelle del server, servono a far vedere nella pagina i rimedi e gli avvisi
+	figli := map[string]int{}
+	if as, ok := snap["archi"].([]any); ok {
+		for _, x := range as {
+			figli[bdStr(x.(m)["padre"])]++
+		}
+	}
+	d1 := map[string]string{}
+	monoPezzo := false
+	scollegati := map[string]bool{}
+	svincoli := []any{}
+	for _, x := range decisioni {
+		d := x.(m)
+		switch bdStr(d["tipo"]) {
+		case "d1_a_particolare", "d1_resta_sottoassieme", "d1_a_sottoassieme":
+			d1[bdStr(d["chiave_bozza"])] = bdStr(d["tipo"])
+		case "mono_pezzo":
+			monoPezzo = true
+		case "scollega_documento":
+			pid := bdStr(d["proposta_id"])
+			scollegati[pid] = true
+			esito := "applicabile"
+			for _, f := range b.file {
+				if f.Proposta == pid && f.Documento != nil {
+					esito = "svincolo_su_documento"
+					blocchi = append(blocchi, m{"codice": "PREASSOCIAZIONE_NON_APPLICABILE", "motivo": "svincolo_su_documento", "testo": "«" + f.Nome + "» è un documento confermato: non si scollega da qui (serve una revisione, non in V1)."})
+				}
+			}
+			svincoli = append(svincoli, m{"proposta_id": pid, "componente_id": d["componente_id"], "esito": esito})
+		}
+	}
+	for _, x := range nodi {
+		n := x.(m)
+		k := bdStr(n["chiave_bozza"])
+		if bdStr(n["componente_id"]) == prod {
+			if figli[k] == 0 && !monoPezzo {
+				avvisi = append(avvisi, m{"codice": "PRODOTTO_SENZA_FIGLI", "chiave_bozza": k, "testo": "Il prodotto non ha figli nella bozza: se è un pezzo unico, dichiara mono_pezzo con il motivo."})
+			}
+			continue
+		}
+		var voce m
+		if cs, ok := n["caselle"].([]any); ok && len(cs) > 0 {
+			c := cs[0].(m)
+			voce = voci["n:"+bdStr(c["allegato_id"])+":"+bdStr(c["rif"])]
+		}
+		tipo, op := bdStr(n["tipo"]), bdStr(n["op"])
+		if op == "esclude" {
+			n2 := 0
+			for _, f := range b.file {
+				if f.Componente != "" && f.Componente == bdStr(n["componente_id"]) && f.Documento == nil && !scollegati[f.Proposta] {
+					n2++
+				}
+			}
+			if n2 > 0 {
+				avvisi = append(avvisi, m{"codice": "ESCLUSO_CON_DOCUMENTI", "chiave_bozza": k, "testo": fmt.Sprintf("%s esce dalla BOM con %d associazioni di file registrate: restano storiche.", codiceDi[k], n2)})
+			}
+			continue
+		}
+		if tipo == "sottoassieme" && figli[k] == 0 && voce != nil && voce["foglia"] == false && d1[k] != "d1_a_particolare" && d1[k] != "d1_resta_sottoassieme" {
+			blocchi = append(blocchi, m{"codice": "D1_ULTIMO_FIGLIO", "chiave_bozza": k, "testo": codiceDi[k] + " è un assieme rimasto senza figli: diventa un particolare, oppure resta assieme.",
+				"rimedi": []any{"Diventa particolare", "Lascia assieme"}})
+		}
+		if (tipo == "sciolto" || tipo == "commerciale") && figli[k] > 0 && d1[k] != "d1_a_sottoassieme" {
+			blocchi = append(blocchi, m{"codice": "D1_PARTICOLARE_CON_FIGLI", "chiave_bozza": k, "testo": codiceDi[k] + " è un particolare con figli: diventa un assieme.", "rimedi": []any{"Diventa assieme"}})
+		}
+		if voce != nil {
+			id, _ := n["identita"].(m)
+			for _, rr := range voce["riferimenti"].([]any) {
+				if bdStr(rr.(m)["tipo"]) == "equivalente_k4" && bdStr(id["modo"]) != "decisione" {
+					avvisi = append(avvisi, m{"codice": "EQUIVALENTE_NON_ADOTTATO", "chiave_bozza": k, "testo": codiceDi[k] + " va nella working con un codice diverso dal P/N equivalente del fornitore, senza una decisione che lo adotti o lo rifiuti."})
+				}
+			}
+		}
+	}
 	if len(segnalatiInclusi) > 0 {
 		avvisi = append(avvisi, m{"codice": "SEGNALATI_INCLUSI", "testo": fmt.Sprintf("%d nodi segnalati come possibili elementi CAD stanno per diventare componenti.", len(segnalatiInclusi)), "chiavi": segnalatiInclusi})
 	}
@@ -965,7 +1152,7 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		}
 	}
 	o := m{"formato": 3, "prodotto_id": prod, "versione_corrente": bdVersioneCorrente(b.conferme[prod]), "base": m{"stato": "valida", "motivi": []any{}}, "rif_scaduti": []any{},
-		"identita": identita, "archi": archi, "da_ricollocare": []any{}, "fuori": []any{}, "non_inclusi": nonInclusi, "relazioni": relazioni, "svincoli": []any{},
+		"identita": identita, "archi": archi, "da_ricollocare": []any{}, "fuori": []any{}, "non_inclusi": nonInclusi, "relazioni": relazioni, "svincoli": svincoli,
 		"registro_decisioni": []any{}, "documenti_preassociati": pre, "righe_step": m{"decise_da_questa_conferma": len(nodi), "restano_aperte": mancanti},
 		"criterio_previsto": m{"criterio": "nessuno", "motivo": "il prodotto non ha uno STEP autorizzato: dopo l'autorizzazione serve una conferma nuova"},
 		"blocchi":           blocchi, "avvisi": avvisi, "avvisi_motore": []any{}, "avvisi_motore_calcolati": false, "confermabile": len(blocchi) == 0}
@@ -979,7 +1166,8 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 			o["avvisi_motore_calcolati"] = true
 		}
 	}
-	o["firma_anteprima"] = bdSha(fmt.Sprintf("anteprima-3|%d|%s", versione, bdCanonico(snap)))
+	// la firma sul JSON canonico dello snapshot (EM §8.3, §3.10): lo stesso contenuto in un altro ordine ha la stessa firma
+	o["firma_anteprima"] = bdSha(fmt.Sprintf("anteprima-3|%d|%s", versione, bdCanonico(bdFormaCanonica(snap, ""))))
 	return o
 }
 
@@ -1024,7 +1212,8 @@ func (b *bancoDU) r5(w http.ResponseWriter, r *http.Request) {
 			senzaVersione[k] = v
 		}
 	}
-	impronta := bdSha(bdCanonico(m{"firma_anteprima": corpo["firma_anteprima"], "bozza": senzaVersione}))
+	// impronta_corpo sulla forma canonica (EM §8.4, §3.10): lo stesso contenuto in un altro ordine è lo stesso corpo
+	impronta := bdSha(bdCanonico(bdFormaCanonica(m{"firma_anteprima": corpo["firma_anteprima"], "bozza": senzaVersione}, "")))
 	if it, ok := b.intenti[chiave]; ok {
 		if it.Impronta != impronta || it.Gesto != "conferma_bom_v3" {
 			bdKo(w, 409, "CHIAVE_RIUSATA", "Questo tentativo ha già un esito diverso.", nil)
@@ -1045,7 +1234,8 @@ func (b *bancoDU) r5(w http.ResponseWriter, r *http.Request) {
 		bdKo(w, 409, "BASE_SUPERATA", "La distinta è cambiata dopo la tua lettura: la bozza resta, rileggi la base e riconferma.", m{"motivi": []any{"conferma_cambiata"}, "versione_corrente": bdVersioneCorrente(b.conferme[prod])})
 		return
 	case "422":
-		bdKo(w, 422, "BLOCCHI", "La BOM non si conferma: 1 blocco.", m{"blocchi": []any{m{"codice": "D1_ULTIMO_FIGLIO", "chiave_bozza": "k-7", "testo": "ACM-1100 resta senza figli."}}})
+		bdKo(w, 422, "BLOCCHI", "La BOM non si conferma: 1 blocco.", m{"blocchi": []any{m{"codice": "D1_ULTIMO_FIGLIO", "chiave_bozza": "k-7", "testo": "ACM-1100 resta senza figli.",
+			"rimedi": []any{"Diventa particolare", "Lascia assieme"}}}})
 		return
 	case "controllo_finale":
 		bdJSON(w, http.StatusInternalServerError, m{"esito": "non_registrato", "codice": "CONTROLLO_FINALE", "testo": "La conferma non è registrata per un errore interno del controllo finale: non riprovare, segnala."})
@@ -1086,20 +1276,25 @@ func (b *bancoDU) r5(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	nonInc := []any{}
-	for _, x := range snap["decisioni"].([]any) {
+	monoPezzo := false
+	decs, _ := snap["decisioni"].([]any)
+	for _, x := range decs {
 		if x.(m)["tipo"] == "non_includere" {
 			nonInc = append(nonInc, x.(m)["id"])
+		}
+		if x.(m)["tipo"] == "mono_pezzo" {
+			monoPezzo = true
 		}
 	}
 	risposta := m{"esito": "confermata", "riproposto": false, "chiave_idempotenza": chiave, "conferma_id": cid, "numero_conferma": numero, "prodotto_id": prod, "formato": 3,
 		"firma_struttura": strings.Repeat("3", 64), "contatore": 13, "mappa": mappa, "identita_accettate": accettate, "identita_corrette": []any{}, "non_inclusi_applicati": nonInc,
-		"associazioni_applicate": snap["documenti_preassociati"], "svincoli_applicati": []any{}, "relazioni_non_ratificate": rip["relazioni"],
+		"associazioni_applicate": snap["documenti_preassociati"], "svincoli_applicati": rip["svincoli"], "relazioni_non_ratificate": rip["relazioni"],
 		"verifica_motore_a": m{"verificata": false, "criterio": "nessuno", "motivi": []any{"verifica_non_calcolata_v1"}, "al_momento_della_conferma": true}, "f8_stato": "in_attesa",
 		"testo": fmt.Sprintf("Conferma n. %d di ACM-1000.", numero)}
 	b.conti["R5"]++
 	b.intenti[chiave] = intentoBanco{Gesto: "conferma_bom_v3", Impronta: impronta, Risposta: risposta, Creato: time.Now().UTC()}
 	b.conferme[prod] = append(b.conferme[prod], m{"conferma_id": cid, "numero": numero, "formato": 3, "senza_riepilogo_v2": false, "ultima": true, "valida": true,
-		"confermato_da": duUUID(77).String(), "confermato_il": time.Now().UTC(), "firma_struttura": strings.Repeat("3", 64), "criterio_verifica": "nessuno", "mono_pezzo": false,
+		"confermato_da": duUUID(77).String(), "confermato_da_nome": "AD", "confermato_il": time.Now().UTC(), "firma_struttura": strings.Repeat("3", 64), "criterio_verifica": "nessuno", "mono_pezzo": monoPezzo,
 		"origine": m{"rotta": "motore-a/bom/conferma"}, "bozza_id": bz.ID, "fonte": snap["sorgente"], "importazione_id": "00000000-0000-4000-8000-0000000b1001"})
 	for _, c := range b.conferme[prod][:numero-1] {
 		c["ultima"] = false
@@ -1244,7 +1439,8 @@ func (b *bancoDU) dipendenze(f *fileBanco) []any {
 			out = append(out, m{"allegato_id": x.ID, "codice": "D-14", "esito": "risoluzione", "risoluzione": "conferma_unica_copia", "testo": "È l'unica copia: il file era stato caricato a mano. Scartandolo non ne resta nessuna copia: per riaverlo dovrai ricaricarlo."})
 		}
 		if x.Componente != "" {
-			out = append(out, m{"allegato_id": x.ID, "codice": "D-7", "esito": "risoluzione", "risoluzione": "scollega", "testo": "È associato a ACM-1000: scartandolo, l'associazione viene tolta."})
+			cod := map[string]string{bdP1: "ACM-1000", bdC40: "ACM-1400"}[x.Componente]
+			out = append(out, m{"allegato_id": x.ID, "codice": "D-7", "esito": "risoluzione", "risoluzione": "scollega", "testo": "È associato a " + cod + ": scartandolo, l'associazione viene tolta."})
 		}
 	}
 	controlla(f)
@@ -1290,6 +1486,13 @@ func (b *bancoDU) fileJSON(f *fileBanco) m {
 	}
 	if f.Scarto != nil {
 		o["scarto"] = f.Scarto
+	}
+	// chi ha messo il file in Altri file, quando e perché (MAT FL-08): la forma proposta nel resoconto della corsia (PE-06)
+	if f.AltriFile != nil && f.Stato == "altri_file" {
+		o["altri_file"] = f.AltriFile
+	}
+	if f.Documento != nil {
+		o["documento"] = f.Documento
 	}
 	return o
 }
@@ -1503,6 +1706,7 @@ func (b *bancoDU) s3(w http.ResponseWriter, r *http.Request) {
 	for _, x := range append([]*fileBanco{f}, b.voci(f)...) {
 		x.Stato, x.Versione = "altri_file", x.Versione+1
 		x.Conservazione = m{"stato": "copiata", "verificato_il": time.Now().UTC(), "bytes": 1024}
+		x.AltriFile = m{"autore": "AD", "quando": time.Now().UTC(), "motivo": corpo["motivo"]}
 		cons = append(cons, m{"allegato_id": x.ID, "stato": "copiata", "verificato_il": x.Conservazione["verificato_il"], "bytes": 1024})
 	}
 	risposta := m{"esito": "in_altri_file", "riproposto": false, "chiave_idempotenza": corpo["chiave_idempotenza"], "allegato_id": f.ID, "stato": "altri_file", "versione": f.Versione,
@@ -1524,7 +1728,24 @@ func (b *bancoDU) s4(w http.ResponseWriter, r *http.Request) {
 		bdKo(w, 409, "FILE_VERSIONE", "Il file è già attivo.", m{"stato": f.Stato, "versione": f.Versione})
 		return
 	}
+	// un archivio: il perimetro delle voci che S1 ha mostrato (MAT FL-10; EM §10.9, S4 con n_voci e impronta_voci)
+	if vv := b.voci(f); len(vv) > 0 {
+		ids := []any{}
+		for _, v := range vv {
+			ids = append(ids, v.ID)
+		}
+		if bdNum(corpo["n_voci"]) != len(vv) || bdStr(corpo["impronta_voci"]) != bdSha(bdCanonico(ids)) {
+			bdKo(w, 409, "ANTEPRIMA_SUPERATA", "Il perimetro delle voci dell'archivio è cambiato.", m{"anteprima": "voci_archivio"})
+			return
+		}
+	}
 	b.conti["S4"]++
+	for _, v := range b.voci(f) {
+		if v.Stato == "altri_file" {
+			v.Stato, v.Versione = "attivo", v.Versione+1
+			v.Conservazione = m{"stato": "da_rilasciare"}
+		}
+	}
 	f.Stato, f.Versione = "attivo", f.Versione+1
 	f.Conservazione = m{"stato": "da_rilasciare"}
 	risposta := m{"esito": "riattivato", "riproposto": false, "chiave_idempotenza": corpo["chiave_idempotenza"], "allegato_id": f.ID, "stato": "attivo", "versione": f.Versione,
@@ -1543,11 +1764,44 @@ func (b *bancoDU) s5(w http.ResponseWriter, r *http.Request) {
 		bdKo(w, 410, "FILE_SCARTATO", "Il file è stato scartato in questa RFQ: per riaverlo, ricaricalo.", nil)
 		return
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	// un PDF in anteprima: application/pdf inline, per il visore pdf.js della pagina (EM §10.9, S5); il contenuto è un
+	// PDF sintetico di una pagina, uguale per tutti i PDF del banco
+	if f.Est == "pdf" && r.URL.Query().Get("modo") != "scarica" {
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", "inline; filename=\""+f.Nome+"\"")
+		_, _ = w.Write(bdPDF())
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+f.Nome+"\"")
 	_, _ = io.WriteString(w, "contenuto sintetico di "+f.Nome+"\n")
+}
+
+// bdPDF: un PDF sintetico di una pagina (un rettangolo), con la tabella xref calcolata: lo legge il visore pdf.js.
+func bdPDF() []byte {
+	contenuto := "0.1 0.3 0.4 rg 20 20 160 120 re f\n"
+	oggetti := []string{
+		"<</Type/Catalog/Pages 2 0 R>>",
+		"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+		"<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 160]/Contents 4 0 R/Resources<<>>>>",
+		fmt.Sprintf("<</Length %d>>\nstream\n%sendstream", len(contenuto), contenuto),
+	}
+	var sb strings.Builder
+	sb.WriteString("%PDF-1.4\n")
+	posizioni := make([]int, len(oggetti))
+	for i, o := range oggetti {
+		posizioni[i] = sb.Len()
+		fmt.Fprintf(&sb, "%d 0 obj\n%s\nendobj\n", i+1, o)
+	}
+	xref := sb.Len()
+	fmt.Fprintf(&sb, "xref\n0 %d\n0000000000 65535 f \n", len(oggetti)+1)
+	for _, p := range posizioni {
+		fmt.Fprintf(&sb, "%010d 00000 n \n", p)
+	}
+	fmt.Fprintf(&sb, "trailer\n<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n", len(oggetti)+1, xref)
+	return []byte(sb.String())
 }
 
 // s6: l'anteprima dello STEP (EM §10.9), con lo stesso registro della partenza «step» e, con «bozza», l'effetto del
@@ -1580,12 +1834,19 @@ func (b *bancoDU) s6(w http.ResponseWriter, r *http.Request) {
 	if a == bdA10 {
 		letto, confronto = "ACM-1000-R2", "diverso"
 	}
+	// con la candidata incerta (sonda s6-incerta) niente è in vista all'apertura: la proposta arriva solo per il gruppo
+	// chiesto (EM §10.9, «in_vista»: mai per un'incerta; [U] RAT05-FONTE-SOSTITUIBILE)
+	incerta := b.s6Incerta && a == bdA1
+	comp := map[bool]string{false: "compatibile", true: "incerta"}[incerta]
 	o := m{"allegato_id": a, "nome_file": f.Nome, "sha256": f.Sha, "prodotto_id": bdP1, "stato": "pronta", "struttura": m{"versione": 3, "completa": true, "motivo": ""},
-		"gruppi": []any{m{"gruppo": gruppo, "radice": m{"identita_proposta": m{"letterale": letto, "emittente": "cliente:" + bdCliente}}, "compatibilita": "compatibile", "in_vista": true,
+		"gruppi": []any{m{"gruppo": gruppo, "radice": m{"identita_proposta": m{"letterale": letto, "emittente": "cliente:" + bdCliente}}, "compatibilita": comp, "in_vista": !incerta,
 			"nodi": 10, "archi": 9, "segnalati": 3, "impronta_contenuto": reg["impronta_contenuto"]}},
-		"codice_prodotto": "ACM-1000", "confronto": confronto, "proposta": m{"contenuto": reg, "stato_di_partenza": b.statoDiPartenza(reg, bdImpronta(reg))},
+		"codice_prodotto": "ACM-1000", "confronto": confronto,
 		"associazioni_previste": []any{m{"allegato_id": bdA2, "chiave_bozza": "k-7"}, m{"allegato_id": bdA3, "chiave_bozza": "k-11"}}, "step_secondario": nil,
 		"versioni": m{"importazione": "importazione-1"}, "avvisi": []any{}, "testo": ""}
+	if !incerta || q.Get("gruppo") == gruppo {
+		o["proposta"] = m{"contenuto": reg, "stato_di_partenza": b.statoDiPartenza(reg, bdImpronta(reg))}
+	}
 	if bz := q.Get("bozza"); bz != "" {
 		bb := b.bozze[bdP1]
 		if bb == nil || bb.ID != bz {
@@ -1738,9 +1999,110 @@ func (b *bancoDU) sonda(w http.ResponseWriter, r *http.Request) {
 			bz.Versione++
 		}
 		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && r.URL.Path == "/__banco/interruttore":
+		// {nome, attivo}: congelata (la BOM congelata), s6-incerta (una sola candidata incerta), base-superata (R1 con la
+		// base superata fino al rebase)
+		var o struct {
+			Nome   string
+			Attivo bool
+		}
+		_ = json.NewDecoder(r.Body).Decode(&o)
+		switch o.Nome {
+		case "congelata":
+			b.congelata = o.Attivo
+		case "s6-incerta":
+			b.s6Incerta = o.Attivo
+		case "base-superata":
+			b.baseSuperata = o.Attivo
+		default:
+			http.Error(w, "interruttore sconosciuto", http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && r.URL.Path == "/__banco/bozza-formato2":
+		// una bozza del formato di prima, aperta, per il primo prodotto (EM §6.7): solo se il prodotto non ne ha una aperta
+		if bz := b.bozze[bdP1]; bz != nil && bz.Stato == "aperta" {
+			http.Error(w, "il prodotto ha già una bozza aperta", http.StatusConflict)
+			return
+		}
+		b.nBozze++
+		bz := &bozzaBanco{ID: fmt.Sprintf("00000000-0000-4000-8000-0000000b%04d", b.nBozze), Stato: "aperta", Versione: 3, Creata: time.Now().UTC(), Formato2: true,
+			Snapshot: m{"formato": 2, "prodotto_id": bdP1, "nodi": []any{m{"chiave_bozza": "k-root", "componente_id": bdP1, "op": "riusa", "tipo": "finito", "codice": "ACM-1000", "rev": "C", "origine": "registrato"}},
+				"archi": []any{}, "decisioni": []any{}, "documenti_preassociati": []any{}}}
+		b.bozze[bdP1] = bz
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// bdOrdini: gli ordinamenti del JSON canonico di EM §3.10, per campo.
+var bdOrdini = map[string][]string{"nodi": {"chiave_bozza"}, "archi": {"padre", "figlio"}, "decisioni": {"id"}, "documenti_preassociati": {"proposta_id"},
+	"caselle": {"gruppo", "rif", "allegato_id"}}
+
+// bdFormaCanonica: la forma del JSON canonico di EM §3.10, come la salva il server: facoltativi assenti, vuoti o null
+// tolti; nodi[], archi[], decisioni[], documenti_preassociati[] e caselle[] ordinati. La NFC di descrizione e motivi no:
+// i testi del banco e delle prove sono già NFC. Firma e impronte del banco si calcolano su questa forma.
+func bdFormaCanonica(v any, chiave string) any {
+	switch x := v.(type) {
+	case m:
+		out := m{}
+		for k, vv := range x {
+			c := bdFormaCanonica(vv, k)
+			if !bdVuoto(c) {
+				out[k] = c
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = bdFormaCanonica(e, "")
+		}
+		if campi, ok := bdOrdini[chiave]; ok {
+			sort.SliceStable(out, func(i, j int) bool { return bdChiaveOrdine(out[i], campi) < bdChiaveOrdine(out[j], campi) })
+		}
+		return out
+	}
+	return v
+}
+
+func bdVuoto(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case string:
+		return x == ""
+	case []any:
+		return len(x) == 0
+	case m:
+		return len(x) == 0
+	}
+	return false
+}
+
+func bdChiaveOrdine(v any, campi []string) string {
+	o, _ := v.(m)
+	parti := make([]string, len(campi))
+	for i, c := range campi {
+		parti[i] = bdStr(o[c])
+	}
+	return strings.Join(parti, "\x00")
+}
+
+// bdSnapshotCanonico: lo snapshot nella forma canonica, con i dodici campi di primo livello che R1 restituisce anche
+// vuoti (EM §3.2): nodi, archi, decisioni e documenti preassociati restano elenchi, anche senza elementi.
+func bdSnapshotCanonico(s m) m {
+	out, _ := bdFormaCanonica(s, "").(m)
+	if out == nil {
+		out = m{}
+	}
+	for _, k := range []string{"nodi", "archi", "decisioni", "documenti_preassociati"} {
+		if _, ok := out[k]; !ok {
+			out[k] = []any{}
+		}
+	}
+	return out
 }
 
 // bdCanonico: JSON con le chiavi ordinate (per le impronte sintetiche del banco).

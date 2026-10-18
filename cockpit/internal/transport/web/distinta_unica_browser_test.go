@@ -12,9 +12,11 @@
 // pagina e il ponte contro il contratto (i flussi della matrice, gli stati visibili, gli errori 409 e 422, la rete
 // interrotta con il recupero dell'intento per R6), non il server: le regole vere le provano le L4 delle altre corsie.
 //
-// Lo script e2e/distinta_unica.py (python -I) fa le prove DU-B01…DU-B34 in sequenza sulla stessa RFQ del banco: l'elenco
-// e il perché di ognuna stanno nel suo commento di testa. COCKPIT_DU_PROVE ne sceglie un sottoinsieme (per esempio
-// "01,02,03"); COCKPIT_FOTO_DIR salva le schermate degli errori; COCKPIT_BROWSER_CANALE sceglie il browser (msedge).
+// Lo script e2e/distinta_unica.py (python -I) fa le prove DU-B01…DU-B47 in sequenza sulla stessa RFQ del banco (la DU-B34,
+// che controlla tutte le richieste della sessione, per ultima): l'elenco e il perché di ognuna stanno nel suo commento di
+// testa. Gli esiti che il banco non sa provocare (un 409 o un 422 di un catalogo, un 401, un 413, un 5xx di una lettura) li
+// danno risposte finte dello script (page.route), dichiarate tali. COCKPIT_DU_PROVE ne sceglie un sottoinsieme (per
+// esempio "01,02,03"); COCKPIT_FOTO_DIR salva le schermate degli errori; COCKPIT_BROWSER_CANALE sceglie il browser.
 //
 // Dopo lo script il banco dice che cosa è arrivato davvero al «server»: nessuna rotta legacy (MAT §7) e, con tutte le
 // prove, le tre conferme registrate una sola volta ciascuna (la risposta persa non duplica la conferma).

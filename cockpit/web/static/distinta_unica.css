@@ -276,6 +276,15 @@
 
 /* ---------------------------------------------------------------- pannello del nodo */
 .du .du-nodo { display: grid; gap: 8px; min-width: 0; }
+/* le linguette del pannello del nodo (MAT PN-02) */
+.du .du-linguette { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--du-line); }
+.du .du-linguette button { border: 1px solid transparent; border-bottom: 0; background: none; border-radius: var(--du-r1) var(--du-r1) 0 0; padding: 3px 10px; font-size: var(--du-t-sm); cursor: pointer; color: var(--du-ink2); }
+.du .du-linguette button[aria-selected="true"] { border-color: var(--du-line); background: var(--du-surf2); color: var(--du-ink); font-weight: 600; }
+/* le azioni che V1 non ha: visibili e spente, con il motivo accanto (MAT §6.1) */
+.du .du-non-v1 { display: grid; gap: 4px; justify-items: start; }
+/* il visore dei PDF (MAT FL-03, PN-04): la pagina disegnata da pdf.js, mai più larga della finestra */
+.du-finestra .du-visore-tela { overflow: auto; max-height: 70vh; border: 1px solid var(--du-line); border-radius: var(--du-r2); background: var(--du-sunken); padding: 6px; }
+.du-finestra .du-visore-tela canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #FFFFFF; }
 .du .du-nodo-cod { font: 600 var(--du-t-lg)/1.2 var(--du-f-mono); overflow-wrap: anywhere; }
 .du .du-sez { border-top: 1px solid var(--du-line); padding-top: 9px; display: grid; gap: 6px; min-width: 0; }
 .du .du-sez > h3 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

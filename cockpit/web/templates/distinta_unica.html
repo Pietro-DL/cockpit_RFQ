@@ -12,11 +12,13 @@
     immediati e «Scarta il file» non ci sono;
   - le zone della pagina (passi, viste, cassetti, pannello del nodo, barra, finestre) le costruisce il modulo con
     createElement e textContent, mai con HTML del server;
-  - senza JavaScript la pagina lo dice e non mostra stati.
+  - senza JavaScript la pagina lo dice e non mostra stati;
+  - data-du-pdfjs e data-du-pdfjs-worker dicono gli statici di pdf.js (gli stessi della pagina vecchia): il visore dei
+    PDF li carica una volta e legge il PDF dall'indirizzo di S5 che costruisce il ponte (MAT FL-03, PN-04).
 */}}
 {{define "contenuto"}}{{$d := .Dati}}
 <link rel="stylesheet" href="{{statico "distinta_unica.css"}}">
-<section class="du" id="du" data-du-thread="{{$d.ThreadID}}" data-du-utente="{{$d.UtenteID}}" aria-labelledby="du-titolo">
+<section class="du" id="du" data-du-thread="{{$d.ThreadID}}" data-du-utente="{{$d.UtenteID}}" data-du-pdfjs="{{statico "pdfjs-6.3.289/pdf.min.mjs"}}" data-du-pdfjs-worker="{{statico "pdfjs-6.3.289/pdf.worker.min.mjs"}}" aria-labelledby="du-titolo">
   <header class="du-testa">
     <div class="du-testa-t">
       <h1 id="du-titolo">Distinta unica</h1>

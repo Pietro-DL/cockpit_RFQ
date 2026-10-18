@@ -252,6 +252,8 @@ func TestDistintaUnicaGuscio(t *testing.T) {
 		`data-du-utente="` + duUUID(77).String() + `"`,
 		`href="` + s.statico("distinta_unica.css") + `"`,
 		`src="` + s.statico("distinta_unica.mjs") + `"`,
+		`data-du-pdfjs="` + s.statico("pdfjs-6.3.289/pdf.min.mjs") + `"`,
+		`data-du-pdfjs-worker="` + s.statico("pdfjs-6.3.289/pdf.worker.min.mjs") + `"`,
 		`type="module"`,
 		`id="du-avviso"`, `role="status"`, `id="du-corpo"`, `id="du-barra"`, `id="du-finestra"`, `id="du-wizard"`,
 		"<noscript>", "RFQ di prova ACME", "ACME-0418",

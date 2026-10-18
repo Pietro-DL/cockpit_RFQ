@@ -181,8 +181,10 @@ func TestDistintaUnicaJSSoloPresentazione(t *testing.T) {
 	if len(importazioni) != 1 || strings.TrimSpace(importazioni[0]) != `import * as P from "./distinta_unica_ponte.mjs";` {
 		t.Errorf("import della pagina: %v; atteso solo il ponte", importazioni)
 	}
-	if strings.Contains(pagina, "import(") {
-		t.Error("la pagina ha un import dinamico")
+	// un solo import dinamico: pdf.js per il visore dei PDF, dagli statici che il guscio dice (data-du-pdfjs), come nella
+	// pagina vecchia (MAT FL-03, PN-04)
+	if n := strings.Count(pagina, "import("); n != 1 || !strings.Contains(pagina, "pdfjsPromessa = import(src)") || !strings.Contains(pagina, "const src = m && m.dataset.duPdfjs;") {
+		t.Errorf("la pagina ha %d import dinamici: atteso solo quello di pdf.js dagli statici del guscio", n)
 	}
 	codice := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(pagina, "")
 	if m := regexp.MustCompile("[\"'`]/(thread|proposta|allegato|fascicolo|sorgente|motore-a)/").FindString(codice); m != "" {
@@ -216,8 +218,49 @@ func TestPonteDistintaUnicaRiprovaDeiFile(t *testing.T) {
 		!strings.Contains(src, "return scriviConChiave(s.nome, risorsa, s.u, s.corpo, s.etichetta);") {
 		t.Error("riprovaSospeso non rimanda il corpo di allora con scriviConChiave")
 	}
-	if !strings.Contains(duFile(t, duPagina), "await P.riprovaSospeso(s.risorsa)") {
-		t.Error("la pagina non usa riprovaSospeso per «Riprova» dei gesti dei file")
+	// la pagina lo chiama dalla coda della risorsa del file (MAT §1.3)
+	if !strings.Contains(duFile(t, duPagina), "inSerie(s.risorsa, () => P.riprovaSospeso(s.risorsa))") {
+		t.Error("la pagina non usa riprovaSospeso, dalla coda della risorsa, per «Riprova» dei gesti dei file")
+	}
+}
+
+// Le regole del ponte rifatte dopo la revisione della corsia: l'impronta di R5 sulla forma canonica di EM §3.10 (lo
+// stesso contenuto in un altro ordine riusa la chiave), il testo vero di PONTE_IN_VOLO (la scrittura non è partita, la
+// coda sta nella pagina) e il tempo massimo di ogni richiesta (una richiesta appesa non tiene la risorsa per sempre).
+func TestPonteDistintaUnicaFormaCanonicaETempi(t *testing.T) {
+	src := duFile(t, duPonte)
+	if !regexp.MustCompile(`(?m)^export function formaCanonica\(`).MatchString(src) ||
+		!strings.Contains(src, `return formaCanonica({ firma_anteprima: corpo.firma_anteprima, bozza: b }, "");`) {
+		t.Error("l'impronta di R5 non si calcola sulla forma canonica di EM §3.10")
+	}
+	for _, c := range []string{"nodi: (x) => [x.chiave_bozza]", "archi: (x) => [x.padre, x.figlio]", "decisioni: (x) => [x.id]", "documenti_preassociati: (x) => [x.proposta_id]",
+		"caselle: (x) => [x.gruppo, x.rif, x.allegato_id]"} {
+		if !strings.Contains(src, c) {
+			t.Errorf("la forma canonica non ordina come EM §3.10: manca %q", c)
+		}
+	}
+	if strings.Contains(src, "resta in coda") || !strings.Contains(src, "questa non è partita") {
+		t.Error("il testo di PONTE_IN_VOLO non dice che la scrittura non è partita")
+	}
+	if n := strings.Count(src, "signal: segnale(),"); n != 2 {
+		t.Errorf("%d fetch con il tempo massimo, attese due (chiama ed esegui)", n)
+	}
+}
+
+// Le azioni che V1 non ha restano visibili e spente con il motivo scritto accanto (MAT §6.1; D23:294), e la pagina ha
+// le code per risorsa per gli atti, i gesti dei file e R3 (MAT §1.3).
+func TestDistintaUnicaAzioniNonDisponibiliECode(t *testing.T) {
+	src := duFile(t, duPagina)
+	for _, v := range []string{"Conferma il documento", "Conferma 2D", "Correggi il codice di un file", `"Deroga"`, `"Revoca la deroga"`, "Sostituisci il principale con questo",
+		"Chiedi una revisione autorizzata", "Rivedi e conferma fascicolo", "Rifiuta la candidata", "Accetta o rifiuta"} {
+		if !strings.Contains(src, v) {
+			t.Errorf("la pagina non mostra l'azione non disponibile %s (MAT §6.1)", v)
+		}
+	}
+	for _, v := range []string{`inSerie("atto"`, `inSerie("file:" + f.allegato_id`, `inSerie("bozza:" + prodotto`, `inSerie("f8"`, `inSerie("carica"`} {
+		if !strings.Contains(src, v) {
+			t.Errorf("la pagina non passa dalla coda della risorsa: manca %s (MAT §1.3)", v)
+		}
 	}
 }
 
