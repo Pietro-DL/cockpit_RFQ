@@ -16,6 +16,10 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/storage/archivio"
@@ -62,15 +66,18 @@ func (s *Server) caricaJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	max := s.maxCaricamentoEffettivo()
 	totale := s.maxRichiestaCaricamento()
+	// una richiesta che dichiara (Content-Length) di superare il limite totale si rifiuta prima di leggere il corpo e di
+	// scrivere nello staging: 413 TROPPO_GRANDE (EM §10.9). r.MultipartReader legge solo l'intestazione, e da li' un
+	// MaxBytesError non arriva mai: senza questo controllo E1′ non rispondeva mai 413 (rilievo della revisione). Una
+	// richiesta senza Content-Length (a pezzi) la ferma il MaxBytesReader, file per file (LIMITE_RICHIESTA).
+	if r.ContentLength > totale+(1<<20) {
+		s.rifiutoSorgente(w, r, &filerfq.Rifiuto{Stato: http.StatusRequestEntityTooLarge, Codice: "TROPPO_GRANDE",
+			Testo: fmt.Sprintf("Niente è cambiato: la richiesta supera il limite totale di %d MB: dividi i file in più invii.", totale>>20)})
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, totale+(1<<20))
 	mr, err := r.MultipartReader()
 	if err != nil {
-		var troppo *http.MaxBytesError
-		if errors.As(err, &troppo) {
-			s.rifiutoSorgente(w, r, &filerfq.Rifiuto{Stato: http.StatusRequestEntityTooLarge, Codice: "TROPPO_GRANDE",
-				Testo: fmt.Sprintf("Niente è cambiato: la richiesta supera il limite totale di %d MB.", totale>>20)})
-			return
-		}
 		s.rifiutoSorgente(w, r, &filerfq.Rifiuto{Stato: http.StatusUnprocessableEntity, Codice: "CORPO_NON_VALIDO",
 			Testo: "Niente è cambiato: la richiesta non è un caricamento di file (multipart).", Extra: map[string]any{"campo": "file"}})
 		return
@@ -118,14 +125,22 @@ func (s *Server) caricaJSON(w http.ResponseWriter, r *http.Request) {
 			origine = o
 		case "file":
 			nome := strings.TrimSpace(filepath.Base(strings.ReplaceAll(part.FileName(), `\`, "/")))
+			// ogni parte «file», con o senza nome, conta nel limite dei file per richiesta: le parti senza nome non
+			// fanno crescere la risposta senza fine (rilievo della revisione)
+			parti++
+			if parti > maxFileCaricamentoRFQ {
+				rifiutato(nomeDetto(nome), "TROPPO_FILE", fmt.Sprintf("al massimo %d file per volta: da qui in poi non sono stati letti", maxFileCaricamentoRFQ))
+				fermo = true
+				break
+			}
 			if nome == "" || nome == "." || nome == "/" {
 				rifiutato("", "SENZA_NOME", "un file senza nome")
 				break
 			}
-			parti++
-			if parti > maxFileCaricamentoRFQ {
-				rifiutato(nome, "TROPPO_FILE", fmt.Sprintf("al massimo %d file per volta: da qui in poi non sono stati letti", maxFileCaricamentoRFQ))
-				fermo = true
+			// il nome finisce in allegato.nome_file (varchar(300)): un nome che il database rifiuterebbe si rifiuta qui,
+			// prima dello staging, per il solo file (prima diventava un 500 per tutta la richiesta)
+			if perche := nomeNonCaricabile(nome); perche != "" {
+				rifiutato(nomeDetto(nome), "SENZA_NOME", "il nome del file non è valido ("+perche+"): rinominalo e ricaricalo")
 				break
 			}
 			f, err := filerfq.ScriviParziale(s.Staging, part, nome, part.Header.Get("Content-Type"), max)
@@ -170,6 +185,14 @@ func (s *Server) caricaJSON(w http.ResponseWriter, r *http.Request) {
 				rifiutato(f.Nome, "ERRORE_STAGING", string(rf))
 				continue
 			}
+			// un dato che il database rifiuta (troppo lungo, un carattere che non ammette) e' un rifiuto del solo file:
+			// la sua transazione e' annullata, e i file dopo si registrano (la verifica col reinvio fallirebbe sempre
+			// allo stesso punto)
+			if datoRifiutato(err) {
+				s.Log.Warn("caricamento JSON nella RFQ: un dato del file rifiutato dal database", "rfq", thread, "err", err)
+				rifiutato(nomeDetto(f.Nome), "SENZA_NOME", "il nome del file non è accettato: rinominalo e ricaricalo")
+				continue
+			}
 			for _, g := range arrivati[i+1:] {
 				staging.RimuoviParte(g.Parte)
 			}
@@ -203,4 +226,54 @@ func (s *Server) caricaJSON(w http.ResponseWriter, r *http.Request) {
 	testo := fmt.Sprintf("%s, %s, %s.", fraseConta(caricati, "file caricato", "file caricati"),
 		fraseConta(presenti, "già presente", "già presenti"), fraseConta(nRifiutati, "rifiutato", "rifiutati"))
 	s.scriviJSONSorgente(w, r, http.StatusOK, map[string]any{"esito": esito, "origine": origine, "file": esiti, "testo": testo})
+}
+
+// maxNomeFile: allegato.nome_file e' varchar(300) (migrations/0001_schema.sql).
+const maxNomeFile = 300
+
+// nomeNonCaricabile dice perche' un nome di file non si puo' scrivere nella riga dell'allegato, oppure "": UTF-8 valido,
+// nessun carattere di controllo (NUL compreso, che PostgreSQL rifiuta), al piu' 300 caratteri.
+func nomeNonCaricabile(nome string) string {
+	switch {
+	case !utf8.ValidString(nome):
+		return "non è testo UTF-8"
+	case utf8.RuneCountInString(nome) > maxNomeFile:
+		return fmt.Sprintf("più di %d caratteri", maxNomeFile)
+	}
+	for _, c := range nome {
+		if unicode.IsControl(c) {
+			return "contiene caratteri di controllo"
+		}
+	}
+	return ""
+}
+
+// nomeDetto: il nome di un file rifiutato come lo dice la risposta: testo UTF-8 valido, senza caratteri di controllo,
+// accorciato (la risposta non porta un nome che il server ha appena rifiutato per intero).
+func nomeDetto(nome string) string {
+	nome = strings.ToValidUTF8(nome, "�")
+	nome = strings.Map(func(c rune) rune {
+		if unicode.IsControl(c) {
+			return '�'
+		}
+		return c
+	}, nome)
+	if utf8.RuneCountInString(nome) > 120 {
+		nome = string([]rune(nome)[:120]) + "…"
+	}
+	return nome
+}
+
+// datoRifiutato: un errore del database su un dato (22001 testo troppo lungo, 22021 carattere non ammesso nella
+// codifica, 22P05 carattere non traducibile).
+func datoRifiutato(err error) bool {
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) {
+		return false
+	}
+	switch pe.Code {
+	case "22001", "22021", "22P05":
+		return true
+	}
+	return false
 }

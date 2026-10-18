@@ -30,16 +30,20 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // registraSorgente monta S1-S5 con le loro righe gemelle (V1, EM §10.9). E1′ si monta in fascicolo_rotte.go, sulla
 // rotta di «carica» che c'era gia' (caricaRFQ sceglie il ramo).
 func (s *Server) registraSorgente(mux *http.ServeMux) {
-	catena := func(h http.HandlerFunc) http.HandlerFunc { return s.conMotoreA(conNoStore(s.soloAdmin(h))) }
-	gemella := func(allow string) http.HandlerFunc { return s.conMotoreA(conNoStore(metodoNonAmmessoSorgente(allow))) }
+	catena := func(h http.HandlerFunc) http.HandlerFunc { return s.conMotoreA(conXMotivo(conNoStore(s.soloAdmin(h)))) }
+	gemella := func(allow string) http.HandlerFunc {
+		return s.conMotoreA(conXMotivo(conNoStore(metodoNonAmmessoSorgente(allow))))
+	}
 	mux.HandleFunc("GET /thread/{id}/sorgente", catena(s.sorgenteModello))
 	mux.HandleFunc("/thread/{id}/sorgente", gemella("GET, HEAD"))
 	mux.HandleFunc("POST /thread/{id}/sorgente/file/{allegato}/scarta", catena(s.dopoIlGesto(s.sorgenteScarta)))
@@ -386,18 +390,7 @@ func (s *Server) sorgenteDelContenuto(ctx context.Context, svc *filerfq.Servizio
 		}
 		return &sorgente{f: f, da: "staging", dim: st.Size(), modtime: st.ModTime(), etag: o.Sha(), percorso: p}, nil
 	}
-	dalNAS := func() *sorgente {
-		a, err := q.GetAllegato(ctx, o.AllegatoID)
-		if err != nil {
-			return nil
-		}
-		src, err := s.dalNas(ctx, q, a)
-		if err != nil {
-			s.Log.Warn("sorgente: il NAS non serve il file", "allegato", o.AllegatoID, "err", err)
-			return nil
-		}
-		return src
-	}
+	dalNAS := func() *sorgente { return s.nasSoloLettura(ctx, q, thread, o) }
 	dalDeposito := func(soloRFQ bool) (*sorgente, error) {
 		f, st, err := svc.ApriCopia(ctx, thread, o.AllegatoID, soloRFQ)
 		if err != nil || f == nil {
@@ -429,4 +422,119 @@ func (s *Server) sorgenteDelContenuto(ctx context.Context, svc *filerfq.Servizio
 		return src, nil
 	}
 	return dalDeposito(false)
+}
+
+// nasSoloLettura: i byte del documento della RFQ con lo stesso contenuto scritto sul NAS, in sola lettura. S5 e' una
+// GET senza effetti (EM §10.9; §8.5: «nessuna scrittura nelle letture», [U] D-18): a differenza dell'anteprima legacy
+// (dalNas) qui non si segnala niente e non si registra niente. Il documento e' quello scritto senza anomalie aperte
+// (GetDocumentoScrittoPerSha); il percorso passa dal contenimento del NAS (PercorsoSulNas). Un file che manca, una
+// cartella al suo posto, un file che non si apre non sono una sorgente (li segnala il ricognitore, o l'anteprima
+// legacy): nil, e S5 prova la sorgente dopo o risponde 410. Un file «in dubbio» (dimensione diversa, o toccato dopo
+// l'ultima volta che il server l'ha guardato) si rilegge per lo sha da questo handle, senza scrivere la verifica: se lo
+// sha torna si serve, altrimenti no (rilievo bloccante della revisione).
+func (s *Server) nasSoloLettura(ctx context.Context, q *db.Queries, thread uuid.UUID, o *filerfq.Occorrenza) *sorgente {
+	sha := o.Sha()
+	if s.NAS == nil || sha == "" || !s.NAS.Raggiungibile() {
+		return nil
+	}
+	d, err := q.GetDocumentoScrittoPerSha(ctx, db.GetDocumentoScrittoPerShaParams{ThreadID: thread, Sha256: sha})
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			s.Log.Warn("sorgente: il documento scritto sul NAS non si legge", "allegato", o.AllegatoID, "err", err)
+		}
+		return nil
+	}
+	if !d.CartellaRelativa.Valid {
+		return nil
+	}
+	p, err := documenti.PercorsoSulNas(s.NAS.Radice, d.CartellaRelativa.String, d.PathRelativo)
+	if err != nil {
+		s.Log.Error("sorgente: percorso del documento fuori dal NAS", "allegato", o.AllegatoID, "documento", d.DocumentoID, "err", err)
+		return nil
+	}
+	f, err := os.Open(p.Assoluto)
+	if err != nil {
+		s.Log.Warn("sorgente: il file del documento sul NAS non si apre: non si serve dal NAS", "allegato", o.AllegatoID,
+			"documento", d.DocumentoID, "err", err)
+		return nil
+	}
+	st, err := f.Stat()
+	if err != nil || st.IsDir() {
+		f.Close()
+		s.Log.Warn("sorgente: al posto del file del documento sul NAS non c'e' un file", "allegato", o.AllegatoID, "documento", d.DocumentoID)
+		return nil
+	}
+	src := &sorgente{f: f, da: "NAS", dim: st.Size(), modtime: st.ModTime(), etag: sha, percorso: p.Assoluto}
+	if dubbio(db.Documento{Bytes: d.Bytes, ScrittoIl: d.ScrittoIl, VerificatoIl: d.VerificatoIl}, st) {
+		src.inDubbio = true
+		h, _, err := nas.Sha256Da(f)
+		if _, errS := f.Seek(0, io.SeekStart); errS != nil && err == nil {
+			err = errS
+		}
+		if err != nil || !strings.EqualFold(h, sha) {
+			f.Close()
+			s.Log.Warn("sorgente: il file del documento sul NAS non torna con lo sha256: non si serve dal NAS", "allegato", o.AllegatoID,
+				"documento", d.DocumentoID, "err", err)
+			return nil
+		}
+	}
+	return src
+}
+
+// conXMotivo: ogni risposta d'errore delle rotte della Sorgente porta X-Motivo (EM §10.9 S5; DECA PE-29), anche quelle
+// che non scrive il gestore: il 403 di soloAdmin (una pagina), il 401 della sessione scaduta da htmx, il 405 della riga
+// gemella, il 416 e il 412 di http.ServeContent (rilievo della revisione). Una risposta che ha gia' il suo X-Motivo (la
+// busta della Sorgente) lo tiene; le altre ricevono un codice per lo stato (motivoDelloStato). Sta dentro conMotoreA: a
+// flag spento resta il 404 del router, senza intestazioni in piu'.
+func conXMotivo(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h(&rispostaConMotivo{ResponseWriter: w}, r)
+	}
+}
+
+// rispostaConMotivo mette X-Motivo, se manca, al momento dell'intestazione di una risposta con stato ≥ 400.
+type rispostaConMotivo struct {
+	http.ResponseWriter
+	scritta bool
+}
+
+func (w *rispostaConMotivo) WriteHeader(stato int) {
+	if !w.scritta {
+		w.scritta = true
+		if stato >= 400 && w.Header().Get("X-Motivo") == "" {
+			w.Header().Set("X-Motivo", motivoDelloStato(stato))
+		}
+	}
+	w.ResponseWriter.WriteHeader(stato)
+}
+
+func (w *rispostaConMotivo) Write(b []byte) (int, error) {
+	if !w.scritta {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap lascia a http.ResponseController il writer vero.
+func (w *rispostaConMotivo) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// motivoDelloStato: il codice di X-Motivo per una risposta d'errore senza busta (PF-25).
+func motivoDelloStato(stato int) string {
+	switch stato {
+	case http.StatusBadRequest:
+		return "RICHIESTA_NON_VALIDA"
+	case http.StatusUnauthorized:
+		return "SESSIONE_SCADUTA"
+	case http.StatusForbidden:
+		return "NON_AUTORIZZATO"
+	case http.StatusNotFound:
+		return "NON_TROVATO"
+	case http.StatusMethodNotAllowed:
+		return "METODO_NON_AMMESSO"
+	case http.StatusPreconditionFailed:
+		return "PRECONDIZIONE_FALLITA"
+	case http.StatusRequestedRangeNotSatisfiable:
+		return "RANGE_NON_VALIDO"
+	}
+	return "ERRORE"
 }
