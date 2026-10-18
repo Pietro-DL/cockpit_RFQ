@@ -144,3 +144,8 @@ motore.legame_ambiguo
 motore.suffisso_non_letto
 contesto.codifica_contraddetta
 richiesta.codice_solo_in_mail
+importazione.senza_grammatica
+importazione.namespace_incoerente
+importazione.relazione_incompleta
+importazione.grafo_da_rileggere
+importazione.evidenze_file_non_attivi
