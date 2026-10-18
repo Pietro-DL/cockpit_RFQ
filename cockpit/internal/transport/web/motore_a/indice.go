@@ -37,6 +37,7 @@ import (
 	"promatec/cockpit/internal/core/ancoraggio"
 	"promatec/cockpit/internal/core/confronto"
 	"promatec/cockpit/internal/core/fotorfq"
+	"promatec/cockpit/internal/core/propostabom"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/core/valutazione"
 	"promatec/cockpit/internal/platform/db"
@@ -258,11 +259,13 @@ const (
 	OrigineConfermata = "confermata"
 )
 
-// Le chiavi e i tipi dei gruppi (X-02; T-A1d-09): stringhe opache e stabili, che non dipendono dall'ordine.
+// Le chiavi e i tipi dei gruppi (X-02; T-A1d-09): stringhe opache e stabili, che non dipendono dall'ordine. Da V1 stanno
+// nel core (propostabom, emendamento di V1 §6.1), che le usa anche per il registro d'importazione e per il gruppo
+// corrente della sorgente di una bozza: qui restano i nomi della pagina, gli stessi valori.
 const (
-	GruppoBOM       = "bom"
-	GruppoCandidata = "cand"
-	GruppoSenzaSTEP = "senza"
+	GruppoBOM       = propostabom.GruppoBOM
+	GruppoCandidata = propostabom.GruppoCandidata
+	GruppoSenzaSTEP = propostabom.GruppoSenzaSTEP
 )
 
 // AsseStruttura: l'asse di ricerca «struttura» di Conflitti, tutti gli assi tranne lo smistamento (T-A1d-25; piano
@@ -1075,7 +1078,7 @@ func (x *Indice) strutturaCandidata(prodotto, gruppo string) *ancoraggio.Struttu
 	for s := range x.e.Ancoraggi.Strutture {
 		st := &x.e.Ancoraggi.Strutture[s]
 		if st.Target == prodotto && st.Stato != ancoraggio.StatoBOMDiLavoroProposta &&
-			GruppoCandidata+":"+st.AllegatoID.String()+":"+st.Radice == gruppo {
+			propostabom.ChiaveCandidata(st.AllegatoID, st.Radice) == gruppo {
 			return st
 		}
 	}
@@ -1119,9 +1122,10 @@ func (x *Indice) documentoDelComponente(componente, a uuid.UUID) *uuid.UUID {
 	return nil
 }
 
-// chiaveCandidata: la chiave del gruppo di una struttura candidata, «cand:<allegato_id>:<radice>» (X-02).
+// chiaveCandidata: la chiave del gruppo di una struttura candidata, «cand:<allegato_id>:<radice>» (X-02), quella del
+// core (propostabom.ChiaveCandidata, V1): la pagina e il registro d'importazione usano la stessa.
 func chiaveCandidata(sc *valutazione.StrutturaCandidata) string {
-	return GruppoCandidata + ":" + sc.AllegatoID.String() + ":" + sc.Radice
+	return propostabom.ChiaveCandidata(sc.AllegatoID, sc.Radice)
 }
 
 // unPadreNelGruppo: il nodo ha almeno un padre (Parentela.Padre) fra i Rif dati.

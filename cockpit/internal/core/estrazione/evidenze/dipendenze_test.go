@@ -128,6 +128,14 @@ var pacchettiMotoreA = []regolePacchetto{
 	{percorso: "internal/core/confronto", puro: true,
 		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
 		esterni:  []string{"github.com/google/uuid"}},
+	// Dalla proposta del Motore A alla bozza della Distinta (V1: emendamento di V1 §6.1; piano della 0023 §14 passo 3):
+	// la chiave dei gruppi, il gruppo corrente della sorgente e, poi, l'adattatore del registro d'importazione. Puro, con
+	// le dipendenze di ancoraggio e valutazione (A3 §1.2): l'esito già calcolato, le letture, le foglie. Mai core/rfq (la
+	// bozza lo importa, mai il contrario), il DB, transport.
+	{percorso: "internal/core/propostabom", puro: true,
+		progetto: []string{"internal/core/valutazione", "internal/core/ancoraggio", "internal/core/inbox/classificazione/motorea",
+			"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
+		esterni: []string{"github.com/google/uuid"}},
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},
@@ -152,11 +160,11 @@ var pacchettiMotoreA = []regolePacchetto{
 	// copia di passaggio, la fotografia, ancoraggio per i Rif dell'indice), le query sqlc dello snapshot (platform/db:
 	// GetThread, la fase) e dell'anteprima dello STEP con le dichiarazioni (core/rfq/fascicolo, EffettoAutorizzazione e
 	// LeggiDichiarazioni: riusati, non copiati), pgx per la transazione e pgconn per il SQLSTATE 25006. Mai transport/web,
-	// app/*, ai/*, platform/config, la libreria YAML.
+	// app/*, ai/*, platform/config, la libreria YAML. V1: la chiave dei gruppi dal core (propostabom).
 	{percorso: "internal/transport/web/motore_a",
 		progetto: []string{"internal/core/inbox/classificazione/motorea", "internal/core/valutazione",
 			"internal/core/confronto", "internal/core/fotorfq", "internal/core/fotorfq/caricatore", "internal/core/ancoraggio",
-			"internal/core/rfq/fascicolo", "internal/platform/db"},
+			"internal/core/rfq/fascicolo", "internal/platform/db", "internal/core/propostabom"},
 		esterni: []string{"github.com/google/uuid", "github.com/jackc/pgx/v5", "github.com/jackc/pgx/v5/pgconn"}},
 }
 
