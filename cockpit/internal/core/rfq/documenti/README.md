@@ -65,6 +65,9 @@ markmap:
   - per un file caricato a mano nessun job e il messaggio «ricaricalo dal Fascicolo» (`contenutoCaricatoAMano`);
   - resa se il download è già fallito per questa copia.
   - Accetta `j` nil
+  - V1 (EM §10.7, G-12): un'occorrenza in Altri file o scartata nella Sorgente (o il suo archivio) non e' mai il bersaglio di
+    una riestrazione o di un download (`occorrenzaAttiva`); lo stesso vale per la sorgente di una copia (`cercaSorgente`
+    salta le occorrenze non attive come bersaglio della ripresa)
 - **`integrita.go`** — Responsabilità:
   - `Ricognitore` (`Avvia`, `Giro`, `PerPassata`; il campo interno `mentreGuarda` serve alle prove)
   - `EsitoRicognizione`

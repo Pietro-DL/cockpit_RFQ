@@ -46,10 +46,18 @@ import (
 // cui legare il limite, e non c'e' nemmeno un giro di tentativi da fermare — il download si accoda.
 func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Allegato, originale error) error {
 	bersaglio := a
+	// V1 (EM §10.7, G-12): un'occorrenza in Altri file o scartata nella Sorgente non e' mai il bersaglio di una
+	// riestrazione o di un download
+	if attiva, err := occorrenzaAttiva(ctx, q, a.AllegatoID); err != nil || !attiva {
+		return fmt.Errorf("%w (il file è in Altri file o scartato nella Distinta nuova: nessun download né riestrazione)", originale)
+	}
 	if a.ContenitoreID.Valid {
 		z, err := q.GetAllegato(ctx, a.ContenitoreID.UUID)
 		if err != nil {
 			return originale
+		}
+		if attiva, err := occorrenzaAttiva(ctx, q, z.AllegatoID); err != nil || !attiva {
+			return fmt.Errorf("%w (l'archivio %q è in Altri file o scartato nella Distinta nuova: nessuna riestrazione)", originale, z.NomeFile)
 		}
 		if z.PathStaging.Valid && (staging.FileStaging{}).Presente(z.PathStaging.String) {
 			if _, err := coda.Accoda(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
@@ -94,6 +102,19 @@ func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Alleg
 	default: // gia' presente o riusato: il file e' ricomparso fra il controllo e adesso
 		return fmt.Errorf("%w: il contenuto di %q e' ricomparso: la copia riprova da sola", ErrContenutoMancante, bersaglio.NomeFile)
 	}
+}
+
+// occorrenzaAttiva: l'occorrenza dell'allegato e' attiva nella RFQ del suo messaggio (il predicato file_rfq_attivo; V1,
+// EM §10.7). Un allegato che non c'e' vale attivo: lo dice chi lo legge dopo.
+func occorrenzaAttiva(ctx context.Context, q *db.Queries, allegato uuid.UUID) (bool, error) {
+	st, err := q.StatoOccorrenzaAllegato(ctx, allegato)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return st.Stato == "attivo", nil
 }
 
 // contenutoCaricatoAMano e' il motivo per un contenuto sparito che era stato caricato a mano nel

@@ -98,6 +98,14 @@ markmap:
     - le rotte R1-R3 sono di B2: NON ANCORA IMPLEMENTATE
   - DB: sì (solo le tre tabelle `distinta_bozza*` della 0022)
   - README: [README](rfq/distintabozza/README.md)
+- **`rfq/filerfq`** (V1, ondata B, corsia file)
+  - Che cosa fa:
+    - il ciclo dei file della Sorgente: lo stato di un'occorrenza (attiva, in Altri file, scartata) e i suoi eventi
+    - «Scarta» in due tempi, «Metti in Altri file» con la copia verificata nel deposito, «Riattiva»
+    - le dipendenze dei gesti (D-1…D-15), il modello di S1, le sorgenti dei byte di S5, il custode
+    - la registrazione dei file caricati (E1′ e il ramo HTML di «carica»)
+  - DB: sì (lo stato dei file lo scrive solo lui: `file_rfq*`)
+  - README: [README](rfq/filerfq/README.md)
 - **`registro/regole`**
   - Che cosa fa:
     - lo **schema** di ciò che un cliente dichiara di sé (`cliente.regole`, suffissi decorativi compresi) e le convenzioni di codice
@@ -257,6 +265,12 @@ markmap:
     - `estrazione/evidenze` (il documento e le diagnostiche)
     - `platform/jsoncanonico` (l'impronta delle decisioni)
     - mai `confronto`, il caricatore, il DB, la libreria YAML
+  - **`rfq/filerfq`** importa:
+    - `rfq/documenti` (il percorso sul NAS in sola lettura, il contenimento)
+    - `rfq/fascicolo` (le note dei caricamenti e la registrazione di un file caricato)
+    - `platform/db`, `platform/jsoncanonico` (le impronte), `platform/storage/staging`
+    - `golang.org/x/text/unicode/norm` (il motivo in NFC)
+    - mai il motore A: i contesti partner li riceve da chi lo monta (`app/runtime`)
   - **`confronto`** importa:
     - `estrazione/evidenze` (solo `Diagnostica`, con le costanti di gravità e natura: F0-11)
     - `platform/jsoncanonico` (solo `ImprontaDi`)
