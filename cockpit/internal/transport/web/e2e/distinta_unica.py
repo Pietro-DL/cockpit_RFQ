@@ -53,6 +53,9 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   27 D-18: il modello che non si calcola (200 con «errore»): striscia, niente tela; «Aggiorna» lo rifa'
   28 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
   29 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
+  30 i casi di contratto condivisi (e2e/distinta_unica_casi.json): il vassoio «Da ricollocare» (PM23 T-16, la meta'
+     della pagina) e le azioni del vocabolario 2 applicate allo snapshot, con le funzioni esportate dalla pagina,
+     caricata in una scheda senza il guscio (l'avvio della pagina non parte senza #du)
 
 I clienti, i codici e i nomi dei file sono inventati (ACME, BETA, ACM-xxxx).
 """
@@ -1273,6 +1276,39 @@ def b29(b):
     verifica(not b.stato()["legacy"], "il banco ha visto rotte legacy: %s" % b.stato()["legacy"])
     usate = {r["metodo"] + " " + r["path"] for r in b.richieste}
     verifica(len(usate) > 20, "troppo poche rotte nella sessione: %d" % len(usate))
+
+
+JS_CASI = r"""async (casi) => {
+  const M = await import("/static/distinta_unica.mjs");
+  const can = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x)) ?
+    Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x);
+  const out = [];
+  for (const c of casi.vassoio) {
+    const avuto = M.vassoioDa(c.eventi);
+    out.push({ nome: c.nome, ok: can(avuto) === can(c.atteso), avuto });
+  }
+  for (const c of casi.applica) {
+    const s = JSON.parse(JSON.stringify(c.snapshot));
+    for (const a of c.azioni) M.applica(s, a);
+    out.push({ nome: c.nome, ok: can(s) === can(c.atteso), avuto: s });
+  }
+  return out;
+}"""
+
+
+@prova("30", "casi condivisi: vassoio «Da ricollocare» (T-16, lato pagina) e azioni del vocabolario 2")
+def b30(b):
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "distinta_unica_casi.json"), encoding="utf-8") as f:
+        casi = json.load(f)
+    p2 = b.page.context.new_page()
+    try:
+        p2.goto(b.url + "/login")
+        esiti = p2.evaluate(JS_CASI, casi)
+        verifica(p2.locator("#du").count() == 0, "la scheda dei casi ha il guscio della pagina")
+    finally:
+        p2.close()
+    falliti = [(e["nome"], e["avuto"]) for e in esiti if not e["ok"]]
+    verifica(len(esiti) == len(casi["vassoio"]) + len(casi["applica"]) and not falliti, "casi falliti: %s" % falliti)
 
 
 def main():

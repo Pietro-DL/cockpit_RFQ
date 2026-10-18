@@ -1,0 +1,131 @@
+{
+  "_che_cosa": "Casi di contratto condivisi della Distinta unica di V1 (giro 5, A1d, V1). 'vassoio': la regola del vassoio «Da ricollocare» (EM §3.7; PM23 T-16): dalla stessa sequenza di eventi del giornale (R1 ?eventi=1) il server e la funzione della pagina vassoioDa danno lo stesso vassoio. 'applica': le azioni del vocabolario 2 (EM §9.2) applicate allo snapshot salvato, come le applica la pagina (applica) e come il server le riconcilia (C3 §6.6): uno snapshot diverso dal server = R2 422 azioni_non_riconciliate. Li legge la prova nel browser (e2e/distinta_unica.py, DU-B30); la corsia persistenza puo' leggerli nella sua L1 per l'altra meta' di T-16. Dati inventati.",
+  "vassoio": [
+    {
+      "nome": "uno svincolo per nodo tolto entra nel vassoio",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "nodo_tolto"}}
+      ],
+      "atteso": [{"proposta_id": "p-x", "motivo": "nodo_tolto", "chiave_bozza": "k-1"}]
+    },
+    {
+      "nome": "uno svincolo dell'ingegnere non entra",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-y", "chiave_bozza": "k-2"}, "dopo": {"proposta_id": "p-y", "motivo": "utente"}}
+      ],
+      "atteso": []
+    },
+    {
+      "nome": "«Lascia senza associazione» toglie dal vassoio",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "non_incluso"}},
+        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "p-x"}}
+      ],
+      "atteso": []
+    },
+    {
+      "nome": "annullare «Lascia» rimette nel vassoio",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "non_incluso"}},
+        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "p-x"}},
+        {"n": 3, "azione": "annulla", "prima": null, "dopo": {"n": 2}}
+      ],
+      "atteso": [{"proposta_id": "p-x", "motivo": "non_incluso", "chiave_bozza": "k-1"}]
+    },
+    {
+      "nome": "ripetere «Lascia» lo toglie di nuovo",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "non_incluso"}},
+        {"n": 2, "azione": "file_lasciato", "prima": null, "dopo": {"proposta_id": "p-x"}},
+        {"n": 3, "azione": "annulla", "prima": null, "dopo": {"n": 2}},
+        {"n": 4, "azione": "rifai", "prima": null, "dopo": {"n": 2}}
+      ],
+      "atteso": []
+    },
+    {
+      "nome": "una preassociazione nuova ricolloca",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-z", "chiave_bozza": "k-3"}, "dopo": {"proposta_id": "p-z", "motivo": "fonte_cambiata"}},
+        {"n": 2, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "p-z", "chiave_bozza": "k-4"}}
+      ],
+      "atteso": []
+    },
+    {
+      "nome": "lo svincolo annullato non conta: resta l'ultima azione efficace",
+      "eventi": [
+        {"n": 1, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "p-w", "chiave_bozza": "k-5"}},
+        {"n": 2, "azione": "file_svincolato", "prima": {"proposta_id": "p-w", "chiave_bozza": "k-5"}, "dopo": {"proposta_id": "p-w", "motivo": "rif_scaduto"}},
+        {"n": 3, "azione": "annulla", "prima": null, "dopo": {"n": 2}}
+      ],
+      "atteso": []
+    },
+    {
+      "nome": "piu' proposte, ciascuna con la sua ultima azione",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-a", "chiave_bozza": "k-6"}, "dopo": {"proposta_id": "p-a", "motivo": "nodo_tolto"}},
+        {"n": 2, "azione": "file_svincolato", "prima": {"proposta_id": "p-b", "chiave_bozza": "k-7"}, "dopo": {"proposta_id": "p-b", "motivo": "non_incluso"}},
+        {"n": 3, "azione": "file_preassociato", "prima": null, "dopo": {"proposta_id": "p-a", "chiave_bozza": "k-8"}},
+        {"n": 4, "azione": "nodo_tolto", "chiave": "k-9", "prima": {"chiave_bozza": "k-9"}, "dopo": null}
+      ],
+      "atteso": [{"proposta_id": "p-b", "motivo": "non_incluso", "chiave_bozza": "k-7"}]
+    }
+  ],
+  "applica": [
+    {
+      "nome": "nodo_aggiunto e arco_aggiunto (l'azione_id non entra nello snapshot)",
+      "snapshot": {"nodi": [{"chiave_bozza": "k-root", "op": "riusa"}], "archi": [], "decisioni": [], "documenti_preassociati": []},
+      "azioni": [
+        {"azione": "nodo_aggiunto", "chiave_bozza": "k-u1", "prima": null, "dopo": {"chiave_bozza": "k-u1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:c1", "modo": "manuale"}}},
+        {"azione": "arco_aggiunto", "chiave_bozza": "k-u1", "prima": null, "dopo": {"padre": "k-root", "figlio": "k-u1", "qta": 2, "origine": "utente", "azione_id": "a-1"}}
+      ],
+      "atteso": {"nodi": [{"chiave_bozza": "k-root", "op": "riusa"}, {"chiave_bozza": "k-u1", "op": "crea", "tipo": "sciolto", "origine": "utente", "identita": {"emittente": "cliente:c1", "modo": "manuale"}}],
+                 "archi": [{"padre": "k-root", "figlio": "k-u1", "qta": 2, "origine": "utente"}], "decisioni": [], "documenti_preassociati": []}
+    },
+    {
+      "nome": "nodo_modificato cambia e toglie campi; qta_modificata",
+      "snapshot": {"nodi": [{"chiave_bozza": "k-1", "op": "crea", "tipo": "sciolto", "descrizione": "vecchia"}], "archi": [{"padre": "k-0", "figlio": "k-1", "qta": 1}], "decisioni": [], "documenti_preassociati": []},
+      "azioni": [
+        {"azione": "nodo_modificato", "chiave_bozza": "k-1", "prima": {"tipo": "sciolto", "descrizione": "vecchia"}, "dopo": {"tipo": "commerciale", "descrizione": null}},
+        {"azione": "qta_modificata", "chiave_bozza": "k-1", "prima": {"padre": "k-0", "figlio": "k-1", "qta": 1}, "dopo": {"padre": "k-0", "figlio": "k-1", "qta": 5}}
+      ],
+      "atteso": {"nodi": [{"chiave_bozza": "k-1", "op": "crea", "tipo": "commerciale"}], "archi": [{"padre": "k-0", "figlio": "k-1", "qta": 5}], "decisioni": [], "documenti_preassociati": []}
+    },
+    {
+      "nome": "arco_spostato e arco_tolto",
+      "snapshot": {"nodi": [], "archi": [{"padre": "k-a", "figlio": "k-x", "qta": 1}, {"padre": "k-b", "figlio": "k-y", "qta": 3}], "decisioni": [], "documenti_preassociati": []},
+      "azioni": [
+        {"azione": "arco_spostato", "chiave_bozza": "k-x", "prima": {"padre": "k-a", "figlio": "k-x", "qta": 1}, "dopo": {"padre": "k-b", "figlio": "k-x", "qta": 2, "origine": "utente"}},
+        {"azione": "arco_tolto", "chiave_bozza": "k-y", "prima": {"padre": "k-b", "figlio": "k-y", "qta": 3}, "dopo": {"azione_id": "a-2"}}
+      ],
+      "atteso": {"nodi": [], "archi": [{"padre": "k-b", "figlio": "k-x", "qta": 2, "origine": "utente"}], "decisioni": [], "documenti_preassociati": []}
+    },
+    {
+      "nome": "«Non includere»: nodo_tolto, decisione_aggiunta; poi decisione_tolta",
+      "snapshot": {"nodi": [{"chiave_bozza": "k-31", "op": "crea"}, {"chiave_bozza": "k-32", "op": "crea"}], "archi": [], "decisioni": [{"id": "d-0", "tipo": "mono_pezzo"}], "documenti_preassociati": []},
+      "azioni": [
+        {"azione": "nodo_tolto", "chiave_bozza": "k-31", "prima": {"chiave_bozza": "k-31", "op": "crea"}, "dopo": {"azione_id": "a-3"}},
+        {"azione": "decisione_aggiunta", "chiave_bozza": "k-31", "prima": null, "dopo": {"id": "ni-1", "tipo": "non_includere", "azione_id": "a-3"}},
+        {"azione": "decisione_tolta", "chiave_bozza": null, "prima": {"id": "d-0", "tipo": "mono_pezzo"}, "dopo": null}
+      ],
+      "atteso": {"nodi": [{"chiave_bozza": "k-32", "op": "crea"}], "archi": [], "decisioni": [{"id": "ni-1", "tipo": "non_includere", "azione_id": "a-3"}], "documenti_preassociati": []}
+    },
+    {
+      "nome": "file_preassociato, file_svincolato e file_lasciato (che non cambia lo snapshot)",
+      "snapshot": {"nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": [{"proposta_id": "p-1", "chiave_bozza": "k-1"}]},
+      "azioni": [
+        {"azione": "file_preassociato", "chiave_bozza": "k-2", "prima": null, "dopo": {"proposta_id": "p-2", "chiave_bozza": "k-2"}},
+        {"azione": "file_svincolato", "chiave_bozza": "k-1", "prima": {"proposta_id": "p-1", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-1", "motivo": "utente"}},
+        {"azione": "file_lasciato", "chiave_bozza": null, "prima": null, "dopo": {"proposta_id": "p-9"}}
+      ],
+      "atteso": {"nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": [{"proposta_id": "p-2", "chiave_bozza": "k-2"}]}
+    },
+    {
+      "nome": "rebase: solo la base e la firma della base",
+      "snapshot": {"sorgente": {"allegato_id": "a-1"}, "versione_bom_base": {"conferma_id": null, "numero": 0, "contatore": 12}, "firma_base": "1111", "nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": []},
+      "azioni": [
+        {"azione": "rebase", "chiave_bozza": null, "prima": {"base": {"conferma_id": null, "numero": 0, "contatore": 12, "firma_struttura": "1111"}}, "dopo": {"base": {"conferma_id": "c-1", "numero": 1, "contatore": 13, "firma_struttura": "3333"}, "rif_scaduti": []}}
+      ],
+      "atteso": {"sorgente": {"allegato_id": "a-1"}, "versione_bom_base": {"conferma_id": "c-1", "numero": 1, "contatore": 13}, "firma_base": "3333", "nodi": [], "archi": [], "decisioni": [], "documenti_preassociati": []}
+    }
+  ]
+}

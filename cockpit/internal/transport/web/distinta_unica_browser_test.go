@@ -12,7 +12,7 @@
 // pagina e il ponte contro il contratto (i flussi della matrice, gli stati visibili, gli errori 409 e 422, la rete
 // interrotta con il recupero dell'intento per R6), non il server: le regole vere le provano le L4 delle altre corsie.
 //
-// Lo script e2e/distinta_unica.py (python -I) fa le prove DU-B01…DU-B29 in sequenza sulla stessa RFQ del banco: l'elenco
+// Lo script e2e/distinta_unica.py (python -I) fa le prove DU-B01…DU-B30 in sequenza sulla stessa RFQ del banco: l'elenco
 // e il perché di ognuna stanno nel suo commento di testa. COCKPIT_DU_PROVE ne sceglie un sottoinsieme (per esempio
 // "01,02,03"); COCKPIT_FOTO_DIR salva le schermate degli errori; COCKPIT_BROWSER_CANALE sceglie il browser (msedge).
 //

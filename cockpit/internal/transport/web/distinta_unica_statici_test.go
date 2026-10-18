@@ -13,6 +13,10 @@ package web
 // I file si leggono dall'embed (risorse.FS): è quello che il server serve.
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -214,6 +218,58 @@ func TestPonteDistintaUnicaRiprovaDeiFile(t *testing.T) {
 	}
 	if !strings.Contains(duFile(t, duPagina), "await P.riprovaSospeso(s.risorsa)") {
 		t.Error("la pagina non usa riprovaSospeso per «Riprova» dei gesti dei file")
+	}
+}
+
+// I casi di contratto condivisi (e2e/distinta_unica_casi.json): li esegue la prova nel browser con le funzioni della
+// pagina (DU-B30) e li può leggere la L1 del server per l'altra metà di T-16. Qui la loro forma: ogni caso ha un nome,
+// gli eventi o le azioni e l'atteso; i verbi sono quelli del vocabolario 2 (EM §9.2); le azioni del giornale hanno n.
+func TestDistintaUnicaCasiCondivisi(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("e2e", "distinta_unica_casi.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var casi struct {
+		Vassoio []struct {
+			Nome   string           `json:"nome"`
+			Eventi []map[string]any `json:"eventi"`
+			Atteso []map[string]any `json:"atteso"`
+		} `json:"vassoio"`
+		Applica []struct {
+			Nome     string           `json:"nome"`
+			Snapshot map[string]any   `json:"snapshot"`
+			Azioni   []map[string]any `json:"azioni"`
+			Atteso   map[string]any   `json:"atteso"`
+		} `json:"applica"`
+	}
+	if err := json.Unmarshal(raw, &casi); err != nil {
+		t.Fatalf("i casi condivisi non sono JSON: %v", err)
+	}
+	if len(casi.Vassoio) < 5 || len(casi.Applica) < 5 {
+		t.Fatalf("casi: %d del vassoio e %d delle azioni, attesi almeno 5 e 5", len(casi.Vassoio), len(casi.Applica))
+	}
+	verbi := map[string]bool{"nodo_aggiunto": true, "nodo_tolto": true, "nodo_modificato": true, "arco_aggiunto": true, "arco_tolto": true, "arco_spostato": true,
+		"qta_modificata": true, "decisione_aggiunta": true, "decisione_tolta": true, "file_preassociato": true, "file_svincolato": true, "file_lasciato": true,
+		"rebase": true, "annulla": true, "rifai": true}
+	for _, c := range casi.Vassoio {
+		if c.Nome == "" || len(c.Eventi) == 0 || c.Atteso == nil {
+			t.Errorf("caso del vassoio incompleto: %q", c.Nome)
+		}
+		for _, e := range c.Eventi {
+			if _, ok := e["n"].(float64); !ok || !verbi[fmt.Sprint(e["azione"])] {
+				t.Errorf("%q: evento senza n o con un verbo fuori dal vocabolario 2: %v", c.Nome, e)
+			}
+		}
+	}
+	for _, c := range casi.Applica {
+		if c.Nome == "" || c.Snapshot == nil || len(c.Azioni) == 0 || c.Atteso == nil {
+			t.Errorf("caso delle azioni incompleto: %q", c.Nome)
+		}
+		for _, a := range c.Azioni {
+			if !verbi[fmt.Sprint(a["azione"])] {
+				t.Errorf("%q: verbo fuori dal vocabolario 2: %v", c.Nome, a["azione"])
+			}
+		}
 	}
 }
 
