@@ -30,8 +30,12 @@ const (
 	GerarchiaStepNonAnalizzabile GerarchiaStep = "non_analizzabile"
 )
 
-// VersioneStrutturaStep: la versione della struttura STEP che la regola sa leggere (la stessa che vuole
-// struttura_motivo_parziale nella 0020).
+// VersioneStrutturaStep: la versione della struttura STEP che la regola sa leggere. Deve coincidere con quella che vuole
+// struttura_motivo_parziale nella 0020 e con worker.VersioneStruttura, la forma che il worker scrive: valutazione non
+// importa il contratto del worker (la tabella chiusa di estrazione/evidenze/dipendenze_test.go), quindi il legame lo
+// verifica una prova, versione_struttura_test.go, che guarda anche il testo delle migrazioni e la costante del worker
+// Python. LS-01: la 4 che il worker di GP-3 scriveva (worker.VersioneStrutturaGP3) qui dà non_analizzabile, come per la
+// 0020 è parziale; si rilegge con «Rianalizza».
 const VersioneStrutturaStep = 3
 
 // AnalisiStruttura: gli esiti dell'analisi corrente dello STEP della fonte, già letti dal chiamante (l'ingresso di
@@ -39,7 +43,10 @@ const VersioneStrutturaStep = 3
 //   - Letta: c'è un'analisi corrente della fonte e la sua struttura si legge (fatti presenti, nessun errore);
 //   - Versione: la versione della struttura (VersioneStrutturaStep);
 //   - Troncato: la lettura si è fermata a un limite (limiti.troncato);
-//   - Scarti: quante entità la lettura ha scartato (la somma dei suoi contatori);
+//   - Scarti: quante entità scartate tolgono completezza alla lettura: la somma dei tre contatori che
+//     struttura_motivo_parziale guarda nella 0020 (scarti.prodotti_senza_definizione, occorrenze_non_risolte e
+//     testi_troncati). Le occorrenze di un pezzo dentro se stesso (occorrenze_su_se_stesse) non contano: sono archi
+//     impossibili, e per la 0020 non tolgono completezza;
 //   - Radici, Relazioni: quante radici e quante relazioni di assieme la lettura ha trovato;
 //   - MotivoParziale: struttura_motivo_parziale com'è; la regola lo guarda solo per dire parziale quando ci sono
 //     relazioni, e lo restituisce intatto.

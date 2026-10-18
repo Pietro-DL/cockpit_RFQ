@@ -16,6 +16,9 @@ package fascicolo
 //
 // Smistamento F9 (analizzatore 4): il gesto «Rianalizza» accoda anche i PDF letti da un analizzatore
 // precedente, che senza il testo nuovo resterebbero «testo non letto» (rianalisi_pdf.go).
+//
+// LS-01 (17/10/2026): e riaccoda gli STEP i cui fatti correnti hanno una struttura in una forma che il server non
+// accetta, la v4 scritta dal worker di GP-3 (rianalisi_step.go). Solo quelli, e solo dal gesto.
 
 import (
 	"context"
@@ -54,6 +57,13 @@ type Rianalisi struct {
 	DxfGiaInCoda    int
 	DxfRimandati    int
 	DxfSenzaStaging int
+	// Gli STEP con i fatti correnti in una forma della struttura che il server non accetta (LS-01,
+	// worker.StrutturaDaRileggere; AccodaStepDaRileggere): non sono analisi mancanti ma letture da rifare, e il gesto lo
+	// dice a parte. Si contano per contenuto: lo stesso file in due mail e' uno.
+	StepRiaccodati   int
+	StepGiaInCoda    int
+	StepRimandati    int
+	StepSenzaStaging int
 }
 
 // piu somma due esiti: RianalizzaRfq e' le due meta' insieme, e il gesto dice il totale.
@@ -63,24 +73,34 @@ func (r Rianalisi) piu(o Rianalisi) Rianalisi {
 		PdfAccodati: r.PdfAccodati + o.PdfAccodati, PdfGiaInCoda: r.PdfGiaInCoda + o.PdfGiaInCoda,
 		PdfRimandati: r.PdfRimandati + o.PdfRimandati, PdfSenzaStaging: r.PdfSenzaStaging + o.PdfSenzaStaging,
 		DxfAccodati: r.DxfAccodati + o.DxfAccodati, DxfGiaInCoda: r.DxfGiaInCoda + o.DxfGiaInCoda,
-		DxfRimandati: r.DxfRimandati + o.DxfRimandati, DxfSenzaStaging: r.DxfSenzaStaging + o.DxfSenzaStaging}
+		DxfRimandati: r.DxfRimandati + o.DxfRimandati, DxfSenzaStaging: r.DxfSenzaStaging + o.DxfSenzaStaging,
+		StepRiaccodati: r.StepRiaccodati + o.StepRiaccodati, StepGiaInCoda: r.StepGiaInCoda + o.StepGiaInCoda,
+		StepRimandati: r.StepRimandati + o.StepRimandati, StepSenzaStaging: r.StepSenzaStaging + o.StepSenzaStaging}
 }
 
 // RianalizzaRfq e' il gesto «Rianalizza»: rilegge gli STEP della RFQ con i fatti correnti e accoda
 // l'analisi di quelli che non li hanno, al massimo maxAccodati. an e' l'analizzatore corrente del server
-// (cfg.Analisi). Smistamento F9: accoda anche i PDF letti da un analizzatore precedente (AccodaPdfDaRileggere),
-// con quello che resta del limite dopo gli STEP, che portano la struttura e vengono prima.
+// (cfg.Analisi). LS-01: riaccoda anche gli STEP i cui fatti correnti hanno una struttura da rileggere
+// (AccodaStepDaRileggere: la v4 di GP-3), con quello che resta del limite. Smistamento F9: poi i PDF letti da un
+// analizzatore precedente (AccodaPdfDaRileggere), con quello che resta dopo gli STEP, che portano la struttura e
+// vengono prima.
 func RianalizzaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, maxAccodati int) (Rianalisi, error) {
 	riletti, err := RileggiStepDellaRfq(ctx, q, thread, an)
 	if err != nil {
 		return riletti, err
 	}
 	accodati, err := AccodaAnalisiMancanti(ctx, q, thread, an, maxAccodati)
+	esito := riletti.piu(accodati)
 	if err != nil {
-		return riletti.piu(accodati), err
+		return esito, err
 	}
-	pdf, err := AccodaPdfDaRileggere(ctx, q, thread, an, max(0, maxAccodati-accodati.Accodati))
-	return riletti.piu(accodati).piu(pdf), err
+	step, err := AccodaStepDaRileggere(ctx, q, thread, an, max(0, maxAccodati-accodati.Accodati))
+	esito = esito.piu(step)
+	if err != nil {
+		return esito, err
+	}
+	pdf, err := AccodaPdfDaRileggere(ctx, q, thread, an, max(0, maxAccodati-accodati.Accodati-step.StepRiaccodati))
+	return esito.piu(pdf), err
 }
 
 // RileggiStepDellaRfq riapplica alla RFQ i fatti correnti dei suoi STEP: le proposte di struttura si
@@ -154,7 +174,9 @@ func accodaAnalisiMancanti(ctx context.Context, q *db.Queries, thread uuid.UUID,
 			VersioneAnalizzatore: int16(an.Versione), HashConfigurazione: hash})
 		switch {
 		case err == nil:
-			continue // i fatti ci sono: e' materia di RileggiStepDellaRfq
+			// i fatti ci sono: e' materia di RileggiStepDellaRfq, e di AccodaStepDaRileggere se la loro struttura e'
+			// in una forma che il server non accetta (LS-01: solo dal gesto, mai da qui, che serve anche la preparazione)
+			continue
 		case !errors.Is(err, pgx.ErrNoRows):
 			return r, err
 		}

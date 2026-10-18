@@ -1,7 +1,7 @@
 {
   "$defs": {
     "GeometriaSTEP": {
-      "description": "Il riassunto della geometria di un nodo (struttura v4), DIAGNOSTICA e mai motivo di rimozione: quanti solidi\n(MANIFOLD_SOLID_BREP, BREP_WITH_VOIDS, FACETED_BREP), superfici (SHELL/FACE_BASED_SURFACE_MODEL), curve\n(GEOMETRIC_CURVE_SET, GEOMETRIC_SET) ed elementi mappati (MAPPED_ITEM) stanno nelle rappresentazioni della sua\nforma, seguite anche attraverso le relazioni fra rappresentazioni senza trasformazione; `rappresentazioni` quante\nse ne sono raggiunte; `vuota` quando non c'e' nessun elemento geometrico (solo posizionamenti, o nessuna\nrappresentazione). Un nodo vuoto con dei figli e' un contenitore CAD: resta un nodo.",
+      "description": "Il riassunto della geometria di un nodo (diagnostica 1), DIAGNOSTICA e mai motivo di rimozione: quanti solidi\n(MANIFOLD_SOLID_BREP, BREP_WITH_VOIDS, FACETED_BREP), superfici (SHELL/FACE_BASED_SURFACE_MODEL), curve\n(GEOMETRIC_CURVE_SET, GEOMETRIC_SET) ed elementi mappati (MAPPED_ITEM) stanno nelle rappresentazioni della sua\nforma, seguite anche attraverso le relazioni fra rappresentazioni senza trasformazione; `rappresentazioni` quante\nse ne sono raggiunte; `vuota` quando non c'e' nessun elemento geometrico (solo posizionamenti, o nessuna\nrappresentazione). Un nodo vuoto con dei figli e' un contenitore CAD: resta un nodo.",
       "properties": {
         "solidi": {
           "default": 0,
@@ -104,7 +104,7 @@
       "type": "object"
     },
     "NodoSTEP": {
-      "description": "Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.\n\nNiente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente\ndella richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).\nv4: `geometria`, il riassunto della geometria (diagnostica); None in una struttura di prima.",
+      "description": "Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.\n\nNiente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente\ndella richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).\nDiagnostica 1: `geometria`, il riassunto della geometria; None in una struttura senza diagnostica.",
       "properties": {
         "chiave": {
           "title": "Chiave",
@@ -154,7 +154,7 @@
       "type": "object"
     },
     "RelazioneSTEP": {
-      "description": "«Il nodo padre contiene il nodo figlio, qta volte.»\n\nE' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due\nnodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui\npadre e figlio non possono stare sulla riga del nodo (A1.1). v4: `istanze`, le prime occorrenze con il\nloro id e nome d'istanza (al piu' 20, come le righe dell'evidenza).",
+      "description": "«Il nodo padre contiene il nodo figlio, qta volte.»\n\nE' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due\nnodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui\npadre e figlio non possono stare sulla riga del nodo (A1.1). Diagnostica 1: `istanze`, le prime occorrenze\ncon il loro id e nome d'istanza (al piu' 20, come le righe dell'evidenza).",
       "properties": {
         "padre": {
           "title": "Padre",
@@ -217,11 +217,16 @@
       "type": "object"
     }
   },
-  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere\n`nodi[].codice` mai piu'. La 4 (GP-3, direttiva 21 §5.3) aggiunge la geometria per nodo, i nomi d'istanza\ndelle NAUO e lo `stato` della struttura: `non_estraibile` (non Part 21, lettura fallita), `assente` (letto,\nnessuna occorrenza d'assieme: NON vuol dire «pezzo unico»), `parziale` (tetto, occorrenze non risolte, prodotti\nsenza definizione), `valida`; `motivo_stato` lo spiega. Tutto diagnostica: nessun nodo si toglie.",
+  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere\n`nodi[].codice` mai piu'. La 3 e' quella che il server accetta per la completezza (la funzione SQL\nstruttura_motivo_parziale della 0020 e la gerarchia del Motore A): una forma diversa e' sempre «parziale».\n\n`versione_diagnostica` (LS-01) numera il blocco DIAGNOSTICO, che la completezza non guarda: un numero esplicito,\nnon la presenza dei campi. La 1 (GP-3, direttiva 21 §5.3) porta la geometria per nodo, i nomi d'istanza delle\nNAUO e lo `stato` della struttura: `non_estraibile` (non Part 21, lettura fallita), `assente` (letto, nessuna\noccorrenza d'assieme: NON vuol dire «pezzo unico»), `parziale` (tetto, occorrenze non risolte, prodotti senza\ndefinizione), `valida`; `motivo_stato` lo spiega. Tutto diagnostica: nessun nodo si toglie. 0 = nessuna\ndiagnostica (un worker di prima di GP-3). Il worker di GP-3 scriveva questi campi con `versione: 4`, una forma\nche il server non accetta: quei fatti si rileggono con «Rianalizza».",
   "properties": {
     "versione": {
-      "default": 4,
+      "default": 3,
       "title": "Versione",
+      "type": "integer"
+    },
+    "versione_diagnostica": {
+      "default": 0,
+      "title": "Versione Diagnostica",
       "type": "integer"
     },
     "schema": {

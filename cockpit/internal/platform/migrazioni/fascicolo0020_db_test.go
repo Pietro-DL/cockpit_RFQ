@@ -565,12 +565,23 @@ func TestLoStepDelFinitoMancanteSiVede(t *testing.T) {
 
 // struttura_completa (A4.4, D35): una lettura v3 senza scarti che contano, con una radice e almeno
 // un'occorrenza di assieme. Parte di database della prova 35, che arriva con B8.5.
+//
+// LS-01 (direttiva 23 §4.1: «non rendere completa qualunque struttura»): la diagnostica numerata a parte
+// (versione_diagnostica, geometria, istanze, stato) non conta, in nessuna direzione. Una v3 con la diagnostica 1 si
+// giudica dai numeri come una v3 senza; uno `stato` «valida» non rende completa una lettura con due radici o troncata;
+// una diagnostica futura non la rende parziale. Le versioni che il server non accetta (la 4 di GP-3, una 5, nessuna
+// versione) restano parziali con il motivo della 0020, che si corregge solo con una migrazione (V0-D30).
 func TestStrutturaCompletaVuoleLaV3SenzaScarti(t *testing.T) {
 	p := testutil.Pool(t)
 	testutil.SchemaPresente(t, p)
 	buona := `{"versione": 3, "radici": ["#1"], "relazioni": [{"padre": "#1", "figlio": "#2", "qta": 1}], "avvisi": [],
 	           "limiti": {"troncato": false}, "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
 	           "occorrenze_su_se_stesse": 0, "testi_troncati": 0}}`
+	// LS-01: la struttura buona con i campi diagnostici del worker di oggi (versione_diagnostica 1, stato, geometria per
+	// nodo, istanze per relazione): le chiavi a destra di || vincono.
+	const conDiagnostica = `($1 || jsonb_build_object('versione_diagnostica', 1, 'stato', 'valida', 'motivo_stato', '',
+	      'nodi', '[{"chiave": "#1", "geometria": {"solidi": 0, "vuota": true}}, {"chiave": "#2", "geometria": {"solidi": 1, "vuota": false}}]'::jsonb,
+	      'relazioni', '[{"padre": "#1", "figlio": "#2", "qta": 1, "istanze": [{"rif": "#9", "id": "NAUO1", "nome": "ACME:1"}]}]'::jsonb))`
 	casi := []struct{ nome, modifica, motivo string }{
 		{"completa", `$1`, ""},
 		{"le occorrenze su se stesse non contano", `jsonb_set($1, '{scarti,occorrenze_su_se_stesse}', '7')`, ""},
@@ -586,6 +597,22 @@ func TestStrutturaCompletaVuoleLaV3SenzaScarti(t *testing.T) {
 		{"testi troncati", `jsonb_set($1, '{scarti,testi_troncati}', '3')`, "3 testi troncati"},
 		{"due radici", `jsonb_set($1, '{radici}', '["#1", "#9"]')`, "2 radici nel file: una distinta ne ha una"},
 		{"sole parti", `jsonb_set($1, '{relazioni}', '[]')`, "nessuna occorrenza di assieme: solo parti"},
+		// LS-01: la diagnostica non conta
+		{"v3 con la diagnostica 1, valida", conDiagnostica, ""},
+		{"v3 con la diagnostica 1, stato parziale e occorrenze non risolte",
+			`jsonb_set(jsonb_set(` + conDiagnostica + `, '{stato}', '"parziale"'), '{scarti,occorrenze_non_risolte}', '2')`,
+			"2 occorrenze con estremi non risolti"},
+		{"una diagnostica futura non rende parziale", `jsonb_set(` + conDiagnostica + `, '{versione_diagnostica}', '2')`, ""},
+		{"lo stato «valida» non rende completa una lettura con due radici", `jsonb_set(` + conDiagnostica + `, '{radici}', '["#1", "#9"]')`,
+			"2 radici nel file: una distinta ne ha una"},
+		{"v3 con la diagnostica 1, troncata", `jsonb_set(` + conDiagnostica + `, '{limiti}', '{"troncato": true, "motivo": "nodi"}')`,
+			"lettura troncata: nodi"},
+		// LS-01: le versioni che il server non accetta restano parziali, anche con la diagnostica e i numeri buoni
+		{"v4 di GP-3, con i campi diagnostici e lo stato «valida»", `jsonb_set(` + conDiagnostica + `, '{versione}', '4') - 'versione_diagnostica'`,
+			"struttura v4: gli scarti non sono numerati, serve la rianalisi v3"},
+		{"v5 sconosciuta, con la diagnostica 1", `jsonb_set(` + conDiagnostica + `, '{versione}', '5')`,
+			"struttura v5: gli scarti non sono numerati, serve la rianalisi v3"},
+		{"senza versione", `$1 - 'versione'`, "struttura v?: gli scarti non sono numerati, serve la rianalisi v3"},
 	}
 	for _, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {

@@ -515,9 +515,12 @@ markmap:
 - Lo accoda il server (`stage.go:AccodaAnalisi`):
   - quando un contenuto entra in `_contenuti`;
   - per ogni voce che l'estrazione di un archivio tira fuori;
-  - nella preparazione del Fascicolo per i file fermi in staging (B8.7b);
-  - nella rianalisi degli STEP (all'apertura della RFQ, pochi per volta, e con «Rianalizza»).
-- Se i fatti di quella chiave ci sono già non si accoda niente.
+  - nella preparazione del Fascicolo (la POST che la pagina manda aprendosi, solo per chi scrive): i file fermi in
+    staging (B8.7b) e gli STEP senza i fatti correnti, pochi per volta;
+  - con «Rianalizza», per gli STEP senza i fatti correnti.
+- Se i fatti di quella chiave ci sono già, `AccodaAnalisi` non accoda niente. Solo «Rianalizza» riaccoda con la stessa
+  chiave anche quando i fatti ci sono (`stage.go:RiaccodaAnalisi`): i PDF e i DXF letti senza il testo di oggi (F9, K4)
+  e gli STEP con la struttura in una forma che il server non accetta (LS-01).
 - **Dove gira**
   - su qualunque postazione (7C.1, P0).
   - Il payload non porta percorsi del server: il worker scarica i byte con `GET /allegati/{id}/contenuto` dentro il
@@ -580,6 +583,12 @@ markmap:
   - la 2 porta i grezzi,
   - la **3** (B8.5, addendum A4.4, D35) aggiunge `scarti`, quattro interi: `prodotti_senza_definizione`,
     `occorrenze_non_risolte`, `occorrenze_su_se_stesse`, `testi_troncati`.
+  - La 3 è anche l'ultima forma: è quella che il server accetta per la completezza.
+- `struttura.versione_diagnostica` (LS-01, 17/10/2026) numera a parte il blocco DIAGNOSTICO, che la completezza non
+  guarda: la **1** è la diagnostica di GP-3 (geometria per nodo, nomi d'istanza delle NAUO, `stato` e `motivo_stato`).
+  - Il worker di GP-3 la scriveva come `versione: 4`, una forma che il server non accetta: ogni STEP letto da quel
+    worker risultava «parziale» (LS-01). Una diagnostica nuova alza `versione_diagnostica`, mai `versione`.
+  - Il worker la scrive in ogni esito, anche in una lettura fallita; 0 (o il campo assente) vuol dire «nessuna».
 - Il server decide dai numeri, non dalle frasi di `avvisi`, se una lettura è completa (la funzione SQL
   `struttura_motivo_parziale` della 0020): solo una lettura completa dello STEP strutturale di un prodotto può
   proporre quantità diverse e rimozioni.
@@ -591,12 +600,18 @@ markmap:
 - I campi `codice`/`rev` di primo livello del risultato restano quelli di sempre — un'ipotesi dal nome del file o dal
   primo `PRODUCT` — e servono a `documento_proposta`.
 - Sono un suggerimento, non la sorgente della struttura.
-- `[analisi] versione = 3` in `cockpit.toml` (come nell'esempio; senza la chiave la versione è 1) è la chiave sotto
-  cui i fatti nuovi vengono conservati:
+- `[analisi] versione` in `cockpit.toml` (4 nell'esempio; senza la chiave la versione è 1) è la chiave sotto cui i
+  fatti nuovi vengono conservati:
   - quelli delle versioni precedenti restano dove sono,
-  - e gli STEP si rianalizzano quando si riapre la loro RFQ o con «Rianalizza».
+  - e gli STEP senza i fatti della versione corrente li accoda la preparazione della pagina (la POST che manda
+    aprendosi, solo per chi scrive: accoda e basta) o «Rianalizza»; aprire la RFQ non rilegge niente.
 - Un worker non aggiornato che risponde con una struttura v2 non rompe niente: il server la tiene, e la considera
   incompleta.
+- Lo stesso per un worker di GP-3 rimasto su una postazione (LS-01): la sua struttura v4 si tiene, è «parziale», il
+  server lo scrive nel log con il worker («struttura STEP in una forma che il server non accetta»), e «Rianalizza» la
+  riaccoda (`fascicolo.AccodaStepDaRileggere`) dopo l'aggiornamento del pacchetto della postazione.
+- Un worker di prima di GP-3 scrive la 3 senza `versione_diagnostica`: la lettura vale e non si rilegge, ma la
+  diagnostica manca, e il server lo scrive nel log con il worker («struttura STEP senza diagnostica»).
 
 ### Tre tetti, e viaggiano con il risultato
 

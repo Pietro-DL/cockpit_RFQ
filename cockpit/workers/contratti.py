@@ -364,7 +364,7 @@ class PayloadAnalizzaAllegato(Base):
 
 
 class GeometriaSTEP(Base):
-    """Il riassunto della geometria di un nodo (struttura v4), DIAGNOSTICA e mai motivo di rimozione: quanti solidi
+    """Il riassunto della geometria di un nodo (diagnostica 1), DIAGNOSTICA e mai motivo di rimozione: quanti solidi
     (MANIFOLD_SOLID_BREP, BREP_WITH_VOIDS, FACETED_BREP), superfici (SHELL/FACE_BASED_SURFACE_MODEL), curve
     (GEOMETRIC_CURVE_SET, GEOMETRIC_SET) ed elementi mappati (MAPPED_ITEM) stanno nelle rappresentazioni della sua
     forma, seguite anche attraverso le relazioni fra rappresentazioni senza trasformazione; `rappresentazioni` quante
@@ -390,7 +390,7 @@ class NodoSTEP(Base):
 
     Niente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente
     della richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).
-    v4: `geometria`, il riassunto della geometria (diagnostica); None in una struttura di prima."""
+    Diagnostica 1: `geometria`, il riassunto della geometria; None in una struttura senza diagnostica."""
     chiave: str
     id_grezzo: str = ""
     nome_grezzo: str
@@ -405,8 +405,8 @@ class RelazioneSTEP(Base):
 
     E' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due
     nodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui
-    padre e figlio non possono stare sulla riga del nodo (A1.1). v4: `istanze`, le prime occorrenze con il
-    loro id e nome d'istanza (al piu' 20, come le righe dell'evidenza)."""
+    padre e figlio non possono stare sulla riga del nodo (A1.1). Diagnostica 1: `istanze`, le prime occorrenze
+    con il loro id e nome d'istanza (al piu' 20, come le righe dell'evidenza)."""
     padre: str
     figlio: str
     qta: int = 1
@@ -445,11 +445,18 @@ class StrutturaSTEP(Base):
 
     `versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici
     nei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere
-    `nodi[].codice` mai piu'. La 4 (GP-3, direttiva 21 §5.3) aggiunge la geometria per nodo, i nomi d'istanza
-    delle NAUO e lo `stato` della struttura: `non_estraibile` (non Part 21, lettura fallita), `assente` (letto,
-    nessuna occorrenza d'assieme: NON vuol dire «pezzo unico»), `parziale` (tetto, occorrenze non risolte, prodotti
-    senza definizione), `valida`; `motivo_stato` lo spiega. Tutto diagnostica: nessun nodo si toglie."""
-    versione: int = 4
+    `nodi[].codice` mai piu'. La 3 e' quella che il server accetta per la completezza (la funzione SQL
+    struttura_motivo_parziale della 0020 e la gerarchia del Motore A): una forma diversa e' sempre «parziale».
+
+    `versione_diagnostica` (LS-01) numera il blocco DIAGNOSTICO, che la completezza non guarda: un numero esplicito,
+    non la presenza dei campi. La 1 (GP-3, direttiva 21 §5.3) porta la geometria per nodo, i nomi d'istanza delle
+    NAUO e lo `stato` della struttura: `non_estraibile` (non Part 21, lettura fallita), `assente` (letto, nessuna
+    occorrenza d'assieme: NON vuol dire «pezzo unico»), `parziale` (tetto, occorrenze non risolte, prodotti senza
+    definizione), `valida`; `motivo_stato` lo spiega. Tutto diagnostica: nessun nodo si toglie. 0 = nessuna
+    diagnostica (un worker di prima di GP-3). Il worker di GP-3 scriveva questi campi con `versione: 4`, una forma
+    che il server non accetta: quei fatti si rileggono con «Rianalizza»."""
+    versione: int = 3
+    versione_diagnostica: int = 0
     schema_step: str = Field(default="", alias="schema")
     radici: list[str] = Field(default_factory=list)
     nodi: list[NodoSTEP] = Field(default_factory=list)

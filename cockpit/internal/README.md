@@ -330,10 +330,14 @@ markmap:
   - «Nuova RFQ» non vale per la posta di un fornitore.
   - **Package:** `transport/web`, `core/inbox/classificazione`, `core/rfq/fascicolo`, `platform/coda`.
 - **Preparazione del Fascicolo** (B8.7b)
-  - alla nascita e all'aggancio di una RFQ, e all'apertura del Fascicolo (per chi è almeno `operatore`):
-    - i codici confermati della richiesta diventano prodotti finiti;
+  - alla nascita e all'aggancio di una RFQ, nella transazione del triage:
+    - i codici della richiesta confermati in quel gesto diventano prodotti finiti;
     - i file utili scendono nello staging, si estraggono e si analizzano;
-    - un poll mostra l'avanzamento.
+    - gli STEP già analizzati prima dell'aggancio danno le loro proposte in questa RFQ.
+  - aprire la pagina della RFQ, la Distinta o il Fascicolo non scrive niente (Smistamento F1, R8): per chi è almeno
+    `operatore` la pagina manda da sola `POST …/fascicolo/prepara`, che accoda download, estrazioni e analisi mancanti
+    e completa i file fermi nello staging che hanno già i fatti (niente prodotti, nessuna rianalisi).
+  - Un poll mostra l'avanzamento.
   - Niente arriva sul NAS.
   - **Package:** `transport/web`, `core/rfq/fascicolo`, `platform/coda`.
 - **Allegato → NAS**
