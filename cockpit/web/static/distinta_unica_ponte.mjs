@@ -14,8 +14,9 @@
 //   - i sei atti esistenti della lista chiusa ridotta (EM §9.10) in ATTI, con la risposta HTML data-ma-esito; nessun
 //     gesto legacy (MAT §7): né «Conferma l'albero», né i gesti strutturali immediati, né «Scarta il file»;
 //   - una scrittura alla volta PER RISORSA (la bozza di un prodotto, un file, lo STEP di un prodotto, il caricamento):
-//     una seconda scrittura sulla stessa risorsa torna PONTE_IN_VOLO, e la pagina la tiene in coda (MAT §1.3). Le
-//     letture non prendono lucchetti;
+//     la coda sta nella pagina (MAT §1.3), che manda la seconda scrittura sulla stessa risorsa solo quando la prima ha
+//     un esito. Se una arriva comunque mentre l'altra è in volo, il ponte non la manda e torna PONTE_IN_VOLO, con il
+//     testo vero: «non è partita». Le letture non prendono lucchetti;
 //   - la chiave del tentativo dall'esito incerto (R5, S2, S3, S4, S7) sta nella memoria di sessione della scheda
 //     (sessionStorage), con l'impronta del corpo, PRIMA dell'invio, e si toglie a esito certo: sopravvive a una ricarica
 //     della pagina (EM §10.9, ultimo paragrafo; A4-Q05 A; MAT §5.5). Un'interruzione di rete non è una conferma fallita:
@@ -38,17 +39,25 @@
 // I codici di trasporto: PONTE_RETE, PONTE_SESSIONE, PONTE_RISPOSTA, PONTE_ROTTA_ASSENTE, PONTE_IN_VOLO,
 // PONTE_TENTATIVO_IN_SOSPESO, PONTE_ARGOMENTO, PONTE_NON_CONFIGURATO (MAT §1.3).
 //
-// Vincoli del file: nessun import, nessun await fuori dalle funzioni, nessun timer, solo le globali del DOM (window,
-// document, location, fetch, DOMParser, URL, URLSearchParams, FormData, sessionStorage, crypto, Uint8Array). Indirizzi
-// costruiti solo da UUID controllati (RE_UUID) e dalla RFQ della pagina (D23:234): nessun percorso del disco va al
-// server, nessuno ne torna.
+// Vincoli del file: nessun import, nessun await fuori dalle funzioni, nessun setTimeout, solo le globali del DOM
+// (window, document, location, fetch, AbortSignal, DOMParser, URL, URLSearchParams, FormData, sessionStorage, crypto,
+// Uint8Array). Ogni richiesta ha un tempo massimo (AbortSignal.timeout): una richiesta appesa non tiene la risorsa «in
+// volo» per sempre, e scaduto il tempo l'esito è quello di una rete caduta («da verificare» per le scritture con la
+// chiave, «non arrivato» per R2). Indirizzi costruiti solo da UUID controllati (RE_UUID) e dalla RFQ della pagina
+// (D23:234): nessun percorso del disco va al server, nessuno ne torna.
 
 const U = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const RE_UUID = new RegExp("^" + U + "$");
 const RE_FIRMA = /^[0-9a-f]{64}$/;
 
 const SESSIONE = "Sessione scaduta: si torna al login.";
-const IN_VOLO = "Un'altra scrittura sulla stessa risorsa è in corso: questa resta in coda finché la prima non ha un esito.";
+const IN_VOLO = "Un'altra scrittura sulla stessa risorsa è in corso: questa non è partita. Rifalla quando la prima ha un esito.";
+// il tempo massimo di una richiesta (AbortSignal.timeout, commento di testa): largo, perché i calcoli del motore e la
+// copia sul NAS hanno già i loro tempi lato server (503 CALCOLO_OCCUPATO, 504 CALCOLO_SCADUTO)
+const TEMPO_MASSIMO = 120000;
+function segnale() {
+  return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(TEMPO_MASSIMO) : undefined;
+}
 const FATTO = "Fatto: il server non ha aggiunto altro.";
 const NIENTE = "Niente è cambiato.";
 const SENZA_ESITO =
@@ -224,13 +233,59 @@ export function nuovaChiave() {
 }
 
 // canonico: JSON con le chiavi in ordine, per riconoscere lo stesso corpo (non per firmarlo: le impronte sono del
-// server). È più severo del JSON canonico del contratto: non ordina gli array e distingue null da un campo assente. Il
-// verso è quello prudente: due corpi che il server riterrebbe uguali possono sembrare diversi, mai il contrario, cioè
-// mai la stessa chiave su due corpi diversi.
+// server). Da solo è più severo del JSON canonico del contratto: non ordina gli array e distingue null da un campo
+// assente. Il verso è quello prudente: due corpi che il server riterrebbe uguali possono sembrare diversi, mai il
+// contrario, cioè mai la stessa chiave su due corpi diversi. Vale così per R2 (lo stesso oggetto si rimanda com'è) e per
+// i gesti dei file (il corpo del tentativo sta nella memoria della scheda). Per R5 l'impronta si calcola sulla forma del
+// contratto (formaCanonica), perché dopo una ricarica il corpo si rifà dai byte di R1, ordinati dal server.
 export function canonico(v) {
   if (Array.isArray(v)) return "[" + v.map(canonico).join(",") + "]";
   if (oggetto(v)) return "{" + Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => JSON.stringify(k) + ":" + canonico(v[k])).join(",") + "}";
   return JSON.stringify(v === undefined ? null : v);
+}
+
+// formaCanonica: la forma del JSON canonico del contratto (EM §3.10), su cui il server calcola impronta_corpo di R5
+// (EM §8.4): i facoltativi assenti, vuoti o null tolti (sono equivalenti); nodi[] per chiave_bozza, archi[] per (padre,
+// figlio), decisioni[] per id, documenti_preassociati[] per proposta_id, caselle[] per (gruppo, rif, allegato_id);
+// descrizione e ogni motivo in NFC. Lo stesso contenuto in un altro ordine (lo snapshot della pagina, nell'ordine dei
+// gesti, e quello riletto da R1 dopo una ricarica) ha la stessa forma: «Riprova la conferma…» riusa la chiave del
+// tentativo in sospeso (MAT §5.2, §5.5 n. 4). Gli elementi degli array restano tutti: si ordinano, non si tolgono.
+const ORDINI = {
+  nodi: (x) => [x.chiave_bozza],
+  archi: (x) => [x.padre, x.figlio],
+  decisioni: (x) => [x.id],
+  documenti_preassociati: (x) => [x.proposta_id],
+  caselle: (x) => [x.gruppo, x.rif, x.allegato_id],
+};
+function vuoto(v) {
+  return v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0) || (oggetto(v) && Object.keys(v).length === 0);
+}
+function confrontaChiavi(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] === undefined || a[i] === null ? "" : String(a[i]);
+    const y = b[i] === undefined || b[i] === null ? "" : String(b[i]);
+    if (x < y) return -1;
+    if (x > y) return 1;
+  }
+  return 0;
+}
+export function formaCanonica(v, chiave) {
+  if (Array.isArray(v)) {
+    const out = v.map((x) => formaCanonica(x, ""));
+    const k = ORDINI[chiave || ""];
+    if (k) out.sort((a, b) => confrontaChiavi(k(oggetto(a) ? a : {}), k(oggetto(b) ? b : {})));
+    return out;
+  }
+  if (oggetto(v)) {
+    const out = {};
+    for (const k of Object.keys(v)) {
+      const x = formaCanonica(v[k], k);
+      if (!vuoto(x)) out[k] = x;
+    }
+    return out;
+  }
+  if (typeof v === "string" && (chiave === "descrizione" || chiave === "motivo") && typeof v.normalize === "function") return v.normalize("NFC");
+  return v;
 }
 
 // percorso: la rotta della funzione, con la RFQ della pagina e, dove c'è {u}, l'UUID passato (già controllato).
@@ -310,6 +365,7 @@ async function chiama(nome, u, query, corpo, extra) {
     credentials: "same-origin",
     headers: Object.assign(intest, extra || {}),
     body: !conCorpo ? undefined : corpo instanceof FormData ? corpo : JSON.stringify(corpo),
+    signal: segnale(),
   });
   const login = rimandoAlLogin(risp);
   if (login) return { login };
@@ -724,7 +780,9 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
     return { esito: "ok", codice: "", motivo: "", testo: testoDi(r, FATTO), chiave, dati: r.json };
   }
   if (r.stato === 409 && (CONFLITTI[nome] || []).includes(codice)) {
-    if (codice === "COPIA_IN_CORSO") scriviSospeso(risorsa, Object.assign({}, voce, { verificato: true, certo: true, quando: new Date().toISOString() }));
+    // COPIA_IN_CORSO: esito certo (niente registrato, niente in volo), da ritentare con la stessa chiave; la pagina lo
+    // dice come «copia in corso», non come un esito incerto (MAT §5.2, §5.4)
+    if (codice === "COPIA_IN_CORSO") scriviSospeso(risorsa, Object.assign({}, voce, { verificato: true, certo: true, codice, motivo: motivoDi(r), quando: new Date().toISOString() }));
     else togliSospeso(risorsa);
     return { esito: "conflitto", codice, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
   }
@@ -765,12 +823,13 @@ export async function riprovaSospeso(risorsa) {
 }
 
 // impronteCorpo: la parte del corpo che decide se è «lo stesso corpo». R5: {firma_anteprima, bozza senza
-// bozza_versione}, come impronta_corpo del C3 §5.2 (EM §8.4). Gli altri: il corpo com'è.
+// bozza_versione} nella forma del JSON canonico del contratto, come impronta_corpo del C3 §5.2 (EM §8.4, §3.10). Gli
+// altri: il corpo com'è.
 function impronteCorpo(nome, corpo) {
   if (nome !== "confermaBom") return corpo;
   const b = Object.assign({}, corpo.bozza || {});
   delete b.bozza_versione;
-  return { firma_anteprima: corpo.firma_anteprima, bozza: b };
+  return formaCanonica({ firma_anteprima: corpo.firma_anteprima, bozza: b }, "");
 }
 
 // conChiave: il corpo con la chiave al suo posto (EM §9.5: dentro la bozza per R5; §10.9: al primo livello per S2-S4
@@ -939,6 +998,7 @@ export async function esegui(atto, campi, u) {
         credentials: "same-origin",
         headers: { "HX-Request": "true", "HX-Current-URL": location.origin + "/thread/" + RFQ + "/motore-a", "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
         body: p.toString(),
+        signal: segnale(),
       });
       const login = rimandoAlLogin(risp);
       if (login) return { login };
