@@ -1837,7 +1837,7 @@ function corpoRevisione() {
   if (S.nodo && !g.nodi[S.nodo]) S.nodo = "";
   const vista = h("section", { class: "du-zona du-zona--vista", "aria-label": "BOM di lavoro" },
     h("div", { class: "du-zona-testa" }, h("h2", {}, S.vista === "org" ? "Organigramma della bozza" : "Elenco della bozza"), statoConferma()),
-    h("div", { class: "du-zona-corpo" }, S.vista === "org" ? [strumentiOrg(g), cassettoSegnalati(g), barraSelezione(g), organigramma(g)] : [vassoio(), elencoRighe(g)]));
+    h("div", { class: "du-zona-corpo" }, S.vista === "org" ? [riquadroProposta(), strumentiOrg(g), cassettoSegnalati(g), barraSelezione(g), organigramma(g)] : [riquadroProposta(), vassoio(), elencoRighe(g)]));
   const nodo = h("section", { class: "du-zona du-zona--nodo", "aria-label": "Pannello del nodo" },
     h("div", { class: "du-zona-testa" }, h("h2", {}, "Pannello del nodo")),
     h("div", { class: "du-zona-corpo" }, g.nodi[S.nodo] ? pannelloNodo(g, g.nodi[S.nodo]) : h("p", { class: "du-muto du-piccolo" }, "Scegli un pezzo: identità proposta, riferimenti, provenienza e decisione dell'ingegnere stanno qui, non sulle schede.")));
@@ -2561,6 +2561,20 @@ function versioneServizio(reg) {
   const r = reg && reg.regole;
   return (r && r.versioni && r.versioni.ancoraggio) || (r && r.ancoraggio) || "";
 }
+// nodoDaVoce: il nodo di una voce del registro con l'identità che darebbero le regole P-4 della partenza (EM §6.1):
+// «proposta» con codice_proposto non vuoto (con rev_proposta), «da_decidere» senza; tipo proposto, descrizione grezza
+// entro i 200 caratteri, la casella, origine «step». Una voce con decisione_esistente (P-3, «registrato») non passa da
+// qui: l'identità registrata non è nel registro (proposta di emendamento della corsia).
+function nodoDaVoce(voce, k, casella) {
+  const ip = voce.identita_proposta || {};
+  const identita = voce.codice_proposto ? { emittente: ip.emittente || emittenteCliente(), codice: voce.codice_proposto, modo: "proposta" } : { emittente: ip.emittente || emittenteCliente(), modo: "da_decidere" };
+  if (voce.codice_proposto && ip.namespace) identita.namespace = ip.namespace;
+  if (voce.codice_proposto && voce.rev_proposta) identita.rev = voce.rev_proposta;
+  const nodo = { chiave_bozza: k, op: "crea", tipo: (voce.tipo_proposto && voce.tipo_proposto.valore) || "sciolto", origine: "step", caselle: [clona(casella)], identita };
+  const desc = voce.grezzi && voce.grezzi.descrizione;
+  if (desc && String(desc).length <= 200) nodo.descrizione = desc;
+  return nodo;
+}
 function includiDiNuovo(v) {
   const d = v.decisione;
   const reg = registroBozza();
@@ -2571,13 +2585,7 @@ function includiDiNuovo(v) {
   const tutti = arr(S.bozza.eventi).map(eventoAzione).concat(...S.coda.map((x) => x.inviare));
   for (const a of tutti) if (a.azione === "nodo_tolto" && a.prima && casellaDi(a.prima) && casellaDi(a.prima).rif === d.casella.rif) k = a.chiave_bozza || a.prima.chiave_bozza;
   if (!k || S.lavoro.nodi.some((n) => n.chiave_bozza === k)) k = nuovaChiaveNodo();
-  const ip = voce.identita_proposta || {};
-  const identita = voce.codice_proposto ? { emittente: ip.emittente || emittenteCliente(), codice: voce.codice_proposto, modo: "proposta" } : { emittente: ip.emittente || emittenteCliente(), modo: "da_decidere" };
-  if (voce.codice_proposto && ip.namespace) identita.namespace = ip.namespace;
-  if (voce.codice_proposto && voce.rev_proposta) identita.rev = voce.rev_proposta;
-  const nodo = { chiave_bozza: k, op: "crea", tipo: (voce.tipo_proposto && voce.tipo_proposto.valore) || "sciolto", origine: "step", caselle: [clona(d.casella)], identita };
-  const desc = voce.grezzi && voce.grezzi.descrizione;
-  if (desc && String(desc).length <= 200) nodo.descrizione = desc;
+  const nodo = nodoDaVoce(voce, k, d.casella);
   const azioni = [{ azione: "decisione_tolta", chiave_bozza: k, prima: clona(d), dopo: null, origine: "utente" }, { azione: "nodo_aggiunto", chiave_bozza: k, prima: null, dopo: nodo, origine: "utente" }];
   const perRif = new Map();
   for (const n of S.lavoro.nodi) {
@@ -2591,6 +2599,139 @@ function includiDiNuovo(v) {
   }
   fai("incluso di nuovo " + (voce.codice_proposto || "un nodo"), azioni);
   S.nodo = k;
+}
+// Il riquadro «Proposta dello STEP» della Revisione (mockup v3, «Proposta dello STEP e BOM registrata»; MAT BZ-15,
+// BZ-16): solo per una bozza con un registro d'importazione.
+function riquadroProposta() {
+  if (!bozzaLavorabile() || !S.bozza.importazione) return null;
+  const no = perchéNoModifica();
+  return h("div", { class: "du-riq du-riq--prop", id: "du-proposta-step" },
+    h("div", { class: "du-riq-testa" }, h("h3", {}, "Proposta dello STEP"),
+      h("span", { class: "du-muto du-piccolo" }, "L'import porta nella bozza solo gli elementi che scegli; ripartire dalla proposta sostituisce la bozza, non la versione registrata.")),
+    h("div", { class: "du-azioni" },
+      btn("Importa dalla proposta…", apriImporta, { cls: "du-btn--sm", id: "du-importa", no: no || (registroBozza() ? "" : "il registro della bozza non è letto: ↻ Aggiorna") }),
+      btn("Riparti dalla proposta…", apriRiparti, { cls: "du-btn--sm du-btn--ghost", id: "du-riparti", no: no || perchéNoRiparti() })));
+}
+// mancantiDellaProposta: le voci del registro che la bozza non ha (né come nodo, né come «non includere», che si
+// ripristina con «Includi di nuovo») e i legami della proposta fra due nodi che la bozza ha senza quel legame.
+function mancantiDellaProposta(reg) {
+  const presenti = new Map();
+  for (const n of S.lavoro.nodi) {
+    const c = casellaDi(n);
+    if (c) presenti.set(c.rif, n.chiave_bozza);
+  }
+  const decisi = new Set(S.lavoro.decisioni.filter((d) => d.tipo === "non_includere" && d.casella).map((d) => d.casella.rif));
+  const radice = reg.gruppo && reg.gruppo.radice;
+  const voci = arr(reg.proposta && reg.proposta.nodi).filter((v) => v && v.origine && v.origine.rif && v.origine.rif !== radice && !presenti.has(v.origine.rif) && !decisi.has(v.origine.rif));
+  const archi = arr(reg.proposta && reg.proposta.archi).filter((a) => presenti.has(a.padre) && presenti.has(a.figlio) &&
+    !S.lavoro.archi.some((x) => x.padre === presenti.get(a.padre) && x.figlio === presenti.get(a.figlio)));
+  return { presenti, voci, archi };
+}
+function nomeVoce(v) {
+  return (v && (v.codice_proposto || (v.grezzi && (v.grezzi.nome || v.grezzi.id)))) || (v && v.origine && v.origine.rif) || "?";
+}
+// «Importa dalla proposta…» (MAT BZ-15): selettivo, nessun elemento preselezionato. I nodi portano la casella e
+// l'identità delle regole della partenza (nodoDaVoce); i legami la quantità dello STEP. Niente arriva alla working:
+// è un salvataggio della bozza come gli altri.
+function apriImporta() {
+  const reg = registroBozza();
+  if (!reg) return avvisa("errore", "Il registro della bozza non è letto: ↻ Aggiorna.");
+  const { presenti, voci, archi } = mancantiDellaProposta(reg);
+  const codice = (rif) => {
+    const k = presenti.get(rif);
+    const n = k && S.lavoro.nodi.find((x) => x.chiave_bozza === k);
+    return (n && n.identita && n.identita.codice) || (n && n.descrizione) || rif;
+  };
+  const righe = [];
+  for (const v of voci) {
+    const registrato = !!v.decisione_esistente;
+    const stato = v.stato_motore && v.stato_motore.tolto ? "tolto nella proposta" : v.stato_motore && v.stato_motore.raggiunto === false ? "non raggiunto" : "manca nella bozza";
+    righe.push(h("label", { class: "du-spunta", title: registrato ? "l'identità registrata del componente non è nel registro: la porta il server (proposta di emendamento della corsia)" : null },
+      h("input", { type: "checkbox", "data-rif": v.origine.rif, disabled: registrato }), h("span", {}, h("span", { class: "du-mono" }, nomeVoce(v)), " · " + stato + (registrato ? " · componente registrato: non importabile da qui" : ""))));
+  }
+  for (const a of archi) {
+    righe.push(h("label", { class: "du-spunta" }, h("input", { type: "checkbox", "data-padre": a.padre, "data-figlio": a.figlio }),
+      h("span", {}, "legame ", h("span", { class: "du-mono" }, codice(a.padre)), " → ", h("span", { class: "du-mono" }, codice(a.figlio)), " ×" + a.quantita + " (quantità dello STEP)")));
+  }
+  apriFinestra("Importa dalla proposta", h("div", { style: "display:grid;gap:8px" },
+    h("p", { class: "du-nota" }, "Elementi della proposta che la bozza non ha. Scegli quali portare nella bozza: nessuno è preselezionato, e le decisioni della bozza non si toccano. I nodi non inclusi si ripristinano con «Includi di nuovo»."),
+    righe.length ? h("div", { class: "du-voci-sel", id: "f-importa" }, righe) : h("p", { class: "du-muto du-piccolo" }, "La bozza contiene già tutto quello che la proposta dà.")),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Porta nella bozza", pri: true, id: "f-ok", spento: () => ($("#du-finestra").querySelectorAll("#f-importa input:checked").length ? "" : "scegli almeno un elemento"), fai: () => {
+    const f = $("#du-finestra");
+    const scelteVoci = new Set([...f.querySelectorAll("#f-importa input[data-rif]:checked")].map((x) => x.dataset.rif));
+    const scelteArchi = new Set([...f.querySelectorAll("#f-importa input[data-padre]:checked")].map((x) => x.dataset.padre + ">" + x.dataset.figlio));
+    const gruppo = reg.gruppo && reg.gruppo.chiave;
+    const azioni = [];
+    const nuovi = new Map();
+    for (const v of voci) {
+      if (!scelteVoci.has(v.origine.rif) || v.decisione_esistente) continue;
+      const k = nuovaChiaveNodo();
+      nuovi.set(v.origine.rif, k);
+      azioni.push({ azione: "nodo_aggiunto", chiave_bozza: k, prima: null, dopo: nodoDaVoce(v, k, { allegato_id: v.origine.allegato_id, gruppo, rif: v.origine.rif }), origine: "utente" });
+    }
+    const chiave = (rif) => presenti.get(rif) || nuovi.get(rif) || "";
+    for (const a of arr(reg.proposta && reg.proposta.archi)) {
+      const nuovo = nuovi.has(a.padre) || nuovi.has(a.figlio);
+      if (!nuovo && !scelteArchi.has(a.padre + ">" + a.figlio)) continue;
+      const p = chiave(a.padre), fi = chiave(a.figlio);
+      if (!p || !fi) continue;
+      azioni.push({ azione: "arco_aggiunto", chiave_bozza: fi, prima: null, dopo: { padre: p, figlio: fi, qta: a.quantita, origine: "step", step: { allegato_id: a.allegato_id, gruppo } }, origine: "utente" });
+    }
+    if (!azioni.length) return false;
+    fai("importati dalla proposta " + nuovi.size + " nodi e " + (azioni.length - nuovi.size) + " legami", azioni);
+  } }]);
+}
+// perchéNoRiparti: «Riparti dalla proposta…» vuole il gruppo corrente della sorgente sulla stessa copia, con la sua
+// impronta di oggi (EM §6.8, §6.4.1; /dati bozza_del_prodotto e gruppi).
+function perchéNoRiparti() {
+  const bp = S.modello && S.modello.bozzaDelProdotto;
+  const sorg = S.salvato && S.salvato.sorgente;
+  if (!ogg(sorg) || !sorg.allegato_id) return "la bozza non viene da uno STEP: si parte dalla proposta dalla Sorgente";
+  if (!bp || bp.bozza_id !== S.bozza.bozza_id || !ogg(bp.gruppo_corrente)) return "il modello non dice il gruppo corrente della sorgente: ↻ Aggiorna";
+  if (bp.gruppo_corrente.come !== "stessa_occorrenza") return "la struttura della bozza non è più proposta su questa copia: usa «Cambia lo STEP della BOM…» dalla Sorgente";
+  const gr = S.modello.gruppi.find((x) => x.chiave === bp.gruppo_corrente.chiave);
+  if (!gr || !gr.impronta_contenuto) return "il modello non dà l'impronta della proposta di oggi";
+  return "";
+}
+// «Riparti dalla proposta…» (MAT BZ-16; EM §6.8): la forma crea con «abbandona», in una transazione. Niente passa dalla
+// bozza di adesso alla nuova: il dialogo lo dice.
+async function apriRiparti() {
+  if (S.coda.length || S.invio) {
+    const ok = await salvaOra();
+    if (!ok) return avvisa("errore", "«Riparti dalla proposta» non parte: le modifiche della bozza non sono salvate.");
+  }
+  const no = perchéNoRiparti();
+  if (no) return avvisa("no", "«Riparti dalla proposta» non parte: " + no + ".");
+  const bp = S.modello.bozzaDelProdotto;
+  const sorg = S.salvato.sorgente;
+  // la proposta di oggi del gruppo corrente (S6): la sua impronta, e il confronto della radice con il prodotto, che
+  // chiede il motivo anche qui (MAT SG-05: è una creazione con partenza «step»)
+  let a;
+  try {
+    a = await P.anteprimaStep(sorg.allegato_id, S.prodotto, { gruppo: bp.gruppo_corrente.chiave });
+  } catch (e) {
+    return avvisa("errore", "La proposta di oggi della sorgente non si legge: " + testoErrore(e));
+  }
+  const gr = arr(a.gruppi).find((x) => x.gruppo === bp.gruppo_corrente.chiave) || null;
+  if (a.errore || a.stato !== "pronta" || !gr || !gr.impronta_contenuto) {
+    return avvisa("no", "«Riparti dalla proposta» non parte: la proposta di oggi della sorgente non è disponibile" + (a.errore ? " (" + a.errore + ")" : "") + ".");
+  }
+  const diverso = a.confronto !== "coincide";
+  const letta = (gr.radice && gr.radice.identita_proposta && gr.radice.identita_proposta.letterale) || "?";
+  apriFinestra("Riparti dalla proposta", h("div", { style: "display:grid;gap:8px" },
+    h("p", {}, "La bozza di adesso si chiude (resta nel registro delle bozze) e se ne apre una nuova, costruita dal server con la proposta di oggi della stessa sorgente. La versione registrata della BOM non cambia."),
+    h("p", { class: "du-nota" }, "Niente della bozza di adesso passa alla nuova; per tenere il lavoro usa «Aggiorna alla proposta di oggi». Le preassociazioni non passano alla bozza nuova."),
+    diverso ? h("p", { class: "du-nota", id: "f-radice-diversa" }, "Il codice letto dalla radice dello STEP (", h("span", { class: "du-mono" }, letta), ") non è quello del prodotto (",
+      h("span", { class: "du-mono" }, a.codice_prodotto || codiceProdotto()), "): il motivo vale anche per questo.") : null,
+    campo("Motivo", area("f-motivo", "perché riparti dalla proposta"))),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Riparti dalla proposta", danger: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: async () => {
+    const motivo = valore($("#du-finestra"), "f-motivo");
+    const crea = { partenza: "step", sorgente: { allegato_id: sorg.allegato_id, sha256: sorg.sha256, gruppo: bp.gruppo_corrente.chiave }, impronta_contenuto: gr.impronta_contenuto,
+      abbandona: { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione, motivo } };
+    if (diverso) crea.motivo = motivo;
+    const r = await P.creaBozza({ bozza_id: null, versione_attesa: 0, prodotto_id: S.prodotto, vocabolario: 2, crea });
+    return dopoFormaServer(r, "Bozza ripartita dalla proposta dello STEP: quella di prima è abbandonata.");
+  } }]);
 }
 function preassocia(pid, k) {
   if (!pid || !k) return;

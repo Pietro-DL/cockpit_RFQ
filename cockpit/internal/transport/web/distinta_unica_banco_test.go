@@ -221,7 +221,9 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 		saldatura("#31", "1"), saldatura("#32", "2"), saldatura("#33", "3"),
 		bdVoce(allegato, sha, "#40", "WELDED SUPPORT", "ACM-1400", "A", "sottoassieme", cli, "acme", []string{"#1"}, false),
 		bdVoce(allegato, sha, "#41", "Piede", "ACM-1410", "A", "sciolto", cli, "acme", []string{"#40"}, true),
+		bdVoce(allegato, sha, "#50", "Coperchio", "ACM-1500", "A", "sciolto", cli, "acme", []string{"#1"}, true),
 	}
+	nodi[10].(m)["stato_motore"] = m{"raggiunto": true, "tolto": true, "deciso": false}
 	nodi[1].(m)["associazioni_proposte"] = []any{m{"allegato_id": bdA2, "motivo": "codice e rev nel nome del file", "livello": "forte"}}
 	nodi[3].(m)["associazioni_proposte"] = []any{m{"allegato_id": bdA3, "motivo": "codice nel nome del file", "livello": "medio"}}
 	nodi[2].(m)["riferimenti"] = []any{m{"tipo": "documentale", "valore": "400123", "esito": "concorde", "fonte": "cartiglio"},
@@ -231,7 +233,7 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 		nodi[3].(m)["identita_proposta"] = bdLettura(allegato, "l:#11", "ACM-1121", cli, "acme")
 	}
 	archi := []any{}
-	for _, x := range [][3]any{{"#1", "#7", 1}, {"#7", "#9", 2}, {"#7", "#11", 4}, {"#7", "#12", 2}, {"#7", "#31", 1}, {"#7", "#32", 1}, {"#7", "#33", 1}, {"#1", "#40", 1}, {"#40", "#41", 2}} {
+	for _, x := range [][3]any{{"#1", "#7", 1}, {"#7", "#9", 2}, {"#7", "#11", 4}, {"#7", "#12", 2}, {"#7", "#31", 1}, {"#7", "#32", 1}, {"#7", "#33", 1}, {"#1", "#40", 1}, {"#40", "#41", 2}, {"#1", "#50", 1}} {
 		archi = append(archi, m{"allegato_id": allegato, "padre": "nodo:" + sha + ":" + x[0].(string), "figlio": "nodo:" + sha + ":" + x[1].(string), "quantita": x[2], "occorrenze": []any{}})
 	}
 	gruppo := bdGruppo(allegato, sha)
@@ -243,7 +245,7 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 		"proposta": m{"fonte": m{"allegato_id": allegato, "sha256": sha, "nome_ricevuto": b.fileDi(allegato).Nome}, "nodi": nodi, "archi": archi,
 			"relazioni": []any{m{"voce": "r:1", "id_motore": "rel-1", "tipo": "documentato_da", "stato": "proposta", "sorgente": m{"tipo": "nodo", "voce": nodi[2].(m)["voce"]},
 				"lettura_sorgente": allegato + "/l:#9", "letture_bersaglio": []any{bdA5 + "/l:dxf"}, "evidenze": []any{"u:dxf"}}},
-			"file": []any{}, "fuori_per_decisione": []any{}, "diagnostiche": []any{}},
+			"file": []any{}, "fuori_per_decisione": []any{m{"voce": nodi[10].(m)["voce"], "segno": "tolto", "autore": "AD", "motivo": "coperchio fornito a parte"}}, "diagnostiche": []any{}},
 		"allegati_citati": []any{allegato, bdA2, bdA3, bdA5}}
 	contenuto["impronta_contenuto"] = bdSha(fmt.Sprintf("contenuto|%s|%d", gruppo, versione))
 	contenuto["impronta_evidenze"] = bdSha("evidenze|" + gruppo)
@@ -265,9 +267,14 @@ func (b *bancoDU) statoDiPartenza(reg m, impronta string) m {
 	sha := reg["gruppo"].(m)["sha256"].(string)
 	chiave := func(rif string) string { return "k-" + strings.TrimPrefix(rif[strings.LastIndex(rif, ":")+1:], "#") }
 	nodi := []any{}
+	inclusi := map[string]bool{}
 	for _, x := range prop["nodi"].([]any) {
 		v := x.(m)
 		o := v["origine"].(m)
+		if sm, _ := v["stato_motore"].(m); sm["tolto"] == true || sm["raggiunto"] == false {
+			continue
+		}
+		inclusi[bdStr(o["rif"])] = true
 		casella := m{"allegato_id": o["allegato_id"], "gruppo": gruppo, "rif": o["rif"]}
 		k := chiave(o["rif"].(string))
 		if o["chiave"] == "#1" {
@@ -291,6 +298,9 @@ func (b *bancoDU) statoDiPartenza(reg m, impronta string) m {
 	archi := []any{}
 	for _, x := range prop["archi"].([]any) {
 		a := x.(m)
+		if !inclusi[bdStr(a["padre"])] || !inclusi[bdStr(a["figlio"])] {
+			continue
+		}
 		p, f := chiave(a["padre"].(string)), chiave(a["figlio"].(string))
 		if p == "k-1" {
 			p = "k-root"
@@ -631,12 +641,27 @@ func (b *bancoDU) r2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
-	if bz := b.bozze[prod]; bz != nil && bz.Stato == "aperta" {
-		bdKo(w, 409, "BOZZA_VERSIONE", "c'è già una bozza aperta per il prodotto", m{"motivo": "altra_bozza_aperta", "bozza_id": bz.ID})
-		return nil
-	}
 	crea := corpo["crea"].(m)
 	partenza := bdStr(crea["partenza"])
+	abbandona, _ := crea["abbandona"].(m)
+	vecchia := b.bozze[prod]
+	if vecchia != nil && vecchia.Stato == "aperta" {
+		if abbandona == nil {
+			bdKo(w, 409, "BOZZA_VERSIONE", "c'è già una bozza aperta per il prodotto", m{"motivo": "altra_bozza_aperta", "bozza_id": vecchia.ID})
+			return nil
+		}
+		if bdStr(abbandona["bozza_id"]) != vecchia.ID || bdNum(abbandona["versione_attesa"]) != vecchia.Versione {
+			bdKo(w, 409, "BOZZA_VERSIONE", "La bozza da abbandonare è cambiata.", m{"motivo": "versione_diversa", "versione": vecchia.Versione})
+			return nil
+		}
+		if partenza != "step" || bdStr(abbandona["motivo"]) == "" {
+			bdKo(w, 422, "CORPO_NON_VALIDO", "la ripartenza è dalla proposta, con il motivo", m{"motivo": "partenza_non_ammessa"})
+			return nil
+		}
+	} else if abbandona != nil {
+		bdKo(w, 409, "BOZZA_VERSIONE", "la bozza da abbandonare è chiusa", m{"motivo": "bozza_chiusa"})
+		return nil
+	}
 	b.nBozze++
 	bz := &bozzaBanco{ID: fmt.Sprintf("00000000-0000-4000-8000-0000000b%04d", b.nBozze), Stato: "aperta", Versione: 1, Creata: time.Now().UTC()}
 	switch partenza {
@@ -661,6 +686,10 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 		b.registri[imp] = reg
 		bz.Registro = imp
 		bz.Snapshot = b.statoDiPartenza(reg, imp)
+		if abbandona != nil && vecchia != nil {
+			vecchia.Stato = "abbandonata"
+			b.conti["ripartenze"]++
+		}
 		b.bozze[prod] = bz
 		b.eventoServer(bz, "bozza_aperta", m{"partenza": "step", "importazione": imp})
 		b.eventoServer(bz, "sorgente_scelta", m{"allegato_id": a, "gruppo": reg["gruppo"].(m)["chiave"]})
@@ -881,8 +910,8 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		avvisi = append(avvisi, m{"codice": "SEGNALATI_INCLUSI", "testo": fmt.Sprintf("%d nodi segnalati come possibili elementi CAD stanno per diventare componenti.", len(segnalatiInclusi)), "chiavi": segnalatiInclusi})
 	}
 	mancanti := 0
-	for v := range voci {
-		if !presenti[v] {
+	for k, v := range voci {
+		if sm, _ := v["stato_motore"].(m); !presenti[k] && sm["tolto"] != true {
 			mancanti++
 		}
 	}

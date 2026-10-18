@@ -39,18 +39,20 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   17 abbandono esplicito del tentativo in sospeso, poi «Abbandona la bozza...» (R3)
   18 proposta cambiata: striscia, «Vedi le differenze» (R1 ?confronto=1), «Aggiorna alla proposta di oggi...»
   19 «Cambia lo STEP della BOM...»: l'effetto da S6 prima del gesto, il motivo, cambia_sorgente
-  20 file: «Scarta...» con le dipendenze (D-6 blocca, D-7 scollega, D-14 unica copia), l'archivio con le voci, «Altri
+  20 «Importa dalla proposta...» (selettivo, nessun elemento preselezionato, identita' delle regole della partenza)
+     e «Riparti dalla proposta...» (crea con abbandona): niente della bozza di prima passa alla nuova
+  21 file: «Scarta...» con le dipendenze (D-6 blocca, D-7 scollega, D-14 unica copia), l'archivio con le voci, «Altri
      file» e «Riattiva», 503 NON_CONFIGURATO
-  21 S2 con la risposta persa: «Esito da verificare», R6 con la stessa chiave, «registrato»
-  22 S3 mai arrivata: R6 «non registrato», la pagina ricaricata ritrova il tentativo, «Riprova» dalla striscia con lo
+  22 S2 con la risposta persa: «Esito da verificare», R6 con la stessa chiave, «registrato»
+  23 S3 mai arrivata: R6 «non registrato», la pagina ricaricata ritrova il tentativo, «Riprova» dalla striscia con lo
      stesso corpo e la stessa chiave
-  23 «+ Aggiungi file» (E1'): esito per file, «parziale», analisi in corso e poi letto, reinvio «gia' presente»
-  24 gli atti del menu («Prepara i file» senza «auto», «Rifai l'analisi», «Riprova le copie») e «Revoca» con il motivo;
+  24 «+ Aggiungi file» (E1'): esito per file, «parziale», analisi in corso e poi letto, reinvio «gia' presente»
+  25 gli atti del menu («Prepara i file» senza «auto», «Rifai l'analisi», «Riprova le copie») e «Revoca» con il motivo;
      R11 «Riallinea i documenti» con F8 in errore; «Apri» e' un link a S5, mai una fetch
-  25 secondo prodotto: lo STEP che non propone una struttura per il prodotto non inventa niente
-  26 D-18: il modello che non si calcola (200 con «errore»): striscia, niente tela; «Aggiorna» lo rifa'
-  27 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
-  28 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
+  26 secondo prodotto: lo STEP che non propone una struttura per il prodotto non inventa niente
+  27 D-18: il modello che non si calcola (200 con «errore»): striscia, niente tela; «Aggiorna» lo rifa'
+  28 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
+  29 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
 
 I clienti, i codici e i nomi dei file sono inventati (ACME, BETA, ACM-xxxx).
 """
@@ -885,11 +887,62 @@ def b19(b):
     expect(p.locator("#du-riallinea-da-step")).to_be_visible(timeout=T_LUNGO)
 
 
-@prova("20", "file: Scarta (D-6, D-7, D-14, archivio), Altri file, Riattiva, 503 NON_CONFIGURATO")
+@prova("20", "«Importa dalla proposta…» (BZ-15) e «Riparti dalla proposta…» (BZ-16)")
 def b20(b):
+    p = b.page
+    a10 = b.al["ACM-1000_rev2.stp"]
+    b.passo("revisione")
+    b.vista("org")
+    expect(p.locator("#du-proposta-step")).to_be_visible(timeout=T_LUNGO)
+    i = b.segna()
+    p.click("#du-importa")
+    elenco = p.locator("#f-importa")
+    expect(elenco).to_contain_text("ACM-1500")
+    expect(elenco).to_contain_text("tolto nella proposta")
+    verifica(p.locator("#f-importa input:checked").count() == 0, "elementi preselezionati nell'import")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.locator("#f-importa label", has_text="ACM-1500").locator("input").check()
+    b.ok_finestra()
+    expect(p.locator("#du-vp .du-nc", has_text="ACM-1500")).to_have_count(1)
+    b.salvata(4)
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    nodi = [a["dopo"] for a in az if a["azione"] == "nodo_aggiunto"]
+    archi = [a["dopo"] for a in az if a["azione"] == "arco_aggiunto"]
+    verifica(len(nodi) == 1 and len(archi) == 1 and len(az) == 2, "azioni dell'import: %s" % [a["azione"] for a in az])
+    nodo, arco = nodi[0], archi[0]
+    verifica(nodo["origine"] == "step" and nodo["op"] == "crea" and nodo["identita"]["modo"] == "proposta" and nodo["identita"]["codice"] == "ACM-1500"
+             and nodo["caselle"][0]["rif"].endswith(":#50") and nodo["caselle"][0]["gruppo"].startswith("cand:") and nodo["caselle"][0]["allegato_id"] == a10,
+             "nodo importato: %s" % nodo)
+    verifica(arco["padre"] == "k-root" and arco["figlio"] == nodo["chiave_bozza"] and arco["qta"] == 1 and arco["origine"] == "step"
+             and arco["step"] == {"allegato_id": a10, "gruppo": nodo["caselle"][0]["gruppo"]}, "legame importato: %s" % arco)
+    # «Riparti dalla proposta…»: la bozza di adesso si abbandona, la nuova nasce dalla proposta di oggi
+    i = b.segna()
+    p.click("#du-riparti")
+    expect(b.finestra()).to_contain_text("Niente della bozza di adesso passa alla nuova")
+    expect(b.finestra()).to_contain_text("Le preassociazioni non passano alla bozza nuova.")
+    # la radice dello STEP rev D non ha il codice del prodotto: il motivo vale anche per la creazione (MAT SG-05)
+    expect(p.locator("#f-radice-diversa")).to_contain_text("ACM-1000-R2")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.fill("#f-motivo", "si riparte dalla proposta della rev D")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Bozza ripartita dalla proposta dello STEP", timeout=T_LUNGO)
+    b.salvata(1)
+    expect(p.locator("#du-vp .du-nc", has_text="ACM-1500")).to_have_count(0)
+    c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
+    verifica(c["bozza_id"] is None and c["versione_attesa"] == 0 and c["crea"]["partenza"] == "step" and c["crea"]["sorgente"]["allegato_id"] == a10
+             and c["crea"]["abbandona"]["versione_attesa"] == 4 and c["crea"]["abbandona"]["motivo"] and len(c["crea"]["impronta_contenuto"]) == 64
+             and c["crea"].get("motivo") == c["crea"]["abbandona"]["motivo"], "corpo della ripartenza: %s" % c)
+    verifica(b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$"), "«Riparti» senza la proposta di oggi della sorgente (S6)")
+    verifica(b.stato()["conti"].get("ripartenze") == 1, "il banco non ha visto la ripartenza")
+
+
+@prova("21", "file: Scarta (D-6, D-7, D-14, archivio), Altri file, Riattiva, 503 NON_CONFIGURATO")
+def b21(b):
     p = b.page
     a = b.al
     ok = p.locator("#du-finestra #f-ok")
+    b.passo("sorgente")
+    p.click("#du-cartella-attivi")
     # D-6: la fonte della bozza blocca
     p.click("#du-scarta-" + sid(a["ACM-1000_rev2.stp"]))
     expect(p.locator('#f-dipendenze li[data-codice="D-6"][data-esito="blocca"]')).to_be_visible(timeout=T_LUNGO)
@@ -961,8 +1014,8 @@ def b20(b):
     verifica(not b.sospesi(), "un 503 ha lasciato la chiave in sospeso")
 
 
-@prova("21", "S2 con la risposta persa: «Esito da verificare», R6 con la stessa chiave, «registrato»")
-def b21(b):
+@prova("22", "S2 con la risposta persa: «Esito da verificare», R6 con la stessa chiave, «registrato»")
+def b22(b):
     p = b.page
     a4 = b.al["SCHEMA_GENERALE.pdf"]
     g = perdi_la_risposta()
@@ -986,8 +1039,8 @@ def b21(b):
     expect(p.locator("#du-cartella-scartati")).to_have_text("Scartati (5)", timeout=T_LUNGO)
 
 
-@prova("22", "S3 mai arrivata: R6 «non registrato», ricarica, «Riprova» dalla striscia con la stessa chiave")
-def b22(b):
+@prova("23", "S3 mai arrivata: R6 «non registrato», ricarica, «Riprova» dalla striscia con la stessa chiave")
+def b23(b):
     p = b.page
     a3 = b.al["ACM-1120_B.pdf"]
     risorsa = "file:" + a3
@@ -1028,8 +1081,8 @@ def b22(b):
     verifica(b.stato()["file"]["ACM-1120_B.pdf"]["stato"] == "altri_file", "il file non è in Altri file nel banco")
 
 
-@prova("23", "«+ Aggiungi file» (E1′): parziale per file, in analisi poi letto, «già presente»")
-def b23(b):
+@prova("24", "«+ Aggiungi file» (E1′): parziale per file, in analisi poi letto, «già presente»")
+def b24(b):
     p = b.page
     p.click("#du-cartella-attivi")
     i = b.segna()
@@ -1056,8 +1109,8 @@ def b23(b):
     expect(esiti.locator('li[data-esito="gia_presente"]')).to_contain_text("già presente", timeout=T_LUNGO)
 
 
-@prova("24", "atti del menu e «Revoca»; R11 con F8 in errore; «Apri» è un link a S5")
-def b24(b):
+@prova("25", "atti del menu e «Revoca»; R11 con F8 in errore; «Apri» è un link a S5")
+def b25(b):
     p = b.page
     i = b.segna()
     p.click("#du-menu-rfq summary")
@@ -1108,8 +1161,8 @@ def b24(b):
     verifica(not b.richieste_da(i, "GET", r"/contenuto$"), "la pagina ha chiesto S5 con una fetch")
 
 
-@prova("25", "secondo prodotto: indirizzo, nessuna struttura inventata")
-def b25(b):
+@prova("26", "secondo prodotto: indirizzo, nessuna struttura inventata")
+def b26(b):
     p = b.page
     a10 = b.al["ACM-1000_rev2.stp"]
     tab2 = p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)
@@ -1130,8 +1183,8 @@ def b25(b):
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
 
 
-@prova("26", "D-18: il modello che non si calcola: striscia, niente tela; «Aggiorna» lo rifà")
-def b26(b):
+@prova("27", "D-18: il modello che non si calcola: striscia, niente tela; «Aggiorna» lo rifà")
+def b27(b):
     p = b.page
     b.passo("revisione")
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
@@ -1147,8 +1200,8 @@ def b26(b):
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
 
 
-@prova("27", "impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale")
-def b27(b):
+@prova("28", "impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale")
+def b28(b):
     p = b.page
     misura = "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
     try:
@@ -1189,8 +1242,8 @@ ATTI = [
 ]
 
 
-@prova("28", "richieste della pagina: guscio, statici, rotte del ponte, sei atti; nessun legacy")
-def b28(b):
+@prova("29", "richieste della pagina: guscio, statici, rotte del ponte, sei atti; nessun legacy")
+def b29(b):
     def compila(elenco):
         return [(m, re.compile("^" + r.replace("{T}", re.escape(b.thread)).replace("{U}", UUID) + "$")) for m, r in elenco]
     guscio, dedicate, atti = compila(GUSCIO), compila(DEDICATE), compila(ATTI)
