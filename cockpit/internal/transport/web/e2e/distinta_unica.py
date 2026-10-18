@@ -84,7 +84,21 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   44 401 durante un salvataggio: si resta, «Riprova ora» con la stessa chiave_salvataggio
   45 «Verifica ora» di un gesto dei file in sospeso non butta le modifiche della bozza in volo
   46 con una conferma in sospeso «Aggiorna alla proposta di oggi...», «Abbandona la bozza...» e i gesti sono spenti
-  47 «Converti...», mono_pezzo, R5 da verificare con il wizard chiuso, «Parti dalla BOM registrata»
+  47 «Converti...», mono_pezzo, R5 da verificare con il wizard chiuso; WZ-01 con la partenza «registrato» (decisioni
+     dell'ondata A, §5 n. 1 e PE-23): con conferme formato 3 «Parti dalla BOM registrata» non si offre, e una bozza
+     «registrato» aperta altrove senza modifiche ha il CTA spento
+  dall'ondata B (le decisioni dell'ondata A nella pagina, con le prove dei rilievi aperti):
+  48 le modifiche tenute da parte ricordano prodotto e bozza: il prodotto non cambia senza una scelta, «Riapplica» su
+     un'altra bozza chiede conferma, l'uscita dalla pagina chiede conferma (§5 n. 2)
+  52 PE-23: una base formato 2 (la prima conferma formato 3 è ammessa senza modifiche), la conferma dalla fase 2 con la
+     pagina che non si rilegge e senza errori JavaScript, «registrato» non offerto dopo, uguale_alla_base di R4 dopo un
+     annullamento netto, NESSUNA_MODIFICA di R5
+  54 P-6: il nodo del prodotto segnalato non si «Non include» (casella spenta, «Seleziona tutti i segnalati» lo salta)
+  55 P-7 e PE-09: «Cambia tipo» di un registrato con la variante di R1 e cambia_tipo{componente_id, tipo_nuovo, firma}
+  56 P-15 e P-18 nei dialoghi (codice, rev e descrizione; il codice che non si svuota; la rev della working che non si
+     tocca); «Adotta come codice» con la proiezione e la rev proposta (PE-08)
+  50 E1' lento che avanza: oltre i 120 s delle chiamate JSON, con l'avanzamento, il file entra (§5 n. 3)
+  51 E1' fermo: nessun byte per il tempo d'inattività, il caricamento si ferma e lo dice (§5 n. 3)
   34 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
   49 (per ultima, dopo la 34: esce dalla sessione) all'uscita («esci» del layout) le chiavi cockpit.du. della memoria
      della scheda si tolgono, le altre restano (richiesta R-3 della corsia)
@@ -180,6 +194,11 @@ class Banco:
     def bozza_formato2(self):
         r = self.page.request.post(self.url + "/__banco/bozza-formato2")
         verifica(r.status == 204, "la sonda non ha creato la bozza del formato di prima: %d" % r.status)
+
+    def sonda_post(self, percorso):
+        """Un gesto della sonda dell'ondata B (conferma-formato2, bozza-registrato, sostituisci-bozza): 204 atteso."""
+        r = self.page.request.post(self.url + "/__banco/" + percorso)
+        verifica(r.status == 204, "la sonda %s ha risposto %d" % (percorso, r.status))
 
     def proposta_di(self, nome_file):
         """La proposta di un file, anche caricato durante le prove (la sonda la rilegge)."""
@@ -1532,7 +1551,7 @@ def b29(b):
     expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
 
 
-@prova("30", "Elenco: filtri e ricerca (EL-01), «Accetta le proposte valide» (EL-03), «Confronto con la proposta» (BZ-25)")
+@prova("30", "Elenco: filtri e ricerca (EL-01), «Accetta le proposte (N)» (EL-03, PE-21), «Confronto con la proposta» (BZ-25)")
 def b30(b):
     p = b.page
     b.passo("revisione")
@@ -1552,9 +1571,15 @@ def b30(b):
     p.click("#du-filtro-azzera")
     expect(righe).to_have_count(10)
     i = b.segna()
-    p.click("#du-accetta-valide")
+    # PE-21 (decisioni dell'ondata A): il pulsante si chiama «Accetta le proposte (N)», senza «valide» (la validità la dice
+    # R4 dopo il salvataggio) e senza preselezione
+    bt = p.locator("#du-accetta-valide")
+    verifica(re.fullmatch(r"Accetta le proposte \(\d+\)", bt.inner_text().strip()) is not None, "nome del pulsante dell'accettazione cumulativa: %r" % bt.inner_text())
+    bt.click()
+    expect(b.finestra()).to_contain_text("Accetta le proposte")
+    verifica("valide" not in b.finestra().inner_text(), "il dialogo dice ancora «proposte valide»")
     elenco = p.locator("#f-proposte input")
-    verifica(elenco.count() >= 1 and p.locator("#f-proposte input:checked").count() == 0, "«Accetta le proposte valide»: %d proposte, preselezioni presenti" % elenco.count())
+    verifica(elenco.count() >= 1 and p.locator("#f-proposte input:checked").count() == 0, "«Accetta le proposte»: %d proposte, preselezioni presenti" % elenco.count())
     expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
     p.locator("#f-proposte label", has_text="ACM-1100_A.pdf").locator("input").check()
     b.ok_finestra()
@@ -1748,7 +1773,7 @@ def b35(b):
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
 
 
-@prova("36", "§4.3 righe 3 e 4: «Escludi» un registrato (scelta per le AR, documenti confermati elencati, file nel vassoio) e «Ripristina»")
+@prova("36", "§4.3 righe 3 e 4: «Escludi» un registrato (scelta per le AR, documenti confermati, file nel vassoio con nodo_escluso, svincoli con da_decisione) e «Ripristina» dopo una ricarica")
 def b36(b):
     p = b.page
     pid = b.proposta_di("NUOVO_DISEGNO.pdf")
@@ -1783,18 +1808,39 @@ def b36(b):
     def forma(a):
         d = a.get("dopo") or {}
         return (a["azione"], d.get("motivo") if a["azione"] == "file_svincolato" else d.get("op") or d.get("tipo"))
-    verifica([forma(a) for a in az] == [("file_svincolato", "nodo_tolto"), ("nodo_modificato", "esclude"), ("decisione_aggiunta", "escludi"), ("decisione_aggiunta", "scollega_documento")],
+    # PE-22: le preassociazioni di un registrato escluso vanno nel vassoio con nodo_escluso (non nodo_tolto)
+    verifica([forma(a) for a in az] == [("file_svincolato", "nodo_escluso"), ("nodo_modificato", "esclude"), ("decisione_aggiunta", "escludi"), ("decisione_aggiunta", "scollega_documento")],
              "«Escludi» con «Scollega alla conferma»: %s" % [forma(a) for a in az])
     es, sv = az[2]["dopo"], az[3]["dopo"]
-    verifica(sv["proposta_id"] == b.pr["ACM-1400_A.pdf"] and sv["id"].startswith(es["id"] + ".sv") and sv["componente_id"] == es["componente_id"], "svincolo dell'esclusione: %s" % sv)
+    # PE-27: lo svincolo cita l'esclusione in da_decisione, al posto della convenzione .svN; il motivo è quello
+    # dell'esclusione
+    verifica(sv["proposta_id"] == b.pr["ACM-1400_A.pdf"] and sv.get("da_decisione") == es["id"] and ".sv" not in sv["id"] and sv["componente_id"] == es["componente_id"]
+             and sv.get("motivo") == es["motivo"], "svincolo dell'esclusione: %s" % sv)
+    # la chiave_bozza degli eventi di escludi e scollega_documento, tipi senza il campo: null, come la deduce il server
+    # (EM §9.2, tabella delle forme; RPC PD-08)
+    verifica(az[2]["chiave_bozza"] is None and az[3]["chiave_bozza"] is None and az[0]["chiave_bozza"] == "k-40" and az[1]["chiave_bozza"] == "k-40",
+             "chiave_bozza degli eventi dell'esclusione: %s" % [(a["azione"], a["chiave_bozza"]) for a in az])
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     b.vista("elenco")
     expect(p.locator("#el-k-40")).to_contain_text("⊘ da scollegare")
     expect(p.locator("#el-k-40")).to_contain_text("✓ confermato")
     expect(p.locator("#du-vassoio")).to_contain_text("NUOVO_DISEGNO.pdf")
-    # riga 4: «↺ Ripristina» toglie esclusione e svincoli, e il file torna preassociato con un evento esplicito
+    expect(p.locator("#du-vassoio [data-du-motivo=nodo_escluso]")).to_contain_text("pezzo escluso (nodo_escluso)")
+    # un pezzo escluso non riceve preassociazioni (P-15): nel vassoio «Preassocia al nodo scelto» è spento con il motivo
+    p.click("#el-k-40 .du-el-nodo")
+    bt = p.locator("#du-ricolloca-" + sid(pid))
+    expect(bt).to_be_disabled()
+    verifica("escluso" in (bt.get_attribute("title") or ""), "«Preassocia al nodo scelto» su un pezzo escluso, senza il motivo: %r" % bt.get_attribute("title"))
+    # riga 4, dopo una ricarica (la pila e il giornale riletti da R1): «↺ Ripristina» toglie l'esclusione e lo svincolo
+    # che la cita, e il file torna preassociato con un evento esplicito
+    p.reload()
+    b.pronta()
+    b.passo("revisione")
     b.vista("org")
     b.scheda("k-40")
+    b.linguetta("documenti")
+    expect(p.locator("#du-doc-preassocia")).to_contain_text("Il pezzo è escluso")
+    verifica(p.locator("#du-pannello-file").count() == 0, "il pannello di un pezzo escluso offre ancora «Preassocia»")
     b.linguetta("dettaglio")
     i = b.segna()
     p.click("#du-ripristina")
@@ -1889,6 +1935,11 @@ def b38(b):
     b.linguetta("dettaglio")
     rif = p.locator('#du-sez-riferimenti li[data-du-riferimento="equivalente_k4"]')
     expect(rif).to_contain_text("400777")
+    # «Adotta come codice…» del P/N K4: la lettura del codice della parte nel PDF della prova non è nel registro del banco,
+    # quindi il gesto è spento con il motivo (e la pagina non va in errore cercandola)
+    ad = rif.locator("button", has_text="Adotta come codice")
+    expect(ad).to_be_disabled()
+    verifica("PDF della prova" in (ad.get_attribute("title") or ""), "«Adotta come codice» del P/N K4 senza il motivo: %r" % ad.get_attribute("title"))
     bt = p.locator("#du-conferma-identita")
     expect(bt).to_be_enabled()
     i = b.segna()
@@ -1902,7 +1953,14 @@ def b38(b):
     dec = az[0]["dopo"]
     verifica([a["azione"] for a in az] == ["decisione_aggiunta", "nodo_modificato"] and dec["tipo"] == "identita" and dec["modo"] == "alternativa"
              and dec["chiave_lettura"].endswith("/l:#41") and dec["lettura"]["letterale"] == "ACM-1410" and dec["identita"]["codice"] == "ACM-1410"
-             and dec["motivo"] and len(dec["importazione"]) == 64 and az[1]["dopo"]["identita"]["decisione"] == dec["id"], "rifiuto del P/N K4: %s" % az)
+             and dec["motivo"] and len(dec["importazione"]) == 64 and az[1]["dopo"]["identita"]["decisione"] == dec["id"]
+             and az[0]["chiave_bozza"] == "k-41", "rifiuto del P/N K4: %s" % az)
+    # la copia compatta della lettura come la rilegge il registro (R-7 della persistenza): i soli campi della copia, i
+    # vuoti tolti anche dentro qualificatori e revisione (qui qualificatori {affissi: []} e revisione null: assenti)
+    cl = dec["lettura"]
+    verifica(set(cl) <= {"emittente", "hash_grammatica", "namespace", "letterale", "base", "qualificatori", "revisione"} and "qualificatori" not in cl and "revisione" not in cl
+             and cl["base"] == {"originale": "ACM-1410", "normalizzata": "ACM-1410"} and cl["emittente"].startswith("cliente:") and cl["namespace"] == "acme"
+             and len(cl["hash_grammatica"]) == 64, "copia compatta della lettura: %s" % cl)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     expect(p.locator("#du-conferma-identita")).to_be_disabled()
     verifica("già decisa" in (p.locator("#du-conferma-identita").get_attribute("title") or ""), "«Conferma l'identità proposta» spento senza il motivo")
@@ -2518,7 +2576,7 @@ def b46(b):
     verifica(not b.sospesi(), "il tentativo abbandonato resta nella memoria della scheda")
 
 
-@prova("47", "«Converti…» (BZ-22), mono_pezzo nel wizard (BZ-14), R5 da verificare con il wizard chiuso, «Parti dalla BOM registrata» (BZ-21)")
+@prova("47", "«Converti…» (BZ-22), mono_pezzo nel wizard (BZ-14), R5 da verificare con il wizard chiuso; WZ-01 con la partenza «registrato» (PE-23)")
 def b47(b):
     p = b.page
     b.passo("revisione")
@@ -2569,13 +2627,465 @@ def b47(b):
     b.striscia_sospesa().locator("button", has_text="Abbandona il tentativo").click()
     b.ok_finestra()
     expect(b.striscia_sospesa()).to_have_count(0)
-    # «Parti dalla BOM registrata»: la prima conferma da lì è ammessa anche senza modifiche (WZ-01)
+    # WZ-01 con la partenza «registrato» (decisioni dell'ondata A, §5 n. 1 e PE-23): il prodotto ha conferme formato 3,
+    # quindi «Parti dalla BOM registrata» non si offre (spento, con il motivo scritto accanto); prima la pagina la offriva
+    # e il CTA restava acceso, e una conferma n+1 uguale alla n passava
     p.click("#du-abbandona")
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
-    p.click("#du-da-registrato")
+    reg = p.locator("#du-da-registrato")
+    expect(reg).to_be_disabled()
+    verifica("conferma del formato 3" in (reg.get_attribute("title") or ""), "«Parti dalla BOM registrata» spento senza il motivo: %r" % reg.get_attribute("title"))
+    expect(p.locator("#du-nessuna-bozza")).to_contain_text("il prodotto ha già una conferma del formato 3")
+    expect(p.locator("#du-da-conferma")).to_be_enabled()
+    # una bozza «registrato» aperta altrove sullo stesso prodotto (la pagina nuova non la offre, ma una bozza così può
+    # esserci): la base è l'ultima conferma valida formato 3 e non ci sono gesti, quindi CTA e «Conferma BOM» spenti
+    n_r5 = b.stato()["conti"].get("R5", 0)
+    b.sonda_post("bozza-registrato")
+    p.click("#du-aggiorna")
     b.salvata(1)
+    cta = p.locator("#du-cta-bom")
+    expect(cta).to_be_disabled()
+    verifica("nessuna modifica: la v3 è già confermata" in (cta.get_attribute("title") or ""), "CTA della bozza «registrato» senza modifiche: %r" % cta.get_attribute("title"))
+    verifica(b.stato()["conti"].get("R5", 0) == n_r5, "una conferma registrata dalla bozza «registrato» senza modifiche")
+
+
+def tab_prodotto(b, prodotto):
+    return b.page.locator('.du-ptab[data-prodotto="%s"]' % prodotto)
+
+
+def conflitto_e_rileggi(b, descrizione):
+    """Un gesto sul nodo del prodotto (la descrizione) con il salvataggio in conflitto (409), poi «Rileggi la bozza
+    salvata»: la modifica va da parte."""
+    p = b.page
+    b.modo("R2", "409")
+    b.scheda("k-root")
+    b.linguetta("dettaglio")
+    p.click("#du-correggi")
+    p.fill("#f-desc", descrizione)
+    b.ok_finestra()
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "conflitto", timeout=T_LUNGO)
+    p.click("#du-rileggi-bozza")
+    expect(p.locator("#du-da-parte")).to_be_visible(timeout=T_LUNGO)
+
+
+@prova("48", "modifiche tenute da parte: il prodotto non cambia senza una scelta, «Riapplica» su un'altra bozza chiede conferma, l'uscita chiede conferma (§5 n. 2)")
+def b48(b):
+    p = b.page
+    b.passo("revisione")
+    b.vista("org")
+    n_r2 = b.stato()["conti"]["R2"]
+    conflitto_e_rileggi(b, "Confezionatrice MX-1, rivista")
+    dp = p.locator("#du-da-parte")
+    expect(dp).to_contain_text("di ACM-1000 tenute da parte")
+    # il cambio di prodotto: la scelta si fa prima (decisioni dell'ondata A, §5 n. 2); «Resta» lascia tutto com'era
+    tab_prodotto(b, b.p2).click()
+    expect(b.finestra()).to_contain_text("Prima di passare a ACM-2000", timeout=T_LUNGO)
+    expect(p.locator("#f-da-parte-cambio")).to_contain_text("corretto")
+    b.finestra().locator("button", has_text="Resta su ACM-1000").click()
+    expect(b.finestra()).to_be_hidden()
+    expect(tab_prodotto(b, b.p1)).to_have_attribute("aria-current", "true")
+    expect(dp).to_be_visible()
+    expect(p.locator("#du-riapplica")).to_be_enabled()
+    verifica(b.stato()["conti"]["R2"] == n_r2, "il conflitto o la scelta del prodotto hanno scritto la bozza")
+    # uscire dalla pagina con modifiche tenute da parte chiede conferma (beforeunload): si resta, e le modifiche ci sono
+    n_bu = b.beforeunload
+    b.consenti_beforeunload = True
+    try:
+        p.evaluate("() => { location.href = location.href; }")
+        b.attendi(lambda: b.beforeunload > n_bu, "uscendo con le modifiche tenute da parte la pagina non chiede conferma")
+    finally:
+        b.consenti_beforeunload = False
+    expect(dp).to_be_visible()
+    # «Scartale e passa a ACM-2000»: le modifiche si perdono, il prodotto cambia, e niente arriva alla bozza del secondo
+    tab_prodotto(b, b.p2).click()
+    expect(b.finestra()).to_contain_text("Prima di passare a ACM-2000", timeout=T_LUNGO)
+    i = b.segna()
+    b.ok_finestra()
+    expect(tab_prodotto(b, b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    expect(dp).to_have_count(0)
+    verifica(not b.richieste_da(i, "POST", r"/motore-a/bozza$"), "le modifiche di ACM-1000 sono andate a un salvataggio dopo il cambio di prodotto")
+    tab_prodotto(b, b.p1).click()
+    expect(tab_prodotto(b, b.p1)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    b.passo("revisione")
+    b.vista("org")
+    # la bozza chiusa e riaperta altrove mentre le modifiche sono da parte: «Riapplica» chiede una conferma esplicita,
+    # con l'elenco, e solo dopo le manda alla bozza di adesso
+    conflitto_e_rileggi(b, "Confezionatrice MX-1, seconda prova")
+    vecchia = b.stato()["bozze"][b.p1]["bozza_id"]
+    b.sonda_post("sostituisci-bozza")
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    nuova = b.stato()["bozze"][b.p1]["bozza_id"]
+    verifica(nuova != vecchia, "la sonda non ha sostituito la bozza")
+    expect(dp).to_be_visible()
+    i = b.segna()
+    p.click("#du-riapplica")
+    expect(b.finestra()).to_contain_text("Riapplicare a un'altra bozza?", timeout=T_LUNGO)
+    expect(p.locator("#f-da-parte-altra")).to_contain_text("corretto")
+    verifica(not b.richieste_da(i, "POST", r"/motore-a/bozza$"), "«Riapplica» su un'altra bozza è partito senza la conferma")
+    b.ok_finestra()
+    b.salvata(2)
+    c = b.corpi(i, "POST", r"/motore-a/bozza$")
+    verifica(len(c) == 1 and c[0]["bozza_id"] == nuova and c[0]["versione_attesa"] == 1 and [a["azione"] for a in c[0]["azioni"]] == ["nodo_modificato"]
+             and c[0]["azioni"][0]["dopo"].get("descrizione") == "Confezionatrice MX-1, seconda prova", "la riapplicazione sulla bozza di adesso: %s" % c)
+    expect(dp).to_have_count(0)
+
+
+@prova("52", "PE-23: base formato 2 (la prima conferma formato 3 è ammessa), conferma dalla fase 2 senza rilettura e senza errori, «registrato» non offerto, uguale_alla_base di R4, NESSUNA_MODIFICA di R5")
+def b52(b):
+    p = b.page
+    # il secondo prodotto ha una sola conferma, formato 2 (della pagina vecchia)
+    b.sonda_post("conferma-formato2")
+    tab_prodotto(b, b.p2).click()
+    expect(tab_prodotto(b, b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    b.passo("revisione")
+    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-da-registrato")).to_be_enabled()
+    expect(p.locator("#du-da-conferma")).to_be_enabled()
+    # «Modifica la BOM confermata» su una base formato 2: senza modifiche il CTA è acceso, la prima conferma formato 3
+    # aggiunge identità e caselle
+    p.click("#du-da-conferma")
+    b.salvata(1)
+    b.vista("org")
     expect(p.locator("#du-cta-bom")).to_be_enabled()
+    # la conferma dalla fase 2 con l'avviso PRODOTTO_SENZA_FIGLI e le letture di dopo che non rispondono: nessun errore
+    # JavaScript (la fase 2 leggeva lo snapshot della bozza, che dopo la conferma non c'è più), «la pagina non si è
+    # riletta» nel wizard, e sotto il wizard niente bozza
+    errori = []
+    ascolta = lambda e: errori.append(str(e))  # noqa: E731
+    p.on("pageerror", ascolta)
+    try:
+        b.apri_wizard()
+        p.click("#du-wz-fase2")
+        expect(p.locator("#du-wz-avvisi")).to_contain_text("PRODOTTO_SENZA_FIGLI", timeout=T_LUNGO)
+        expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+        letture = re.compile(r"/motore-a/(dati|bozza|conferme)(\?|$)")
+        g = rispondi_json(500, {"esito": "errore", "testo": "errore interno"}, metodo="GET", volte=100)
+        p.route(letture, g)
+        try:
+            p.click("#du-wz-conferma")
+            e = b.esito_wizard()
+            expect(e).to_have_attribute("data-esito", "ok", timeout=T_LUNGO)
+            expect(e).to_contain_text("Conferma n. 2 di ACM-2000")
+            expect(p.locator("#du-wz-non-riletta")).to_contain_text("La conferma n. 2 è registrata; la pagina non si è riletta", timeout=T_LUNGO)
+        finally:
+            p.unroute(letture, g)
+        p.click("#du-wz-rileggi")
+        expect(p.locator("#du-wz-non-riletta")).to_have_count(0, timeout=T_LUNGO)
+        expect(p.locator("#du-wizard-titolo")).to_contain_text("ACM-2000")
+        verifica(not errori, "errori JavaScript dopo la conferma dalla fase 2: %s" % errori)
+        p.click("#du-wz-chiudi")
+        expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    finally:
+        p.remove_listener("pageerror", ascolta)
+    # adesso il secondo prodotto ha una conferma formato 3: «Parti dalla BOM registrata» non si offre, e la bozza dalla
+    # conferma senza modifiche ha il CTA spento
+    expect(p.locator("#du-da-registrato")).to_be_disabled()
+    p.click("#du-da-conferma")
+    b.salvata(1)
+    cta = p.locator("#du-cta-bom")
+    expect(cta).to_be_disabled()
+    verifica("nessuna modifica: la v2 è già confermata" in (cta.get_attribute("title") or ""), "CTA sulla conferma formato 3 senza modifiche: %r" % cta.get_attribute("title"))
+    p.click("#du-abbandona")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
+    tab_prodotto(b, b.p1).click()
+    expect(tab_prodotto(b, b.p1)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    # uguale_alla_base di R4 (il segno del server dal passo 6; nel banco con l'interruttore): R4 decide anche quando il
+    # giornale non basta, cioè dopo un annullamento netto
+    b.interruttore("uguale-alla-base", True)
+    try:
+        b.passo("revisione")
+        b.vista("org")
+        p.click("#du-abbandona")
+        b.ok_finestra()
+        expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
+        p.click("#du-da-conferma")
+        b.salvata(1)
+        expect(cta).to_be_disabled()
+        b.scheda("k-40")
+        b.linguetta("dettaglio")
+        p.click("#du-quantita")
+        p.fill("#f-qta", "3")
+        b.ok_finestra()
+        b.salvata(2)
+        # R4 in sottofondo (i conti della barra) dice uguale_alla_base falso: il CTA è acceso
+        expect(p.locator("#du-conti")).to_contain_text("blocchi", timeout=T_LUNGO)
+        expect(cta).to_be_enabled()
+        p.click("#du-annulla")
+        b.salvata(3)
+        # l'annullamento netto: il giornale ha gli eventi, ma R4 dice che la bozza è uguale alla base
+        expect(cta).to_be_disabled(timeout=T_LUNGO)
+        expect(p.locator("#du-conti")).to_contain_text("blocchi", timeout=T_LUNGO)
+        verifica("nessuna modifica: la v3 è già confermata" in (cta.get_attribute("title") or ""), "CTA dopo l'annullamento netto: %r" % cta.get_attribute("title"))
+        # R5 risponde 422 NESSUNA_MODIFICA (risposta finta: con una modifica il banco non lo direbbe): l'esito lo dice,
+        # niente resta in sospeso, «Conferma BOM» si spegne
+        p.click("#du-ripeti")
+        b.salvata(4)
+        b.attendi(lambda: cta.is_enabled(), "dopo «Ripeti» il CTA non si accende")
+        b.apri_wizard()
+        p.click("#du-wz-fase2")
+        ok = p.locator("#du-wz-conferma")
+        expect(ok).to_be_enabled(timeout=T_LUNGO)
+        g = rispondi_json(422, {"esito": "rifiutato", "codice": "NESSUNA_MODIFICA", "testo": "La bozza è uguale alla conferma di base."})
+        p.route("**/motore-a/bom/conferma", g)
+        try:
+            ok.click()
+            e = b.esito_wizard()
+            expect(e).to_have_attribute("data-codice", "NESSUNA_MODIFICA", timeout=T_LUNGO)
+            expect(e).to_contain_text("La bozza è uguale alla conferma n. 3: non c'è niente da confermare")
+            expect(e).to_contain_text("niente è registrato")
+            expect(ok).to_be_disabled()
+            verifica("nessuna modifica rispetto alla conferma di base" in (ok.get_attribute("title") or ""), "«Conferma BOM» dopo NESSUNA_MODIFICA: %r" % ok.get_attribute("title"))
+            verifica(not b.sospesi(), "NESSUNA_MODIFICA ha lasciato la chiave in sospeso")
+        finally:
+            p.unroute("**/motore-a/bom/conferma", g)
+        p.click("#du-wz-chiudi")
+    finally:
+        b.interruttore("uguale-alla-base", False)
+
+
+@prova("54", "P-6: il nodo del prodotto con il segnale LS-02 non si «Non include»: casella spenta, «Seleziona tutti i segnalati» lo salta, nessun «Non includere» nel pannello")
+def b54(b):
+    p = b.page
+    b.passo("revisione")
+    b.vista("org")
+    p.click("#du-abbandona")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
+    b.interruttore("radice-segnalata", True)
+    try:
+        # una bozza nuova dalla proposta dello STEP, con il segnale anche sulla voce della radice
+        b.passo("sorgente")
+        a1 = b.al["ACM-1000_assieme.stp"]
+        p.click("#du-guarda-" + sid(a1))
+        expect(p.locator("#du-usa-bom")).to_be_enabled(timeout=T_LUNGO)
+        p.click("#du-usa-bom")
+        b.ok_finestra()
+        expect(p.locator("#du-passo-revisione")).to_have_attribute("aria-current", "step", timeout=T_LUNGO)
+        b.salvata(1)
+        b.vista("org")
+        expect(p.locator("#nc-k-root")).to_contain_text("possibile elemento CAD")
+        verifica(p.locator("#sel-k-root").is_disabled(), "la scheda del prodotto ha la casella della selezione accesa")
+        p.click("#du-segnalati-apri")
+        riga = p.locator('#du-segnalati .du-segnalato[data-k="k-root"]')
+        expect(riga).to_contain_text("non selezionabile: è il prodotto")
+        expect(riga.locator("input")).to_be_disabled()
+        p.click("#du-seleziona-segnalati")
+        expect(p.locator("#du-selezione")).to_contain_text("3 nodi selezionati")
+        verifica(p.locator("#nc-k-root.du-nc--selezionato").count() == 0, "«Seleziona tutti i segnalati» ha preso il nodo del prodotto")
+        p.click("#du-non-includere")
+        verifica(p.locator('#f-elenco input[value="k-root"]').count() == 0, "il dialogo «Non includere» elenca il nodo del prodotto")
+        b.chiudi_finestra()
+        p.click("#du-svuota-selezione")
+        b.scheda("k-root")
+        b.linguetta("dettaglio")
+        verifica(p.locator("#du-non-includere-nodo").count() == 0, "il pannello del prodotto offre «Non includere nella BOM…»")
+        p.click("#du-segnalati-apri")
+    finally:
+        b.interruttore("radice-segnalata", False)
+
+
+C40 = "00000000-0000-4000-8000-000000004000"
+
+
+@prova("55", "P-7 e PE-09: «Cambia tipo» di un componente registrato legge l'effetto con la variante di R1 e scrive cambia_tipo{componente_id, tipo_nuovo, firma_effetto}")
+def b55(b):
+    p = b.page
+    b.vista("org")
+    b.scheda("k-40")
+    b.linguetta("dettaglio")
+    expect(p.locator("#du-cambia-tipo")).to_be_enabled()
+    i = b.segna()
+    p.click("#du-cambia-tipo")
+    ok = p.locator("#du-finestra #f-ok")
+    expect(ok).to_be_disabled()
+    # un commerciale non si fa: lo dice l'effetto del server (spento), «Cambia» resta spento con quel motivo
+    p.select_option("#f-tipo", "commerciale")
+    expect(p.locator("#f-effetto-righe")).to_contain_text("Il cambio non si fa", timeout=T_LUNGO)
+    expect(ok).to_be_disabled()
+    verifica("E37" in (ok.get_attribute("title") or ""), "«Cambia» spento senza il motivo dell'effetto: %r" % ok.get_attribute("title"))
+    # un particolare: l'effetto con l'avviso, poi la decisione con la firma dell'effetto
+    p.select_option("#f-tipo", "sciolto")
+    expect(p.locator("#f-effetto-righe")).to_contain_text("diventa un particolare", timeout=T_LUNGO)
+    expect(ok).to_be_enabled()
+    r1v = [r["query"] for r in b.richieste_da(i, "GET", r"/motore-a/bozza$")]
+    verifica(any("effetto_cambio_tipo=" + C40 in q and "tipo_nuovo=sciolto" in q and "prodotto=" + b.p1 in q for q in r1v), "la variante di R1 non è stata letta: %s" % r1v)
+    b.ok_finestra()
+    az = b.ultime_azioni(i)
+    dec = az[0]["dopo"] if az else {}
+    verifica([a["azione"] for a in az] == ["decisione_aggiunta", "nodo_modificato"] and dec.get("tipo") == "cambia_tipo" and dec.get("tipo_nuovo") == "sciolto"
+             and dec.get("componente_id") == C40 and re.fullmatch(r"[0-9a-f]{24,64}", dec.get("firma_effetto", "")) is not None
+             and set(dec) == {"id", "tipo", "componente_id", "tipo_nuovo", "firma_effetto"} and az[1]["dopo"] == {"tipo": "sciolto"}, "«Cambia tipo» di un registrato: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    # il cambio già deciso si toglie dal dialogo: la decisione esce e il pezzo torna al tipo di prima, dal giornale
+    i = b.segna()
+    p.click("#du-cambia-tipo")
+    expect(p.locator("#f-togli-cambio")).to_contain_text("torna Assieme")
+    p.click("#f-togli-tipo")
+    az = b.ultime_azioni(i)
+    verifica([a["azione"] for a in az] == ["decisione_tolta", "nodo_modificato"] and az[0]["prima"]["id"] == dec["id"] and az[1]["dopo"] == {"tipo": "sottoassieme"},
+             "«Togli il cambio di tipo»: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    # una lettura della bozza che non dà l'effetto (una R1 che la variante non la conosce ancora: risposta finta): il
+    # dialogo lo dice e il cambio non parte
+    def senza_effetto(route):
+        if route.request.method == "GET" and "effetto_cambio_tipo=" in route.request.url:
+            route.fulfill(status=200, headers={"Content-Type": "application/json"}, body=json.dumps({"stato": "nessuna_bozza", "versione_corrente": {"numero": 3}}))
+        else:
+            route.continue_()
+    p.route(re.compile(r"/motore-a/bozza\?"), senza_effetto)
+    try:
+        p.click("#du-cambia-tipo")
+        p.select_option("#f-tipo", "commerciale")
+        expect(p.locator("#f-effetto-errore")).to_contain_text("non si legge", timeout=T_LUNGO)
+        expect(ok).to_be_disabled()
+        verifica("non si legge" in (ok.get_attribute("title") or ""), "«Cambia» spento senza il motivo della lettura: %r" % ok.get_attribute("title"))
+        b.chiudi_finestra()
+    finally:
+        p.unroute(re.compile(r"/motore-a/bozza\?"), senza_effetto)
+
+
+@prova("56", "P-15 e P-18 nei dialoghi: codice, rev e descrizione, il codice che non si svuota, la rev della working che non si tocca; «Adotta come codice» con la proiezione e la rev proposta (PE-08)")
+def b56(b):
+    p = b.page
+    b.vista("org")
+    ok = p.locator("#du-finestra #f-ok")
+    # «+ Aggiungi un pezzo sotto…»: codice con uno spazio, oltre i 40 byte, rev oltre i 10 byte
+    b.scheda("k-7")
+    b.linguetta("dettaglio")
+    p.click("#du-aggiungi-sotto")
+    p.fill("#f-qta", "1")
+    # i limiti sono in byte: maxlength dei campi conta i caratteri, e 21 «È» (42 byte) o 6 «È» (12 byte) ci stanno
+    for codice, rev, parola in (("ACM 9000", "", "spazi"), ("È" * 21, "", "40 byte"), ("ACM-9000", "È" * 6, "10 byte")):
+        p.fill("#f-codice", codice)
+        p.fill("#f-rev", rev)
+        expect(ok).to_be_disabled()
+        verifica(parola in (ok.get_attribute("title") or ""), "«Aggiungi» con %r/%r spento senza il motivo: %r" % (codice, rev, ok.get_attribute("title")))
+    p.fill("#f-rev", "b")
+    expect(ok).to_be_enabled()
+    b.chiudi_finestra()
+    # «Correggi» di un pezzo importato: il codice non si svuota
+    b.scheda("k-11")
+    p.click("#du-correggi")
+    p.fill("#f-codice", "")
+    p.fill("#f-motivo", "prova del codice vuoto")
+    expect(ok).to_be_disabled()
+    verifica("codice è obbligatorio" in (ok.get_attribute("title") or ""), "«Correggi» con il codice vuoto: %r" % ok.get_attribute("title"))
+    b.chiudi_finestra()
+    # P-18: il componente registrato con la rev minuscola nella working (la risposta di R1 cambiata qui, dichiarata):
+    # correggere la sola descrizione non tocca la rev né l'op; una modifica del componente con quella rev è spenta
+    def rev_minuscola(route):
+        if route.request.method == "GET" and "eventi=1" in route.request.url:
+            resp = route.fetch()
+            j = resp.json()
+            for n in j.get("snapshot", {}).get("nodi", []):
+                if n.get("chiave_bozza") == "k-40":
+                    n["identita"]["rev"] = "a"
+            route.fulfill(response=resp, json=j)
+        else:
+            route.continue_()
+    letture_r1 = re.compile(r"/motore-a/bozza\?")
+    p.route(letture_r1, rev_minuscola)
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        b.scheda("k-40")
+        b.linguetta("dettaglio")
+        expect(p.locator("#nc-k-40")).to_contain_text("rev a")
+        i = b.segna()
+        p.click("#du-correggi")
+        p.fill("#f-desc", "Supporto saldato, descrizione rivista")
+        b.ok_finestra()
+        az = b.ultime_azioni(i)
+        verifica(len(az) == 1 and az[0]["azione"] == "nodo_modificato" and az[0]["dopo"] == {"descrizione": "Supporto saldato, descrizione rivista"}, "correzione della sola descrizione: %s" % az)
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        p.click("#du-correggi")
+        p.fill("#f-codice", "ACM-1401")
+        p.fill("#f-motivo", "codice nuovo del supporto")
+        expect(ok).to_be_disabled()
+        verifica("minuscole" in (ok.get_attribute("title") or ""), "ricodifica con la rev minuscola: %r" % ok.get_attribute("title"))
+        p.fill("#f-rev", "b")
+        expect(ok).to_be_enabled()
+        b.chiudi_finestra()
+    finally:
+        p.unroute(letture_r1, rev_minuscola)
+    # PE-08: «Adotta come codice» della lettura con ruolo «riferimento»: la proiezione e la rev proposta del registro, la
+    # copia compatta della lettura
+    b.scheda("k-9")
+    b.linguetta("dettaglio")
+    li = p.locator('#du-sez-riferimenti li[data-du-riferimento="lettura_ruolo"]')
+    bt = li.locator("button", has_text="Adotta come codice")
+    expect(bt).to_be_enabled()
+    i = b.segna()
+    bt.click()
+    expect(b.finestra()).to_contain_text("400123 rev B")
+    p.fill("#f-motivo", "il codice del DXF del fornitore")
+    b.ok_finestra()
+    az = b.ultime_azioni(i)
+    dec = az[0]["dopo"]
+    verifica(dec["tipo"] == "identita" and dec["modo"] == "alternativa" and dec["chiave_lettura"].endswith("/l:dxf")
+             and dec["identita"] == {"emittente": "partner:beta", "namespace": "beta", "codice": "400123", "rev": "B"}
+             and "qualificatori" not in dec["lettura"] and "revisione" not in dec["lettura"] and az[1]["dopo"]["identita"].get("rev") == "B", "«Adotta come codice» con PE-08: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+
+
+@prova("50", "E1′ lento che avanza: oltre i 120 s delle chiamate JSON, l'avviso dice l'avanzamento, il file entra (tempo d'inattività, §5 n. 3)")
+def b50(b):
+    p = b.page
+    b.passo("sorgente")
+    p.click("#du-cartella-attivi")
+    cdp = p.context.new_cdp_session(p)
+    cdp.send("Network.enable")
+    # circa 64 KiB/s in salita: 8,2 MiB vogliono circa 131 s, più del tempo massimo delle chiamate JSON (120 s)
+    cdp.send("Network.emulateNetworkConditions", {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": 65536})
+    dati = b"%PDF-1.4\n% sintetico, caricamento lento\n" + b"0" * (8 * 1024 * 1024 + 200 * 1024)
+    av = b.avviso()
+    visti = []
+    durata = 0.0
+    try:
+        p.set_input_files("#du-carica-file", files=[{"name": "DISEGNO_LENTO.pdf", "mimeType": "application/pdf", "buffer": dati}])
+        t0 = time.time()
+        p.click("#du-carica-invia")
+        while time.time() - t0 < 320:
+            p.wait_for_timeout(1000)
+            pc = av.get_attribute("data-du-caricamento")
+            if pc is not None:
+                visti.append(int(pc))
+            elif "Caricamento" not in (av.inner_text() or ""):
+                break
+        durata = time.time() - t0
+    finally:
+        cdp.send("Network.emulateNetworkConditions", {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1})
+        cdp.detach()
+    avanzamenti = sorted(set(x for x in visti if 0 < x < 100))
+    verifica(durata > 121, "il caricamento lento è durato %.0f s: la prova non supera il tempo massimo delle chiamate JSON" % durata)
+    verifica(len(avanzamenti) >= 5, "l'avviso non ha detto l'avanzamento: %s" % avanzamenti)
+    expect(av).to_contain_text("1 file caricati", timeout=T_LUNGO)
+    expect(p.locator("#du-carica-esiti li[data-esito=caricato]")).to_contain_text("DISEGNO_LENTO.pdf")
+    verifica("DISEGNO_LENTO.pdf" in b.stato()["file"], "il file del caricamento lento non è nel banco")
+
+
+@prova("51", "E1′ fermo: nessun byte inviato né ricevuto per il tempo d'inattività (60 s), il caricamento si ferma e lo dice (§5 n. 3)")
+def b51(b):
+    p = b.page
+    b.passo("sorgente")
+    p.click("#du-cartella-attivi")
+    # il banco aspetta 75 s prima di leggere la richiesta, poi la lascia cadere: dopo l'invio non si muove niente
+    b.ritardo("POST /thread/{id}/carica", 75000)
+    b.modo("E1", "appeso")
+    p.set_input_files("#du-carica-file", files=[{"name": "DISEGNO_FERMO.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4\n% fermo\n"}])
+    t0 = time.time()
+    p.click("#du-carica-invia")
+    av = b.avviso()
+    expect(av).to_contain_text("Il caricamento si è fermato", timeout=100000)
+    durata = time.time() - t0
+    verifica(55 <= durata <= 90, "il caricamento fermo si è fermato dopo %.0f s, atteso circa il tempo d'inattività (60 s)" % durata)
+    expect(av).to_contain_text("nessun byte inviato né ricevuto per 60 s")
+    expect(av).to_contain_text("rimanda gli stessi file")
+    verifica("DISEGNO_FERMO.pdf" not in b.stato()["file"], "il caricamento fermo ha registrato il file")
+    expect(p.locator("#du-carica-invia")).to_be_enabled()
 
 
 GUSCIO = [("GET", r"/thread/{T}/distinta-unica"), ("GET", r"/static/[A-Za-z0-9_.\-/]+"), ("GET", r"/stato/worker"), ("GET", r"/favicon\.ico")]

@@ -102,6 +102,9 @@ type bozzaBanco struct {
 	Eventi                            []m
 	Creata                            time.Time
 	Formato2                          bool
+	// Base: la versione 1 di una bozza aperta dalla conferma o dalla BOM registrata, cioè la conferma di base come la
+	// costruisce il server; con l'interruttore uguale-alla-base R4 confronta la bozza con questa (PE-23)
+	Base m
 }
 
 type intentoBanco struct {
@@ -137,6 +140,13 @@ type bancoDU struct {
 	congelata        bool                     // la BOM del thread è congelata (fascicolo.congelato di /dati)
 	s6Incerta        bool                     // S6 dà una sola candidata, incerta: nessuna in vista finché non la si sceglie
 	baseSuperata     bool                     // R1 dice la base superata, finché un salvataggio con «rebase» non la porta alla corrente
+	// segnoUguale: R4 dà uguale_alla_base e R5 rifiuta con NESSUNA_MODIFICA una bozza uguale alla conferma di base
+	// formato 3, come farà il server dal passo 6 (decisioni dell'ondata A, PE-23); spento, il banco è il server di oggi,
+	// che non lo dice, e la pagina decide dal giornale
+	segnoUguale bool
+	// radiceSegnalata: la voce della radice del registro ha il segnale LS-02 (il caso di P-6 del motore: la regola resta
+	// legata al file, e il nodo del prodotto può portarlo)
+	radiceSegnalata bool
 }
 
 // nuovoBancoDU: il banco, con i dati di partenza. Il server del Cockpit è quello delle prove (template e statici
@@ -253,8 +263,12 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 	nodi[10].(m)["stato_motore"] = m{"raggiunto": true, "tolto": true, "deciso": false}
 	nodi[1].(m)["associazioni_proposte"] = []any{m{"allegato_id": bdA2, "motivo": "codice e rev nel nome del file", "livello": "forte"}}
 	nodi[3].(m)["associazioni_proposte"] = []any{m{"allegato_id": bdA3, "motivo": "codice nel nome del file", "livello": "medio"}}
+	// la lettura con ruolo «riferimento» porta la proiezione del codice e la rev proposta (decisioni dell'ondata A,
+	// PE-08): «Adotta come codice…» la cita
+	letturaDxf := bdLettura(bdA5, "l:dxf", "400123", "partner:beta", "beta")
+	letturaDxf["codice_proposto"], letturaDxf["rev_proposta"] = "400123", "B"
 	nodi[2].(m)["riferimenti"] = []any{m{"tipo": "documentale", "valore": "400123", "esito": "concorde", "fonte": "cartiglio"},
-		m{"tipo": "lettura_ruolo", "ruolo": "riferimento", "lettura": bdLettura(bdA5, "l:dxf", "400123", "partner:beta", "beta"), "fonte": "PIASTRA_400123.dxf"}}
+		m{"tipo": "lettura_ruolo", "ruolo": "riferimento", "lettura": letturaDxf, "fonte": "PIASTRA_400123.dxf"}}
 	// il componente registrato della riga legacy decisa (P-3, EM §6.1): ACM-1400 è un registrato che non è la radice
 	nodi[8].(m)["decisione_esistente"] = m{"componente_id": bdC40, "codice": "ACM-1400", "rev": "A"}
 	// il P/N equivalente K4 di un PDF del fornitore (EM §3.8, riferimenti[]): l'avviso EQUIVALENTE_NON_ADOTTATO finché una
@@ -266,6 +280,9 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 	if versione > 0 {
 		nodi[3].(m)["codice_proposto"] = "ACM-1121"
 		nodi[3].(m)["identita_proposta"] = bdLettura(allegato, "l:#11", "ACM-1121", cli, "acme")
+	}
+	if b.radiceSegnalata {
+		nodi[0].(m)["segnali"] = bdSegnaleRadice()
 	}
 	archi := []any{}
 	for _, x := range [][3]any{{"#1", "#7", 1}, {"#7", "#9", 2}, {"#7", "#11", 4}, {"#7", "#12", 2}, {"#7", "#31", 1}, {"#7", "#32", 1}, {"#7", "#33", 1}, {"#1", "#40", 1}, {"#40", "#41", 2}, {"#1", "#50", 1}} {
@@ -286,6 +303,12 @@ func (b *bancoDU) registro(allegato, sha string, versione int) m {
 	contenuto["impronta_evidenze"] = bdSha("evidenze|" + gruppo)
 	contenuto["impronta_regole"] = bdSha("regole|1")
 	return contenuto
+}
+
+// bdSegnaleRadice: il segnale LS-02 sulla voce della radice (interruttore radice-segnalata; P-6 del motore).
+func bdSegnaleRadice() []any {
+	return []any{m{"codice": "ancoraggio.possibile_elemento_cad", "regola": "elemento_cad_nome_foglia_v1",
+		"spiegazione": "Segnale di prova sul nodo del prodotto: la regola resta legata al file (P-6)."}}
 }
 
 // impronta: la chiave del registro (sha256 del contenuto intero; qui un'impronta sintetica stabile).
@@ -396,6 +419,11 @@ func (b *bancoDU) monta(mux *http.ServeMux) {
 			b.mu.Unlock()
 			if attesa > 0 {
 				time.Sleep(attesa)
+			}
+			// il corpo del caricamento si legge prima del lucchetto: un caricamento lento (la prova del tempo d'inattività
+			// di E1′) non deve fermare le altre rotte mentre arriva. e1 trova il modulo già letto
+			if pattern == "POST /thread/{id}/carica" && strings.Contains(req.Header.Get("Accept"), "application/json") {
+				_ = req.ParseMultipartForm(8 << 20)
 			}
 			b.mu.Lock()
 			defer b.mu.Unlock()
@@ -557,6 +585,10 @@ func (b *bancoDU) r1(w http.ResponseWriter, r *http.Request) {
 		bdKo(w, 422, "FUORI_RFQ", "il prodotto non è di questa RFQ", nil)
 		return
 	}
+	if c := q.Get("effetto_cambio_tipo"); c != "" {
+		b.effettoCambioTipo(w, c, q.Get("tipo_nuovo"))
+		return
+	}
 	bz := b.bozze[prod]
 	if bz == nil || bz.Stato != "aperta" {
 		bdJSON(w, http.StatusOK, m{"stato": "nessuna_bozza", "versione_corrente": bdVersioneCorrente(b.conferme[prod])})
@@ -603,6 +635,36 @@ func (b *bancoDU) r1(w http.ResponseWriter, r *http.Request) {
 		o["confronto"] = c
 	}
 	bdJSON(w, http.StatusOK, o)
+}
+
+// effettoCambioTipo: la variante di lettura di R1 per l'effetto del cambio di tipo di un componente registrato
+// (decisioni dell'ondata A, PE-09): {componente_id, tipo_nuovo, effetto, firma_effetto}, senza scrivere. La forma di
+// «effetto» è quella proposta nel resoconto della corsia (i campi dell'anteprima del cambio di tipo del fascicolo, in
+// minuscolo). Il banco conosce solo il componente registrato ACM-1400, un assieme con un figlio nella BOM registrata:
+// diventa un particolare con un avviso; un commerciale no (ha figli, E37); lo stesso tipo no.
+func (b *bancoDU) effettoCambioTipo(w http.ResponseWriter, componente, tipo string) {
+	if _, err := uuid.Parse(componente); err != nil || !db.TipoComponente(tipo).Valid() {
+		bdKo(w, 422, "CORPO_NON_VALIDO", "componente o tipo nuovo non validi", m{"campo": "effetto_cambio_tipo"})
+		return
+	}
+	if componente != bdC40 {
+		bdKo(w, 422, "FUORI_RFQ", "il componente non è di questa RFQ", nil)
+		return
+	}
+	b.conti["R1_effetto_tipo"]++
+	effetto := m{"spento": "", "sospende": []any{}, "con_lei": []any{}, "rimozioni": 0, "resta_sospesa": []any{}, "avvisi": []any{}}
+	switch tipo {
+	case "sottoassieme":
+		effetto["spento"] = "ACM-1400 è già un assieme"
+	case "commerciale":
+		effetto["spento"] = "ACM-1400 ha un figlio nella BOM registrata: un commerciale non ha figli (E37)"
+	case "finito":
+		effetto["spento"] = "finito solo sul prodotto della RFQ"
+	default:
+		effetto["avvisi"] = []any{"ACM-1400 diventa un particolare: il suo figlio nella BOM va ricollocato, o diventa assieme (D1)."}
+		effetto["rimozioni"] = 1
+	}
+	bdJSON(w, http.StatusOK, m{"componente_id": componente, "tipo_nuovo": tipo, "effetto": effetto, "firma_effetto": bdSha("effetto|" + componente + "|" + tipo)[:32]})
 }
 
 func bdNum(v any) int {
@@ -765,30 +827,59 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 			bdKo(w, 422, "CORPO_NON_VALIDO", "il prodotto non ha una conferma", m{"motivo": "partenza_non_ammessa"})
 			return nil
 		}
-		radice := m{"chiave_bozza": "k-root", "componente_id": prod, "op": "riusa", "tipo": "finito", "origine": "registrato",
-			"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": map[string]string{bdP1: "ACM-1000", bdP2: "ACM-2000"}[prod], "modo": "registrato"}}
-		nodi, archi := []any{radice}, []any{}
-		base := m{"conferma_id": nil, "numero": len(b.conferme[prod]), "contatore": 13}
-		if partenza == "conferma" {
-			// da-conferma-1 (EM §6.12): i nodi e gli archi della conferma, identità registrate; il banco ne mette uno sotto la
-			// radice, il componente registrato ACM-1400, con l'arco della conferma
-			radice["origine"] = "conferma"
-			u := b.conferme[prod][len(b.conferme[prod])-1]
-			base["conferma_id"] = u["conferma_id"]
-			if prod == bdP1 {
-				nodi = append(nodi, m{"chiave_bozza": "k-40", "componente_id": bdC40, "op": "riusa", "tipo": "sottoassieme", "descrizione": "Supporto saldato", "origine": "conferma",
-					"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": "ACM-1400", "rev": "A", "modo": "registrato"}})
-				archi = append(archi, m{"padre": "k-root", "figlio": "k-40", "qta": 1, "origine": "conferma"})
-			}
-		}
-		bz.Snapshot = bdSnapshotCanonico(m{"formato": 3, "prodotto_id": prod, "versione_bom_base": base, "firma_base": strings.Repeat("3", 64),
-			"nodi": nodi, "archi": archi, "decisioni": []any{}, "documenti_preassociati": []any{}})
+		b.costruisciDaRegistrato(bz, prod, partenza)
 		b.bozze[prod] = bz
 		b.eventoServer(bz, "bozza_aperta", m{"partenza": partenza})
 		return m{"bozza_id": bz.ID, "formato": 3, "versione": 1, "nuova_versione": true, "riproposto": false, "eventi": 1, "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC(), "snapshot": bz.Snapshot}
 	}
 	bdKo(w, 422, "CORPO_NON_VALIDO", "partenza non ammessa", m{"motivo": "partenza_non_ammessa"})
 	return nil
+}
+
+// costruisciDaRegistrato: la versione 1 delle partenze «conferma» (da-conferma-1, EM §6.12) e «registrato», come la
+// costruirebbe il server: le identità registrate, la base all'ultima conferma. Il banco mette sotto la radice del primo
+// prodotto, dalla conferma, il componente registrato ACM-1400 con l'arco della conferma. La versione 1 resta anche come
+// Base: con l'interruttore uguale-alla-base R4 e R5 confrontano la bozza con lei (PE-23).
+func (b *bancoDU) costruisciDaRegistrato(bz *bozzaBanco, prod, partenza string) {
+	radice := m{"chiave_bozza": "k-root", "componente_id": prod, "op": "riusa", "tipo": "finito", "origine": "registrato",
+		"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": map[string]string{bdP1: "ACM-1000", bdP2: "ACM-2000"}[prod], "modo": "registrato"}}
+	nodi, archi := []any{radice}, []any{}
+	base := m{"conferma_id": nil, "numero": len(b.conferme[prod]), "contatore": 13}
+	if n := len(b.conferme[prod]); n > 0 {
+		base["conferma_id"] = b.conferme[prod][n-1]["conferma_id"]
+	}
+	if partenza == "conferma" {
+		radice["origine"] = "conferma"
+		if prod == bdP1 {
+			nodi = append(nodi, m{"chiave_bozza": "k-40", "componente_id": bdC40, "op": "riusa", "tipo": "sottoassieme", "descrizione": "Supporto saldato", "origine": "conferma",
+				"identita": m{"emittente": "cliente:" + bdCliente, "emittente_presunto": true, "codice": "ACM-1400", "rev": "A", "modo": "registrato"}})
+			archi = append(archi, m{"padre": "k-root", "figlio": "k-40", "qta": 1, "origine": "conferma"})
+		}
+	}
+	bz.Snapshot = bdSnapshotCanonico(m{"formato": 3, "prodotto_id": prod, "versione_bom_base": base, "firma_base": strings.Repeat("3", 64),
+		"nodi": nodi, "archi": archi, "decisioni": []any{}, "documenti_preassociati": []any{}})
+	bz.Base = bdSnapshotCanonico(bz.Snapshot)
+}
+
+// ugualeAllaBase: la bozza (lo snapshot del corpo di R4 o R5) è uguale alla sua conferma di base formato 3 (PE-23). Il
+// banco confronta con la versione 1 delle partenze dalla conferma o dalla BOM registrata (Base); una bozza nata da uno
+// STEP non è mai uguale. ok = falso se il banco non lo dice (interruttore spento).
+func (b *bancoDU) ugualeAllaBase(prod string, snap m) (uguale, ok bool) {
+	if !b.segnoUguale {
+		return false, false
+	}
+	bz := b.bozze[prod]
+	if bz == nil || bz.Base == nil {
+		return false, true
+	}
+	numero := bdNum(bz.Base["versione_bom_base"].(m)["numero"])
+	f3 := false
+	for _, c := range b.conferme[prod] {
+		if bdNum(c["numero"]) == numero && bdNum(c["formato"]) == 3 && c["valida"] == true {
+			f3 = true
+		}
+	}
+	return f3 && bdCanonico(bdFormaCanonica(snap, "")) == bdCanonico(bdFormaCanonica(bz.Base, "")), true
 }
 
 func (b *bancoDU) bozzaAttesa(w http.ResponseWriter, corpo m, prod string) *bozzaBanco {
@@ -1162,6 +1253,10 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 	if bz != nil && bz.Registro != "" {
 		o["importazione"] = m{"impronta": bz.Registro, "impronta_contenuto": reg["impronta_contenuto"]}
 	}
+	// il segno di PE-23, solo con l'interruttore uguale-alla-base (il server di oggi non lo dà)
+	if u, ok := b.ugualeAllaBase(prod, snap); ok {
+		o["uguale_alla_base"] = u
+	}
 	if motore {
 		if b.modo("motore") == "ko" {
 			o["avvisi_motore_errore"] = m{"codice": "CALCOLO_OCCUPATO", "testo": "Il motore A sta già facendo altri calcoli."}
@@ -1262,6 +1357,11 @@ func (b *bancoDU) r5(w http.ResponseWriter, r *http.Request) {
 		bdKo(w, 409, "ANTEPRIMA_SUPERATA", "Il riepilogo è cambiato: rileggilo e conferma di nuovo.", m{"anteprima": "riepilogo_bom", "riepilogo": rip})
 		return
 	}
+	// PE-23: una bozza uguale alla conferma di base formato 3 non si conferma (con l'interruttore uguale-alla-base)
+	if u, ok := b.ugualeAllaBase(prod, snap); ok && u {
+		bdKo(w, 422, "NESSUNA_MODIFICA", "La bozza è uguale alla conferma di base: niente da confermare.", nil)
+		return
+	}
 	if !rip["confermabile"].(bool) {
 		bdKo(w, 422, "BLOCCHI", fmt.Sprintf("La BOM non si conferma: %d blocchi.", len(rip["blocchi"].([]any))), m{"blocchi": rip["blocchi"]})
 		return
@@ -1349,6 +1449,12 @@ func (b *bancoDU) r11(w http.ResponseWriter, _ *http.Request) {
 func (b *bancoDU) e1(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(r.Header.Get("Accept"), "application/json") {
 		http.Error(w, "il banco serve solo il ramo JSON", http.StatusBadRequest)
+		return
+	}
+	if b.modo("E1") == "appeso" {
+		// la prova del tempo d'inattività: il banco ha aspettato (ritardo) più del tempo d'inattività del ponte, la pagina
+		// ha già lasciato perdere; niente si registra
+		bdKo(w, 503, "NON_CONFIGURATO", "caricamento di prova lasciato cadere dopo l'attesa", nil)
 		return
 	}
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
@@ -1951,7 +2057,10 @@ func (b *bancoDU) atto(w http.ResponseWriter, r *http.Request) {
 // sonda: GET /__banco/dati (gli identificativi inventati del banco), GET /__banco/stato (lo stato del banco), POST
 // /__banco/modo {rotta, esito} (un esito da provocare una volta), POST /__banco/ritardo {rotta, ms} (un'attesa prima
 // della risposta, una volta; rotta = il pattern del mux), POST /__banco/f8-errore (F8 in errore fino a R11), POST
-// /__banco/proposta (la proposta di oggi cambia), POST /__banco/bozza-altrove (un salvataggio di un collega).
+// /__banco/proposta (la proposta di oggi cambia), POST /__banco/bozza-altrove (un salvataggio di un collega), POST
+// /__banco/interruttore {nome, attivo}, POST /__banco/bozza-formato2, e dall'ondata B POST /__banco/conferma-formato2
+// (una conferma formato 2 del secondo prodotto), POST /__banco/bozza-registrato (una bozza «registrato» aperta altrove
+// sul primo prodotto), POST /__banco/sostituisci-bozza (la bozza del primo prodotto chiusa e riaperta altrove).
 func (b *bancoDU) sonda(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -2004,7 +2113,8 @@ func (b *bancoDU) sonda(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && r.URL.Path == "/__banco/interruttore":
 		// {nome, attivo}: congelata (la BOM congelata), s6-incerta (una sola candidata incerta), base-superata (R1 con la
-		// base superata fino al rebase)
+		// base superata fino al rebase), uguale-alla-base (R4 con uguale_alla_base e R5 con NESSUNA_MODIFICA, PE-23),
+		// radice-segnalata (il segnale LS-02 sulla voce della radice, P-6)
 		var o struct {
 			Nome   string
 			Attivo bool
@@ -2017,10 +2127,59 @@ func (b *bancoDU) sonda(w http.ResponseWriter, r *http.Request) {
 			b.s6Incerta = o.Attivo
 		case "base-superata":
 			b.baseSuperata = o.Attivo
+		case "uguale-alla-base":
+			b.segnoUguale = o.Attivo
+		case "radice-segnalata":
+			// anche nei registri già scritti: la bozza aperta li rilegge con R1 ?importazione=1
+			b.radiceSegnalata = o.Attivo
+			for _, reg := range b.registri {
+				for _, x := range reg["proposta"].(m)["nodi"].([]any) {
+					if v := x.(m); bdStr(v["origine"].(m)["chiave"]) == "#1" {
+						if o.Attivo {
+							v["segnali"] = bdSegnaleRadice()
+						} else {
+							v["segnali"] = []any{}
+						}
+					}
+				}
+			}
 		default:
 			http.Error(w, "interruttore sconosciuto", http.StatusBadRequest)
 			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && r.URL.Path == "/__banco/conferma-formato2":
+		// una conferma formato 2 del secondo prodotto, l'ultima e valida (come le scriveva la pagina vecchia): la prima
+		// conferma formato 3 di un prodotto resta ammessa anche se è uguale a lei (PE-23)
+		n := len(b.conferme[bdP2]) + 1
+		for _, c := range b.conferme[bdP2] {
+			c["ultima"] = false
+		}
+		b.conferme[bdP2] = append(b.conferme[bdP2], m{"conferma_id": fmt.Sprintf("00000000-0000-4000-8000-0000000f2%03d", n), "numero": n, "formato": 2, "senza_riepilogo_v2": false,
+			"ultima": true, "valida": true, "confermato_da": duUUID(77).String(), "confermato_da_nome": "AD", "confermato_il": "2026-10-12T09:00:00Z", "firma_struttura": strings.Repeat("2", 64),
+			"criterio_verifica": "nessuno", "mono_pezzo": false, "origine": m{"rotta": "distinta/albero/conferma"}})
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && (r.URL.Path == "/__banco/bozza-registrato" || r.URL.Path == "/__banco/sostituisci-bozza"):
+		// bozza-registrato: una bozza aperta del primo prodotto con la partenza «registrato», aperta da un'altra pagina
+		// (la pagina nuova non la offre con una conferma formato 3, PE-23: la bozza c'è lo stesso); il prodotto non deve
+		// averne una aperta. sostituisci-bozza: la bozza aperta del primo prodotto si chiude altrove e se ne apre una nuova
+		// dalla conferma (le modifiche tenute da parte nella pagina erano della bozza di prima)
+		vecchia := b.bozze[bdP1]
+		aperta := vecchia != nil && vecchia.Stato == "aperta"
+		if (r.URL.Path == "/__banco/bozza-registrato") == aperta {
+			http.Error(w, "bozza del prodotto non nello stato atteso", http.StatusConflict)
+			return
+		}
+		partenza := "registrato"
+		if aperta {
+			vecchia.Stato = "abbandonata"
+			partenza = "conferma"
+		}
+		b.nBozze++
+		bz := &bozzaBanco{ID: fmt.Sprintf("00000000-0000-4000-8000-0000000b%04d", b.nBozze), Stato: "aperta", Versione: 1, Creata: time.Now().UTC()}
+		b.costruisciDaRegistrato(bz, bdP1, partenza)
+		b.bozze[bdP1] = bz
+		b.eventoServer(bz, "bozza_aperta", m{"partenza": partenza})
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && r.URL.Path == "/__banco/bozza-formato2":
 		// una bozza del formato di prima, aperta, per il primo prodotto (EM §6.7): solo se il prodotto non ne ha una aperta
@@ -2293,5 +2452,105 @@ func TestBancoDistintaUnicaConforme(t *testing.T) {
 	}
 	if st := b.bdChiedi(t, "GET", "/__banco/stato", nil, 200); len(st["legacy"].([]any)) != 1 {
 		t.Errorf("la sonda non ha visto la chiamata legacy: %v", st["legacy"])
+	}
+}
+
+// TestBancoDistintaUnicaOndataB: le risposte finte che l'ondata B aggiunge al banco, con le forme delle decisioni
+// dell'ondata A: la variante di R1 per l'effetto del cambio di tipo (PE-09), uguale_alla_base di R4 e NESSUNA_MODIFICA
+// di R5 con l'interruttore (PE-23; spento, il banco non li dà, come il server di oggi), la conferma formato 2, il segnale
+// sulla radice (P-6) e il caricamento lasciato cadere della prova del tempo d'inattività. Non prova il server.
+func TestBancoDistintaUnicaOndataB(t *testing.T) {
+	b := nuovoBancoDU(t)
+	base := "/thread/" + bdThread
+	// PE-09: {componente_id, tipo_nuovo, effetto, firma_effetto}; un cambio che non si fa ha effetto.spento
+	e := b.bdChiedi(t, "GET", base+"/motore-a/bozza?prodotto="+bdP1+"&effetto_cambio_tipo="+bdC40+"&tipo_nuovo=sciolto", nil, 200)
+	bdHaCampi(t, "effetto del cambio di tipo", e, "componente_id", "tipo_nuovo", "effetto", "firma_effetto")
+	if !regexp.MustCompile(`^[0-9a-f]{24,64}$`).MatchString(bdStr(e["firma_effetto"])) || e["tipo_nuovo"] != "sciolto" || bdStr(e["effetto"].(m)["spento"]) != "" {
+		t.Errorf("effetto del cambio di tipo: %v", e)
+	}
+	if e := b.bdChiedi(t, "GET", base+"/motore-a/bozza?prodotto="+bdP1+"&effetto_cambio_tipo="+bdC40+"&tipo_nuovo=commerciale", nil, 200); bdStr(e["effetto"].(m)["spento"]) == "" {
+		t.Errorf("un cambio che non si fa senza effetto.spento: %v", e)
+	}
+	b.bdChiedi(t, "GET", base+"/motore-a/bozza?prodotto="+bdP1+"&effetto_cambio_tipo="+bdP2+"&tipo_nuovo=sciolto", nil, 422)
+	b.bdChiedi(t, "GET", base+"/motore-a/bozza?prodotto="+bdP1+"&effetto_cambio_tipo="+bdC40+"&tipo_nuovo=pezzo", nil, 422)
+	// PE-23 sul secondo prodotto: una conferma formato 2, poi la bozza dalla conferma
+	b.bdChiedi(t, "POST", "/__banco/conferma-formato2", nil, 204)
+	n := 0
+	crea := func(partenza string) m {
+		n++
+		r2 := b.bdChiedi(t, "POST", base+"/motore-a/bozza", m{"bozza_id": nil, "versione_attesa": 0, "prodotto_id": bdP2, "vocabolario": 2,
+			"chiave_salvataggio": fmt.Sprintf("00000000-0000-4000-8000-0000000e1%03d", n), "crea": m{"partenza": partenza}}, 200)
+		c := m{}
+		for k, v := range r2["snapshot"].(m) {
+			c[k] = v
+		}
+		c["bozza_id"], c["bozza_versione"] = r2["bozza_id"], r2["versione"]
+		return c
+	}
+	corpo := crea("conferma")
+	if r4 := b.bdChiedi(t, "POST", base+"/motore-a/bom/riepilogo", corpo, 200); r4["uguale_alla_base"] != nil {
+		t.Errorf("R4 con l'interruttore spento dà uguale_alla_base: %v", r4["uguale_alla_base"])
+	}
+	b.bdChiedi(t, "POST", "/__banco/interruttore", m{"nome": "uguale-alla-base", "attivo": true}, 204)
+	r4 := b.bdChiedi(t, "POST", base+"/motore-a/bom/riepilogo", corpo, 200)
+	if r4["uguale_alla_base"] != false {
+		t.Errorf("R4 su una base formato 2: uguale_alla_base %v, atteso falso (la prima conferma formato 3 è ammessa)", r4["uguale_alla_base"])
+	}
+	conferma := func(c m, r4 m, chiave string, atteso int) m {
+		cc := m{}
+		for k, v := range c {
+			cc[k] = v
+		}
+		cc["chiave_idempotenza"] = chiave
+		return b.bdChiedi(t, "POST", base+"/motore-a/bom/conferma", m{"firma_anteprima": r4["firma_anteprima"], "bozza": cc}, atteso)
+	}
+	conferma(corpo, r4, "00000000-0000-4000-8000-0000000e2001", 200)
+	corpo = crea("conferma")
+	r4 = b.bdChiedi(t, "POST", base+"/motore-a/bom/riepilogo", corpo, 200)
+	if r4["uguale_alla_base"] != true {
+		t.Errorf("R4 sulla bozza dalla conferma formato 3, senza modifiche: uguale_alla_base %v", r4["uguale_alla_base"])
+	}
+	if rr := conferma(corpo, r4, "00000000-0000-4000-8000-0000000e2002", 422); rr["codice"] != "NESSUNA_MODIFICA" {
+		t.Errorf("R5 di una bozza uguale alla base: %v", rr)
+	}
+	corpo["nodi"].([]any)[0].(m)["descrizione"] = "Nastro di carico, rivisto"
+	if r4 := b.bdChiedi(t, "POST", base+"/motore-a/bom/riepilogo", corpo, 200); r4["uguale_alla_base"] != false {
+		t.Errorf("R4 di una bozza cambiata: uguale_alla_base %v", r4["uguale_alla_base"])
+	}
+	b.bdChiedi(t, "POST", "/__banco/interruttore", m{"nome": "uguale-alla-base", "attivo": false}, 204)
+	if r7 := b.bdChiedi(t, "GET", base+"/motore-a/conferme?prodotto="+bdP2, nil, 200); len(r7["conferme"].([]any)) != 2 {
+		t.Errorf("conferme del secondo prodotto: %v", r7["conferme"])
+	}
+	// P-6: il segnale sulla radice, anche nel registro di una bozza già aperta
+	s6 := b.bdChiedi(t, "GET", base+"/sorgente/step/"+bdA1+"/anteprima?prodotto="+bdP1, nil, 200)
+	g := s6["gruppi"].([]any)[0].(m)
+	b.bdChiedi(t, "POST", base+"/motore-a/bozza", m{"bozza_id": nil, "versione_attesa": 0, "prodotto_id": bdP1, "vocabolario": 2, "chiave_salvataggio": "00000000-0000-4000-8000-0000000e3001",
+		"crea": m{"partenza": "step", "sorgente": m{"allegato_id": bdA1, "sha256": bdShaStep, "gruppo": g["gruppo"]}, "impronta_contenuto": g["impronta_contenuto"]}}, 200)
+	b.bdChiedi(t, "POST", "/__banco/interruttore", m{"nome": "radice-segnalata", "attivo": true}, 204)
+	r1 := b.bdChiedi(t, "GET", base+"/motore-a/bozza?prodotto="+bdP1+"&importazione=1", nil, 200)
+	radice := r1["importazione"].(m)["contenuto"].(m)["proposta"].(m)["nodi"].([]any)[0].(m)
+	if len(radice["segnali"].([]any)) != 1 {
+		t.Errorf("la voce della radice senza il segnale: %v", radice["segnali"])
+	}
+	b.bdChiedi(t, "POST", "/__banco/interruttore", m{"nome": "radice-segnalata", "attivo": false}, 204)
+	// la prova del tempo d'inattività: il caricamento lasciato cadere non registra niente
+	b.bdChiedi(t, "POST", "/__banco/modo", m{"rotta": "E1", "esito": "appeso"}, 204)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("origine", "portale")
+	fw, _ := mw.CreateFormFile("file", "LENTO_DI_PROVA.pdf")
+	_, _ = fw.Write([]byte("%PDF-1.4 prova"))
+	_ = mw.Close()
+	req, _ := http.NewRequest("POST", b.srv.URL+base+"/carica", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	st := b.bdChiedi(t, "GET", "/__banco/stato", nil, 200)
+	if resp.StatusCode != 503 || st["file"].(m)["LENTO_DI_PROVA.pdf"] != nil {
+		t.Errorf("il caricamento lasciato cadere: %d, file nel banco %v", resp.StatusCode, st["file"].(m)["LENTO_DI_PROVA.pdf"])
 	}
 }

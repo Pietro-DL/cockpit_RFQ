@@ -334,6 +334,55 @@ func TestDistintaUnicaAzioniNonDisponibiliECode(t *testing.T) {
 	}
 }
 
+// Le decisioni dell'ondata A nella pagina (ondata B; il comportamento lo provano le DU-B nel browser, qui che i pezzi ci
+// siano): PE-21 (il nome «Accetta le proposte (N)»), PE-22 (nodo_escluso per le preassociazioni di un registrato
+// escluso), PE-27 (da_decisione negli svincoli dell'esclusione, niente convenzione .svN nei gesti nuovi), PE-23 (il segno
+// uguale_alla_base di R4 prima del giornale, la partenza «registrato» non offerta con una conferma formato 3), P-7
+// (cambia_tipo con tipo_nuovo e la firma dalla variante di R1), le modifiche tenute da parte con prodotto e bozza (§5
+// n. 2: la scelta prima del cambio di prodotto, beforeunload).
+func TestDistintaUnicaDecisioniOndataA(t *testing.T) {
+	src := duFile(t, duPagina)
+	codice := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(src, "")
+	for _, v := range []string{
+		`"Accetta le proposte (" + n + ")"`,
+		`motivo: "nodo_escluso"`,
+		`da_decisione: dec.id`,
+		`typeof r.uguale_alla_base === "boolean"`,
+		`["conferma", "registrato"].includes(ultimo.dopo.partenza)`,
+		`haConfermaFormato3() ? PARTENZA_REGISTRATO_NO`,
+		`tipo: "cambia_tipo", componente_id: v.nodo.componente_id,`,
+		`tipo_nuovo: t, firma_effetto: st.effetto.firma_effetto`,
+		`P.leggiBozza(S.prodotto, { effetto_cambio_tipo: v.nodo.componente_id, tipo_nuovo: t })`,
+		`if (S.daParte && S.daParte.prodotto === S.prodotto) return chiediPrimaDiCambiare(id);`,
+		`if (S.coda.length || S.invio || S.daParte) {`,
+		`if (dp.prodotto !== S.prodotto)`,
+	} {
+		if !strings.Contains(codice, v) {
+			t.Errorf("la pagina non ha %s", v)
+		}
+	}
+	for _, v := range []string{"proposte valide", `".sv" + (`} {
+		if strings.Contains(codice, v) {
+			t.Errorf("la pagina ha ancora %q", v)
+		}
+	}
+	if escludi := duFunzione(t, src, "function apriEscludi("); strings.Contains(escludi, `"nodo_tolto"`) || !strings.Contains(escludi, `"nodo_escluso"`) {
+		t.Error("«Escludi» manda le preassociazioni nel vassoio con un motivo diverso da nodo_escluso (PE-22)")
+	}
+	// cambia_tipo non porta il tipo nuovo in «tipo», che è la chiave del tipo della decisione (P-7)
+	if regexp.MustCompile(`tipo: "cambia_tipo"[^}]*\btipo: t\b`).MatchString(codice) {
+		t.Error("cambia_tipo porta il tipo nuovo in «tipo» invece che in tipo_nuovo (P-7)")
+	}
+	// la chiave_bozza degli eventi delle decisioni è quella della decisione, o null per i tipi senza il campo (EM §9.2;
+	// RPC PD-08): mai la chiave di un nodo scritta a mano accanto all'evento
+	if !strings.Contains(codice, "function chiaveEvento(dec) {") {
+		t.Error("la pagina non ha chiaveEvento")
+	}
+	if m := regexp.MustCompile(`azione: "decisione_(aggiunta|tolta)", chiave_bozza: (v\.k|k|dec\.chiave_bozza \|\| null)[,\s]`).FindString(codice); m != "" {
+		t.Errorf("un evento di una decisione con la chiave del nodo scritta a mano: %q (chiaveEvento)", m)
+	}
+}
+
 // I casi di contratto condivisi (e2e/distinta_unica_casi.json): li esegue la prova nel browser con le funzioni della
 // pagina (DU-B33) e li può leggere la L1 del server per l'altra metà di T-16. Qui la loro forma: ogni caso ha un nome,
 // gli eventi o le azioni e l'atteso; i verbi sono quelli del vocabolario 2 (EM §9.2); le azioni del giornale hanno n.
@@ -373,6 +422,16 @@ func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 				t.Errorf("%q: evento senza n o con un verbo fuori dal vocabolario 2: %v", c.Nome, e)
 			}
 		}
+	}
+	// T-16 (PM23, recepimento dell'ondata A): lo svincolo con il motivo nodo_escluso entra nel vassoio (DECA PE-22)
+	escluso := false
+	for _, c := range casi.Vassoio {
+		for _, x := range c.Atteso {
+			escluso = escluso || x["motivo"] == "nodo_escluso"
+		}
+	}
+	if !escluso {
+		t.Error("nessun caso del vassoio con il motivo nodo_escluso (PE-22, T-16)")
 	}
 	for _, c := range casi.Applica {
 		if c.Nome == "" || c.Snapshot == nil || len(c.Azioni) == 0 || c.Atteso == nil {

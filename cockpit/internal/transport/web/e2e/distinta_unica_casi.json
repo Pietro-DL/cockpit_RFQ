@@ -1,5 +1,5 @@
 {
-  "_che_cosa": "Casi di contratto condivisi della Distinta unica di V1 (giro 5, A1d, V1). 'vassoio': la regola del vassoio «Da ricollocare» (EM §3.7; PM23 T-16): dalla stessa sequenza di eventi del giornale (R1 ?eventi=1) il server e la funzione della pagina vassoioDa danno lo stesso vassoio. 'applica': le azioni del vocabolario 2 (EM §9.2) applicate allo snapshot salvato, come le applica la pagina (applica) e come il server le riconcilia (C3 §6.6): uno snapshot diverso dal server = R2 422 azioni_non_riconciliate. Li legge la prova nel browser (e2e/distinta_unica.py, DU-B30); la corsia persistenza puo' leggerli nella sua L1 per l'altra meta' di T-16. Dati inventati.",
+  "_che_cosa": "Casi di contratto condivisi della Distinta unica di V1 (giro 5, A1d, V1). 'vassoio': la regola del vassoio «Da ricollocare» (EM §3.7; PM23 T-16): dalla stessa sequenza di eventi del giornale (R1 ?eventi=1) il server e la funzione della pagina vassoioDa danno lo stesso vassoio. 'applica': le azioni del vocabolario 2 (EM §9.2) applicate allo snapshot salvato, come le applica la pagina (applica) e come il server le riconcilia (C3 §6.6): uno snapshot diverso dal server = R2 422 azioni_non_riconciliate. Li legge la prova nel browser (e2e/distinta_unica.py, DU-B33); la corsia persistenza puo' leggerli nella sua L1 per l'altra meta' di T-16. Dati inventati.",
   "vassoio": [
     {
       "nome": "uno svincolo per nodo tolto entra nel vassoio",
@@ -7,6 +7,23 @@
         {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-x", "chiave_bozza": "k-1"}, "dopo": {"proposta_id": "p-x", "motivo": "nodo_tolto"}}
       ],
       "atteso": [{"proposta_id": "p-x", "motivo": "nodo_tolto", "chiave_bozza": "k-1"}]
+    },
+    {
+      "nome": "uno svincolo per nodo escluso entra nel vassoio (PE-22)",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-e", "chiave_bozza": "k-40"}, "dopo": {"proposta_id": "p-e", "motivo": "nodo_escluso"}}
+      ],
+      "atteso": [{"proposta_id": "p-e", "motivo": "nodo_escluso", "chiave_bozza": "k-40"}]
+    },
+    {
+      "nome": "l'annullamento del gesto cumulativo «Non includere» (prima = {azione_id}) toglie lo svincolo dal vassoio (PE-05)",
+      "eventi": [
+        {"n": 1, "azione": "file_svincolato", "prima": {"proposta_id": "p-c", "chiave_bozza": "k-31"}, "dopo": {"proposta_id": "p-c", "motivo": "non_incluso", "azione_id": "a-9"}},
+        {"n": 2, "azione": "nodo_tolto", "chiave": "k-31", "prima": {"chiave_bozza": "k-31"}, "dopo": {"azione_id": "a-9"}},
+        {"n": 3, "azione": "annulla", "prima": {"azione_id": "a-9"}, "dopo": {"n": 2}},
+        {"n": 4, "azione": "annulla", "prima": {"azione_id": "a-9"}, "dopo": {"n": 1}}
+      ],
+      "atteso": []
     },
     {
       "nome": "uno svincolo dell'ingegnere non entra",
@@ -104,7 +121,7 @@
       "snapshot": {"nodi": [{"chiave_bozza": "k-31", "op": "crea"}, {"chiave_bozza": "k-32", "op": "crea"}], "archi": [], "decisioni": [{"id": "d-0", "tipo": "mono_pezzo"}], "documenti_preassociati": []},
       "azioni": [
         {"azione": "nodo_tolto", "chiave_bozza": "k-31", "prima": {"chiave_bozza": "k-31", "op": "crea"}, "dopo": {"azione_id": "a-3"}},
-        {"azione": "decisione_aggiunta", "chiave_bozza": "k-31", "prima": null, "dopo": {"id": "ni-1", "tipo": "non_includere", "azione_id": "a-3"}},
+        {"azione": "decisione_aggiunta", "chiave_bozza": null, "prima": null, "dopo": {"id": "ni-1", "tipo": "non_includere", "azione_id": "a-3"}},
         {"azione": "decisione_tolta", "chiave_bozza": null, "prima": {"id": "d-0", "tipo": "mono_pezzo"}, "dopo": null}
       ],
       "atteso": {"nodi": [{"chiave_bozza": "k-32", "op": "crea"}], "archi": [], "decisioni": [{"id": "ni-1", "tipo": "non_includere", "azione_id": "a-3"}], "documenti_preassociati": []}

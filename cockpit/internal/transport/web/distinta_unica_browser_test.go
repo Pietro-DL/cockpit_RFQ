@@ -19,7 +19,8 @@
 // esempio "01,02,03"); COCKPIT_FOTO_DIR salva le schermate degli errori; COCKPIT_BROWSER_CANALE sceglie il browser.
 //
 // Dopo lo script il banco dice che cosa è arrivato davvero al «server»: nessuna rotta legacy (MAT §7) e, con tutte le
-// prove, le tre conferme registrate una sola volta ciascuna (la risposta persa non duplica la conferma).
+// prove, le quattro conferme (tre del primo prodotto, una del secondo) registrate una sola volta ciascuna (la risposta
+// persa non duplica la conferma).
 //
 // Clienti, codici, nomi dei file e ID sono inventati (ACME, BETA, ACM-xxxx): il repository è pubblico.
 
@@ -72,12 +73,16 @@ func TestDistintaUnicaNelBrowser(t *testing.T) {
 		t.Errorf("la pagina ha chiamato rotte legacy (MAT §7): %v", b.legacy)
 	}
 	if prove == "" {
-		// B14, B15 e B16 confermano una volta ciascuna; B13 e B17 non registrano niente
+		// B14, B15 e B16 confermano una volta ciascuna il primo prodotto; B13, B17 e B47 non registrano niente; B52
+		// conferma una volta il secondo prodotto, che aveva una conferma formato 2 messa dalla sonda
 		if n := len(b.conferme[bdP1]); n != 3 {
-			t.Errorf("conferme registrate dal banco: %d, attese 3", n)
+			t.Errorf("conferme del primo prodotto registrate dal banco: %d, attese 3", n)
 		}
-		if b.conti["R5"] != 3 {
-			t.Errorf("R5 registrate dal banco: %d, attese 3 (una risposta persa non duplica la conferma)", b.conti["R5"])
+		if n := len(b.conferme[bdP2]); n != 2 {
+			t.Errorf("conferme del secondo prodotto nel banco: %d, attese 2 (la formato 2 della sonda e quella della DU-B52)", n)
+		}
+		if b.conti["R5"] != 4 {
+			t.Errorf("R5 registrate dal banco: %d, attese 4 (una risposta persa non duplica la conferma)", b.conti["R5"])
 		}
 	}
 }
