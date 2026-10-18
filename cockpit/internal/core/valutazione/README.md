@@ -1186,6 +1186,11 @@ markmap:
   grammatica dell'esito, il contesto attivo con BETA e la copia canonica, e il perimetro esattamente uguale ai file letti
   con il contesto; senza contesto, con un contesto proposto, con eredita_da senza il padre, di un altro thread o doppio,
   nessun file nel perimetro e le diagnostiche dell'esito; senza regole le regole vuote.
+- **`segnale_ls02_scena_test.go`** (V1, LS-02; Q-06 portata al livello L1) — L1: con `Calcola`, sulla scena della BOM con la
+  fonte confermata e le righe aperte, tre cordoni di saldatura foglia segnalati dall'ancoraggio restano nodi della BOM di
+  lavoro con il segnale, hanno il 2D previsto (nodo_proposto), e completezza, perimetro (aperto con nodi_da_decidere),
+  verifica della BOM, stato del prodotto e righe da decidere sono quelli della scena gemella senza la parola, campo per
+  campo. La valutazione non legge i segnali: la prova tiene vero che il segnale non toglie il nodo e non esenta dal 2D.
 - **`scena_calcola_test.go`** (B6, V1 e V2) — gli aiuti: l'insieme delle regole ACME dalla porta del prodotto, i thread
   degli altri clienti, la fotografia con più thread, il messaggio fuori RFQ, la permutazione; gli invarianti di ogni esito,
   con quelli dello smistamento e, dopo le risposte del 07/10, del contesto. **`export_test.go`**: la composizione dei

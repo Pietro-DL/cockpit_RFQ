@@ -81,6 +81,30 @@ func TestSegnaliElementoCADLeTreCondizioni(t *testing.T) {
 	if !strings.HasSuffix(s.Spiegazione, " Ha anche un codice letto (7120002): controlla che non sia un pezzo vero.") {
 		t.Errorf("le letture con lo stesso letterale si dicono una volta: %q", s.Spiegazione)
 	}
+
+	// Le forme della spiegazione dell'addendum (AD-LS02-3) che gli esempi di Q-01 non hanno: due letterali diversi
+	// («dei codici letti (X, Y)», nell'ordine delle letture, senza doppioni) e tre parole nello stesso campo
+	// («X», «Y» e «Z»).
+	dueCodici := cordone
+	dueCodici.Letture = []motorea.LetturaCodice{{ID: "l:1", Forma: motorea.LetturaForma{Originale: "7120002"}},
+		{ID: "l:2", Forma: motorea.LetturaForma{Originale: "7120003"}}, {ID: "l:3", Forma: motorea.LetturaForma{Originale: "7120002"}}}
+	if s := segnaliElementoCAD(dueCodici, true, false, true); len(s) != 1 || !strings.HasSuffix(s[0].Spiegazione,
+		"finché non decidi. Ha anche dei codici letti (7120002, 7120003): controlla che non sia un pezzo vero.") {
+		t.Errorf("due letterali diversi: %+v", s)
+	}
+	// Solo l'id e il nome sono ingressi della regola (EM §11.1, la tabella degli ingressi): un altro campo grezzo con la
+	// parola, se StrutturaDa un giorno lo portasse fra i grezzi (per esempio la descrizione), non dà il segnale.
+	altroCampo := NodoStruttura{Rif: "nodo:x:#5", Grezzi: []ValoreGrezzo{{Testo: "ACME-P-005", Campo: CampoGrezzoID, UnitaID: "u:step:#5:id"},
+		{Testo: "piastra per saldatura", Campo: "descrizione", UnitaID: "u:step:#5:descrizione"}}}
+	if s := segnaliElementoCAD(altroCampo, true, false, true); s != nil {
+		t.Errorf("la parola in un campo che non è l'id né il nome: %+v", s)
+	}
+	trePezzi := NodoStruttura{Rif: "nodo:x:#4", Grezzi: []ValoreGrezzo{{Testo: "FILLET_WELD_ID_BEAD", Campo: CampoGrezzoID, UnitaID: "u:step:#4:id"}}}
+	tre := segnaliElementoCAD(trePezzi, true, false, true)
+	if len(tre) != 1 || !reflect.DeepEqual(tre[0].Riscontri[0].Parole, []string{"FILLET", "WELD_ID", "BEAD"}) ||
+		!strings.HasPrefix(tre[0].Spiegazione, "L'id del pezzo nel file contiene «FILLET», «WELD_ID» e «BEAD»; il nodo non ha figli") {
+		t.Errorf("tre parole nello stesso campo: %+v", tre)
+	}
 }
 
 // letteraPython: una lettera per [a-z] con re.I, sui byte: solo le 52 lettere ASCII (i testi qui non hanno le quattro
@@ -128,10 +152,12 @@ func parolePython(testo string) []string {
 }
 
 // TestRegolaV1EquivaleAllaRegolaPython (Q-01): su tutti i testi di al più tre pezzi di un alfabeto che mette accanto le
-// parole, i loro pezzi, i separatori, una cifra, una lettera e «é», l'espressione Go che decide dà lo stesso esito della
-// lettura indipendente della semantica Python, e quella che localizza trova le stesse parole, nello stesso ordine.
+// parole, i loro pezzi, i separatori (anche due di seguito, « _»: fra weld e la parola dopo ce ne possono essere più
+// d'uno), una cifra, una lettera e «é», l'espressione Go che decide dà lo stesso esito della lettura indipendente della
+// semantica Python, e quella che localizza trova le stesse parole, nello stesso ordine. L'espressione che decide è quella
+// del pacchetto (espressioneElementoCADV1), la stessa di segnaliElementoCAD.
 func TestRegolaV1EquivaleAllaRegolaPython(t *testing.T) {
-	pezzi := []string{"saldatura", "cordone", "fillet", "bead", "weld", "seam", "id", "s", "x", "W", " ", "_", "-", ".", "1", "é", "ing"}
+	pezzi := []string{"saldatura", "cordone", "fillet", "bead", "weld", "seam", "id", "s", "x", "W", " ", "_", "-", " _", ".", "1", "é", "ing"}
 	parola := regexp.MustCompile(`(?i)^(?:saldatura|cordone|fillet|bead|weld[ _-]*(?:bead|seam|id))$`)
 	testi := []string{""}
 	for _, a := range pezzi {

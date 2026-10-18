@@ -19,8 +19,10 @@ import (
 // nessuna copia.
 
 // CodiceSegnaleElementoCAD: il codice del segnale (SegnaleNodo.Codice), con il prefisso dell'area come ogni codice del
-// motore A (R41 b). Non è il codice di una diagnostica (nessuna evidenze.Diagnostica lo porta): per questo sta qui e
-// non in codici_diagnostica.go, e il suo valore lo fissa la prova dei valori delle strutture. Come un codice delle
+// motore A. R41 b vorrebbe ogni codice che il pacchetto produce in codici_diagnostica.go: che stia qui è una deviazione
+// dichiarata, da decidere (proposta P-1 dell'addendum ad A1c §2.2 del 18/10). In quel file il codice vorrebbe anche la
+// riga dell'elenco d'oro dei codici (estrazione/evidenze) e l'etichetta della pagina (transport/web/motore_a), due file di
+// altre corsie; finché non si decide, il valore lo fissa la prova dei valori delle strutture. Come un codice delle
 // diagnostiche, una volta pubblicato non cambia nome né significato: lo copiano il registro d'importazione e la
 // decisione «non includere» (segnale_visto).
 const CodiceSegnaleElementoCAD = "ancoraggio.possibile_elemento_cad"

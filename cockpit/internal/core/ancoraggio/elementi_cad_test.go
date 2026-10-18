@@ -284,44 +284,112 @@ func TestQ01GliEsempiDiA3(t *testing.T) {
 		}
 	})
 
+	// La forma del segnale nel JSON, scritta a mano (non con json.Marshal del tipo): è quella che il registro
+	// d'importazione copia in nodi[].segnali[] e che entra nelle sue impronte (EM §3.8.1). Senza contro-indizi la chiave
+	// contro_indizi non c'è (omitempty, AD-LS02-2); con un codice letto c'è, prima della spiegazione.
+	t.Run("il JSON del segnale", func(t *testing.T) {
+		spiegazione := "possibile elemento CAD (un cordone di saldatura o simile), non un articolo. È solo un segnale: il nodo resta nella proposta e il " +
+			"suo 2D resta richiesto finché non decidi."
+		attesi := map[string]string{
+			"#100": `[{"codice":"ancoraggio.possibile_elemento_cad","regola":"elemento_cad_nome_foglia_v1","riscontri":[` +
+				`{"campo":"id","unita_id":"u:step:#100:id","parole":["Saldatura"],"intervalli":[{"inizio":15,"fine":24}]},` +
+				`{"campo":"nome","unita_id":"u:step:#100:nome","parole":["Saldatura"],"intervalli":[{"inizio":15,"fine":24}]}],` +
+				`"spiegazione":"L'id e il nome del pezzo nel file contengono «Saldatura»; il nodo non ha figli e non è una radice del file: ` +
+				spiegazione + `"}]`,
+			"#276": `[{"codice":"ancoraggio.possibile_elemento_cad","regola":"elemento_cad_nome_foglia_v1","riscontri":[` +
+				`{"campo":"nome","unita_id":"u:step:#276:nome","parole":["Saldatura"],"intervalli":[{"inizio":0,"fine":9}]}],` +
+				`"contro_indizi":["lettura_identita"],` +
+				`"spiegazione":"Il nome del pezzo nel file contiene «Saldatura»; il nodo non ha figli e non è una radice del file: ` +
+				spiegazione + ` Ha anche un codice letto (7120155): controlla che non sia un pezzo vero."}]`,
+		}
+		for chiave, want := range attesi {
+			b, err := json.Marshal(got[ancoraggio.RifNodo(shaAssiemeCAD, chiave)].Segnali)
+			if err != nil || string(b) != want {
+				t.Errorf("%s: il JSON del segnale\n%s\natteso\n%s (%v)", chiave, b, want, err)
+			}
+		}
+	})
+
+	// I motivi sono quelli che la funzione SQL della completezza (0020, struttura_motivo_parziale) dà davvero a questi
+	// file: un file a un solo nodo non ha occorrenze di assieme, un file con due radici non è una distinta. Con il grafo non
+	// completo ogni segnale ha il contro-indizio grafo_non_completo, anche quando il motivo non può nascondere figli (le
+	// due radici): è il limite dichiarato dell'addendum (§5; la proposta P-5 del resoconto della corsia), fissato qui.
 	t.Run("le radici e i file a un nodo", func(t *testing.T) {
 		casi := []struct {
 			nome   string
 			radici []string
 			nodi   []nodoCAD
 			archi  []arcoS
+			motivo string   // struttura_motivo_parziale del file: "" completo
 			attesi []string // le chiavi segnalate
 		}{
-			{"uno STEP a un solo nodo che si chiama Saldatura", []string{"#1"}, []nodoCAD{{"#1", "Saldatura ACME", "Saldatura ACME", true, 0}}, nil, nil},
+			{"uno STEP a un solo nodo che si chiama Saldatura", []string{"#1"}, []nodoCAD{{"#1", "Saldatura ACME", "Saldatura ACME", true, 0}}, nil,
+				"nessuna occorrenza di assieme: solo parti", nil},
 			{"una radice con «re. weld.» e un articolo", []string{"#1"},
 				[]nodoCAD{{"#1", "ACME-000 - supporting frame re. weld.", "ACME-000 - supporting frame re. weld.", false, 0}, {"#2", "ACME - Weld nut M16", "ACME - Weld nut M16", false, 1}},
-				[]arcoS{{"#1", "#2", 2, nil}}, nil},
+				[]arcoS{{"#1", "#2", 2, nil}}, "", nil},
 			{"una radice con WELDED e la minuteria da saldare", []string{"#1"},
 				[]nodoCAD{{"#1", "ACME-9000.002_0-LH STABILIZER WELDED SUPPORT", "ACME-9000.002_0-LH STABILIZER WELDED SUPPORT", false, 0}, {"#2", "ACME-9001.003_1-WELD NUT M6x1", "ACME-9001.003_1-WELD NUT M6x1", false, 1}},
-				[]arcoS{{"#1", "#2", 4, nil}}, nil},
+				[]arcoS{{"#1", "#2", 4, nil}}, "", nil},
 			{"una radice che si chiama Saldatura con un cordone sotto", []string{"#1"},
 				[]nodoCAD{{"#1", "Saldatura radice ACME", "Saldatura radice ACME", false, 0}, {"#2", "ACME_222_Saldatura d'angolo 2_oa_0", "ACME_222_Saldatura d'angolo 2_oa_0", true, 0}},
-				[]arcoS{{"#1", "#2", 1, nil}}, []string{"#2"}},
+				[]arcoS{{"#1", "#2", 1, nil}}, "", []string{"#2"}},
 			{"due radici, una è una foglia che si chiama Saldatura", []string{"#1", "#5"},
 				[]nodoCAD{{"#1", "7120901", "TELAIO ACME", false, 0}, {"#2", "SALDATURA_D_ANGOLO_ID_9", "SALDATURA_D_ANGOLO_ID_9", false, 1}, {"#5", "Saldatura isolata ACME", "Saldatura isolata ACME", true, 0}},
-				[]arcoS{{"#1", "#2", 1, nil}}, []string{"#2"}},
+				[]arcoS{{"#1", "#2", 1, nil}}, "2 radici nel file: una distinta ne ha una", []string{"#2"}},
 		}
 		for i, c := range casi {
 			t.Run(c.nome, func(t *testing.T) {
 				id, sha := uidS(0x7d0+i), strings.Repeat(fmt.Sprintf("%02x", 0x7d+i), 32)
-				got, _, _ := nodiCAD(t, m, id, fmt.Sprintf("ACME caso %d.stp", i), sha, fattiCAD(t, formaV3, sha, c.radici, c.nodi, c.archi, ""), c.radici)
+				got, sf, _ := nodiCAD(t, m, id, fmt.Sprintf("ACME caso %d.stp", i), sha, fattiCAD(t, formaV3, sha, c.radici, c.nodi, c.archi, c.motivo), c.radici)
+				if sf.GrafoCompleto != (c.motivo == "") || sf.MotivoGrafo != c.motivo {
+					t.Fatalf("GrafoCompleto %v, MotivoGrafo %q: atteso il motivo %q", sf.GrafoCompleto, sf.MotivoGrafo, c.motivo)
+				}
 				var segnalati []string
 				for _, n := range c.nodi {
-					if x, ok := got[ancoraggio.RifNodo(sha, n.chiave)]; !ok {
+					x, ok := got[ancoraggio.RifNodo(sha, n.chiave)]
+					switch {
+					case !ok:
 						t.Errorf("il nodo %s non c'è", n.chiave)
-					} else if len(x.Segnali) > 0 {
+					case len(x.Segnali) > 0:
 						segnalati = append(segnalati, n.chiave)
+						if slices.Contains(x.Segnali[0].ControIndizi, ancoraggio.ControIndizioGrafoNonCompleto) != (c.motivo != "") ||
+							strings.HasSuffix(x.Segnali[0].Spiegazione, " Il grafo del file non è completo: il nodo potrebbe avere figli non letti.") != (c.motivo != "") {
+							t.Errorf("%s con il motivo %q: contro-indizi %v, spiegazione %q", n.chiave, c.motivo, x.Segnali[0].ControIndizi, x.Segnali[0].Spiegazione)
+						}
 					}
 				}
 				if !reflect.DeepEqual(segnalati, c.attesi) {
 					t.Errorf("segnalati %v, attesi %v", segnalati, c.attesi)
 				}
 			})
+		}
+	})
+
+	// La radice di una struttura che nel file non è una radice (il prodotto come nodo interno: una BOM di lavoro o una
+	// candidata con RadiceDelFile falso) e che ha la parola: il segnale guarda il file, quindi c'è anche su di lei, uguale
+	// a quello dello stesso nodo nella struttura della radice del file. È il limite dichiarato dell'addendum (§5): la
+	// radice di una struttura è il prodotto, che non si può non includere (PRODOTTO_PROTETTO, EM §7.3), e la pagina non
+	// lo propone per «Non includere»; la proposta P-6 del resoconto della corsia dice le alternative.
+	t.Run("la radice di una struttura che nel file è una foglia", func(t *testing.T) {
+		id, sha := uidS(0x7df), strings.Repeat("e7", 32)
+		nodi := []nodoCAD{{"#1", "7120902", "RUOTA ACME", false, 0}, {"#2", "ACME BEAD RING 15", "ACME BEAD RING 15", false, 1}}
+		got, _, strutture := nodiCAD(t, m, id, "ACME ruota.stp", sha, fattiCAD(t, formaV3, sha, []string{"#1"}, nodi, []arcoS{{"#1", "#2", 1, nil}}, ""),
+			[]string{"#1", "#2"})
+		anello := ancoraggio.RifNodo(sha, "#2")
+		trovata := false
+		for _, s := range strutture {
+			if s.Radice != anello {
+				continue
+			}
+			trovata = true
+			if s.RadiceDelFile || len(s.Nodi) != 1 || s.Nodi[0].Rif != anello || len(s.Nodi[0].Segnali) != 1 ||
+				!reflect.DeepEqual(s.Nodi[0].Segnali, got[anello].Segnali) {
+				t.Errorf("la struttura con la radice #2 (radice del file %v, nodi %d): segnali %+v", s.RadiceDelFile, len(s.Nodi), s.Nodi)
+			}
+		}
+		if !trovata {
+			t.Fatal("nessuna struttura con la radice #2")
 		}
 	})
 
@@ -422,9 +490,45 @@ func TestQ01EquivalenzaConLEspressionePython(t *testing.T) {
 	}
 	// Il limite dichiarato: Python con re.I tratta la I con il punto (U+0130) e la i senza punto (U+0131) come «i», anche
 	// come confine; RE2 no. La s lunga (U+017F) e il segno del kelvin (U+212A) li piegano tutti e due (sopra).
-	for testo, goAtteso := range map[string]bool{"\u0131bead": true, "\u0130bead": true, "f\u0131llet": false} {
+	limite := map[string]bool{"\u0131bead": true, "\u0130bead": true, "f\u0131llet": false}
+	for testo, goAtteso := range limite {
 		if got := espressione.MatchString(testo); got != goAtteso {
 			t.Errorf("%q: Go %v, il limite dichiarato dice %v (Python dà il contrario)", testo, got, goAtteso)
+		}
+	}
+
+	// Le stesse attese passano dalla regola vera, non solo dalla costante: dai fatti a ProponiStrutture, uno STEP con un
+	// figlio foglia per testo (il testo nell'id, il nome vuoto). Così conta l'espressione che segnaliElementoCAD usa
+	// davvero, compilata nel pacchetto.
+	attese := map[string]bool{}
+	for testo, atteso := range python {
+		attese[testo] = atteso
+	}
+	for testo, goAtteso := range limite {
+		attese[testo] = goAtteso
+	}
+	testi := make([]string, 0, len(attese))
+	for testo := range attese {
+		testi = append(testi, testo)
+	}
+	slices.Sort(testi)
+	nodi := []nodoCAD{{"#1", "7120999", "TELAIO ACME", false, 0}}
+	var archi []arcoS
+	for i, testo := range testi {
+		chiave := fmt.Sprintf("#%d", 10+i)
+		nodi = append(nodi, nodoCAD{chiave, testo, "", false, 1})
+		archi = append(archi, arcoS{"#1", chiave, 1, nil})
+	}
+	id, sha := uidS(0x7de), strings.Repeat("e6", 32)
+	got, _, _ := nodiCAD(t, motoreStrutture(t), id, "ACME testi.stp", sha, fattiCAD(t, formaV3, sha, []string{"#1"}, nodi, archi, ""), []string{"#1"})
+	for i, testo := range testi {
+		n, ok := got[ancoraggio.RifNodo(sha, fmt.Sprintf("#%d", 10+i))]
+		if !ok {
+			t.Errorf("%q: il nodo non c'è", testo)
+			continue
+		}
+		if (len(n.Segnali) > 0) != attese[testo] {
+			t.Errorf("%q: dalla regola segnalato %v, atteso %v", testo, len(n.Segnali) > 0, attese[testo])
 		}
 	}
 }

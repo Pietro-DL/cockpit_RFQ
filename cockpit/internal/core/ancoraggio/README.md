@@ -671,13 +671,21 @@ markmap:
 - **`elementi_cad_test.go`** — livello L1 — il segnale LS-02 dai fatti del worker all'adattatore, a `StrutturaDa` e a
   `ProponiStrutture` (V1, piano della 0023 §10 riga 6):
   - Q-01: gli esempi positivi e negativi sintetici di A3 §3.6 (i 51 cordoni, i corpi di saldatura, la minuteria da
-    saldare, le radici, il contenitore con figli, i limiti dichiarati fissati come limiti), le spiegazioni, le righe da
-    decidere che restano, la scena ACME di sempre; l'equivalenza con l'esito dell'espressione Python della misura;
+    saldare, le radici, il contenitore con figli, i limiti dichiarati fissati come limiti), le spiegazioni, il JSON del
+    segnale scritto a mano (con e senza contro-indizi), le righe da decidere che restano, la scena ACME di sempre; i file
+    con il motivo della completezza che la funzione SQL dà davvero (a un nodo, due radici: il contro-indizio
+    grafo_non_completo anche quando il motivo non nasconde figli, limite dichiarato); la radice di una struttura che nel
+    file è una foglia, segnalata come nella struttura della radice del file (limite dichiarato); l'equivalenza con l'esito
+    dell'espressione Python della misura, anche passando dalla regola vera, dai fatti a `ProponiStrutture`;
   - Q-02: la stessa scena con i fatti v3, v3 con la diagnostica 1 e v4: lo stesso esito; i contro-indizi;
   - Q-02b: il JSON dei nodi senza segnali uguale a quello di prima, campo per campo.
 - **`elementi_cad_interna_test.go`** — livello L1, dentro il pacchetto — le parole e i loro intervalli, le tre
-  condizioni una per volta, e l'equivalenza della regola con una lettura indipendente della semantica Python su tutti i
-  testi di al più tre pezzi di un alfabeto di prova.
+  condizioni una per volta, le forme della spiegazione che gli esempi non hanno (due letterali letti diversi, tre parole),
+  un campo grezzo che non è l'id né il nome (non dà il segnale), e l'equivalenza della regola con una lettura
+  indipendente della semantica Python su tutti i testi di al più tre pezzi di un alfabeto di prova (anche con due
+  separatori di seguito).
+- Q-06 al livello L1 (il segnale non toglie il nodo e non esenta dal 2D, con `Calcola`) sta in
+  `core/valutazione/segnale_ls02_scena_test.go`.
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro
   (A1a-CAT, A1c-L1-32) in `core/estrazione/evidenze/codici_diagnostica_test.go`.
 - I clienti delle prove sono inventati (ACME). I test stanno nel ramo `-qa`.
