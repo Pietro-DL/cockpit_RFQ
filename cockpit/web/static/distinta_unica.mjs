@@ -551,6 +551,12 @@ function fai(etichetta, azioni, o) {
   return true;
 }
 
+// idGesto: l'azione_id comune a tutte le azioni di un passo (il gesto cumulativo «Non includere»), o "".
+function idGesto(voce) {
+  const ids = new Set(voce.locali.map((a) => (ogg(a.dopo) && a.dopo.azione_id) || (ogg(a.prima) && a.prima.azione_id) || ""));
+  const id = ids.size === 1 ? [...ids][0] : "";
+  return typeof id === "string" ? id : "";
+}
 // annulla: l'ultimo passo. Un passo non ancora inviato esce dalla coda; uno salvato manda «annulla{n}» per i suoi
 // eventi, in ordine inverso (EM §7.6: per il gesto cumulativo l'ordine fisso decisioni, nodi, archi, preassociazioni,
 // che è l'inverso dell'ordine con cui il gesto le ha scritte). Mai oltre l'ultima versione del server (EM §9.2).
@@ -567,7 +573,9 @@ function annulla() {
     S.rifai.push(passo);
   } else if (voce.numeri && voce.numeri.length) {
     const numeri = voce.numeri.slice().sort((a, b) => b - a);
-    const inviare = numeri.map((n) => ({ azione: "annulla", chiave_bozza: null, prima: null, dopo: { n }, origine: "utente" }));
+    // l'annullamento di un gesto cumulativo porta il suo azione_id nel «prima» (EM §7.1, ultimo capoverso)
+    const id = idGesto(voce);
+    const inviare = numeri.map((n) => ({ azione: "annulla", chiave_bozza: null, prima: id ? { azione_id: id } : null, dopo: { n }, origine: "utente" }));
     const locali = voce.locali.slice().reverse().map(inverso);
     const v2 = { etichetta: "annulla: " + passo.etichetta, inviare, locali, numeri: null, annullaDi: passo };
     S.coda.push(v2);

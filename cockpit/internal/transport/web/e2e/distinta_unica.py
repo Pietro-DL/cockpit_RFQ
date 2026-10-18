@@ -493,6 +493,10 @@ def b07(b):
     b.salvata(4)
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
     verifica([a["azione"] for a in az] == ["annulla"] * 9 and [a["dopo"]["n"] for a in az] == list(range(12, 3, -1)), "annulla: %s" % az)
+    # l'annullamento del gesto cumulativo porta il suo azione_id nel «prima» (EM §7.1)
+    prime = [a["prima"] for a in az]
+    verifica(all(isinstance(x, dict) and set(x) == {"azione_id"} for x in prime) and len({x["azione_id"] for x in prime}) == 1
+             and re.fullmatch(UUID, prime[0]["azione_id"]), "«prima» dell'annullamento: %s" % prime)
     i = b.segna()
     p.click("#du-ripeti")
     expect(noninc).to_have_count(3)
@@ -502,8 +506,11 @@ def b07(b):
     # due annulli: la pila si ferma alla versione 1, costruita dal server
     p.click("#du-annulla")
     b.salvata(6)
+    i = b.segna()
     p.click("#du-annulla")
     b.salvata(7)
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([(a["azione"], a["prima"], a["dopo"]) for a in az] == [("annulla", None, {"n": 3})], "annulla della preassociazione: %s" % az)
     expect(p.locator("#du-annulla")).to_be_disabled()
     verifica("niente da annullare" in (p.locator("#du-annulla").get_attribute("title") or ""), "Annulla spento senza il motivo")
     p.click("#du-ripeti")
