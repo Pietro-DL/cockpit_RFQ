@@ -732,7 +732,10 @@ function ripeti() {
   if (iAnn >= 0) {
     S.coda.splice(iAnn, 1);
   } else if (voce.numeri && voce.numeri.length) {
-    const inviare = voce.numeri.slice().sort((a, b) => a - b).map((n) => ({ azione: "rifai", chiave_bozza: null, prima: null, dopo: { n }, origine: "utente" }));
+    // la ripetizione di un gesto cumulativo porta il suo azione_id nel «prima», come l'annullamento, e va nell'ordine del
+    // gesto (EM §7.1; DECA PE-05: simmetrico)
+    const id = idGesto(voce);
+    const inviare = voce.numeri.slice().sort((a, b) => a - b).map((n) => ({ azione: "rifai", chiave_bozza: null, prima: id ? { azione_id: id } : null, dopo: { n }, origine: "utente" }));
     S.coda.push({ etichetta: "ripeti: " + passo.etichetta, inviare, locali: voce.locali.slice(), numeri: null });
     programmaSalvataggio(800);
   } else {

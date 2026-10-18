@@ -381,11 +381,23 @@ func TestDistintaUnicaDecisioniOndataA(t *testing.T) {
 	if m := regexp.MustCompile(`azione: "decisione_(aggiunta|tolta)", chiave_bozza: (v\.k|k|dec\.chiave_bozza \|\| null)[,\s]`).FindString(codice); m != "" {
 		t.Errorf("un evento di una decisione con la chiave del nodo scritta a mano: %q (chiaveEvento)", m)
 	}
+	// PE-05 (EM §7.1): annulla e rifai di un evento di un gesto cumulativo portano l'azione_id del gesto nel «prima»
+	for _, f := range []string{"function annulla(", "function ripeti("} {
+		if corpo := duFunzione(t, src, f); !strings.Contains(corpo, "const id = idGesto(voce);") || !strings.Contains(corpo, "prima: id ? { azione_id: id } : null") {
+			t.Errorf("%s non porta l'azione_id del gesto cumulativo nel «prima» (PE-05)", f)
+		}
+	}
 }
 
 // I casi di contratto condivisi (e2e/distinta_unica_casi.json): li esegue la prova nel browser con le funzioni della
 // pagina (DU-B33) e li può leggere la L1 del server per l'altra metà di T-16. Qui la loro forma: ogni caso ha un nome,
 // gli eventi o le azioni e l'atteso; i verbi sono quelli del vocabolario 2 (EM §9.2); le azioni del giornale hanno n.
+// In più le forme complete della tabella di EM §9.2, che il server rilegge (richieste RIC-I1 e RIC-I2 della corsia
+// contratto, ondata B): nodi e archi completi (EM §3.4, §3.5), ogni azione_id UUID v4 (EM §7.2), l'origine di ogni
+// azione, il motivo di rebase e di sorgente_rifiutata, la chiave_bozza degli eventi delle decisioni dedotta dalla
+// decisione (null per i tipi senza il campo: RPC PD-08, opzione a); e i casi che EM chiede: nodo_escluso nel vassoio
+// (PE-22), annulla e rifai di un gesto cumulativo con prima = {azione_id} (PE-05), scollega_documento con da_decisione
+// che cita l'esclusione dello stesso componente (PE-27), sorgente_rifiutata.
 func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("e2e", "distinta_unica_casi.json"))
 	if err != nil {
@@ -412,7 +424,30 @@ func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 	}
 	verbi := map[string]bool{"nodo_aggiunto": true, "nodo_tolto": true, "nodo_modificato": true, "arco_aggiunto": true, "arco_tolto": true, "arco_spostato": true,
 		"qta_modificata": true, "decisione_aggiunta": true, "decisione_tolta": true, "file_preassociato": true, "file_svincolato": true, "file_lasciato": true,
-		"rebase": true, "annulla": true, "rifai": true}
+		"rebase": true, "annulla": true, "rifai": true, "sorgente_rifiutata": true}
+	uuid4 := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	lista := func(v any) []any {
+		l, _ := v.([]any)
+		return l
+	}
+	// ogni azione_id, dovunque stia (dopo, prima, decisioni): UUID v4 (EM §7.2)
+	var guardaID func(nome string, v any)
+	guardaID = func(nome string, v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, y := range x {
+				if s, _ := y.(string); k == "azione_id" && !uuid4.MatchString(s) {
+					t.Errorf("%q: azione_id che non è un UUID v4: %v", nome, y)
+				}
+				guardaID(nome, y)
+			}
+		case []any:
+			for _, y := range x {
+				guardaID(nome, y)
+			}
+		}
+	}
+	annullaGesto, rifaiGesto := false, false
 	for _, c := range casi.Vassoio {
 		if c.Nome == "" || len(c.Eventi) == 0 || c.Atteso == nil {
 			t.Errorf("caso del vassoio incompleto: %q", c.Nome)
@@ -421,7 +456,15 @@ func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 			if _, ok := e["n"].(float64); !ok || !verbi[fmt.Sprint(e["azione"])] {
 				t.Errorf("%q: evento senza n o con un verbo fuori dal vocabolario 2: %v", c.Nome, e)
 			}
+			guardaID(c.Nome, e)
+			if p, _ := e["prima"].(map[string]any); p != nil && p["azione_id"] != nil {
+				annullaGesto = annullaGesto || e["azione"] == "annulla"
+				rifaiGesto = rifaiGesto || e["azione"] == "rifai"
+			}
 		}
+	}
+	if !annullaGesto || !rifaiGesto {
+		t.Error("manca un caso del vassoio con annulla e rifai di un gesto cumulativo, con prima = {azione_id} (PE-05)")
 	}
 	// T-16 (PM23, recepimento dell'ondata A): lo svincolo con il motivo nodo_escluso entra nel vassoio (DECA PE-22)
 	escluso := false
@@ -433,15 +476,90 @@ func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 	if !escluso {
 		t.Error("nessun caso del vassoio con il motivo nodo_escluso (PE-22, T-16)")
 	}
+	// i nodi e gli archi completi degli snapshot (EM §3.4, §3.5)
+	guardaSnapshot := func(nome string, s map[string]any) {
+		for _, x := range lista(s["nodi"]) {
+			n, _ := x.(map[string]any)
+			for _, k := range []string{"chiave_bozza", "op", "tipo", "origine"} {
+				if v, _ := n[k].(string); v == "" {
+					t.Errorf("%q: un nodo senza %s (EM §3.4): %v", nome, k, n)
+				}
+			}
+			if id, _ := n["identita"].(map[string]any); id == nil || id["modo"] == nil || id["emittente"] == nil {
+				t.Errorf("%q: un nodo senza l'identità con emittente e modo (EM §3.4.2): %v", nome, n)
+			}
+			if _, conComponente := n["componente_id"].(string); (n["op"] == "crea") == conComponente {
+				t.Errorf("%q: op e componente_id non coerenti (EM §3.4): %v", nome, n)
+			}
+			if n["origine"] == "step" && len(lista(n["caselle"])) == 0 {
+				t.Errorf("%q: un nodo con origine step senza la sua casella (EM §3.4): %v", nome, n)
+			}
+		}
+		for _, x := range lista(s["archi"]) {
+			a, _ := x.(map[string]any)
+			q, _ := a["qta"].(float64)
+			if a["padre"] == nil || a["figlio"] == nil || q < 1 || a["origine"] == nil {
+				t.Errorf("%q: un arco senza padre, figlio, qta o origine (EM §3.5): %v", nome, a)
+			}
+			if _, conStep := a["step"].(map[string]any); (a["origine"] == "step") != conStep {
+				t.Errorf("%q: step c'è se e solo se l'origine è step (EM §3.5): %v", nome, a)
+			}
+		}
+	}
+	daDecisione, rifiutata := false, false
 	for _, c := range casi.Applica {
 		if c.Nome == "" || c.Snapshot == nil || len(c.Azioni) == 0 || c.Atteso == nil {
 			t.Errorf("caso delle azioni incompleto: %q", c.Nome)
 		}
+		guardaSnapshot(c.Nome, c.Snapshot)
+		guardaSnapshot(c.Nome, c.Atteso)
 		for _, a := range c.Azioni {
 			if !verbi[fmt.Sprint(a["azione"])] {
 				t.Errorf("%q: verbo fuori dal vocabolario 2: %v", c.Nome, a["azione"])
 			}
+			if o, _ := a["origine"].(string); o == "" {
+				t.Errorf("%q: un'azione senza origine: %v", c.Nome, a)
+			}
+			guardaID(c.Nome, a)
+			switch a["azione"] {
+			case "rebase", "sorgente_rifiutata":
+				if m, _ := a["motivo"].(string); m == "" {
+					t.Errorf("%q: %v senza il motivo, che è obbligatorio (EM §9.2)", c.Nome, a["azione"])
+				}
+				rifiutata = rifiutata || a["azione"] == "sorgente_rifiutata"
+			case "decisione_aggiunta", "decisione_tolta":
+				d, _ := a["dopo"].(map[string]any)
+				if a["azione"] == "decisione_tolta" {
+					d, _ = a["prima"].(map[string]any)
+				}
+				if dk := d["chiave_bozza"]; a["chiave_bozza"] != nil && a["chiave_bozza"] != dk {
+					t.Errorf("%q: la chiave_bozza dell'evento della decisione non è quella della decisione, né null (EM §9.2; RPC PD-08): %v", c.Nome, a)
+				}
+			}
 		}
+		// PE-27: uno svincolo con da_decisione cita un'esclusione dello stesso componente, nello stesso snapshot (RPC PD-04)
+		esclusioni := map[string]string{}
+		for _, x := range lista(c.Atteso["decisioni"]) {
+			if d, _ := x.(map[string]any); d["tipo"] == "escludi" {
+				esclusioni[fmt.Sprint(d["id"])] = fmt.Sprint(d["componente_id"])
+			}
+		}
+		for _, x := range lista(c.Atteso["decisioni"]) {
+			d, _ := x.(map[string]any)
+			if d["tipo"] != "scollega_documento" || d["da_decisione"] == nil {
+				continue
+			}
+			if comp, ok := esclusioni[fmt.Sprint(d["da_decisione"])]; !ok || comp != fmt.Sprint(d["componente_id"]) {
+				t.Errorf("%q: da_decisione che non cita l'esclusione dello stesso componente (PE-27): %v", c.Nome, d)
+			}
+			daDecisione = true
+		}
+	}
+	if !daDecisione {
+		t.Error("nessun caso delle azioni con scollega_documento e da_decisione (PE-27)")
+	}
+	if !rifiutata {
+		t.Error("nessun caso delle azioni con sorgente_rifiutata")
 	}
 }
 

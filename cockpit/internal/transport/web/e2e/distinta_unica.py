@@ -23,7 +23,8 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
      gesti di V3 spenti con il motivo
   06 selezione multipla: «Seleziona tutti i segnalati», Ctrl+clic, «Non includere nella BOM...»: un salvataggio, un
      azione_id, le decisioni in fondo con segnale_visto
-  07 Annulla e Ripeti: annulla{n} e rifai{n} al server; mai oltre la versione costruita dal server
+  07 Annulla e Ripeti: annulla{n} e rifai{n} al server, con prima = {azione_id} per gli eventi del gesto cumulativo
+     (EM par. 7.1, PE-05) e null per gli altri; mai oltre la versione costruita dal server
   08 pannello del nodo e «Correggi» su un pezzo importato: decisione motivata, identita' decisa accanto alla proposta;
      «Salvataggio...» mentre R2 e' in volo
   09 R2 409 BOZZA_VERSIONE: «La bozza e' cambiata altrove», gesti spenti con il motivo; «Rileggi la bozza salvata» tiene
@@ -58,13 +59,14 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   28 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
   29 la Sorgente dice dove va ogni file (SG-06: preassociato, proposto per un pezzo); «Assegna a un pezzo...» (FL-12) e
      «Togli la preassociazione»; «Scarica» (FL-03); senza bozza «Assegna» e' spento con il motivo
-  30 l'Elenco: filtri e ricerca (EL-01), «Accetta le proposte valide (N)» senza preselezione (EL-03); «Confronto con la
+  30 l'Elenco: filtri e ricerca (EL-01), «Accetta le proposte (N)» senza preselezione (EL-03, PE-21); «Confronto con la
      proposta» sulle schede (BZ-25)
   31 il pannello del nodo: la sezione «Documenti» (EL-08) e «⤴ Ricolloca i figli...» in un salvataggio (BZ-11)
   32 «Riepilogo RFQ» (TS-08), «STEP secondario disponibile» (SG-12) e «nessuna candidata» (SG-13)
   33 i casi di contratto condivisi (e2e/distinta_unica_casi.json): il vassoio «Da ricollocare» (PM23 T-16, la meta'
      della pagina) e le azioni del vocabolario 2 applicate allo snapshot, con le funzioni esportate dalla pagina,
-     caricata in una scheda senza il guscio (l'avvio della pagina non parte senza #du)
+     caricata in una scheda senza il guscio (l'avvio della pagina non parte senza #du); i casi hanno le forme complete
+     della tabella di EM par. 9.2 (RIC-I1, RIC-I2 della corsia contratto)
 
   35 §4.3 righe 1 e 2: un pezzo aggiunto, un file preassociato «in attesa del codice»; «Non crearlo» lo manda nel vassoio;
      «Lascia senza associazione» (EL-07)
@@ -605,7 +607,7 @@ def b06(b):
     b.foto("B06_revisione_organigramma.png")
 
 
-@prova("07", "Annulla e Ripeti: annulla{n} e rifai{n}; mai oltre la versione del server")
+@prova("07", "Annulla e Ripeti: annulla{n} e rifai{n}, prima = {azione_id} per il gesto cumulativo (PE-05); mai oltre la versione del server")
 def b07(b):
     p = b.page
     noninc = p.locator('#du-vp .du-nc[data-du-stato="non incluso (bozza)"]')
@@ -626,6 +628,8 @@ def b07(b):
     b.salvata(5)
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
     verifica([a["azione"] for a in az] == ["rifai"] * 9 and [a["dopo"]["n"] for a in az] == list(range(4, 13)), "rifai: %s" % az)
+    # la ripetizione del gesto cumulativo porta lo stesso azione_id nel «prima», come l'annullamento (EM §7.1; PE-05)
+    verifica(all(a["prima"] == prime[0] for a in az), "«prima» della ripetizione: %s" % [a["prima"] for a in az])
     # due annulli: la pila si ferma alla versione 1, costruita dal server
     p.click("#du-annulla")
     b.salvata(6)
@@ -636,10 +640,17 @@ def b07(b):
     verifica([(a["azione"], a["prima"], a["dopo"]) for a in az] == [("annulla", None, {"n": 3})], "annulla della preassociazione: %s" % az)
     expect(p.locator("#du-annulla")).to_be_disabled()
     verifica("niente da annullare" in (p.locator("#du-annulla").get_attribute("title") or ""), "Annulla spento senza il motivo")
+    i = b.segna()
     p.click("#du-ripeti")
     b.salvata(8)
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([(a["azione"], a["prima"], a["dopo"]) for a in az] == [("rifai", None, {"n": 3})], "rifai della preassociazione: %s" % az)
+    i = b.segna()
     p.click("#du-ripeti")
     b.salvata(9)
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([a["azione"] for a in az] == ["rifai"] * 9 and [a["dopo"]["n"] for a in az] == list(range(4, 13)) and all(a["prima"] == prime[0] for a in az),
+             "rifai del gesto cumulativo dopo un altro passo: %s" % az)
     expect(noninc).to_have_count(3)
     expect(p.locator("#du-ripeti")).to_be_disabled()
 
