@@ -31,6 +31,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/rfq/associazioni"
+	"promatec/cockpit/internal/core/rfq/confermadoc"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
@@ -55,11 +57,7 @@ func stessoCodice(a, b string) bool {
 // esplicito «assegna e correggi il codice» (regola 1): un disegno che dice 77720517 sotto il
 // componente 77722757 e' un errore di qualcuno, e non si ripara in silenzio.
 func codiceDaComponente(attuale string, c db.Componente, correggi bool) (string, error) {
-	if strings.TrimSpace(attuale) != "" && !stessoCodice(attuale, c.Codice) && !correggi {
-		return "", rifiuto(fmt.Sprintf("codice diverso: %s contro %s. Per assegnarlo comunque va corretto il codice del file (correggi_codice)",
-			strings.TrimSpace(attuale), c.Codice))
-	}
-	return c.Codice, nil
+	return confermadoc.CodiceDaComponente(attuale, c, correggi)
 }
 
 // percorsi calcola il percorso di un documento come lo calcola la conferma: la sottocartella del
@@ -266,30 +264,10 @@ func restaAlSuoComponente(ctx context.Context, q *db.Queries, d db.Documento) er
 	return nil
 }
 
-// assegnaProposta e' la stessa cosa per un file non ancora confermato: la proposta prende il codice del
-// componente (A2.2) e alla conferma lo passa al documento. Niente NAS: una proposta non ha percorso.
-func assegnaProposta(ctx context.Context, q *db.Queries, p db.DocumentoProposta, nome string, c *db.Componente, correggi bool) error {
-	if p.Stato != db.StatoPropostaAperta {
-		return rifiuto(nome + ": la proposta è già decisa: si assegna il documento, non la proposta")
-	}
-	arg := db.SetComponentePropostaParams{PropostaID: p.PropostaID, Codice: p.Codice}
-	if c != nil {
-		codice, err := codiceDaComponente(p.Codice.String, *c, correggi)
-		if err != nil {
-			return rifiuto(nome + ": " + err.Error())
-		}
-		arg.ComponenteID = uuid.NullUUID{UUID: c.ComponenteID, Valid: true}
-		arg.Codice = pgtype.Text{String: codice, Valid: true}
-	}
-	n, err := q.SetComponenteProposta(ctx, arg)
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return rifiuto(nome + ": la proposta è stata decisa nel frattempo")
-	}
-	return nil
-}
+// Una proposta (un file non ancora confermato) non si aggancia piu' qui con una scrittura diretta della copia
+// documento_proposta.componente_id: dalla direttiva 39 (C-6b, D-AR03 D [U]) la strada e' assegnaPropostaDalServizio
+// nelle RFQ interamente legacy (il servizio unico, origine gesto_legacy; la copia prende il codice del componente, A2.2,
+// e alla conferma lo passa al documento) e il salvataggio R2 della bozza nelle RFQ formato 3 (gesti_legacy_ar.go).
 
 // attesaProposta: lo stato della proposta che la pagina ha mostrato quando chi guarda ha deciso (giro 5, A1d, notte
 // 14/10, revisione): il codice e il componente attuali che la finestra «Usa come STEP» ha elencato (motore_a.mjs,
@@ -371,6 +349,18 @@ type sceltaRevisione struct {
 	interno bool
 }
 
+// core e sceltaDaCore: la scelta delle pagine legacy nella forma del core (confermadoc.Scelta), che ha la regola
+// (direttiva 35, blocco C-3: la conferma del documento e le sue verifiche sono nel core; qui restano i nomi di sempre).
+func (s sceltaRevisione) core() confermadoc.Scelta {
+	return confermadoc.Scelta{Data: s.data, Sostituisce: s.sostituisce, Riferimento: s.riferimento, RispostaRiferimento: s.rispostaRiferimento,
+		SostituisceAutorizzato: s.sostituisceAutorizzato, Motivo: s.motivo, Interno: s.interno}
+}
+
+func sceltaDaCore(c confermadoc.Scelta) sceltaRevisione {
+	return sceltaRevisione{data: c.Data, sostituisce: c.Sostituisce, riferimento: c.Riferimento, rispostaRiferimento: c.RispostaRiferimento,
+		sostituisceAutorizzato: c.SostituisceAutorizzato, motivo: c.Motivo, interno: c.Interno}
+}
+
 // leggiScelta legge `aggiungi` oppure l'id del documento da sostituire (vuoto = nessuna risposta), la
 // risposta alla domanda sullo STEP strutturale ("1" si', "0" no, "" nessuna) e il motivo.
 func leggiScelta(v, riferimento, motivo string) (sceltaRevisione, error) {
@@ -401,100 +391,35 @@ func leggiScelta(v, riferimento, motivo string) (sceltaRevisione, error) {
 // ListDocumentiComponente li blocca: due assegnazioni allo stesso pezzo si mettono in fila, e la
 // seconda vede il file della prima.
 func correntiDelloStessoTipo(ctx context.Context, q *db.Queries, comp uuid.UUID, tipo db.TipoDocumento, escluso uuid.UUID) ([]db.Documento, error) {
-	tutti, err := q.ListDocumentiComponente(ctx, uuid.NullUUID{UUID: comp, Valid: true})
-	if err != nil {
-		return nil, err
-	}
-	var out []db.Documento
-	for _, d := range tutti {
-		if d.Tipo == tipo && !d.SostituitoDa.Valid && d.DocumentoID != escluso {
-			out = append(out, d)
-		}
-	}
-	return out, nil
+	return confermadoc.CorrentiDelloStessoTipo(ctx, q, comp, tipo, escluso)
 }
 
 // verificaScelta applica la regola: con almeno un corrente dello stesso tipo serve la risposta, e un
 // «sostituisce» deve nominare uno di quei correnti. nome e' il file che entra. Restituisce la scelta da
 // applicare: un «aggiungi» dato dove non c'era niente da chiedere non dice niente, e si lascia cadere.
 func verificaScelta(nome string, c db.Componente, tipo db.TipoDocumento, correnti []db.Documento, s sceltaRevisione) (sceltaRevisione, error) {
-	if len(correnti) == 0 && s.sostituisce == uuid.Nil {
-		return sceltaRevisione{}, nil
-	}
-	if len(correnti) > 0 && !s.data {
-		nomi := make([]string, len(correnti))
-		for i, d := range correnti {
-			nomi[i] = d.NomeFile + " (" + d.DocumentoID.String() + ")"
-		}
-		return s, rifiuto(fmt.Sprintf("%s: %s ha già %d document%s %s corrent%s (%s). Si sceglie: «aggiungi» (restano correnti tutti) oppure il documento che questo sostituisce",
-			nome, c.Codice, len(correnti), plurale(len(correnti), "o", "i"), tipo, plurale(len(correnti), "e", "i"), strings.Join(nomi, ", ")))
-	}
-	if s.sostituisce == uuid.Nil {
-		return s, nil
-	}
-	trovato := false
-	for _, d := range correnti {
-		trovato = trovato || d.DocumentoID == s.sostituisce
-	}
-	if !trovato {
-		return s, rifiuto(fmt.Sprintf("%s: il documento da sostituire deve essere un %s corrente di %s", nome, tipo, c.Codice))
-	}
-	return s, verificaSostituzione(nome, c, s)
+	x, err := confermadoc.VerificaScelta(nome, c, tipo, correnti, s.core())
+	return sceltaDaCore(x), err
 }
 
 // verificaSostituzione sono le due domande in piu' di una sostituzione (B8.7): se il predecessore e' lo
 // STEP strutturale del componente, si dice esplicitamente se il nuovo diventa il riferimento; se il file
 // nuovo e' una versione interna, si dice perche'.
 func verificaSostituzione(nome string, c db.Componente, s sceltaRevisione) error {
-	autorizzato := s.sostituisceAutorizzato || (c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == s.sostituisce)
-	if autorizzato && s.sostituisce != uuid.Nil && !s.rispostaRiferimento {
-		return rifiuto(fmt.Sprintf("%s sostituisce lo STEP autorizzato di %s: si dice se il nuovo diventa il riferimento, cioè lo STEP autorizzato (sì o no)", nome, c.Codice))
-	}
-	if s.interno && s.motivo == "" {
-		return rifiuto(fmt.Sprintf("%s è una versione interna: sostituisce un documento solo con un motivo", nome))
-	}
-	return nil
+	return confermadoc.VerificaSostituzione(nome, c, s.core())
 }
 
 // applicaScelta registra la risposta dopo che il file nuovo e' entrato nel componente: la
 // sostituzione e' la stessa di fascicolo.Sostituisci, con la catena tenuta dal database (D32). utente e'
 // chi decide: con «si'» autorizza il file nuovo (Smistamento F5b).
 func applicaScelta(ctx context.Context, q *db.Queries, thread, nuovo uuid.UUID, s sceltaRevisione, utente uuid.UUID) (string, error) {
-	if !s.data {
-		return "", nil
-	}
-	if s.sostituisce == uuid.Nil {
-		return " Si aggiunge: i documenti dello stesso tipo restano correnti.", nil
-	}
-	msg, err := fascicolo.Sostituisci(ctx, q, thread, s.sostituisce, nuovo, s.riferimento, utente)
-	if err != nil {
-		return "", err
-	}
-	if err := notaSostituzione(ctx, q, s.sostituisce, nuovo, s.motivo); err != nil {
-		return "", err
-	}
-	return " " + msg, nil
+	return confermadoc.ApplicaScelta(ctx, q, thread, nuovo, s.core(), utente)
 }
 
 // notaSostituzione scrive nella nota del documento nuovo che cosa ha sostituito e perche'. Senza motivo
 // non scrive niente: la catena dice gia' chi ha sostituito chi.
 func notaSostituzione(ctx context.Context, q *db.Queries, vecchio, nuovo uuid.UUID, motivo string) error {
-	if motivo == "" {
-		return nil
-	}
-	v, err := q.GetDocumento(ctx, vecchio)
-	if err != nil {
-		return err
-	}
-	n, err := q.GetDocumento(ctx, nuovo)
-	if err != nil {
-		return err
-	}
-	nota := "sostituisce " + v.NomeFile + ": " + motivo
-	if n.Nota.Valid && strings.TrimSpace(n.Nota.String) != "" {
-		nota = n.Nota.String + " · " + nota
-	}
-	return q.SetNotaDocumento(ctx, db.SetNotaDocumentoParams{DocumentoID: nuovo, Nota: pgtype.Text{String: nota, Valid: true}})
+	return confermadoc.NotaSostituzione(ctx, q, vecchio, nuovo, motivo)
 }
 
 // assegnaAlComponente e' il gesto «assegna»: documenti e proposte della RFQ thread sotto il componente
@@ -546,8 +471,15 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 	if err != nil {
 		return "", err
 	}
-	bloccati := make([]db.Documento, 0, len(docs))
-	for _, id := range docs {
+	// C-6b, INC-G25: i documenti si bloccano per documento_id crescente, l'ordine di R5 formato 3 e di bloccaDocumenti
+	// del core (lucchetti_legacy.go); bloccati resta nell'ordine del modulo, quello dei messaggi
+	perID := make(map[uuid.UUID]db.Documento, len(docs))
+	ordinati := append([]uuid.UUID(nil), docs...)
+	sort.Slice(ordinati, func(i, j int) bool { return ordinati[i].String() < ordinati[j].String() })
+	for _, id := range ordinati {
+		if _, gia := perID[id]; gia {
+			continue
+		}
 		d, err := q.BloccaDocumento(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && d.ThreadID != thread) {
 			return "", rifiuto("un documento scelto non è di questa RFQ")
@@ -555,7 +487,11 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		if err != nil {
 			return "", err
 		}
-		bloccati = append(bloccati, d)
+		perID[id] = d
+	}
+	bloccati := make([]db.Documento, 0, len(docs))
+	for _, id := range docs {
+		bloccati = append(bloccati, perID[id])
 	}
 	if c != nil {
 		if err := perc.bloccaCartelle(ctx, q, thread, bloccati, c.Codice); err != nil {
@@ -566,6 +502,13 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 	for _, d := range perConferma(bloccati) {
 		var scelta sceltaRevisione
 		entra := c != nil && (!d.ComponenteID.Valid || d.ComponenteID.UUID != c.ComponenteID)
+		// RFQ formato 3 (direttiva 39 §5 [U]; INC-G9, D-AR07 [T-39]; fascicolo/formato3_legacy.go): uno STEP del prodotto
+		// finito non si sposta con «Assegna» (S8), e un documento non lascia il componente della sua AR attiva
+		if entra || (c == nil && d.ComponenteID.Valid) {
+			if err := fascicolo.GuardiaSpostamentoDocumento(ctx, q, thread, d, comp); err != nil {
+				return "", err
+			}
+		}
 		if entra {
 			correnti, err := correntiDelloStessoTipo(ctx, q, c.ComponenteID, d.Tipo, d.DocumentoID)
 			if err != nil {
@@ -593,6 +536,17 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		}
 		revisioni += msg
 	}
+	// C-6b (gesti_legacy_ar.go; D-AR03 D [U]): la RFQ formato 3, letta sotto il lucchetto della RFQ, decide la strada
+	// delle proposte
+	formato3 := false
+	if len(props) > 0 {
+		if formato3, err = associazioni.RFQFormato3(ctx, q, thread); err != nil {
+			return "", err
+		}
+		if formato3 && (len(props) != 1 || len(docs) != 0) {
+			return "", rifiuto(testoUnaAllaVolta)
+		}
+	}
 	for _, id := range props {
 		p, err := q.BloccaProposta(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!p.ThreadID.Valid || p.ThreadID.UUID != thread)) {
@@ -601,10 +555,11 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		if err != nil {
 			return "", err
 		}
-		nome := "file"
-		if a, err := q.GetAllegato(ctx, p.AllegatoID); err == nil {
-			nome = a.NomeFile
+		a, err := q.GetAllegato(ctx, p.AllegatoID)
+		if err != nil {
+			return "", err
 		}
+		nome := a.NomeFile
 		// V1 (EM §10.7): un file in Altri file o scartato nella Distinta nuova non si assegna dalle pagine legacy
 		if err := rifiutoFileNonAttivo(ctx, q, p.AllegatoID); err != nil {
 			return "", err
@@ -612,7 +567,18 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		if err := attesa.controlla(p, nome); err != nil {
 			return "", err
 		}
-		if err := assegnaProposta(ctx, q, p, nome, c, correggi); err != nil {
+		if formato3 {
+			// nessuna AR e nessuna copia: lo STEP del finito rimanda a S8, il resto diventa un salvataggio R2 (chi chiama
+			// annulla questa transazione e lo esegue con assegnaNellaBozza)
+			if p.Stato != db.StatoPropostaAperta {
+				return "", rifiuto(nome + ": la proposta è già decisa: si assegna il documento, non la proposta")
+			}
+			if stepDelFinito(a, c) {
+				return "", rifiuto(nome + ": " + testoStepAS8)
+			}
+			return "", &gestoNelFormato3{allegato: a.AllegatoID, nome: nome, comp: comp}
+		}
+		if err := assegnaPropostaDalServizio(ctx, q, thread, utente, p, a, nome, c, correggi); err != nil {
 			return "", err
 		}
 	}
@@ -691,8 +657,9 @@ func correggiCodiceComponente(ctx context.Context, tx pgx.Tx, q *db.Queries, thr
 			return "", err
 		}
 	}
-	np, err := q.SetCodiceProposteComponente(ctx, db.SetCodiceProposteComponenteParams{
-		ComponenteID: uuid.NullUUID{UUID: cid, Valid: true}, Codice: pgtype.Text{String: nuovo, Valid: true}})
+	// la copia delle proposte agganciate prende il codice nuovo dal servizio unico (C-6b; piano §1.2: AllineaCodiceCopia,
+	// la AR non cambia); la FK a tre campi e' differita qui sopra
+	np, err := associazioni.AllineaCodiceCopia(ctx, q, thread, cid)
 	if err != nil {
 		return "", err
 	}
@@ -847,6 +814,18 @@ func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 		scelte[d] = sc
 	}
 	msg, err := assegnaAlComponente(ctx, db.New(tx), thread, comp, docs, props, r.FormValue("correggi_codice") == "1", attesa, scelte, utenteDa(ctx).UtenteID)
+	var f3 *gestoNelFormato3
+	if errors.As(err, &f3) {
+		// RFQ formato 3 (C-6b, D-AR03 D [U]): niente di questa transazione si scrive; il gesto diventa un salvataggio R2
+		// della bozza, con il lucchetto e la versione attesa di R2
+		_ = tx.Rollback(ctx)
+		if msg, err = s.assegnaNellaBozza(ctx, thread, utenteDa(ctx).UtenteID, *f3); err != nil {
+			s.threadFrammento(w, r, thread, "Assegnazione non riuscita, nessun file cambiato: "+spiegaErrore(err))
+			return
+		}
+		s.threadFrammento(w, r, thread, msg)
+		return
+	}
 	if err == nil {
 		err = tx.Commit(ctx)
 	}

@@ -53,7 +53,8 @@ func calcolaPerIlRegistro(t *testing.T, th fotorfq.Thread, r *motorea.InsiemeReg
 
 func (c calcoloPerIlRegistro) ingresso(prodotto, gruppo string, na propostabom.NonAttivi) propostabom.Ingresso {
 	e, et := c.e, c.et
-	return propostabom.Ingresso{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: prodotto, Gruppo: gruppo, NonAttivi: na}
+	f := c.f
+	return propostabom.Ingresso{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: prodotto, Gruppo: gruppo, NonAttivi: na, Foto: &f}
 }
 
 // importa: l'adattatore sul gruppo, che deve riuscire, e le regole della foglia sull'uscita vera (A-29, la parte della
@@ -134,7 +135,7 @@ func TestA01IlRegistroDeterministico(t *testing.T) {
 	e := calcola(t, f, r, in)
 	et := esitoThread(t, e, th.ID)
 	reg, _ := valutazione.RegoleDiLettura(f, r, th.ID)
-	p, err := propostabom.ImportaGruppo(propostabom.Ingresso{Esito: &e, Thread: &et, Regole: reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM})
+	p, err := propostabom.ImportaGruppo(propostabom.Ingresso{Esito: &e, Thread: &et, Regole: reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM, Foto: &f})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +345,7 @@ func TestA14GliErroriDellImportazione(t *testing.T) {
 	errato := c.et
 	errato.Motivo = valutazione.MotivoThreadErroreValutazione
 	e := c.e
-	rifiuto(t, propostabom.Ingresso{Esito: &e, Thread: &errato, Regole: c.reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM},
+	rifiuto(t, propostabom.Ingresso{Esito: &e, Thread: &errato, Regole: c.reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM, Foto: &c.f},
 		importazione.CodicePropostaNonDisponibile, propostabom.MotivoErroreValutazione)
 }
 
@@ -676,7 +677,7 @@ func TestA23IlContestoNelRegistro(t *testing.T) {
 		}
 	}
 	e := c.e
-	_, err := propostabom.ImportaGruppo(propostabom.Ingresso{Esito: &e, Thread: &senza, Regole: c.reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM})
+	_, err := propostabom.ImportaGruppo(propostabom.Ingresso{Esito: &e, Thread: &senza, Regole: c.reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM, Foto: &c.f})
 	var errReg *importazione.Errore
 	if !errors.As(err, &errReg) || errReg.Codice != importazione.CodicePropostaNonDisponibile || errReg.Motivo != importazione.MotivoRegistroIncompleto {
 		t.Errorf("un file nel perimetro senza contesto_id: atteso registro_incompleto, %v", err)
@@ -684,7 +685,7 @@ func TestA23IlContestoNelRegistro(t *testing.T) {
 	// un motore che non espone l'impronta dell'indice
 	e.ImprontaIndice = ""
 	et := c.et
-	_, err = propostabom.ImportaGruppo(propostabom.Ingresso{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM})
+	_, err = propostabom.ImportaGruppo(propostabom.Ingresso{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, Gruppo: propostabom.GruppoBOM, Foto: &c.f})
 	if !errors.As(err, &errReg) || errReg.Motivo != importazione.MotivoRegistroIncompleto {
 		t.Errorf("senza l'impronta dell'indice: atteso registro_incompleto, %v", err)
 	}

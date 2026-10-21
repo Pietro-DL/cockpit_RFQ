@@ -98,14 +98,36 @@ func improntaColonne(t *testing.T, p *pgxpool.Pool, tab, colonne, filtro string)
 var (
 	funzioniNuove23 = []string{"distinta_importazione_nasce", "conferma_strutturale_non_incluso_nasce", "esito_intento_formato",
 		"file_rfq_nasce", "file_rfq_cambia", "file_rfq_rimozione_nasce", "file_rfq_rimozione_cambia", "file_rfq_conservazione_nasce",
-		"file_rfq_conservazione_cambia", "file_rfq_invarianti", "file_rfq_conservazione_invarianti", "file_rfq_attivo"}
+		"file_rfq_conservazione_cambia", "file_rfq_invarianti", "file_rfq_conservazione_invarianti", "file_rfq_attivo",
+		"file_rfq_scartato_legacy", "analisi_fatti_digest",
+		// direttiva 35 (variante 20261019a): le associazioni registrate e il loro giornale
+		"file_rfq_associazione_nasce", "file_rfq_associazione_bom", "file_rfq_associazione_cambia", "file_rfq_associazione_invarianti",
+		"file_rfq_senza_ar_attive", "conferma_strutturale_associazioni", "documento_proposta_copia_derivata", "associazione_evento_della_riga",
+		// direttiva 39 (variante 20261019c): il segno della RFQ formato 3, lo STEP legato come sorgente del finito
+		"rfq_formato3_segna", "rfq_e_formato3", "allegato_sorgente_del_finito"}
 	vincoliRicreati23 = []string{"ck_distinta_bozza_formato", "ck_conferma_formato", "ck_conferma_bozza", "ck_conferma_snapshot",
-		"ck_conferma_chiave", "ck_esito_intento_gesto", "ck_esito_intento_conferma"}
+		"ck_conferma_chiave", "ck_esito_intento_gesto", "ck_esito_intento_conferma",
+		"ck_associazione_oggetto", "ck_associazione_azione", "ck_associazione_coerente", "ck_correzione_oggetto",
+		// direttiva 39: le origini del giornale e le azioni della fonte; il NOT NULL di autore_id che la 0023 toglie
+		"ck_associazione_origine", "ck_fonte_azione", "associazione_evento_autore_id_not_null"}
 	vincoliNuoviSu22 = []string{"fk_dbv_importazione", "ck_dbv_snapshot_formato", "ck_dbv_chiave_salvataggio", "fk_conferma_importazione",
-		"ck_conferma_importazione", "ck_conferma_importazioni_citate", "ck_csc_identita"}
-	indiciNuoviSu22  = []string{"ix_dbv_importazione", "ux_dbv_chiave_salvataggio", "ix_conferma_importazione", "ix_conferma_importazioni_citate", "ix_csc_emittente"}
+		"ck_conferma_importazione", "ck_conferma_importazioni_citate", "ck_csc_identita", "ck_conferma_verifica", "ck_analisi_fatti_digest",
+		"analisi_fatti_digest_not_null",
+		"associazione_evento_allegato_id_fkey", "fk_associazione_ar", "fk_associazione_ar_precedente", "fk_correzione_associazione",
+		"trg_conferma_associazioni", "trg_proposta_copia_derivata", // i due trigger di vincolo su tabelle della 22 stanno anche in pg_constraint
+		"ck_associazione_autore", "ck_fonte_revoca_sorgente", "ck_dbv_preassociazioni", "ck_conferma_preassociazioni"} // direttiva 39
+	indiciNuoviSu22 = []string{"ix_dbv_importazione", "ux_dbv_chiave_salvataggio", "ix_conferma_importazione", "ix_conferma_importazioni_citate", "ix_csc_emittente",
+		"ux_associazione_evento_chiave", "ix_associazione_evento_allegato", "ix_associazione_evento_ar", "ix_correzione_associazione"}
 	commentiCambiati = []string{"commento table public.distinta_bozza_versione ", "commento table public.conferma_strutturale ",
-		"commento table column public.conferma_strutturale_arco.origine "}
+		"commento table column public.conferma_strutturale_arco.origine ", "commento table column public.conferma_strutturale.verifica ",
+		"commento table column public.analisi_fatti.digest ",
+		"commento table public.associazione_evento ", "commento table column public.documento_proposta.componente_id "}
+	// la colonna della 0023 su una tabella di prima che si riempie (il digest dei fatti, U2 §3.14 riga 10) e il suo trigger
+	colonneRiempite23 = []struct{ tab, col string }{{"analisi_fatti", "digest"}}
+	triggerNuoviSu22  = []string{"trg_esito_intento_formato", "trg_analisi_fatti_digest",
+		"trg_associazione_della_riga", "trg_conferma_associazioni", "trg_proposta_copia_derivata", "trg_distinta_bozza_formato3"}
+	// le colonne della 22 che la 0023 cambia senza riempirle (direttiva 39: autore_id nullo solo con conversione_legacy)
+	colonneCambiate23 = []struct{ tab, col string }{{"associazione_evento", "autore_id"}}
 )
 
 // rigaAmmessa23: una riga del catalogo che la 0023 puo' cambiare o aggiungere.
@@ -115,7 +137,8 @@ func rigaAmmessa23(r string) bool {
 			return true
 		}
 	}
-	for _, v := range []string{"v_fascicolo", "v_step_prodotto", "v_thread_da_riesaminare", "v_cruscotto", "v_codici_candidati_thread"} {
+	for _, v := range []string{"v_fascicolo", "v_step_prodotto", "v_thread_da_riesaminare", "v_cruscotto", "v_codici_candidati_thread",
+		"v_ar_backfill_diagnostica"} {
 		if strings.HasPrefix(r, "vista "+v+" ") {
 			return true
 		}
@@ -126,7 +149,7 @@ func rigaAmmessa23(r string) bool {
 		}
 	}
 	tab, nome := oggettoDelCatalogo(r)
-	for _, t23 := range tabelle23 {
+	for _, t23 := range append(append([]string{}, tabelle23...), "v_ar_backfill_diagnostica") { // la vista diagnostica della direttiva 35
 		if tab == t23 || strings.Contains(r, " "+t23+" ") || strings.Contains(r, " "+t23+".") || strings.Contains(r, "public."+t23) ||
 			strings.HasPrefix(r, "relazione "+t23+"_") || strings.HasPrefix(r, "sequenza "+t23+"_") {
 			return true
@@ -147,19 +170,34 @@ func rigaAmmessa23(r string) bool {
 			return true
 		}
 	}
-	if strings.HasPrefix(r, "trigger ") && nome == "trg_esito_intento_formato" {
-		return true
+	for _, c := range append(append([]struct{ tab, col string }{}, colonneRiempite23...), colonneCambiate23...) {
+		if tab == c.tab && nome == c.col {
+			return true
+		}
 	}
-	return strings.HasPrefix(r, "commento function public.file_rfq_attivo(")
+	for _, g := range triggerNuoviSu22 {
+		if strings.HasPrefix(r, "trigger ") && nome == g {
+			return true
+		}
+	}
+	for _, f := range []string{"file_rfq_attivo", "file_rfq_scartato_legacy", "rfq_e_formato3", "allegato_sorgente_del_finito"} {
+		if strings.HasPrefix(r, "commento function public."+f+"(") {
+			return true
+		}
+	}
+	return false
 }
 
 func funzioniSostituite23() []string {
-	return []string{"distinta_bozza_versione_nasce", "conferma_strutturale_nasce", "conferma_strutturale_contenuto", "conferma_strutturale_completa"}
+	return []string{"distinta_bozza_versione_nasce", "conferma_strutturale_nasce", "conferma_strutturale_contenuto", "conferma_strutturale_completa",
+		"fonte_step_risolvi"}
 }
 
 // U-01: 22 → 23 con righe formato 1 e 2: (a) per ogni tabella della 22, l'impronta sulle sole colonne della 22 e'
 // identica, e i dati delle tabelle storiche non cambiano; (b) le otto colonne nuove sono NULL sulle righe vecchie; (c) il
-// catalogo prima e dopo differisce solo per la lista ammessa; (d) lo schema dopo 22 → 23 e' quello da zero.
+// catalogo prima e dopo differisce solo per la lista ammessa; (d) lo schema dopo 22 → 23 e' quello da zero. Con la
+// direttiva 35 le colonne nuove sono tredici (colonne23), e le righe di prima di associazione_evento restano senza
+// allegato, riga della AR e transazione (nessun riempimento).
 func TestV1Upgrade22a23ConRigheF1F2(t *testing.T) {
 	p := testutil.Pool(t)
 	t.Cleanup(func() { testutil.SchemaPulito(t, p) })

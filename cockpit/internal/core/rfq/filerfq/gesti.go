@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/rfq/associazioni"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -35,8 +37,12 @@ func nuovoGesto(nome string, thread, allegato, utente uuid.UUID, c CorpoGesto) (
 type preparato struct {
 	occ   Occorrenza
 	per   Perimetro
-	tutte []Occorrenza // l'occorrenza e le voci, in ordine di allegato_id
-	el    ElencoDipendenze
+	tutte []Occorrenza // le occorrenze che il gesto scrive, in ordine di allegato_id: l'occorrenza, piu' le voci se il
+	// perimetro le comprende (U2 §3.10: «Scarta» e il solo ZIP scrivono solo l'archivio)
+	el ElencoDipendenze
+	// cartella: la cartella della RFQ sul NAS (thread_offerta.cartella_relativa), letta sotto BloccaThread: la copia degli
+	// Altri file va nella sua ALTRO (U2 §3.2)
+	cartella string
 }
 
 // prepara fa i controlli comuni dei gesti sotto il lucchetto della RFQ, nell'ordine fisso del contratto (EM §10.4 tempo
@@ -117,10 +123,25 @@ func (s *Servizio) prepara(ctx context.Context, q *db.Queries, g gesto) (*prepar
 	if err != nil {
 		return nil, nil, err
 	}
-	if rf := controllaPerimetro(p, g.corpo.NVoci, g.corpo.ImprontaVoci); rf != nil {
-		return nil, nil, rf
+	// «Scarta» di uno ZIP con file estratti attivi: il rifiuto (U2 §3.10, base [T] di U2-Q04 / V1-Q28), prima del
+	// perimetro visto: non toglie niente che l'utente non abbia deciso
+	if g.nome == GestoScarta && p.Archivio {
+		if rf := vociAttive(p); rf != nil {
+			return nil, nil, rf
+		}
 	}
-	pr := &preparato{occ: *o, per: p, tutte: ordinate(append([]Occorrenza{*o}, p.Voci...))}
+	soloContenitore := g.corpo.soloContenitore()
+	if !soloContenitore {
+		if rf := controllaPerimetro(p, g.corpo.NVoci, g.corpo.ImprontaVoci); rf != nil {
+			return nil, nil, rf
+		}
+	}
+	pieno := ordinate(append([]Occorrenza{*o}, p.Voci...))
+	pr := &preparato{occ: *o, per: p, tutte: pieno, cartella: t.CartellaRelativa.String}
+	if soloContenitore || g.nome == GestoScarta {
+		// il solo ZIP (U2 §3.10): le voci restano dove sono; per «Scarta» le voci non attive (in Altri file) non seguono
+		pr.tutte = []Occorrenza{*o}
+	}
 	if g.nome == GestoRiattiva {
 		return pr, nil, nil
 	}
@@ -128,11 +149,17 @@ func (s *Servizio) prepara(ctx context.Context, q *db.Queries, g gesto) (*prepar
 	if p.Archivio {
 		nVoci[o.AllegatoID] = p.NVoci()
 	}
-	el, err := s.calcolaDipendenze(ctx, q, g.thread, pr.tutte, nVoci)
+	// l'elenco (e la sua impronta) e' sempre quello dell'archivio con le voci, lo stesso del dettaglio di S1; i blocchi e
+	// le risoluzioni valgono solo per le occorrenze che il gesto scrive
+	el, err := s.calcolaDipendenze(ctx, q, g.thread, pieno, nVoci)
 	if err != nil {
 		return nil, nil, err
 	}
-	if rf := controllaDipendenze(el, *g.corpo.ImprontaDipendenze, g.corpo.scollega(), g.corpo.unicaCopia(), g.nome == GestoScarta); rf != nil {
+	scritte := map[uuid.UUID]bool{}
+	for _, x := range pr.tutte {
+		scritte[x.AllegatoID] = true
+	}
+	if rf := controllaDipendenze(el, *g.corpo.ImprontaDipendenze, g.corpo.scollega(), g.corpo.unicaCopia(), g.nome == GestoScarta, scritte); rf != nil {
 		return nil, nil, rf
 	}
 	pr.el = el
@@ -266,26 +293,22 @@ func scriviEvento(ctx context.Context, q *db.Queries, thread uuid.UUID, e evento
 
 func uid(u uuid.UUID) uuid.NullUUID { return uuid.NullUUID{UUID: u, Valid: true} }
 
-// scollega toglie l'associazione della proposta aperta di un'occorrenza con D-7 (V1-Q22 A: la risoluzione nello stesso
-// gesto, registrata come scollegamento con chi e quando): il codice resta quello della proposta, il componente va a
-// NULL, e associazione_evento «sgancia» porta il componente di prima.
+// scollega chiude il legame dell'occorrenza con D-7 (V1-Q22 A: la risoluzione nello stesso gesto, registrata come
+// scollegamento con chi e quando) dal servizio unico (direttiva 35 §3 [U]; C-6b, piano §7.2 C-6: «Scollega e Scarta dal
+// servizio»): la AR attiva si chiude con il motivo scollega_file (la riga resta, con chi, quando e la chiave del gesto) e
+// la copia della proposta aperta si toglie; senza AR, la copia senza AR (pre-assegnazione legacy, legame della sorgente)
+// si toglie con l'evento «sgancia». E' il gesto composto di D-ASS-03 [U]: nella RFQ formato 3 lo svincolo R2 e' gia'
+// salvato nella bozza (lo vuole la D-7 di calcolaDipendenze), e alla conferma R5 trovera' la AR gia' chiusa
+// (svincolo_gia_chiuso). Va chiamata prima di scrivere lo stato non attivo dell'occorrenza (INC-G11: un'occorrenza non
+// attiva non tiene una AR attiva, trg_file_rfq_senza_ar). Chi chiama tiene la RFQ (BloccaThread) e le proposte.
 func scollega(ctx context.Context, q *db.Queries, thread uuid.UUID, o Occorrenza, g gesto) error {
-	if !o.PropostaID.Valid || !o.PropostaComponenteID.Valid || o.StatoProposta.StatoProposta != db.StatoPropostaAperta {
-		return nil
+	_, err := associazioni.Scollega(ctx, q, associazioni.Atto{Thread: thread, Autore: g.utente, Chiave: g.it.chiave, Nota: g.corpo.motivo()},
+		associazioni.Scollegamento{Allegato: o.AllegatoID, Motivo: associazioni.MotivoScollegaFile})
+	var r *associazioni.Rifiuto
+	if errors.As(err, &r) {
+		return rifiuto(http.StatusConflict, "ASSOCIAZIONE_CAMBIATA",
+			"Niente è cambiato: l'associazione del file è cambiata mentre il gesto la chiudeva ("+r.Codice+"). Rileggi e riprova.", nil)
 	}
-	p, err := q.GetPropostaDocumentoDiAllegato(ctx, o.AllegatoID)
-	if err != nil {
-		return err
-	}
-	if p.Stato != db.StatoPropostaAperta || !p.ComponenteID.Valid {
-		return nil
-	}
-	if _, err := q.SetComponenteProposta(ctx, db.SetComponentePropostaParams{PropostaID: p.PropostaID, Codice: p.Codice}); err != nil {
-		return err
-	}
-	_, err = q.InsertAssociazioneEvento(ctx, db.InsertAssociazioneEventoParams{ThreadID: thread, PropostaID: uid(p.PropostaID),
-		Azione: "sgancia", ComponentePrima: p.ComponenteID, Origine: OriginePonte, ChiaveIdempotenza: uid(g.it.chiave),
-		AutoreID: g.utente, Motivo: testo(g.corpo.motivo())})
 	return err
 }
 

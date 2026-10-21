@@ -2,7 +2,9 @@ package distintabozza
 
 // R7 (EM §9.7; PE-07, decisione [T] dell'integratore del 18/10): lo storico delle conferme di un prodotto nei formati 1, 2
 // e 3, senza scrivere e senza convertire niente. Per ogni conferma: la testata, ultima e valida derivate alla lettura (C3
-// §5.7), verifica_calcolata e confermato_da_nome (PE-07: la pagina non legge piu' il formato per dire «Verificata»); poi le
+// §5.7), confermato_da_nome (PE-07) e, per il formato 3, i prerequisiti registrati (U2 §5.4: criterio, regola, fonte,
+// firma, mono_pezzo, gerarchia e deroga; nessun si' o no per una conferma passata, e verifica_calcolata non c'e' piu': la
+// verifica corrente la dice /dati.conferma_corrente, DEC-B RQ-8 superata da U2 §5.4); poi le
 // attestazioni (con da_riverificare derivato) e la storia della fonte (fonte_step_evento del prodotto, compresi gli atti
 // esistenti che in V1 la scrivono). Con &conferma= il dettaglio: snapshot, delta, decisioni, mappa, componenti certificati
 // (con emittente, presunzione e namespace nel formato 3), archi, non_inclusi[] e, con &importazione=1, tutti i registri
@@ -56,8 +58,42 @@ type ConfermaR7 struct {
 	Fonte              *FonteConferma  `json:"fonte,omitempty"`
 	ImportazioneID     *uuid.UUID      `json:"importazione_id,omitempty"`
 	ImportazioniCitate []uuid.UUID     `json:"importazioni_citate,omitempty"`
-	VerificaCalcolata  bool            `json:"verifica_calcolata"`
+	Prerequisiti       *PrerequisitiR7 `json:"prerequisiti,omitempty"`
 	F8Stato            string          `json:"f8_stato,omitempty"`
+	// CorrezioneSorgente e Revisione: la conferma e' una revisione interna, correzione della sorgente (origine della
+	// conferma scritta da R5: correzione_sorgente, revisione «interna»; G39-03 [U]: verso il cliente non e' una sua
+	// revisione; forma [T-39])
+	CorrezioneSorgente bool   `json:"correzione_sorgente,omitempty"`
+	Revisione          string `json:"revisione,omitempty"`
+}
+
+// correzioneDiOrigine: la marcatura della correzione della sorgente in origine di una conferma (conferma3_scritture.go).
+func correzioneDiOrigine(origine json.RawMessage) (bool, string) {
+	var o struct {
+		Correzione bool   `json:"correzione_sorgente"`
+		Revisione  string `json:"revisione"`
+	}
+	if json.Unmarshal(origine, &o) != nil {
+		return false, ""
+	}
+	return o.Correzione, o.Revisione
+}
+
+// PrerequisitiR7: i prerequisiti registrati di una conferma formato 3 (U2 §5.4, riga R7; [U] D-SHOCK-S1 B: criterio,
+// origine_gerarchia, gerarchia_step, stato e motivo della deroga). Sono dati registrati, mai un esito della verifica: la
+// regola e' prima-istanza-1, la fonte e' quella della conferma (sha256 e gruppo), la gerarchia e la deroga quelle che R5
+// scrive in origine (assenti se la conferma non le porta: si dichiarano mancanti, non si ricostruiscono).
+type PrerequisitiR7 struct {
+	Criterio         string                       `json:"criterio"`
+	Regola           string                       `json:"regola"`
+	FonteSha256      string                       `json:"fonte_sha256,omitempty"`
+	FonteGruppo      string                       `json:"fonte_gruppo,omitempty"`
+	FirmaStruttura   string                       `json:"firma_struttura"`
+	MonoPezzo        bool                         `json:"mono_pezzo"`
+	OrigineGerarchia string                       `json:"origine_gerarchia,omitempty"`
+	GerarchiaStep    *bool                        `json:"gerarchia_step,omitempty"`
+	Deroga           *confermabom.DerogaStruttura `json:"deroga,omitempty"`
+	Mancanti         []string                     `json:"mancanti,omitempty"`
 }
 
 // AttestazioneR7 e' un'attestazione del fascicolo del prodotto, con da_riverificare derivato (C3 §5.7).
@@ -112,18 +148,24 @@ type ArcoCertificato struct {
 }
 
 // NonInclusoR7 e' una riga di conferma_strutturale_non_incluso.
+//
+// Origine (U2 §6.1, 0023 riga 7): non_includere (la decisione, con azione e motivo) oppure assenza, legacy, ereditata,
+// escludi (la traccia di un'esclusione senza decisione propria: decisione, azione e motivo possono mancare, e il motivo
+// che manca si dichiara, non si inventa).
 type NonInclusoR7 struct {
-	DecisioneID  string          `json:"decisione_id"`
-	Sha256       string          `json:"sha256"`
-	Chiave       string          `json:"chiave"`
-	AllegatoID   uuid.UUID       `json:"allegato_id"`
-	Gruppo       string          `json:"gruppo"`
-	AzioneID     uuid.UUID       `json:"azione_id"`
-	MotivoCodice string          `json:"motivo_codice"`
-	Motivo       string          `json:"motivo"`
-	Segnale      json.RawMessage `json:"segnale,omitempty"`
-	RigheChiuse  []uuid.UUID     `json:"righe_chiuse"`
-	ArchiChiusi  json.RawMessage `json:"archi_chiusi"`
+	Origine        string          `json:"origine"`
+	DecisioneID    string          `json:"decisione_id,omitempty"`
+	Sha256         string          `json:"sha256"`
+	Chiave         string          `json:"chiave"`
+	AllegatoID     uuid.UUID       `json:"allegato_id"`
+	Gruppo         string          `json:"gruppo"`
+	AzioneID       *uuid.UUID      `json:"azione_id,omitempty"`
+	MotivoCodice   string          `json:"motivo_codice,omitempty"`
+	Motivo         string          `json:"motivo,omitempty"`
+	MotivoMancante bool            `json:"motivo_mancante,omitempty"`
+	Segnale        json.RawMessage `json:"segnale,omitempty"`
+	RigheChiuse    []uuid.UUID     `json:"righe_chiuse"`
+	ArchiChiusi    json.RawMessage `json:"archi_chiusi"`
 }
 
 // DettaglioR7 e' il dettaglio di una conferma (&conferma=).
@@ -151,13 +193,27 @@ type StoricoR7 struct {
 	Dettaglio    *DettaglioR7     `json:"dettaglio,omitempty"`
 }
 
-// verificaCalcolata e' il segno di EM §9.7 (DECA PE-07; MAT §6.2; PM23 R-17), alla lettera del testo recepito: vero se la
-// conferma porta la verifica registrata da R5, cioe' per le conferme formato 3 (in V1 la verifica provvisoria «mai
-// positiva», K-1 [U]), falso per i formati 1 e 2, qualunque cosa porti la loro colonna verifica. La pagina ne ricava
-// «Verificata»: con vero «non ancora calcolata (arriva in V2)», con falso il calcolo di oggi (MAT §6.2, righe
-// «Verificata»). Prima del secondo passaggio dell'ondata B il codice aveva la polarita' opposta (PB-19, ritirata).
-func verificaCalcolata(formato int16) bool {
-	return formato == FormatoSnapshot3
+// prerequisitiRegistrati: i prerequisiti di una conferma formato 3 (PrerequisitiR7), dalle colonne della conferma e da
+// origine (origine_gerarchia, gerarchia_step, deroga, se R5 li ha scritti).
+func prerequisitiRegistrati(c ConfermaR7, origine json.RawMessage) *PrerequisitiR7 {
+	p := &PrerequisitiR7{Criterio: c.CriterioVerifica, Regola: confermabom.RegolaPrimaIstanza, FirmaStruttura: c.FirmaStruttura, MonoPezzo: c.MonoPezzo}
+	if c.Fonte != nil {
+		p.FonteSha256, p.FonteGruppo = c.Fonte.Sha256, c.Fonte.Gruppo
+	}
+	var o struct {
+		OrigineGerarchia string                       `json:"origine_gerarchia"`
+		GerarchiaStep    *bool                        `json:"gerarchia_step"`
+		Deroga           *confermabom.DerogaStruttura `json:"deroga"`
+	}
+	_ = json.Unmarshal(origine, &o)
+	p.OrigineGerarchia, p.GerarchiaStep, p.Deroga = o.OrigineGerarchia, o.GerarchiaStep, o.Deroga
+	if p.OrigineGerarchia == "" {
+		p.Mancanti = append(p.Mancanti, "origine_gerarchia")
+	}
+	if p.GerarchiaStep == nil {
+		p.Mancanti = append(p.Mancanti, "gerarchia_step")
+	}
+	return p
 }
 
 // LeggiStorico e' R7 (commento di testa). Chi chiama apre la transazione in sola lettura.
@@ -193,8 +249,7 @@ func LeggiStorico(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID
 		c := ConfermaR7{ConfermaID: r.ConfermaID, Numero: int(r.Numero), Formato: int(r.Formato), SenzaRiepilogoV2: r.SenzaRiepilogoV2,
 			ConfermatoDa: r.ConfermatoDa, ConfermatoDaNome: r.ConfermatoDaNome, ConfermatoDaSigla: r.ConfermatoDaSigla,
 			ConfermatoIl: r.ConfermatoIl, FirmaStruttura: strings.TrimSpace(r.FirmaStruttura), CriterioVerifica: r.CriterioVerifica,
-			MonoPezzo: r.MonoPezzo, Origine: canonico(r.Origine), VerificaCalcolata: verificaCalcolata(r.Formato),
-			F8Stato: r.F8Stato.String, ImportazioniCitate: r.ImportazioniCitate}
+			MonoPezzo: r.MonoPezzo, Origine: canonico(r.Origine), F8Stato: r.F8Stato.String, ImportazioniCitate: r.ImportazioniCitate}
 		c.Ultima = haUltima && u.ID == r.ConfermaID
 		c.Valida = c.Ultima && val.Valida
 		if r.BozzaID.Valid {
@@ -212,6 +267,10 @@ func LeggiStorico(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID
 		if r.ImportazioneID.Valid {
 			id := r.ImportazioneID.UUID
 			c.ImportazioneID = &id
+		}
+		if r.Formato == FormatoSnapshot3 {
+			c.Prerequisiti = prerequisitiRegistrati(c, r.Origine)
+			c.CorrezioneSorgente, c.Revisione = correzioneDiOrigine(r.Origine)
 		}
 		out.Conferme = append(out.Conferme, c)
 		perID[c.ConfermaID] = c
@@ -309,8 +368,13 @@ func dettaglioConferma(ctx context.Context, q *db.Queries, thread uuid.UUID, c C
 		return DettaglioR7{}, err
 	}
 	for _, n := range nn {
-		x := NonInclusoR7{DecisioneID: n.DecisioneID, Sha256: strings.TrimSpace(n.Sha256), Chiave: n.Chiave, AllegatoID: n.AllegatoID, Gruppo: n.Gruppo,
-			AzioneID: n.AzioneID, MotivoCodice: n.MotivoCodice, Motivo: n.Motivo, RigheChiuse: n.RigheChiuse, ArchiChiusi: grezzoCanonico(n.ArchiChiusi)}
+		x := NonInclusoR7{Origine: n.Origine, DecisioneID: n.DecisioneID.String, Sha256: strings.TrimSpace(n.Sha256), Chiave: n.Chiave,
+			AllegatoID: n.AllegatoID, Gruppo: n.Gruppo, MotivoCodice: n.MotivoCodice.String, Motivo: n.Motivo.String,
+			MotivoMancante: !n.Motivo.Valid, RigheChiuse: n.RigheChiuse, ArchiChiusi: grezzoCanonico(n.ArchiChiusi)}
+		if n.AzioneID.Valid {
+			a := n.AzioneID.UUID
+			x.AzioneID = &a
+		}
 		if n.Segnale != nil {
 			x.Segnale = grezzoCanonico(*n.Segnale)
 		}

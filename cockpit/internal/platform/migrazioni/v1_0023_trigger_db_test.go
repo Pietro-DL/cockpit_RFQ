@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
+	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/migrazioni"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -415,7 +416,27 @@ func TestV1M15INodiNonInclusi(t *testing.T) {
 	c = nuovaC3()
 	c.nonInclusi = append(c.nonInclusi, strings.Replace(nonInclusoC3, "'#31'", "'#32'", 1))
 	rifiuto23(t, p, "due righe per la stessa decisione", "23505", "ux_csni_decisione", c.istruzioni(t)...)
-	riuscita23(t, p, "conferma formato 3 valida", nuovaC3().istruzioni(t)...)
+	// U2 §3.14 riga 7: le tracce delle esclusioni senza decisione propria (origine diversa da non_includere)
+	traccia := func(origine, decisione string) string {
+		return `INSERT INTO conferma_strutturale_non_incluso (conferma_id, thread_id, sha256, chiave, allegato_id, gruppo, origine, decisione_id)
+			VALUES ('{C3}', '{T}', repeat('b', 64), '#40', '{A}', 'bom', '` + origine + `', ` + decisione + `)`
+	}
+	c = nuovaC3()
+	c.dopo = []string{traccia("escludi", "'ni-1'")}
+	rifiuto23(t, p, "una traccia che cita una non_includere (ha gia' la sua riga)", "23505", "ux_csni_decisione", c.istruzioni(t)...)
+	c = nuovaC3()
+	c.dopo = []string{traccia("legacy", "'dx-9'")}
+	rifiuto23(t, p, "una traccia che cita una decisione assente", "P4X01", "la traccia di un'esclusione cita la decisione", c.istruzioni(t)...)
+	c = nuovaC3()
+	c.dopo = []string{traccia("non_includere", "NULL")}
+	rifiuto23(t, p, "una non_includere senza decisione", "23514", "ck_csni_origine", c.istruzioni(t)...)
+	c = nuovaC3()
+	c.dopo = []string{traccia("assenza", "NULL")}
+	riuscita23(t, p, "conferma formato 3 valida, con la traccia di un'assenza senza motivo", c.istruzioni(t)...)
+	if got := uno23[string](t, p, `SELECT string_agg(origine || ':' || coalesce(decisione_id, '-') || ':' || coalesce(motivo, '-'), ' ' ORDER BY chiave)
+		FROM conferma_strutturale_non_incluso WHERE conferma_id = '{C3}'`); got != "non_includere:ni-1:cordone di saldatura assenza:-:-" {
+		t.Errorf("i nodi non inclusi: %s", got)
+	}
 	rifiuto23(t, p, "UPDATE di un nodo non incluso", "P4X01", "non cambia", `UPDATE conferma_strutturale_non_incluso SET motivo = 'altro'`)
 	rifiuto23(t, p, "DELETE di un nodo non incluso", "P4X01", "non cambia", `DELETE FROM conferma_strutturale_non_incluso`)
 	rifiuto23(t, p, "TRUNCATE dei nodi non inclusi", "P4X01", "non si svuotano", `TRUNCATE conferma_strutturale_non_incluso`)
@@ -431,7 +452,7 @@ func TestV1M16IGestiDegliIntenti(t *testing.T) {
 	rifiuto23(t, p, "conferma_bom_v2 su una conferma formato 3", "P4X03", "non e' quello di una conferma formato 3",
 		`INSERT INTO esito_intento (chiave, thread_id, gesto, utente_id, impronta_corpo, esito, conferma_id)
 		 VALUES ('{K3}', '{T}', 'conferma_bom_v2', '{U}', repeat('a', 64), '{}', '{C3}')`)
-	for _, g := range []string{"scarta_file", "altri_file", "riattiva_file", "associa_step"} {
+	for _, g := range []string{"scarta_file", "altri_file", "riattiva_file", "associa_step", "conferma_sorgente", "rifiuta_proposta"} {
 		riuscita23(t, p, "gesto "+g, `INSERT INTO esito_intento (chiave, thread_id, gesto, utente_id, impronta_corpo, esito)
 			VALUES (gen_random_uuid(), '{T}', '`+g+`', '{U}', repeat('a', 64), '{}')`)
 	}
@@ -482,6 +503,20 @@ func TestV1M17LaFonteSecondariaSuUnNodoFormato3(t *testing.T) {
 			 VALUES ('{B3}', 2, 2, 2, 'nodo_aggiunto', 'k-n', '{"chiave_bozza": "k-n", "op": "crea", "tipo": "sciolto", "origine": "utente"}', 'utente', '{U}')`)
 		rifiuto23(t, p, "conferma su una chiave riusata", "P4X07", "e' stata riusata per un nodo diverso",
 			conN3("2", "repeat('c', 64)").istruzioni(t)...)
+	})
+	// M-38 (DEC-B PB-34, 0023 riga 11): lo stesso nodo rimesso da un gesto cumulativo («Non includere», poi «Annulla»
+	// con lo stesso azione_id) porta azione_id nel dopo del vocabolario 2: e' lo stesso nodo, la conferma lo risolve
+	t.Run("stesso nodo con azione_id", func(t *testing.T) {
+		p := schema23ConStoria(t)
+		riuscita23(t, p, "scelta sul nodo k-n senza UUID", scelta)
+		riuscita23(t, p, "versione 2 con k-n rimesso uguale, con l'azione del gesto", versione2B3(t, snapshot3(), "'{R1}'"),
+			`INSERT INTO distinta_bozza_evento (bozza_id, n, versione, vocabolario, azione, chiave_bozza, dopo, origine, utente_id)
+			 SELECT '{B3}', 2, 2, 2, 'nodo_aggiunto', 'k-n', (destinazione -> 'nodo') || '{"azione_id": "{AZ}"}'::jsonb, 'utente', '{U}'
+			   FROM fonte_step_evento WHERE chiave_bozza = 'k-n'`)
+		riuscita23(t, p, "conferma dopo il gesto annullato e rifatto", conN3("2", "repeat('c', 64)").istruzioni(t)...)
+		if r := uno23[string](t, p, `SELECT componente_id::text FROM fonte_step_evento WHERE azione = 'risoluzione' AND chiave_bozza = 'k-n'`); r != u23("{N3}") {
+			t.Errorf("risoluzione: %q", r)
+		}
 	})
 }
 
@@ -556,5 +591,53 @@ func TestV1M34LEmittenteDellaGrammatica(t *testing.T) {
 			t.Errorf("emittente %s, namespace %s: %v", e.emittente, e.namespace, err)
 		}
 		_ = tx.Rollback(ctx)
+	}
+}
+
+// M-35 (U2 §3.14 riga 9): il rifiuto della proposta aggiornata: una riga per (conferma, impronta) con la data del
+// database; la chiave vale una volta; la conferma e' del prodotto; in sola aggiunta (P4X02).
+func TestV1M35IlRifiutoDellaPropostaAggiornata(t *testing.T) {
+	p := schema23ConStoria(t)
+	riga := func(prodotto, chiave string) string {
+		return `INSERT INTO proposta_aggiornata_rifiuto (thread_id, prodotto_id, conferma_id, gruppo, impronta_contenuto, differenze, motivo, autore_id,
+			chiave_idempotenza) VALUES ('{T}', '` + prodotto + `', '{C1}', 'bom', repeat('7', 64), '{"per_tipo": {"identita": 1}}',
+			'la BOM confermata resta', '{U}', '` + chiave + `')`
+	}
+	riuscita23(t, p, "rifiuto valido", riga("{P}", "{K4}"))
+	if !uno23[bool](t, p, `SELECT quando > now() - interval '1 hour' AND tx IS NOT NULL FROM proposta_aggiornata_rifiuto`) {
+		t.Error("data e transazione del rifiuto non sono quelle del database")
+	}
+	rifiuto23(t, p, "la stessa chiave due volte", "23505", "ux_par_chiave", riga("{P}", "{K4}"))
+	rifiuto23(t, p, "la conferma di un altro prodotto", "23503", "fk_par_conferma_prodotto", riga("{S}", "{K3}"))
+	rifiuto23(t, p, "UPDATE di un rifiuto", "P4X02", "non si modifica", `UPDATE proposta_aggiornata_rifiuto SET motivo = 'altro'`)
+	rifiuto23(t, p, "DELETE di un rifiuto", "P4X02", "non si modifica", `DELETE FROM proposta_aggiornata_rifiuto`)
+	rifiuto23(t, p, "TRUNCATE dei rifiuti", "P4X02", "non si svuotano", `TRUNCATE proposta_aggiornata_rifiuto`)
+}
+
+// M-36 (U2 §3.14 riga 10): il digest dei fatti: le righe di prima della 23 lo ricevono dalla migrazione, ogni scrittura
+// (UpsertAnalisiFatti compresa) lo riscrive dal trigger, e un valore scritto a mano non resta.
+func TestV1M36IlDigestDeiFatti(t *testing.T) {
+	p := testutil.Pool(t)
+	t.Cleanup(func() { testutil.SchemaPulito(t, p) })
+	testutil.SchemaFinoA(t, p, 22)
+	esegui23(t, p, `INSERT INTO analisi_fatti (sha256, versione_analizzatore, hash_configurazione, fatti)
+		VALUES (repeat('a', 64), 1, repeat('c', 64), '{"struttura": {"radici": ["#1"]}, "n": 1}'),
+		       (repeat('b', 64), 1, repeat('c', 64), '{"testo": "è così"}')`)
+	if err := applica23(p); err != nil {
+		t.Fatalf("upgrade 22 → 23: %v", err)
+	}
+	coincide := `SELECT count(*) FILTER (WHERE digest IS NULL OR digest <> encode(sha256(convert_to(fatti::text, 'UTF8')), 'hex')) || ' su ' || count(*)
+		FROM analisi_fatti`
+	if got := uno23[string](t, p, coincide); got != "0 su 2" {
+		t.Errorf("il riempimento della 23: righe senza digest giusto %s", got)
+	}
+	ctx := context.Background()
+	if _, err := db.New(p).UpsertAnalisiFatti(ctx, db.UpsertAnalisiFattiParams{Sha256: strings.Repeat("a", 64), VersioneAnalizzatore: 1,
+		HashConfigurazione: strings.Repeat("c", 64), Fatti: []byte(`{"struttura": {"radici": ["#2"]}, "n": 2}`)}); err != nil {
+		t.Fatalf("UpsertAnalisiFatti: %v", err)
+	}
+	esegui23(t, p, `UPDATE analisi_fatti SET digest = repeat('0', 64) WHERE sha256 = repeat('b', 64)`)
+	if got := uno23[string](t, p, coincide); got != "0 su 2" {
+		t.Errorf("dopo UpsertAnalisiFatti e una scrittura a mano: righe senza digest giusto %s", got)
 	}
 }

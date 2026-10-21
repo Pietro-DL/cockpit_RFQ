@@ -16,9 +16,11 @@ import (
 	risorse "promatec/cockpit"
 )
 
-// Le quattro funzioni della 0022 che la 0023 sostituisce (PM23 §2, «Funzioni»).
+// Le cinque funzioni della 0022 che la 0023 sostituisce (PM23 §2, «Funzioni»; fonte_step_risolvi dalla riga 11 del
+// delta di U2 e DEC-B, PM23 §4.13).
 var funzioniSostituite0023 = []string{
 	"distinta_bozza_versione_nasce", "conferma_strutturale_nasce", "conferma_strutturale_contenuto", "conferma_strutturale_completa",
+	"fonte_step_risolvi",
 }
 
 // Le cinque viste ridefinite, con la migrazione del testo di oggi e quante righe ricevono il predicato (PM23 §4.11).
@@ -38,6 +40,17 @@ var commentiAggiornati0023 = []string{
 	"COMMENT ON TABLE distinta_bozza_versione IS",
 	"COMMENT ON TABLE conferma_strutturale IS",
 	"COMMENT ON COLUMN conferma_strutturale_arco.origine IS",
+	"COMMENT ON COLUMN conferma_strutturale.verifica IS",
+	"COMMENT ON TABLE associazione_evento IS", // direttiva 35 §2.4: il giornale delle AR (variante 20261019a)
+}
+
+// I CHECK della 0022 che la 0023 toglie e rimette con lo stesso nome per la direttiva 35 (sezione 9d) e per la direttiva
+// 39 (ck_associazione_origine con conversione_legacy, ck_fonte_azione con revoca_sorgente), con la tabella della 0022 che
+// li definisce.
+var vincoliRimessi0023 = []struct{ tab, nome string }{
+	{"associazione_evento", "ck_associazione_oggetto"}, {"associazione_evento", "ck_associazione_azione"},
+	{"associazione_evento", "ck_associazione_coerente"}, {"correzione_documento", "ck_correzione_oggetto"},
+	{"associazione_evento", "ck_associazione_origine"}, {"fonte_step_evento", "ck_fonte_azione"},
 }
 
 var (
@@ -290,8 +303,8 @@ func TestV1T11VisteSoloIlPredicato(t *testing.T) {
 	}
 }
 
-// TestV1IlRitornoRimetteLa22 (U-09, parte L1): lo script di ritorno rimette le quattro funzioni, le cinque viste e i
-// tre commenti della 22 byte per byte, cosi' il catalogo dopo 22 → 23 → 22 e' quello della 22 (la prova L4
+// TestV1IlRitornoRimetteLa22 (U-09, parte L1): lo script di ritorno rimette le cinque funzioni, le cinque viste e i
+// cinque commenti della 22 byte per byte, cosi' il catalogo dopo 22 → 23 → 22 e' quello della 22 (la prova L4
 // TestV1IlRitornoManualeDalla23Alla22 lo confronta sul database).
 func TestV1IlRitornoRimetteLa22(t *testing.T) {
 	ritorno := testoScript(t, "0023_indietro.sql")
@@ -365,6 +378,68 @@ func TestV1T11LaRegolaDelleMarcheColgeIDifetti(t *testing.T) {
 	for _, c := range casi {
 		if got := len(differenzeMarcate(vecchio, c.nuovo)) > 0; got != c.difett {
 			t.Errorf("%s: difetti trovati %v, attesi %v", c.nome, got, c.difett)
+		}
+	}
+}
+
+// corpoCheck: il testo fra le parentesi del CHECK che segue la prima occorrenza di «CONSTRAINT <nome> CHECK (» nel
+// testo, senza i commenti di riga e con i bianchi ridotti a uno spazio.
+func corpoCheck(testo, nome string) (string, error) {
+	testa := "CONSTRAINT " + nome + " CHECK ("
+	i := strings.Index(testo, testa)
+	if i < 0 {
+		return "", fmt.Errorf("CHECK %s non trovato", nome)
+	}
+	var righe []string
+	for _, r := range strings.Split(testo[i+len(testa):], "\n") {
+		if k := strings.Index(r, "--"); k >= 0 {
+			r = r[:k]
+		}
+		righe = append(righe, r)
+	}
+	s := strings.Join(righe, " ")
+	livello := 1
+	for j, c := range s {
+		switch c {
+		case '(':
+			livello++
+		case ')':
+			livello--
+			if livello == 0 {
+				return strings.Join(strings.Fields(s[:j]), " "), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("CHECK %s senza la parentesi di chiusura", nome)
+}
+
+// TestV1T11VincoliRimessiConLoStessoNome (direttiva 35, blocco C-1b): i quattro CHECK della 0022 che la 0023 toglie e
+// rimette con lo stesso nome cominciano con il ramo della 0022, parola per parola (la 0023 aggiunge solo in coda:
+// un'alternativa in piu' o una condizione sulle righe nuove), e lo script di ritorno li rimette come nella 0022.
+func TestV1T11VincoliRimessiConLoStessoNome(t *testing.T) {
+	m22, m23 := testoMigrazione(t, "0022_p4_conferme_working.sql"), testoMigrazione(t, "0023_distinta_formato3.sql")
+	ritorno := testoScript(t, "0023_indietro.sql")
+	for _, v := range vincoliRimessi0023 {
+		vecchio, err := corpoCheck(m22, v.nome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nuovo, err := corpoCheck(m23, v.nome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(nuovo, strings.TrimRight(vecchio, ")")) || nuovo == vecchio {
+			t.Errorf("%s: il CHECK della 0023 non comincia con il ramo della 0022, o non aggiunge niente:\n0022: %s\n0023: %s", v.nome, vecchio, nuovo)
+		}
+		if !strings.Contains(m23, "DROP CONSTRAINT "+v.nome) {
+			t.Errorf("%s: la 0023 non lo toglie prima di rimetterlo", v.nome)
+		}
+		rimesso, err := corpoCheck(ritorno, v.nome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rimesso != vecchio {
+			t.Errorf("%s: il ritorno non lo rimette come nella 0022:\n0022:    %s\nritorno: %s", v.nome, vecchio, rimesso)
 		}
 	}
 }

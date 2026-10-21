@@ -60,10 +60,20 @@ func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Alleg
 		if err != nil {
 			return originale
 		}
-		if attiva, err := occorrenzaAttiva(ctx, q, z.AllegatoID); err != nil {
+		if stato, err := statoOccorrenza(ctx, q, z.AllegatoID); err != nil {
 			return fmt.Errorf("%w (lo stato dell'archivio %q nella Distinta nuova non si legge: %v)", originale, z.NomeFile, err)
-		} else if !attiva {
-			return fmt.Errorf("%w (l'archivio %q è in Altri file o scartato nella Distinta nuova: nessuna riestrazione)", originale, z.NomeFile)
+		} else if stato == "altri_file" {
+			// V1 (G-12; U2-P45): un archivio in Altri file, non scartato, si riestrae per rimettere i byte della voce
+			// attiva che c'e' gia', leggendolo dallo staging o dalla sua copia nella cartella ALTRO (l'estrazione lo
+			// rimette nello staging); nessuna voce nuova
+			if _, err := coda.Accoda(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
+				"estrai:"+z.AllegatoID.String(), 2); err != nil {
+				return originale
+			}
+			return fmt.Errorf("%w: il contenuto di %q non e' piu' nella cache; l'archivio %q e' in Altri file: "+
+				"riestrazione accodata dalla sua copia, la copia riprova da sola", ErrContenutoMancante, a.NomeFile, z.NomeFile)
+		} else if stato != "attivo" {
+			return fmt.Errorf("%w (l'archivio %q è scartato nella Distinta nuova: nessuna riestrazione)", originale, z.NomeFile)
 		}
 		if z.PathStaging.Valid && (staging.FileStaging{}).Presente(z.PathStaging.String) {
 			if _, err := coda.Accoda(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
@@ -113,14 +123,24 @@ func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Alleg
 // occorrenzaAttiva: l'occorrenza dell'allegato e' attiva nella RFQ del suo messaggio (il predicato file_rfq_attivo; V1,
 // EM §10.7). Un allegato che non c'e' vale attivo: lo dice chi lo legge dopo.
 func occorrenzaAttiva(ctx context.Context, q *db.Queries, allegato uuid.UUID) (bool, error) {
+	st, err := statoOccorrenza(ctx, q, allegato)
+	return st == "attivo", err
+}
+
+// statoOccorrenza: lo stato dell'occorrenza dell'allegato nella RFQ del suo messaggio (attivo, altri_file, scartato;
+// uno scarto col gesto precedente vale scartato). Un allegato che non c'e' vale attivo.
+func statoOccorrenza(ctx context.Context, q *db.Queries, allegato uuid.UUID) (string, error) {
 	st, err := q.StatoOccorrenzaAllegato(ctx, allegato)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return true, nil
+		return "attivo", nil
 	}
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	return st.Stato == "attivo", nil
+	if st.ScartatoLegacy {
+		return "scartato", nil
+	}
+	return st.Stato, nil
 }
 
 // contenutoCaricatoAMano e' il motivo per un contenuto sparito che era stato caricato a mano nel

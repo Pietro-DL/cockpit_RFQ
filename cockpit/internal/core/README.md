@@ -117,6 +117,28 @@ markmap:
     - Puro: legge l'esito già calcolato, non decide
   - DB: no
   - README: [README](propostabom/README.md)
+- **`rfq/associazioni`** (V1, direttiva 35, blocco C-1c, corsia persistenza)
+  - Che cosa fa:
+    - il servizio unico delle associazioni registrate (AR) file → componente: `Registra`, `Riassocia`, `Sostituisci`,
+      `Scollega`, le letture `Attiva`, `AttiveDellaRfq`, `StoriaDellAllegato`, `AllineaCodiceCopia`
+    - nella stessa transazione: la riga, il giornale in `associazione_evento`, la copia derivata
+      `documento_proposta.componente_id`; idempotenza per chiave; nessun lucchetto (lo prende chi chiama)
+    - `LegaSorgente` (legame dello STEP sorgente, provvisorio D-AR02 A): scritta e non cablata (INC-S1)
+  - DB: sì (l'unico scrittore di `file_rfq_associazione`)
+  - README: [README](rfq/associazioni/README.md)
+- **`rfq/confermadoc`** (V1, direttiva 35, blocco C-3, INC-G9; direttiva 39, S8 passo 2; corsia persistenza)
+  - Che cosa fa:
+    - la conferma di una proposta in documento del Fascicolo, resa funzione del core (prima nel web, `allegati.go`):
+      documento, provenienza, proposta chiusa, riga `conferma_documento` per uno STEP del finito, scelta della revisione,
+      copia sul NAS in coda; la chiamano le pagine legacy e S8
+    - la guardia di INC-G9: con una AR attiva dell'allegato il documento entra solo sotto il componente della AR
+  - DB: sì (sulla transazione di chi chiama)
+  - README: [README](rfq/confermadoc/README.md)
+- **`rfq/sorgente`** (V1, direttiva 39 §2, §3; corsia persistenza)
+  - Che cosa fa: S8 «Conferma questo STEP come sorgente» a passi idempotenti (documento e riga `conferma_documento`, copia
+    sul NAS del solo STEP sorgente, la bozza con R2 del core) e la revoca motivata della sorgente; mai la working
+  - DB: sì
+  - README: [README](rfq/sorgente/README.md)
 - **`rfq/filerfq`** (V1, ondata B, corsia file)
   - Che cosa fa:
     - il ciclo dei file della Sorgente: lo stato di un'occorrenza (attiva, in Altri file, scartata) e i suoi eventi
@@ -284,6 +306,12 @@ markmap:
     - `estrazione/evidenze` (il documento e le diagnostiche)
     - `platform/jsoncanonico` (l'impronta delle decisioni)
     - mai `confronto`, il caricatore, il DB, la libreria YAML
+  - **`rfq/associazioni`** importa:
+    - solo `platform/db` (e pgx per i rifiuti del database): nessun altro package del core
+  - **`rfq/confermadoc`** importa:
+    - `rfq/associazioni` (la AR attiva, INC-G9), `rfq/fascicolo` (rifiuti, sostituzione, storia della fonte), `rfq/documenti`
+      (cartella e nome sul NAS), `rfq/filerfq` (lo stato dell'occorrenza), `inbox/classificazione` (codice e revisione)
+    - `platform/coda` (la copia sul NAS), `platform/db`
   - **`rfq/filerfq`** importa:
     - `rfq/documenti` (il percorso sul NAS in sola lettura, il contenimento)
     - `rfq/fascicolo` (le note dei caricamenti e la registrazione di un file caricato)

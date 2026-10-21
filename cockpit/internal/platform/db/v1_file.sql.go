@@ -14,6 +14,64 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const aggiornaConservazione = `-- name: AggiornaConservazione :execrows
+
+UPDATE file_rfq_conservazione
+   SET stato = $1, causa = $2, errore = $3, tentativi = $4,
+       prossimo_tentativo_il = $5,
+       sorgente_byte = COALESCE($6, sorgente_byte),
+       bytes = COALESCE($7, bytes),
+       creato_dal_cockpit = creato_dal_cockpit OR $8::bool,
+       token_rimozione = COALESCE($9::uuid, token_rimozione),
+       esito_rimozione = $10,
+       ultimo_battito = CASE WHEN $11::bool THEN now() ELSE ultimo_battito END
+ WHERE conservazione_id = $12 AND stato = $13
+`
+
+type AggiornaConservazioneParams struct {
+	Stato               string        `json:"stato"`
+	Causa               pgtype.Text   `json:"causa"`
+	Errore              pgtype.Text   `json:"errore"`
+	Tentativi           int32         `json:"tentativi"`
+	ProssimoTentativoIl *time.Time    `json:"prossimo_tentativo_il"`
+	SorgenteByte        pgtype.Text   `json:"sorgente_byte"`
+	Bytes               pgtype.Int8   `json:"bytes"`
+	Prova               bool          `json:"prova"`
+	TokenRimozione      uuid.NullUUID `json:"token_rimozione"`
+	EsitoRimozione      pgtype.Text   `json:"esito_rimozione"`
+	Battito             bool          `json:"battito"`
+	ConservazioneID     int64         `json:"conservazione_id"`
+	StatoAtteso         string        `json:"stato_atteso"`
+}
+
+// ------------------------------------------------------------------ la copia nella cartella ALTRO (direttiva 35, C-6a)
+// Un passo di una copia degli Altri file dallo stato atteso (confronta e scambia), con le colonne della 0023 che la
+// corsia file scrive (U2 §3.3, §3.4, §3.7): la prova di creazione (creato_dal_cockpit: si accende, non si spegne mai),
+// il battito (ultimo_battito = now()), il token della rimozione (scritto entrando in in_rimozione, poi conservato) e
+// l'esito della rimozione dal NAS (esito_rimozione: lo stato lo vuole, ck_cons_esito). Le transizioni le controlla il
+// trigger (P4X09); verificato_il e concluso_il li scrive lui.
+func (q *Queries) AggiornaConservazione(ctx context.Context, arg AggiornaConservazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, aggiornaConservazione,
+		arg.Stato,
+		arg.Causa,
+		arg.Errore,
+		arg.Tentativi,
+		arg.ProssimoTentativoIl,
+		arg.SorgenteByte,
+		arg.Bytes,
+		arg.Prova,
+		arg.TokenRimozione,
+		arg.EsitoRimozione,
+		arg.Battito,
+		arg.ConservazioneID,
+		arg.StatoAtteso,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const annullaJobPendentiPerChiave = `-- name: AnnullaJobPendentiPerChiave :many
 
 UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
@@ -126,32 +184,6 @@ func (q *Queries) BloccaPropostaDiAllegato(ctx context.Context, allegati []uuid.
 	return items, nil
 }
 
-const contaConservazioniVive = `-- name: ContaConservazioniVive :one
-SELECT count(*)::int FROM file_rfq_conservazione WHERE stato IN ('copiata', 'da_rilasciare')
-`
-
-// Le copie vive (copiata o da_rilasciare), di qualunque deposito.
-func (q *Queries) ContaConservazioniVive(ctx context.Context) (int32, error) {
-	row := q.db.QueryRow(ctx, contaConservazioniVive)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const contaConservazioniViveDeposito = `-- name: ContaConservazioniViveDeposito :one
-SELECT count(*)::int FROM file_rfq_conservazione
- WHERE stato IN ('copiata', 'da_rilasciare') AND deposito_id <> $1::uuid
-`
-
-// Le copie vive (copiata o da_rilasciare) scritte in un deposito diverso da quello di questa radice: all'avvio il
-// server non parte se ce n'e' anche una sola (EM §10.5, segnaposto del deposito; giro 1, SIC-02).
-func (q *Queries) ContaConservazioniViveDeposito(ctx context.Context, depositoID uuid.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, contaConservazioniViveDeposito, depositoID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const contaLavoriPendentiOccorrenza = `-- name: ContaLavoriPendentiOccorrenza :one
 SELECT count(*)::int FROM job j
  WHERE j.stato IN ('pronto', 'in_corso')
@@ -190,6 +222,36 @@ func (q *Queries) CopiaNasOAnomaliaPerSha(ctx context.Context, arg CopiaNasOAnom
 	var i CopiaNasOAnomaliaPerShaRow
 	err := row.Scan(&i.CopiaInAttesa, &i.AnomaliaAperta)
 	return i, err
+}
+
+const documentoStepDelFinito = `-- name: DocumentoStepDelFinito :one
+SELECT (EXISTS (SELECT 1 FROM componente c
+                 WHERE c.thread_id = d.thread_id AND c.tipo = 'finito' AND c.step_strutturale_id = d.documento_id)
+     OR EXISTS (SELECT 1 FROM distinta_bozza b
+                 WHERE b.thread_id = d.thread_id AND b.stato = 'aperta' AND b.fonte_sha256::text = d.sha256::text)
+     OR EXISTS (SELECT 1 FROM allegato x JOIN messaggio m ON m.messaggio_id = x.messaggio_id
+                 WHERE m.thread_id = d.thread_id AND x.sha256::text = d.sha256::text
+                   AND allegato_sorgente_del_finito(d.thread_id, x.allegato_id)))::bool AS step_del_finito
+  FROM documento d
+ WHERE d.documento_id = $1 AND d.thread_id = $2
+`
+
+type DocumentoStepDelFinitoParams struct {
+	DocumentoID uuid.UUID `json:"documento_id"`
+	ThreadID    uuid.UUID `json:"thread_id"`
+}
+
+// Il documento e' uno STEP del prodotto finito (direttiva 39 §2, §5 [U]: «Cambiarlo = S8, non un normale gesto
+// documentale»): lo STEP strutturale della working di un finito della RFQ, la sorgente di una bozza aperta di un prodotto
+// della RFQ, o il contenuto di un allegato della RFQ legato come sorgente strutturale del finito (il predicato della 0023,
+// allegato_sorgente_del_finito: la conferma della sorgente non revocata, il legame storico senza S8, la working, la
+// bozza). I gesti legacy «Sostituisci», «Annulla sostituzione» e «Assegna» dei documenti nelle RFQ formato 3 lo leggono
+// per rimandare a S8 e R5 (fascicolo/formato3_legacy.go). Nessuna riga = il documento non e' della RFQ.
+func (q *Queries) DocumentoStepDelFinito(ctx context.Context, arg DocumentoStepDelFinitoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, documentoStepDelFinito, arg.DocumentoID, arg.ThreadID)
+	var step_del_finito bool
+	err := row.Scan(&step_del_finito)
+	return step_del_finito, err
 }
 
 const esisteDocumentoScrittoSha = `-- name: EsisteDocumentoScrittoSha :one
@@ -246,7 +308,7 @@ func (q *Queries) GetAllegatoConRfq(ctx context.Context, allegatoID uuid.UUID) (
 }
 
 const getConservazione = `-- name: GetConservazione :one
-SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, stato, causa, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione WHERE conservazione_id = $1
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione WHERE conservazione_id = $1
 `
 
 // Una copia di conservazione, senza lucchetto.
@@ -260,10 +322,68 @@ func (q *Queries) GetConservazione(ctx context.Context, conservazioneID int64) (
 		&i.Sha256,
 		&i.Bytes,
 		&i.PercorsoRelativo,
-		&i.DepositoID,
+		&i.RadiceID,
+		&i.CartellaThread,
+		&i.CreatoDalCockpit,
+		&i.Token,
+		&i.TokenRimozione,
+		&i.UltimoBattito,
+		&i.EreditaDa,
+		&i.CedutaA,
 		&i.SorgenteByte,
 		&i.Stato,
 		&i.Causa,
+		&i.EsitoRimozione,
+		&i.StatoCopia,
+		&i.StatoCopiaIl,
+		&i.Errore,
+		&i.Tentativi,
+		&i.ProssimoTentativoIl,
+		&i.ChiaveIdempotenza,
+		&i.IniziataIl,
+		&i.VerificatoIl,
+		&i.AggiornatoIl,
+		&i.ConclusoIl,
+	)
+	return i, err
+}
+
+const getConservazioneCopiataRiga = `-- name: GetConservazioneCopiataRiga :one
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
+ WHERE thread_id = $1 AND allegato_id = $2 AND stato = 'copiata'
+`
+
+type GetConservazioneCopiataRigaParams struct {
+	ThreadID   uuid.UUID `json:"thread_id"`
+	AllegatoID uuid.UUID `json:"allegato_id"`
+}
+
+// La copia verificata di un'occorrenza in Altri file, con tutte le colonne (la cartella della RFQ fotografata nella
+// riga serve per trovare il file: U2 §3.4). Per «Riattiva».
+func (q *Queries) GetConservazioneCopiataRiga(ctx context.Context, arg GetConservazioneCopiataRigaParams) (FileRfqConservazione, error) {
+	row := q.db.QueryRow(ctx, getConservazioneCopiataRiga, arg.ThreadID, arg.AllegatoID)
+	var i FileRfqConservazione
+	err := row.Scan(
+		&i.ConservazioneID,
+		&i.ThreadID,
+		&i.AllegatoID,
+		&i.Sha256,
+		&i.Bytes,
+		&i.PercorsoRelativo,
+		&i.RadiceID,
+		&i.CartellaThread,
+		&i.CreatoDalCockpit,
+		&i.Token,
+		&i.TokenRimozione,
+		&i.UltimoBattito,
+		&i.EreditaDa,
+		&i.CedutaA,
+		&i.SorgenteByte,
+		&i.Stato,
+		&i.Causa,
+		&i.EsitoRimozione,
+		&i.StatoCopia,
+		&i.StatoCopiaIl,
 		&i.Errore,
 		&i.Tentativi,
 		&i.ProssimoTentativoIl,
@@ -277,7 +397,7 @@ func (q *Queries) GetConservazione(ctx context.Context, conservazioneID int64) (
 }
 
 const getConservazionePerAggiornare = `-- name: GetConservazionePerAggiornare :one
-SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, stato, causa, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione WHERE conservazione_id = $1 FOR UPDATE
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione WHERE conservazione_id = $1 FOR UPDATE
 `
 
 // Una copia di conservazione, bloccata (fase C, battito, rinomina, rilascio).
@@ -291,10 +411,20 @@ func (q *Queries) GetConservazionePerAggiornare(ctx context.Context, conservazio
 		&i.Sha256,
 		&i.Bytes,
 		&i.PercorsoRelativo,
-		&i.DepositoID,
+		&i.RadiceID,
+		&i.CartellaThread,
+		&i.CreatoDalCockpit,
+		&i.Token,
+		&i.TokenRimozione,
+		&i.UltimoBattito,
+		&i.EreditaDa,
+		&i.CedutaA,
 		&i.SorgenteByte,
 		&i.Stato,
 		&i.Causa,
+		&i.EsitoRimozione,
+		&i.StatoCopia,
+		&i.StatoCopiaIl,
 		&i.Errore,
 		&i.Tentativi,
 		&i.ProssimoTentativoIl,
@@ -308,7 +438,7 @@ func (q *Queries) GetConservazionePerAggiornare(ctx context.Context, conservazio
 }
 
 const getConservazioneSeLibera = `-- name: GetConservazioneSeLibera :one
-SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, stato, causa, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione WHERE conservazione_id = $1 FOR UPDATE SKIP LOCKED
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione WHERE conservazione_id = $1 FOR UPDATE SKIP LOCKED
 `
 
 // Una copia di conservazione, bloccata solo se nessun altro la sta toccando (il custode, SKIP LOCKED).
@@ -322,10 +452,20 @@ func (q *Queries) GetConservazioneSeLibera(ctx context.Context, conservazioneID 
 		&i.Sha256,
 		&i.Bytes,
 		&i.PercorsoRelativo,
-		&i.DepositoID,
+		&i.RadiceID,
+		&i.CartellaThread,
+		&i.CreatoDalCockpit,
+		&i.Token,
+		&i.TokenRimozione,
+		&i.UltimoBattito,
+		&i.EreditaDa,
+		&i.CedutaA,
 		&i.SorgenteByte,
 		&i.Stato,
 		&i.Causa,
+		&i.EsitoRimozione,
+		&i.StatoCopia,
+		&i.StatoCopiaIl,
 		&i.Errore,
 		&i.Tentativi,
 		&i.ProssimoTentativoIl,
@@ -572,6 +712,101 @@ func (q *Queries) ListAltriAllegatiStessoSha(ctx context.Context, arg ListAltriA
 	return items, nil
 }
 
+const listAssociazioniAttiveDelDocumento = `-- name: ListAssociazioniAttiveDelDocumento :many
+SELECT f.allegato_id, f.componente_id, c.codice
+  FROM documento d
+  JOIN allegato x ON x.sha256::text = d.sha256::text
+  JOIN messaggio m ON m.messaggio_id = x.messaggio_id AND m.thread_id = d.thread_id
+  JOIN file_rfq_associazione f ON f.thread_id = d.thread_id AND f.allegato_id = x.allegato_id AND f.stato = 'attiva'
+  JOIN componente c ON c.componente_id = f.componente_id
+ WHERE d.documento_id = $1 AND d.thread_id = $2
+ ORDER BY c.codice, f.allegato_id
+`
+
+type ListAssociazioniAttiveDelDocumentoParams struct {
+	DocumentoID uuid.UUID `json:"documento_id"`
+	ThreadID    uuid.UUID `json:"thread_id"`
+}
+
+type ListAssociazioniAttiveDelDocumentoRow struct {
+	AllegatoID   uuid.UUID `json:"allegato_id"`
+	ComponenteID uuid.UUID `json:"componente_id"`
+	Codice       string    `json:"codice"`
+}
+
+// Le AR attive (file_rfq_associazione) degli allegati della RFQ con il contenuto del documento, con il codice del
+// componente: «Assegna» di un documento confermato nelle RFQ formato 3 non lo porta via dal componente della AR (la
+// guardia di INC-G9, D-AR07 [T-39]). In ordine di codice e di allegato.
+func (q *Queries) ListAssociazioniAttiveDelDocumento(ctx context.Context, arg ListAssociazioniAttiveDelDocumentoParams) ([]ListAssociazioniAttiveDelDocumentoRow, error) {
+	rows, err := q.db.Query(ctx, listAssociazioniAttiveDelDocumento, arg.DocumentoID, arg.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAssociazioniAttiveDelDocumentoRow{}
+	for rows.Next() {
+		var i ListAssociazioniAttiveDelDocumentoRow
+		if err := rows.Scan(&i.AllegatoID, &i.ComponenteID, &i.Codice); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCitazioniRegistroConferme = `-- name: ListCitazioniRegistroConferme :many
+SELECT DISTINCT a.allegato_id, cs.conferma_id, cs.numero, co.codice AS prodotto
+  FROM conferma_strutturale cs
+  JOIN distinta_importazione di ON di.thread_id = cs.thread_id AND di.importazione_id = ANY (cs.importazioni_citate)
+  JOIN allegato a ON a.allegato_id = ANY (di.allegati_citati)
+  JOIN componente co ON co.componente_id = cs.prodotto_id
+ WHERE cs.thread_id = $1 AND a.allegato_id = ANY ($2::uuid[])
+ ORDER BY a.allegato_id, cs.numero, cs.conferma_id
+`
+
+type ListCitazioniRegistroConfermeParams struct {
+	ThreadID uuid.UUID   `json:"thread_id"`
+	Allegati []uuid.UUID `json:"allegati"`
+}
+
+type ListCitazioniRegistroConfermeRow struct {
+	AllegatoID uuid.UUID `json:"allegato_id"`
+	ConfermaID uuid.UUID `json:"conferma_id"`
+	Numero     int32     `json:"numero"`
+	Prodotto   string    `json:"prodotto"`
+}
+
+// D-15b (U2-P04, U2 §4.6): le occorrenze dell'elenco citate dal registro d'importazione di una conferma della RFQ
+// (conferma_strutturale.importazioni_citate → distinta_importazione.allegati_citati), con il numero della conferma e il
+// codice del prodotto. Si mostra, non blocca.
+func (q *Queries) ListCitazioniRegistroConferme(ctx context.Context, arg ListCitazioniRegistroConfermeParams) ([]ListCitazioniRegistroConfermeRow, error) {
+	rows, err := q.db.Query(ctx, listCitazioniRegistroConferme, arg.ThreadID, arg.Allegati)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCitazioniRegistroConfermeRow{}
+	for rows.Next() {
+		var i ListCitazioniRegistroConfermeRow
+		if err := rows.Scan(
+			&i.AllegatoID,
+			&i.ConfermaID,
+			&i.Numero,
+			&i.Prodotto,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCodiciComponenti = `-- name: ListCodiciComponenti :many
 SELECT c.componente_id, c.codice FROM componente c
  WHERE c.thread_id = $1 AND c.componente_id = ANY($2::uuid[])
@@ -609,7 +844,7 @@ func (q *Queries) ListCodiciComponenti(ctx context.Context, arg ListCodiciCompon
 }
 
 const listConservazioniCopiatePerSha = `-- name: ListConservazioniCopiatePerSha :many
-SELECT c.sha256::char(64) AS sha256, c.percorso_relativo, c.bytes, c.deposito_id
+SELECT c.sha256::char(64) AS sha256, c.cartella_thread, c.percorso_relativo, c.bytes, c.radice_id
   FROM file_rfq_conservazione c
   JOIN file_rfq f ON f.thread_id = c.thread_id AND f.allegato_id = c.allegato_id AND f.stato = 'altri_file'
  WHERE c.stato = 'copiata' AND c.sha256 = ANY($1::char(64)[])
@@ -619,9 +854,10 @@ SELECT c.sha256::char(64) AS sha256, c.percorso_relativo, c.bytes, c.deposito_id
 
 type ListConservazioniCopiatePerShaRow struct {
 	Sha256           string      `json:"sha256"`
+	CartellaThread   pgtype.Text `json:"cartella_thread"`
 	PercorsoRelativo string      `json:"percorso_relativo"`
 	Bytes            pgtype.Int8 `json:"bytes"`
-	DepositoID       uuid.UUID   `json:"deposito_id"`
+	RadiceID         uuid.UUID   `json:"radice_id"`
 }
 
 // Le copie verificate di occorrenze in Altri file per questi contenuti: la cache non conta il pin «proposta aperta» di
@@ -638,9 +874,10 @@ func (q *Queries) ListConservazioniCopiatePerSha(ctx context.Context, sha []stri
 		var i ListConservazioniCopiatePerShaRow
 		if err := rows.Scan(
 			&i.Sha256,
+			&i.CartellaThread,
 			&i.PercorsoRelativo,
 			&i.Bytes,
-			&i.DepositoID,
+			&i.RadiceID,
 		); err != nil {
 			return nil, err
 		}
@@ -653,7 +890,7 @@ func (q *Queries) ListConservazioniCopiatePerSha(ctx context.Context, sha []stri
 }
 
 const listConservazioniDelGesto = `-- name: ListConservazioniDelGesto :many
-SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, stato, causa, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
  WHERE thread_id = $1 AND chiave_idempotenza = $2::uuid
  ORDER BY allegato_id, conservazione_id
 `
@@ -680,10 +917,136 @@ func (q *Queries) ListConservazioniDelGesto(ctx context.Context, arg ListConserv
 			&i.Sha256,
 			&i.Bytes,
 			&i.PercorsoRelativo,
-			&i.DepositoID,
+			&i.RadiceID,
+			&i.CartellaThread,
+			&i.CreatoDalCockpit,
+			&i.Token,
+			&i.TokenRimozione,
+			&i.UltimoBattito,
+			&i.EreditaDa,
+			&i.CedutaA,
 			&i.SorgenteByte,
 			&i.Stato,
 			&i.Causa,
+			&i.EsitoRimozione,
+			&i.StatoCopia,
+			&i.StatoCopiaIl,
+			&i.Errore,
+			&i.Tentativi,
+			&i.ProssimoTentativoIl,
+			&i.ChiaveIdempotenza,
+			&i.IniziataIl,
+			&i.VerificatoIl,
+			&i.AggiornatoIl,
+			&i.ConclusoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConservazioniRecenti = `-- name: ListConservazioniRecenti :many
+SELECT conservazione_id, radice_id, cartella_thread, percorso_relativo, sha256
+  FROM file_rfq_conservazione
+ WHERE aggiornato_il >= $1::timestamptz
+ ORDER BY conservazione_id
+`
+
+type ListConservazioniRecentiRow struct {
+	ConservazioneID  int64       `json:"conservazione_id"`
+	RadiceID         uuid.UUID   `json:"radice_id"`
+	CartellaThread   pgtype.Text `json:"cartella_thread"`
+	PercorsoRelativo string      `json:"percorso_relativo"`
+	Sha256           string      `json:"sha256"`
+}
+
+// Le copie toccate dopo un istante, senza lucchetto (il custode: le cartelle in cui cercare i parziali scaduti, U2
+// §3.9). Il segnaposto del deposito locale e i suoi conteggi all'avvio non ci sono piu' (U2 §3.13): la radice di una
+// copia e' radice_id (0023, variante 20261018d).
+func (q *Queries) ListConservazioniRecenti(ctx context.Context, dopo time.Time) ([]ListConservazioniRecentiRow, error) {
+	rows, err := q.db.Query(ctx, listConservazioniRecenti, dopo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListConservazioniRecentiRow{}
+	for rows.Next() {
+		var i ListConservazioniRecentiRow
+		if err := rows.Scan(
+			&i.ConservazioneID,
+			&i.RadiceID,
+			&i.CartellaThread,
+			&i.PercorsoRelativo,
+			&i.Sha256,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConservazioniTrattenuteRfq = `-- name: ListConservazioniTrattenuteRfq :many
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
+ WHERE thread_id = $1 AND sha256 = $2::char(64) AND stato = 'trattenuta' AND creato_dal_cockpit
+   AND radice_id = $3 AND cartella_thread = $4::text
+ ORDER BY conservazione_id DESC
+`
+
+type ListConservazioniTrattenuteRfqParams struct {
+	ThreadID       uuid.UUID `json:"thread_id"`
+	Sha256         string    `json:"sha256"`
+	RadiceID       uuid.UUID `json:"radice_id"`
+	CartellaThread string    `json:"cartella_thread"`
+}
+
+// Le copie trattenute del cockpit nella RFQ con questo contenuto, sotto questa radice e nella cartella della RFQ di
+// adesso (base B di U2-Q01, U2 §3.8): un nuovo «Metti in Altri file» ne riusa il file ed eredita la prova (eredita_da;
+// il trigger di nascita ricontrolla tutto e cede la riga vecchia). Si leggono in fase A, sotto BloccaThread e
+// BloccaCartella(thread, «ALTRO»): la piu' recente prima.
+func (q *Queries) ListConservazioniTrattenuteRfq(ctx context.Context, arg ListConservazioniTrattenuteRfqParams) ([]FileRfqConservazione, error) {
+	rows, err := q.db.Query(ctx, listConservazioniTrattenuteRfq,
+		arg.ThreadID,
+		arg.Sha256,
+		arg.RadiceID,
+		arg.CartellaThread,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FileRfqConservazione{}
+	for rows.Next() {
+		var i FileRfqConservazione
+		if err := rows.Scan(
+			&i.ConservazioneID,
+			&i.ThreadID,
+			&i.AllegatoID,
+			&i.Sha256,
+			&i.Bytes,
+			&i.PercorsoRelativo,
+			&i.RadiceID,
+			&i.CartellaThread,
+			&i.CreatoDalCockpit,
+			&i.Token,
+			&i.TokenRimozione,
+			&i.UltimoBattito,
+			&i.EreditaDa,
+			&i.CedutaA,
+			&i.SorgenteByte,
+			&i.Stato,
+			&i.Causa,
+			&i.EsitoRimozione,
+			&i.StatoCopia,
+			&i.StatoCopiaIl,
 			&i.Errore,
 			&i.Tentativi,
 			&i.ProssimoTentativoIl,
@@ -704,7 +1067,7 @@ func (q *Queries) ListConservazioniDelGesto(ctx context.Context, arg ListConserv
 }
 
 const listConservazioniVive = `-- name: ListConservazioniVive :many
-SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, stato, causa, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
  WHERE thread_id = $1 AND allegato_id = $2 AND stato IN ('in_copia', 'copiata')
  ORDER BY conservazione_id
    FOR UPDATE
@@ -732,10 +1095,20 @@ func (q *Queries) ListConservazioniVive(ctx context.Context, arg ListConservazio
 			&i.Sha256,
 			&i.Bytes,
 			&i.PercorsoRelativo,
-			&i.DepositoID,
+			&i.RadiceID,
+			&i.CartellaThread,
+			&i.CreatoDalCockpit,
+			&i.Token,
+			&i.TokenRimozione,
+			&i.UltimoBattito,
+			&i.EreditaDa,
+			&i.CedutaA,
 			&i.SorgenteByte,
 			&i.Stato,
 			&i.Causa,
+			&i.EsitoRimozione,
+			&i.StatoCopia,
+			&i.StatoCopiaIl,
 			&i.Errore,
 			&i.Tentativi,
 			&i.ProssimoTentativoIl,
@@ -756,7 +1129,7 @@ func (q *Queries) ListConservazioniVive(ctx context.Context, arg ListConservazio
 }
 
 const listCopieConservazioneAllegato = `-- name: ListCopieConservazioneAllegato :many
-SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, stato, causa, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
+SELECT conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread, creato_dal_cockpit, token, token_rimozione, ultimo_battito, eredita_da, ceduta_a, sorgente_byte, stato, causa, esito_rimozione, stato_copia, stato_copia_il, errore, tentativi, prossimo_tentativo_il, chiave_idempotenza, iniziata_il, verificato_il, aggiornato_il, concluso_il FROM file_rfq_conservazione
  WHERE allegato_id = $1 AND stato IN ('copiata', 'da_rilasciare')
  ORDER BY (stato = 'copiata') DESC, conservazione_id DESC
 `
@@ -779,10 +1152,20 @@ func (q *Queries) ListCopieConservazioneAllegato(ctx context.Context, allegatoID
 			&i.Sha256,
 			&i.Bytes,
 			&i.PercorsoRelativo,
-			&i.DepositoID,
+			&i.RadiceID,
+			&i.CartellaThread,
+			&i.CreatoDalCockpit,
+			&i.Token,
+			&i.TokenRimozione,
+			&i.UltimoBattito,
+			&i.EreditaDa,
+			&i.CedutaA,
 			&i.SorgenteByte,
 			&i.Stato,
 			&i.Causa,
+			&i.EsitoRimozione,
+			&i.StatoCopia,
+			&i.StatoCopiaIl,
 			&i.Errore,
 			&i.Tentativi,
 			&i.ProssimoTentativoIl,
@@ -953,16 +1336,26 @@ dip AS (
      WHERE EXISTS (SELECT 1 FROM componente_proposta cp WHERE cp.allegato_id = occ.allegato_id AND cp.thread_id = occ.thread_id
                       AND cp.componente_id IS NOT NULL AND cp.stato IN ('confermata', 'duplicato'))
     UNION ALL
-    -- D-7: proposta aperta assegnata a un componente
+    -- D-7 dalle AR (direttiva 35, C-6b; piano §7.2 C-6: «D-7 e D-7b dalle AR»): l'associazione registrata attiva
+    -- dell'occorrenza (n = 1, anche senza una proposta aperta), oppure la copia senza AR di una proposta aperta (n = 0, la
+    -- pre-assegnazione legacy o il legame della sorgente)
+    SELECT occ.allegato_id, 'D-7', fra.componente_id::text, COALESCE(c.codice, '')::text, 1
+      FROM occ JOIN file_rfq_associazione fra ON fra.allegato_id = occ.allegato_id AND fra.thread_id = occ.thread_id AND fra.stato = 'attiva'
+      LEFT JOIN componente c ON c.componente_id = fra.componente_id
+    UNION ALL
     SELECT occ.allegato_id, 'D-7', p.componente_id::text, COALESCE(c.codice, '')::text, 0
       FROM occ JOIN documento_proposta p ON p.allegato_id = occ.allegato_id
       LEFT JOIN componente c ON c.componente_id = p.componente_id
      WHERE p.stato = 'aperta' AND p.componente_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione fra
+                        WHERE fra.allegato_id = occ.allegato_id AND fra.thread_id = occ.thread_id AND fra.stato = 'attiva')
     UNION ALL
-    -- D-7b: proposta aperta non assegnata
+    -- D-7b: proposta aperta non assegnata e senza AR attiva
     SELECT occ.allegato_id, 'D-7b', p.proposta_id::text, '', 0
       FROM occ JOIN documento_proposta p ON p.allegato_id = occ.allegato_id
      WHERE p.stato = 'aperta' AND p.componente_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione fra
+                        WHERE fra.allegato_id = occ.allegato_id AND fra.thread_id = occ.thread_id AND fra.stato = 'attiva')
     UNION ALL
     -- D-8: lavori in corso: download, estrazione, analisi con l'occorrenza nel payload
     SELECT occ.allegato_id, 'D-8', j.tipo::text, '', 0
@@ -1156,7 +1549,7 @@ SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a
        r.rimozione_id, r.stato AS rimozione_stato, r.motivo AS rimozione_motivo, r.tentativi AS rimozione_tentativi,
        c.conservazione_id, c.stato AS conservazione_stato, c.causa AS conservazione_causa, c.errore AS conservazione_errore,
        c.verificato_il AS conservazione_verificato_il, c.bytes AS conservazione_bytes, c.percorso_relativo AS conservazione_percorso,
-       c.deposito_id AS conservazione_deposito,
+       c.radice_id AS conservazione_radice, c.esito_rimozione AS conservazione_esito,
        es.quando AS scarto_quando, es.motivo AS scarto_motivo, us.sigla AS scarto_autore,
        ea.quando AS altri_file_quando, ea.motivo AS altri_file_motivo, ua.sigla AS altri_file_autore,
        (SELECT count(*) FROM allegato v WHERE v.contenitore_id = a.allegato_id)::int AS n_voci_dirette,
@@ -1231,7 +1624,8 @@ type ListFileSorgenteRow struct {
 	ConservazioneVerificatoIl *time.Time        `json:"conservazione_verificato_il"`
 	ConservazioneBytes        pgtype.Int8       `json:"conservazione_bytes"`
 	ConservazionePercorso     pgtype.Text       `json:"conservazione_percorso"`
-	ConservazioneDeposito     uuid.NullUUID     `json:"conservazione_deposito"`
+	ConservazioneRadice       uuid.NullUUID     `json:"conservazione_radice"`
+	ConservazioneEsito        pgtype.Text       `json:"conservazione_esito"`
 	ScartoQuando              *time.Time        `json:"scarto_quando"`
 	ScartoMotivo              pgtype.Text       `json:"scarto_motivo"`
 	ScartoAutore              pgtype.Text       `json:"scarto_autore"`
@@ -1298,7 +1692,8 @@ func (q *Queries) ListFileSorgente(ctx context.Context, threadID uuid.UUID) ([]L
 			&i.ConservazioneVerificatoIl,
 			&i.ConservazioneBytes,
 			&i.ConservazionePercorso,
-			&i.ConservazioneDeposito,
+			&i.ConservazioneRadice,
+			&i.ConservazioneEsito,
 			&i.ScartoQuando,
 			&i.ScartoMotivo,
 			&i.ScartoAutore,
@@ -1320,8 +1715,11 @@ func (q *Queries) ListFileSorgente(ctx context.Context, threadID uuid.UUID) ([]L
 
 const listIdConservazioniDaRiprendere = `-- name: ListIdConservazioniDaRiprendere :many
 SELECT conservazione_id FROM file_rfq_conservazione
- WHERE ((stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= $1::timestamptz))
-        OR (stato = 'in_copia' AND aggiornato_il < $1::timestamptz - interval '15 minutes'))
+ WHERE ((stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= $1::timestamptz)
+         AND (esito_rimozione IS NULL
+              OR esito_rimozione NOT IN ('scrittura_nas_spenta', 'radice_cambiata', 'fuori_cartella', 'nome_ripreso')))
+        OR (stato = 'in_copia' AND COALESCE(ultimo_battito, iniziata_il) < $1::timestamptz - interval '15 minutes')
+        OR (stato = 'in_rimozione' AND aggiornato_il < $1::timestamptz - interval '15 minutes'))
    AND conservazione_id > $2::bigint
  ORDER BY conservazione_id
  LIMIT $3
@@ -1334,8 +1732,10 @@ type ListIdConservazioniDaRiprendereParams struct {
 }
 
 // Le copie da riprendere (il custode), senza lucchetto: da rilasciare con il tentativo scaduto, o in copia con il
-// battito fermo da piu' di 15 minuti (aggiornato_il, non l'inizio: giro 1, TR-01). Una pagina alla volta, per chiave
-// (conservazione_id > dopo), come le rimozioni.
+// battito fermo da piu' di 15 minuti (ultimo_battito, la colonna del battito: U2 §3.3 passo 2; senza battito l'inizio). Una pagina alla volta, per chiave
+// (conservazione_id > dopo), come le rimozioni. Non tornano le copie ferme su un esito che non si ritenta da solo (la
+// scrittura sul NAS spenta: «Riprova la rimozione dalla cartella ALTRO»; gli errori da bonificare: U2 §3.5, §3.7,
+// U2-P42, U2-P43); tornano le rimozioni dal NAS interrotte, ferme in in_rimozione da oltre 15 minuti.
 func (q *Queries) ListIdConservazioniDaRiprendere(ctx context.Context, arg ListIdConservazioniDaRiprendereParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, listIdConservazioniDaRiprendere, arg.Adesso, arg.Dopo, arg.Limite)
 	if err != nil {
@@ -1715,8 +2115,34 @@ func (q *Queries) ListShaDocumentiScritti(ctx context.Context, arg ListShaDocume
 	return items, nil
 }
 
+const listTokenConservazioniInCopia = `-- name: ListTokenConservazioniInCopia :many
+SELECT token FROM file_rfq_conservazione WHERE stato = 'in_copia' ORDER BY token
+`
+
+// I token delle copie degli Altri file in corso (in_copia): i loro parziali ALTRO\<nome>.parte.<token> sono vivi per
+// chiunque pulisca i parziali della cartella ALTRO, i documenti come il custode (U2 §3.9: l'unione dei token).
+func (q *Queries) ListTokenConservazioniInCopia(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listTokenConservazioniInCopia)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var token uuid.UUID
+		if err := rows.Scan(&token); err != nil {
+			return nil, err
+		}
+		items = append(items, token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUltimaConservazione = `-- name: ListUltimaConservazione :many
-SELECT DISTINCT ON (c.allegato_id) c.conservazione_id, c.thread_id, c.allegato_id, c.sha256, c.bytes, c.percorso_relativo, c.deposito_id, c.sorgente_byte, c.stato, c.causa, c.errore, c.tentativi, c.prossimo_tentativo_il, c.chiave_idempotenza, c.iniziata_il, c.verificato_il, c.aggiornato_il, c.concluso_il
+SELECT DISTINCT ON (c.allegato_id) c.conservazione_id, c.thread_id, c.allegato_id, c.sha256, c.bytes, c.percorso_relativo, c.radice_id, c.cartella_thread, c.creato_dal_cockpit, c.token, c.token_rimozione, c.ultimo_battito, c.eredita_da, c.ceduta_a, c.sorgente_byte, c.stato, c.causa, c.esito_rimozione, c.stato_copia, c.stato_copia_il, c.errore, c.tentativi, c.prossimo_tentativo_il, c.chiave_idempotenza, c.iniziata_il, c.verificato_il, c.aggiornato_il, c.concluso_il
   FROM file_rfq_conservazione c
  WHERE c.thread_id = $1 AND c.allegato_id = ANY($2::uuid[])
  ORDER BY c.allegato_id, c.conservazione_id DESC
@@ -1744,10 +2170,20 @@ func (q *Queries) ListUltimaConservazione(ctx context.Context, arg ListUltimaCon
 			&i.Sha256,
 			&i.Bytes,
 			&i.PercorsoRelativo,
-			&i.DepositoID,
+			&i.RadiceID,
+			&i.CartellaThread,
+			&i.CreatoDalCockpit,
+			&i.Token,
+			&i.TokenRimozione,
+			&i.UltimoBattito,
+			&i.EreditaDa,
+			&i.CedutaA,
 			&i.SorgenteByte,
 			&i.Stato,
 			&i.Causa,
+			&i.EsitoRimozione,
+			&i.StatoCopia,
+			&i.StatoCopiaIl,
 			&i.Errore,
 			&i.Tentativi,
 			&i.ProssimoTentativoIl,
@@ -1765,6 +2201,33 @@ func (q *Queries) ListUltimaConservazione(ctx context.Context, arg ListUltimaCon
 		return nil, err
 	}
 	return items, nil
+}
+
+const percorsoDiUnDocumento = `-- name: PercorsoDiUnDocumento :one
+SELECT (EXISTS (SELECT 1 FROM documento d
+                 WHERE d.thread_id = $1 AND lower(d.path_relativo) = lower($2::text))
+     OR EXISTS (SELECT 1 FROM job j
+                 WHERE j.tipo = 'sposta_nas' AND j.stato IN ('pronto', 'in_corso')
+                   AND j.payload ->> 'thread_id' = $1::uuid::text
+                   AND (lower(j.payload ->> 'da') = lower($2::text) OR lower(j.payload ->> 'a') = lower($2::text)))
+     OR EXISTS (SELECT 1 FROM nas_orfano o
+                 WHERE o.thread_id = $1 AND o.risolto_il IS NULL AND lower(o.percorso) = lower($2::text)))::bool AS documento
+`
+
+type PercorsoDiUnDocumentoParams struct {
+	ThreadID uuid.UUID `json:"thread_id"`
+	Percorso string    `json:"percorso"`
+}
+
+// Il percorso di una copia degli Altri file e' anche quello di un documento della RFQ, di uno spostamento pendente (da
+// o a) o di un orfano aperto: la rimozione dal NAS non lo tocca (U2 §3.6 regola 2, §3.7). Le stesse tre condizioni di
+// PercorsoOccupato, senza le copie di conservazione (la riga che si rilascia nomina quel percorso). In minuscolo: la
+// condivisione e' Windows. Si legge sotto BloccaCartella(thread, «ALTRO»).
+func (q *Queries) PercorsoDiUnDocumento(ctx context.Context, arg PercorsoDiUnDocumentoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, percorsoDiUnDocumento, arg.ThreadID, arg.Percorso)
+	var documento bool
+	err := row.Scan(&documento)
+	return documento, err
 }
 
 const pinDelFile = `-- name: PinDelFile :one

@@ -659,7 +659,7 @@ func TestUnFileEntraSenzaComponente(t *testing.T) {
 		t.Helper()
 		return s.gesto(w, s.base()+"/file/"+pid.String()+"/generale", url.Values{"tipo": {tipo}})
 	}
-	s.esegui(`UPDATE documento_proposta SET componente_id = $2 WHERE proposta_id = $1`, s.pdfLibero2, s.assieme)
+	testutil.CopiaLegacy(s.b.t, s.b.pool, `UPDATE documento_proposta SET componente_id = $2 WHERE proposta_id = $1`, s.pdfLibero2, s.assieme)
 	if a := generale(w, s.pdfLibero2, "disegno_2d"); !strings.Contains(a, "come documentazione generale o come capitolato") {
 		t.Errorf("un altro tipo: %q", a)
 	}

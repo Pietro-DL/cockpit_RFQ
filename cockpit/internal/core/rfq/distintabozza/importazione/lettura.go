@@ -123,7 +123,8 @@ func (l LetturaRegistro) Compatta() (LetturaCompatta, error) {
 }
 
 // TrovaLettura cerca una lettura del registro per chiave_lettura (<allegato_id>/<ID della lettura>, unica dentro il
-// registro): nell'identita' proposta, nelle alternative e nei riferimenti delle voci, e nelle letture dei file. Quali
+// registro): nell'identita' proposta, nelle alternative e nei riferimenti delle voci, nell'identita' proposta dei nodi
+// fuori per decisione (U2-P22) e nelle letture dei file. Quali
 // letture una decisione puo' citare per un nodo (legate alla voce, EM §3.6.1) lo decide chi chiama.
 func (c *Contenuto) TrovaLettura(chiave string) (LetturaRegistro, bool) {
 	trova := func(raw json.RawMessage) (LetturaRegistro, bool) {
@@ -161,6 +162,11 @@ func (c *Contenuto) TrovaLettura(chiave string) (LetturaRegistro, bool) {
 					return l, true
 				}
 			}
+		}
+	}
+	for _, x := range c.Proposta.FuoriPerDecisione {
+		if l, ok := trova(x.IdentitaProposta); ok {
+			return l, true
 		}
 	}
 	for _, f := range c.Proposta.File {

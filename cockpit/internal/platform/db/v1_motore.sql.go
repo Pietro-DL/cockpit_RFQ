@@ -7,6 +7,8 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -35,39 +37,88 @@ func (q *Queries) GetStatoF8DelThread(ctx context.Context, threadID uuid.UUID) (
 	return i, err
 }
 
-const listFileRfqNonAttivi = `-- name: ListFileRfqNonAttivi :many
-
-SELECT allegato_id, stato
-  FROM file_rfq
- WHERE thread_id = $1 AND stato <> 'attivo'
- ORDER BY allegato_id
+const listEventiFonteDelThread = `-- name: ListEventiFonteDelThread :many
+SELECT e.evento_id, e.prodotto_id, e.azione, e.allegato_id, e.sha256, e.documento_id, e.autore_id, u.nome AS autore_nome, e.quando,
+       (e.chiave_idempotenza IS NOT NULL)::boolean AS con_chiave
+  FROM fonte_step_evento e
+  JOIN utente u ON u.utente_id = e.autore_id
+ WHERE e.thread_id = $1 AND e.ruolo = 'prodotto'
+   AND e.azione IN ('conferma_documento', 'sostituzione', 'autorizzazione', 'revoca')
+ ORDER BY e.evento_id
 `
 
-type ListFileRfqNonAttiviRow struct {
-	AllegatoID uuid.UUID `json:"allegato_id"`
-	Stato      string    `json:"stato"`
+type ListEventiFonteDelThreadRow struct {
+	EventoID    int64         `json:"evento_id"`
+	ProdottoID  uuid.UUID     `json:"prodotto_id"`
+	Azione      string        `json:"azione"`
+	AllegatoID  uuid.UUID     `json:"allegato_id"`
+	Sha256      string        `json:"sha256"`
+	DocumentoID uuid.NullUUID `json:"documento_id"`
+	AutoreID    uuid.UUID     `json:"autore_id"`
+	AutoreNome  string        `json:"autore_nome"`
+	Quando      time.Time     `json:"quando"`
+	ConChiave   bool          `json:"con_chiave"`
 }
 
-// V1 (giro 5, A1d; direttiva 23): le letture del modello della pagina della Distinta (/motore-a/dati, emendamento di V1
-// §9.9; piano della 0023 §14 passo 3, corsia motore). Solo SELECT, nello snapshot REPEATABLE READ READ ONLY del modello,
-// insieme alla fotografia: le occorrenze non attive (il ciclo dei file), le bozze aperte formato 3 con le colonne del
-// loro registro (il gruppo corrente della sorgente, mai il contenuto) e lo stato del rismistamento F8. L'identità
-// certificata dei componenti la legge ListIdentitaRegistrate (v1_formato3.sql).
-//
-// Regole (le stesse di p4_conferme.sql e v1_formato3.sql): il perimetro sta nel WHERE (la RFQ del percorso); le colonne
-// tx non si leggono; nessuna scrittura.
-// Le occorrenze della RFQ in «Altri file» o scartate, con lo stato (EM §10.8: NonAttivi del modello e dell'adattatore).
-// Un'occorrenza senza riga in file_rfq è attiva.
-func (q *Queries) ListFileRfqNonAttivi(ctx context.Context, threadID uuid.UUID) ([]ListFileRfqNonAttiviRow, error) {
-	rows, err := q.db.Query(ctx, listFileRfqNonAttivi, threadID)
+// Gli eventi della fonte STEP dei prodotti della RFQ che dicono conferma, sostituzione, autorizzazione e revoca, con il
+// nome dell'autore, in ordine (emendamento U2 §2.4: /dati.fonte e la sezione del prodotto di S9 con data e autore della
+// conferma e dell'autorizzazione). con_chiave: l'evento ha la chiave d'idempotenza di un intento (direttiva 39, R39-09:
+// la conferma_documento del passo 2 di S8 e la revoca della sorgente di S8 la hanno; gli eventi delle pagine legacy no),
+// per non leggere una revoca della sorgente della bozza come la revoca dell'autorizzazione della working (R39-10).
+func (q *Queries) ListEventiFonteDelThread(ctx context.Context, threadID uuid.UUID) ([]ListEventiFonteDelThreadRow, error) {
+	rows, err := q.db.Query(ctx, listEventiFonteDelThread, threadID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListFileRfqNonAttiviRow{}
+	items := []ListEventiFonteDelThreadRow{}
 	for rows.Next() {
-		var i ListFileRfqNonAttiviRow
-		if err := rows.Scan(&i.AllegatoID, &i.Stato); err != nil {
+		var i ListEventiFonteDelThreadRow
+		if err := rows.Scan(
+			&i.EventoID,
+			&i.ProdottoID,
+			&i.Azione,
+			&i.AllegatoID,
+			&i.Sha256,
+			&i.DocumentoID,
+			&i.AutoreID,
+			&i.AutoreNome,
+			&i.Quando,
+			&i.ConChiave,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNomiUtenti = `-- name: ListNomiUtenti :many
+SELECT utente_id, nome
+  FROM utente
+ WHERE utente_id = ANY ($1::uuid[])
+ ORDER BY utente_id
+`
+
+type ListNomiUtentiRow struct {
+	UtenteID uuid.UUID `json:"utente_id"`
+	Nome     string    `json:"nome"`
+}
+
+// I nomi degli utenti dati (chi ha confermato un documento prima di V1, senza eventi della fonte: U2 §2.4).
+func (q *Queries) ListNomiUtenti(ctx context.Context, utenti []uuid.UUID) ([]ListNomiUtentiRow, error) {
+	rows, err := q.db.Query(ctx, listNomiUtenti, utenti)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListNomiUtentiRow{}
+	for rows.Next() {
+		var i ListNomiUtentiRow
+		if err := rows.Scan(&i.UtenteID, &i.Nome); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -79,6 +130,7 @@ func (q *Queries) ListFileRfqNonAttivi(ctx context.Context, threadID uuid.UUID) 
 }
 
 const listSorgentiBozzeAperte = `-- name: ListSorgentiBozzeAperte :many
+
 SELECT b.bozza_id, b.prodotto_id, b.versione, b.fonte_allegato_id, b.fonte_sha256, b.fonte_gruppo, v.importazione_id,
        i.gruppo AS registro_gruppo, i.fonte_allegato_id AS registro_fonte_allegato_id, i.fonte_sha256 AS registro_fonte_sha256,
        i.fonte_radice AS registro_fonte_radice, i.impronta_contenuto AS registro_impronta_contenuto
@@ -104,6 +156,15 @@ type ListSorgentiBozzeAperteRow struct {
 	RegistroImprontaContenuto pgtype.Text   `json:"registro_impronta_contenuto"`
 }
 
+// V1 (giro 5, A1d; direttiva 23): le letture del modello della pagina della Distinta (/motore-a/dati, emendamento di V1
+// §9.9; piano della 0023 §14 passo 3, corsia motore). Solo SELECT, nello snapshot REPEATABLE READ READ ONLY del modello,
+// insieme alla fotografia: le bozze aperte formato 3 con le colonne del loro registro (il gruppo corrente della
+// sorgente, mai il contenuto) e lo stato del rismistamento F8. L'identità certificata dei componenti la legge
+// ListIdentitaRegistrate (v1_formato3.sql); le occorrenze non attive la lettura unica del ciclo dei file,
+// ListOccorrenzeNonAttiveRfq (v1_file.sql), la stessa di F8 (decisioni dell'ondata B §5.1).
+//
+// Regole (le stesse di p4_conferme.sql e v1_formato3.sql): il perimetro sta nel WHERE (la RFQ del percorso); le colonne
+// tx non si leggono; nessuna scrittura.
 // Le bozze aperte formato 3 della RFQ, una per prodotto, con la versione corrente e, dal registro della versione, il
 // gruppo, la fonte, la radice e l'impronta del contenuto; mai il contenuto (EM §6.4.1, §9.9: bozza_del_prodotto). Senza
 // registro le colonne del registro sono NULL e vale la fonte della testata.
@@ -129,6 +190,72 @@ func (q *Queries) ListSorgentiBozzeAperte(ctx context.Context, threadID uuid.UUI
 			&i.RegistroFonteSha256,
 			&i.RegistroFonteRadice,
 			&i.RegistroImprontaContenuto,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUltimeConfermeDelThread = `-- name: ListUltimeConfermeDelThread :many
+SELECT DISTINCT ON (c.prodotto_id) c.conferma_id, c.prodotto_id, c.numero, c.formato, c.importazione_id, c.confermato_il,
+       c.confermato_da, u.nome AS confermato_da_nome, c.fonte_allegato_id, c.fonte_sha256, c.fonte_gruppo, c.criterio_verifica,
+       c.decisioni, c.mappa
+  FROM conferma_strutturale c
+  JOIN utente u ON u.utente_id = c.confermato_da
+ WHERE c.thread_id = $1
+ ORDER BY c.prodotto_id, c.numero DESC
+`
+
+type ListUltimeConfermeDelThreadRow struct {
+	ConfermaID       uuid.UUID       `json:"conferma_id"`
+	ProdottoID       uuid.UUID       `json:"prodotto_id"`
+	Numero           int32           `json:"numero"`
+	Formato          int16           `json:"formato"`
+	ImportazioneID   uuid.NullUUID   `json:"importazione_id"`
+	ConfermatoIl     time.Time       `json:"confermato_il"`
+	ConfermatoDa     uuid.UUID       `json:"confermato_da"`
+	ConfermatoDaNome string          `json:"confermato_da_nome"`
+	FonteAllegatoID  uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256      pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo      pgtype.Text     `json:"fonte_gruppo"`
+	CriterioVerifica string          `json:"criterio_verifica"`
+	Decisioni        json.RawMessage `json:"decisioni"`
+	Mappa            json.RawMessage `json:"mappa"`
+}
+
+// L'ultima conferma strutturale di ogni prodotto della RFQ (numero piu' alto), con il formato, il registro della
+// conferma, chi e quando, la fonte, il criterio, il registro delle decisioni e la mappa (U2 §5.3 conferma_corrente;
+// §6.4.2 l'adattatore ConfermaCategoria dall'ultima conferma valida). La validita' la decide confermabom sullo stato
+// della RFQ letto nello stesso snapshot.
+func (q *Queries) ListUltimeConfermeDelThread(ctx context.Context, threadID uuid.UUID) ([]ListUltimeConfermeDelThreadRow, error) {
+	rows, err := q.db.Query(ctx, listUltimeConfermeDelThread, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUltimeConfermeDelThreadRow{}
+	for rows.Next() {
+		var i ListUltimeConfermeDelThreadRow
+		if err := rows.Scan(
+			&i.ConfermaID,
+			&i.ProdottoID,
+			&i.Numero,
+			&i.Formato,
+			&i.ImportazioneID,
+			&i.ConfermatoIl,
+			&i.ConfermatoDa,
+			&i.ConfermatoDaNome,
+			&i.FonteAllegatoID,
+			&i.FonteSha256,
+			&i.FonteGruppo,
+			&i.CriterioVerifica,
+			&i.Decisioni,
+			&i.Mappa,
 		); err != nil {
 			return nil, err
 		}

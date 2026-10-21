@@ -165,14 +165,40 @@ type datiV1JSON struct {
 		} `json:"nodi"`
 	} `json:"gruppi"`
 	MotivoSenzaGruppi *struct {
-		Codice   string   `json:"codice"`
-		Allegati []string `json:"allegati"`
+		Codice   string `json:"codice"`
+		Testo    string `json:"testo"`
+		Allegati []struct {
+			AllegatoID string `json:"allegato_id"`
+			Stato      string `json:"stato"`
+		} `json:"allegati"`
 	} `json:"motivo_senza_gruppi"`
 	BozzaDelProdotto *struct {
 		BozzaID        string                     `json:"bozza_id"`
 		Versione       int                        `json:"versione"`
 		GruppoCorrente propostabom.GruppoCorrente `json:"gruppo_corrente"`
 	} `json:"bozza_del_prodotto"`
+	// ondata C (U2 §2.4, §5.3)
+	Fonte *struct {
+		Confermata        bool           `json:"confermata"`
+		Autorizzata       bool           `json:"autorizzata"`
+		ConfermataIl      *string        `json:"confermata_il"`
+		ConfermataDa      *maPersonaJSON `json:"confermata_da"`
+		AutorizzataIl     *string        `json:"autorizzata_il"`
+		AutorizzataDa     *maPersonaJSON `json:"autorizzata_da"`
+		AutorizzataMotivo string         `json:"autorizzata_motivo"`
+	} `json:"fonte"`
+	ConfermaCorrente *struct {
+		ConfermaID     string `json:"conferma_id"`
+		Numero         int    `json:"numero"`
+		Valida         bool   `json:"valida"`
+		VerificaAdesso struct {
+			Stato      string   `json:"stato"`
+			Verificata *bool    `json:"verificata"`
+			Motivi     []string `json:"motivi"`
+		} `json:"verifica_adesso"`
+		PropostaAggiornata     json.RawMessage `json:"proposta_aggiornata"`
+		PropostaNonConfrontata string          `json:"proposta_non_confrontata"`
+	} `json:"conferma_corrente"`
 }
 
 // TestL4MotoreALIdentitaRegistrataELaBozza (A-26 e A-27, la parte L4 di motore_a; A-28; EM §5.1, §6.4.1, §9.9; revisione
@@ -276,11 +302,11 @@ func TestL4MotoreALIdentitaRegistrataELaBozza(t *testing.T) {
 	}
 	if err := tx.QueryRow(ctx, `INSERT INTO conferma_strutturale (thread_id, prodotto_id, numero, precedente_id, formato, senza_riepilogo_v2, firma_struttura,
 		firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id, bozza_versione, origine, snapshot, impronta_snapshot,
-		delta, mappa, decisioni, criterio_verifica, chiave_idempotenza, confermato_da, importazioni_citate)
+		delta, mappa, decisioni, criterio_verifica, chiave_idempotenza, confermato_da, importazioni_citate, verifica)
 		SELECT $1, $2, 1, NULL, 3, false, repeat('3', 64), repeat('2', 64), NULL, 0, repeat('1', 64),
 		       COALESCE((SELECT struttura FROM working_contatore WHERE thread_id = $1), 0), COALESCE((SELECT dati FROM working_contatore WHERE thread_id = $1), 0),
 		       $3, 1, '{"rotta": "motore-a/bom/conferma"}', $4::jsonb, repeat('5', 64), '{"formato": 3}', $5::jsonb, '[]', 'nessuno', gen_random_uuid(), $6,
-		       '{}'::uuid[]
+		       '{}'::uuid[], '{"regola": "prima-istanza-1"}'
 		RETURNING conferma_id`, s.thread, s.prodotto, b1, string(sj), string(mappa), s.utente).Scan(&c1); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("la conferma formato 3: %v", err)
@@ -304,6 +330,40 @@ func TestL4MotoreALIdentitaRegistrataELaBozza(t *testing.T) {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("COMMIT della conferma formato 3: %v", err)
 	}
+
+	// ondata C (U2 §2.4, §5.3; A-31): la data e l'autore della fonte, prima dagli atti di prima di V1 (il documento,
+	// l'autorizzazione non registrata), poi dagli eventi della fonte; conferma_corrente della conferma formato 3 n. 1,
+	// senza registro: il motivo del confronto mancato, la verifica di adesso non calcolata, mai «sì»
+	t.Run("la fonte con date e autori e conferma_corrente", func(t *testing.T) {
+		j := pagina(t)
+		f := j.Fonte
+		if f == nil || !f.Confermata || !f.Autorizzata || f.ConfermataIl == nil || f.ConfermataDa == nil ||
+			f.ConfermataDa.UtenteID != s.utente.String() || f.ConfermataDa.Nome != "Prova ACME A1d" ||
+			f.AutorizzataIl != nil || f.AutorizzataMotivo != AutorizzazioneNonRegistrata {
+			t.Errorf("la fonte prima di V1: %+v", f)
+		}
+		cc := j.ConfermaCorrente
+		if cc == nil || cc.ConfermaID != c1.String() || cc.Numero != 1 || cc.PropostaNonConfrontata != MotivoConfermaSenzaRegistro ||
+			len(cc.PropostaAggiornata) != 0 || cc.VerificaAdesso.Stato != StatoVerificaNonCalcolata || cc.VerificaAdesso.Verificata != nil {
+			t.Errorf("conferma_corrente: %+v", cc)
+		}
+		var autore uuid.UUID
+		if err := p.QueryRow(ctx, `INSERT INTO utente (sigla, nome, ufficio) VALUES ('BZ', 'Seconda ACME', 'Tecnico') RETURNING utente_id`).Scan(&autore); err != nil {
+			t.Fatal(err)
+		}
+		inTransazione(t, p,
+			passoSQL{`INSERT INTO fonte_step_evento (thread_id, prodotto_id, azione, allegato_id, sha256, documento_id, autore_id)
+				SELECT $1, $2, 'conferma_documento', $3, d.sha256, d.documento_id, $4 FROM documento d WHERE d.documento_id = $5`,
+				[]any{s.thread, s.prodotto, s.aStep, autore, s.docStep}},
+			passoSQL{`INSERT INTO fonte_step_evento (thread_id, prodotto_id, azione, allegato_id, sha256, documento_id, autore_id)
+				SELECT $1, $2, 'autorizzazione', $3, d.sha256, d.documento_id, $4 FROM documento d WHERE d.documento_id = $5`,
+				[]any{s.thread, s.prodotto, s.aStep, autore, s.docStep}})
+		f = pagina(t).Fonte
+		if f == nil || f.ConfermataDa == nil || f.ConfermataDa.Nome != "Seconda ACME" || f.AutorizzataDa == nil ||
+			f.AutorizzataDa.UtenteID != autore.String() || f.AutorizzataIl == nil || f.AutorizzataMotivo != "" {
+			t.Errorf("la fonte dagli eventi: %+v", f)
+		}
+	})
 
 	t.Run("la certificazione valida", func(t *testing.T) {
 		d := nodoDue(t, pagina(t))
@@ -337,7 +397,7 @@ func TestL4MotoreALIdentitaRegistrataELaBozza(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg, err := propostabom.ImportaGruppo(propostabom.Ingresso{Esito: &ris.Esito, Thread: ris.EsitoThread, Regole: ris.Regole, Prodotto: rifProdotto,
-		Gruppo: propostabom.GruppoBOM, NonAttivi: ris.V1.NonAttivi})
+		Gruppo: propostabom.GruppoBOM, NonAttivi: ris.V1.NonAttivi, Foto: &ris.Foto})
 	if err != nil {
 		t.Fatalf("il registro dell'adattatore: %v", err)
 	}
@@ -419,8 +479,8 @@ func TestL4MotoreALIdentitaRegistrataELaBozza(t *testing.T) {
 	})
 	t.Run("lo STEP in Altri file", func(t *testing.T) {
 		inTransazione(t, p,
-			passoSQL{`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id)
-				SELECT $1, a.allegato_id, a.sha256, 10, 'segnaposto', gen_random_uuid() FROM allegato a WHERE a.allegato_id = $2`, []any{s.thread, s.aStep}},
+			passoSQL{`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id)
+				SELECT $1, a.allegato_id, a.sha256, 10, 'ALTRO\' || a.allegato_id || '.stp', gen_random_uuid() FROM allegato a WHERE a.allegato_id = $2`, []any{s.thread, s.aStep}},
 			passoSQL{`UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'staging' WHERE thread_id = $1 AND allegato_id = $2 AND stato = 'in_copia'`,
 				[]any{s.thread, s.aStep}},
 			passoSQL{`INSERT INTO file_rfq (thread_id, allegato_id, stato, versione, messaggio_id, canale, contenitore_id, indice, nome_file, path_interno,
@@ -442,7 +502,8 @@ func TestL4MotoreALIdentitaRegistrataELaBozza(t *testing.T) {
 			}
 		}
 		if j.MotivoSenzaGruppi == nil || j.MotivoSenzaGruppi.Codice != propostabom.MotivoSenzaGruppiStepNonAttivo || len(j.MotivoSenzaGruppi.Allegati) != 1 ||
-			j.MotivoSenzaGruppi.Allegati[0] != s.aStep.String() {
+			j.MotivoSenzaGruppi.Allegati[0].AllegatoID != s.aStep.String() || j.MotivoSenzaGruppi.Allegati[0].Stato != "altri_file" ||
+			j.MotivoSenzaGruppi.Testo != propostabom.TestoStepInAltriFile {
 			t.Errorf("il motivo senza gruppi con lo STEP in Altri file: %+v", j.MotivoSenzaGruppi)
 		}
 	})

@@ -260,6 +260,15 @@ markmap:
     base (OT-06)
   - Il controllo del prodotto nei trigger della versione e della nascita della conferma si prova con un registro di un
     altro prodotto sulla stessa fonte e nello stesso gruppo (R4), cosi' che a distinguerli resti solo il prodotto
+- **`v1_0023_dir39_db_test.go`** (V1, direttiva 39, variante `20261019c`; PM23 §4.16)
+  - Livello: L4
+  - Che cosa prova: M-42 riscritta (il predicato `allegato_sorgente_del_finito` ramo per ramo; uno STEP documentale
+    diventa AR, lo STEP sorgente no, anche sul suo finito; revocato si associa), M-49 (provenienza e registro d'origine
+    della PB sulla AR come copia verificata, round-trip, PB rimasta da un registro precedente, immutabilita'), M-50
+    (`gesto_legacy` solo nelle RFQ interamente legacy anche dopo l'abbandono della bozza, il segno della RFQ formato 3,
+    `sgancio_legacy`, `conversione_legacy` l'unica con l'autore nullo), M-16 (`revoca_sorgente`), e l'ordine delle
+    scritture di R5 sul database (promozione di B, sostituzione A → B, testata, certificati, AR, chiusura della bozza)
+    con gli ordini sbagliati rifiutati e il rollback iniettato fra promozione, sostituzione, testata e AR
   - Le prove fissate sulla 22 sono riscritte di proposito (piano della 0023, §9.2): da zero e due avvii (alla 23), la
     0022 cercata per numero, 21 → 22 confrontata con `SchemaFinoA(22)`, le due varianti della 0022 (la 0022 per numero;
     con la 0023 un database alla 22 si legge in sola lettura solo con un binario della 22)

@@ -3,15 +3,20 @@ package distintabozza
 // Il vassoio «Da ricollocare» (EM §3.7; MAT §4.1; PM23 T-16): le preassociazioni tolte da un gesto strutturale e non ancora
 // ricollocate o lasciate. Non sta nello snapshot: si ricava dal giornale con una regola sola, la stessa per il server (R1)
 // e per la pagina (distinta_unica.mjs, vassoioDa), provata sui casi condivisi transport/web/e2e/distinta_unica_casi.json:
-//   - per ogni proposta conta l'ultima azione efficace fra file_svincolato, file_preassociato e file_lasciato: senza quelle
+//   - per ogni allegato (direttiva 35, C-2: la regola e' la stessa, la chiave e' l'occorrenza e non piu' la proposta di
+//     documento) conta l'ultima azione efficace fra file_svincolato, file_preassociato e file_lasciato: senza quelle
 //     annullate con annulla, e con quelle ripetute con rifai (una ripetizione rende di nuovo efficace l'evento, in quel
 //     punto del giornale);
-//   - la proposta e' nel vassoio se quell'azione e' un file_svincolato con un motivo diverso da utente (dopo.motivo, PE-04).
+//   - l'allegato e' nel vassoio se quell'azione e' un file_svincolato con un motivo diverso da utente (dopo.motivo, PE-04).
 
 import (
 	"encoding/json"
 	"sort"
 )
+
+// AzioniDelVassoio sono le azioni del giornale che la regola del vassoio guarda (VassoioDa): le altre non la cambiano.
+// La lettura delle bozze di tutti i prodotti (bozze_rfq.go) legge dal database solo questi eventi.
+var AzioniDelVassoio = []string{AzFileSvincolato, AzFilePreassociato, AzFileLasciato, AzAnnulla, AzRifai}
 
 // EventoGiornale e' un evento del giornale come lo leggono le regole del vassoio e della pila d'annullamento.
 type EventoGiornale struct {
@@ -21,9 +26,10 @@ type EventoGiornale struct {
 	Prima, Dopo json.RawMessage
 }
 
-// VoceVassoio e' una proposta nel vassoio, con il motivo dello svincolo e il nodo da cui e' uscita.
+// VoceVassoio e' un file nel vassoio, {allegato_id, motivo, chiave_bozza}: l'occorrenza, il motivo dello svincolo e il
+// nodo da cui e' uscita.
 type VoceVassoio struct {
-	PropostaID  string `json:"proposta_id"`
+	AllegatoID  string `json:"allegato_id"`
 	Motivo      string `json:"motivo"`
 	ChiaveBozza string `json:"chiave_bozza"`
 }
@@ -47,7 +53,7 @@ func numeroEvento(dopo json.RawMessage) (int, bool) {
 	return *x.N, true
 }
 
-// VassoioDa ricava il vassoio dal giornale, con la regola in testa al file. Le voci in ordine di proposta.
+// VassoioDa ricava il vassoio dal giornale, con la regola in testa al file. Le voci in ordine di allegato.
 func VassoioDa(eventi []EventoGiornale) []VoceVassoio {
 	perN := map[int]EventoGiornale{}
 	var efficaci []int // gli eventi dei file in ordine di efficacia
@@ -80,16 +86,16 @@ func VassoioDa(eventi []EventoGiornale) []VoceVassoio {
 	for _, n := range efficaci {
 		e := perN[n]
 		var x struct {
-			PropostaID string `json:"proposta_id"`
+			AllegatoID string `json:"allegato_id"`
 		}
 		src := e.Dopo
 		if e.Azione == AzFileSvincolato {
 			src = e.Prima
 		}
-		if json.Unmarshal(src, &x) != nil || x.PropostaID == "" {
+		if json.Unmarshal(src, &x) != nil || x.AllegatoID == "" {
 			continue
 		}
-		ultima[x.PropostaID] = e
+		ultima[x.AllegatoID] = e
 	}
 	var out []VoceVassoio
 	for id, e := range ultima {
@@ -111,9 +117,9 @@ func VassoioDa(eventi []EventoGiornale) []VoceVassoio {
 		if chiave == "" {
 			chiave = e.ChiaveBozza
 		}
-		out = append(out, VoceVassoio{PropostaID: id, Motivo: d.Motivo, ChiaveBozza: chiave})
+		out = append(out, VoceVassoio{AllegatoID: id, Motivo: d.Motivo, ChiaveBozza: chiave})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].PropostaID < out[j].PropostaID })
+	sort.Slice(out, func(i, j int) bool { return out[i].AllegatoID < out[j].AllegatoID })
 	if out == nil {
 		out = []VoceVassoio{}
 	}

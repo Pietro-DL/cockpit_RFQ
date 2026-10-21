@@ -13,14 +13,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"promatec/cockpit/internal/core/rfq/confermadoc"
 	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/db"
 )
 
-// I testi del rifiuto dei gesti legacy su un file non attivo (EM §10.7).
+// I testi del rifiuto dei gesti legacy su un file non attivo (EM §10.7): una sola fonte, quella del core della conferma
+// (confermadoc.RifiutoFileNonAttivo, corsia persistenza), cosi' i due rifiuti non si separano (richiesta della
+// persistenza dal blocco S8, punto 3).
 const (
-	testoFileInAltriFile = "il file è in Altri file nella Distinta nuova (riattivalo prima)"
-	testoFileScartato    = "il file è stato scartato nella Distinta nuova: per riaverlo, ricaricalo"
+	testoFileInAltriFile = confermadoc.TestoFileInAltriFile
+	testoFileScartato    = confermadoc.TestoFileScartato
 )
 
 // statoOccorrenza: lo stato dell'occorrenza di un allegato nella RFQ del suo messaggio (attivo senza riga). Il

@@ -200,10 +200,19 @@ var variantiNote = map[int]struct {
 		map[string]string{"0022-p4-dir11-20261013a": "ddf3e2d2351791d050a4f132c63268c3f693863d4627f08dd20ac47ad58f794c"}},
 	// V1 (piano della 0023, §2): variante 0023-v1-formato3-file-<aaaammgg><lettera>; la «a» e' il testo del primo
 	// passaggio della corsia persistenza, la «b» quello dopo la sua revisione, la «c» con i bianchi di ck_csc_identita
-	// tutti come sequenze di escape (mai spinti, solo database di prova)
-	23: {"0023-v1-formato3-file-20261018c", "074a08efd0a67f159d0c185188eedebe7138e5a840667fd53c6e82c48e81c484",
+	// tutti come sequenze di escape, la «d» con il delta di U2 §3.14 e di DEC-B dell'ondata C, la 20261019a con la
+	// direttiva 35 (blocco C-1b: file_rfq_associazione e il giornale delle AR), la 20261019b con l'indice
+	// d'idempotenza del giornale NULLS NOT DISTINCT, la 20261019c con la direttiva 39 (provenienza della PB sulla AR,
+	// gesto_legacy e conversione_legacy, lo STEP legato come sorgente, revoca_sorgente, il segno della RFQ formato 3), la
+	// 20261019d con trg_proposta_copia_derivata acceso dopo C-6b (mai spinti, solo database di prova)
+	23: {"0023-v1-formato3-file-20261019d", "4e633575d9cbc712899c89174a3bd594f630b57d114dee8074a63230b667e885",
 		map[string]string{"0023-v1-formato3-file-20261018a": "6a315baf5d825916731146399ae52052aca64b812dd2e8ad35caa760921c9b58",
-			"0023-v1-formato3-file-20261018b": "37c698df889d4539cdedee29d3da17cc52ae804f1abb4e81fb9d459777056e9b"}},
+			"0023-v1-formato3-file-20261018b": "37c698df889d4539cdedee29d3da17cc52ae804f1abb4e81fb9d459777056e9b",
+			"0023-v1-formato3-file-20261018c": "074a08efd0a67f159d0c185188eedebe7138e5a840667fd53c6e82c48e81c484",
+			"0023-v1-formato3-file-20261018d": "e9e3344b4fcc26bc75c02039ad614a928ac8575ab349bcb58b8abea84f433df4",
+			"0023-v1-formato3-file-20261019a": "949d9e36624c56957b42f24f59578442034679a5790f0b9586e629dafdbd5206",
+			"0023-v1-formato3-file-20261019b": "949ea5caebd4daf29f17d539d2a46694ec6d311f93515032848a91e885f4562d",
+			"0023-v1-formato3-file-20261019c": "ccf67543ff2fa698154bc00ea0a679417156930239b062b0906fa33e7ffc19dc"}},
 }
 
 // controllaVariante: la migrazione m dichiara la variante nota e ha la sua impronta.

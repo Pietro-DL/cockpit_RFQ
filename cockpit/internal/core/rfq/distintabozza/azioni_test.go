@@ -422,7 +422,7 @@ func TestGliStatiIntermediSonoPossibili(t *testing.T) {
 		t.Errorf("seconda radice in un passo intermedio: %v", err)
 	}
 	// preassociare a un nodo escluso, o escludere un nodo con un documento preassociato: no
-	pre := Preassociazione{PropostaID: idDi("proposta"), ChiaveBozza: "k-s4"}
+	pre := Preassociazione2{PropostaID: idDi("proposta"), ChiaveBozza: "k-s4"}
 	escl := base.copia()
 	cambiaNodo(&escl, "k-s4", func(n *Nodo) { n.Op = OpEsclude })
 	if _, err := Riconcilia(&escl, escl, []Azione{{Azione: AzFilePreassociato, Origine: "utente", Dopo: grezzo(t, pre)},
@@ -430,7 +430,7 @@ func TestGliStatiIntermediSonoPossibili(t *testing.T) {
 		t.Errorf("preassociazione a un nodo escluso: %v", err)
 	}
 	conPre := base.copia()
-	conPre.DocumentiPreassociati = []Preassociazione{pre}
+	conPre.DocumentiPreassociati = []Preassociazione2{pre}
 	if _, err := Riconcilia(&conPre, conPre, []Azione{
 		{Azione: AzNodoModificato, ChiaveBozza: "k-s4", Origine: "utente", Prima: grezzo(t, map[string]string{"op": "riusa"}), Dopo: grezzo(t, map[string]string{"op": "esclude"})},
 		{Azione: AzNodoModificato, ChiaveBozza: "k-s4", Origine: "utente", Prima: grezzo(t, map[string]string{"op": "esclude"}), Dopo: grezzo(t, map[string]string{"op": "riusa"})}}, Contesto{}); !errors.Is(err, ErrAzioniNonRiconciliate) {
@@ -559,7 +559,7 @@ func TestLeAltreAzioniDelVocabolario(t *testing.T) {
 	// preassocia e svincola, decisione aggiunta e tolta; la chiave della decisione e' quella del suo nodo
 	v5 := base.copia()
 	d1 := map[string]any{"id": "d-1", "tipo": "da_valutare", "chiave_bozza": "k-s2"}
-	pre := Preassociazione{PropostaID: idDi("proposta"), ChiaveBozza: "k-s4"}
+	pre := Preassociazione2{PropostaID: idDi("proposta"), ChiaveBozza: "k-s4"}
 	az := []Azione{
 		{Azione: AzFilePreassociato, Origine: "utente", Dopo: grezzo(t, pre)},
 		{Azione: AzFileSvincolato, Origine: "utente", Prima: grezzo(t, pre)},

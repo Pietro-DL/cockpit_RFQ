@@ -104,13 +104,16 @@ func Calcola(f fotorfq.Fotografia, r *motorea.InsiemeRegole, in Ingressi) (Esito
 //     record dei file e il vecchio ci sono lo stesso: i file si leggono uno per uno (nuovoCollegamento), e un errore su un
 //     file lascia fuori solo quel file.
 func esitoDelThread(f fotorfq.Fotografia, t fotorfq.Thread, r *motorea.InsiemeRegole, in Ingressi) EsitoThread {
+	// la fonte «manuale» del Motore A dalle AR attive, con il ripiego per le copie senza AR (registrate.go); senza AR il
+	// thread è quello della fotografia. L'impronta della fotografia resta quella della fotografia letta.
+	t = conLeAssociazioniRegistrate(t, in.Registrate[t.ID])
 	et := EsitoThread{ThreadID: t.ID, ClienteID: t.ClienteID}
 	m, motivo, diag := motoreDel(f, r, t.ClienteID)
 	if m != nil {
 		et.HashSnapshot = m.Snapshot().Hash
 		m, diag = conContestoDelThread(r, m, t.ID, diag)
 	}
-	v, col, err := valutaThread(f, t, m, in.CasoDelThread(t.ID))
+	v, col, err := valutaThread(f, t, m, in.CasoDelThread(t.ID), in.Categorie[t.ID])
 	if err != nil {
 		diag = append(diag, diagnosticheDellErrore(err, "thread["+t.ID.String()+"]", t.ID.String())...)
 		if motivo == "" {

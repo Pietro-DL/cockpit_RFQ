@@ -38,6 +38,7 @@ import (
 
 	"promatec/cockpit/internal/core/confronto"
 	"promatec/cockpit/internal/core/fotorfq"
+	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/core/valutazione"
 )
@@ -56,6 +57,8 @@ type Risultato struct {
 	Dichiarazioni fascicolo.Dichiarazioni
 	Regole        valutazione.RegoleDelThread
 	V1            DatiV1
+	// Insieme: le regole caricate all'avvio con cui il calcolo è fatto (l'identificativo verso il cliente, U2 §4.2).
+	Insieme *motorea.InsiemeRegole
 }
 
 // Calcola: il calcolo di un thread, in sola lettura, con il limite del servizio.
@@ -82,8 +85,9 @@ const (
 )
 
 // calcolaProtetto: Calcola con un passo in più, dopo, nella stessa goroutine e quindi sotto lo stesso limite e lo stesso
-// recover (R-06 della revisione di A1d-P2: la composizione della pagina). dopo nil = nessun passo.
-func (s Servizio) calcolaProtetto(ctx context.Context, thread uuid.UUID, dopo func(*Risultato)) (*Risultato, error) {
+// recover (R-06 della revisione di A1d-P2: la composizione della pagina). dopo nil = nessun passo; dopo riceve il contesto
+// con il limite (le letture che fa, come i suggerimenti di adesso di S9, stanno sotto lo stesso limite).
+func (s Servizio) calcolaProtetto(ctx context.Context, thread uuid.UUID, dopo func(context.Context, *Risultato)) (*Risultato, error) {
 	if !s.Regole.Pronta() {
 		return nil, ErrRegole
 	}
@@ -118,7 +122,7 @@ func (s Servizio) calcolaProtetto(ctx context.Context, thread uuid.UUID, dopo fu
 		}()
 		u.r, u.err = s.calcola(ctx, thread)
 		if u.err == nil && dopo != nil {
-			dopo(u.r)
+			dopo(ctx, u.r)
 		}
 	}()
 	select {
@@ -178,15 +182,19 @@ func (s Servizio) calcola(ctx context.Context, thread uuid.UUID) (*Risultato, er
 	if valuta == nil {
 		valuta = valutazione.Calcola
 	}
-	// Nessun ingresso di scenario (Q-A1d-10 = B): vedi il commento di testa.
-	e, err := valuta(l.Foto, s.Regole.Insieme, valutazione.Ingressi{})
+	// Nessun ingresso di scenario (Q-A1d-10 = B): vedi il commento di testa. Le conferme della categoria (V1, ondata C:
+	// U2 §6.4.2) vengono dalle ultime conferme valide lette nella stessa fotografia (leggiV1), accanto al caricatore.
+	// Le AR attive (direttiva 35, blocco C-4) sono la fonte «manuale» del Motore A, lette nella stessa fotografia dal
+	// servizio unico (leggiV1, registrateDelThread): senza AR l'esito è quello di prima.
+	e, err := valuta(l.Foto, s.Regole.Insieme, valutazione.Ingressi{Categorie: categorieDelThread(thread, l.V1),
+		Registrate: registrateDelThread(thread, l.V1)})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValutazione, err)
 	}
 	if e.VersioneValutazione != VersioneAttesa {
 		return nil, fmt.Errorf("%w: l'esito è «%s», la pagina legge «%s»", ErrVersione, e.VersioneValutazione, VersioneAttesa)
 	}
-	r := &Risultato{Foto: l.Foto, Esito: e, Fase: l.Fase, Dichiarazioni: l.Dichiarazioni, V1: l.V1}
+	r := &Risultato{Foto: l.Foto, Esito: e, Fase: l.Fase, Dichiarazioni: l.Dichiarazioni, V1: l.V1, Insieme: s.Regole.Insieme}
 	r.Regole, _ = valutazione.RegoleDiLettura(r.Foto, s.Regole.Insieme, thread)
 	for i := range r.Foto.Thread {
 		if r.Foto.Thread[i].ID == thread {

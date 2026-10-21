@@ -85,6 +85,9 @@
 .du .du-st--bozza, .du-finestra .du-st--bozza, .du-wizard .du-st--bozza { color: var(--du-bozza); background: var(--du-bozza-soft); border-color: var(--du-bozza-line); }
 .du .du-st--info, .du-finestra .du-st--info, .du-wizard .du-st--info { color: var(--du-info); background: var(--du-info-soft); border-color: var(--du-info-line); }
 .du .du-st--wrap, .du-finestra .du-st--wrap, .du-wizard .du-st--wrap { white-space: normal; }
+/* i segni di U2 §5.5 (verifica corrente, proposta aggiornata): testi lunghi che vanno a capo, mai più larghi della riga */
+.du [data-du-verifica], .du [data-du-proposta] { min-width: 0; max-width: 100%; }
+.du [data-du-verifica] .du-st, .du [data-du-proposta] .du-st { white-space: normal; }
 .du .du-tipo, .du-wizard .du-tipo, .du-finestra .du-tipo { display: inline-flex; align-items: center; font: 700 var(--du-t-xs)/1.5 var(--du-f-cond); letter-spacing: .04em; padding: 0 6px; border-radius: var(--du-r1); white-space: nowrap; }
 .du .du-tipo--finito, .du-wizard .du-tipo--finito { color: var(--du-acc); background: var(--du-acc-soft); }
 .du .du-tipo--sottoassieme, .du-wizard .du-tipo--sottoassieme { color: var(--du-info); background: var(--du-info-soft); }
@@ -354,4 +357,95 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .du .du-btn, .du .du-passo, .du .du-seg button, .du .du-ptab, .du-finestra .du-btn, .du-wizard .du-btn { transition: background-color .13s ease, border-color .13s ease, color .13s ease, box-shadow .13s ease; }
+}
+
+/* ---------------------------------------------------------------- tab Sorgente: mockup v5, direzione A ([U] M32-M34)
+   Lo spazio di lavoro sta nel tab e prende l'altezza che resta (la pagina non scorre, scorrono i riquadri): barra, poi
+   tre riquadri (cartelle 264 px, elenco, dettaglio 400 px a 1440; 216 e 344 a 1024; fra 600 e 1023 il dettaglio
+   scende sotto l'elenco), sotto i 600 px tre viste che si alternano. L'altezza la fissa lo script (adattaAltezzaSg). */
+.du .du-sg { position: relative; display: flex; flex-direction: column; min-height: 360px; min-width: 0; border: 1px solid var(--du-line); border-radius: var(--du-r3); background: var(--du-surf); box-shadow: var(--du-sh1); overflow: hidden; }
+.du .du-sg-salta { position: absolute; left: 8px; top: -40px; z-index: 5; padding: 4px 8px; background: var(--du-acc); color: var(--du-acc-ink); border-radius: var(--du-r1); }
+.du .du-sg-salta:focus { top: 6px; }
+.du .du-sr, .du .du-sg-annuncio { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.du .du-sg-barra { flex: 0 0 auto; display: flex; align-items: center; gap: 6px 10px; padding: 6px 10px; min-height: 44px; border-bottom: 1px solid var(--du-line); background: var(--du-surf2); flex-wrap: wrap; min-width: 0; }
+.du .du-sg-barra h2 { white-space: nowrap; }
+.du .du-sg-cerca { flex: 1 1 280px; min-width: 160px; max-width: 460px; min-height: 28px; padding: 2px 8px; border: 1px solid var(--du-line2); border-radius: var(--du-r2); font: inherit; font-size: var(--du-t-sm); background: var(--du-surf); color: var(--du-ink); }
+.du .du-sg-sistema { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 200px; font-size: var(--du-t-sm); color: var(--du-ink2); position: relative; }
+.du .du-sg-sistema-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.du .du-sg-registro { position: absolute; top: 100%; left: 0; z-index: 20; margin: 4px 0 0; padding: 8px 10px 8px 26px; max-height: 260px; overflow: auto; width: min(460px, 90vw); background: var(--du-surf); border: 1px solid var(--du-line2); border-radius: var(--du-r2); box-shadow: var(--du-sh2); display: grid; gap: 4px; }
+.du .du-sg-carica { position: relative; margin-left: auto; }
+.du .du-sg-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: min(440px, 92vw); padding: 10px; background: var(--du-surf); border: 1px solid var(--du-line2); border-radius: var(--du-r2); box-shadow: var(--du-sh2); }
+.du .du-sg-spazio { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 264px minmax(0, 1fr) 400px; }
+.du .du-sg-albero, .du .du-sg-elenco, .du .du-sg-dettaglio { min-height: 0; min-width: 0; overflow: auto; }
+.du .du-sg-albero { border-right: 1px solid var(--du-line); background: var(--du-surf2); padding: 6px 0; }
+.du .du-sg-albero ul { list-style: none; margin: 0; padding: 0; }
+.du .du-sg-voce { display: grid; gap: 1px; padding: 5px 10px 5px 12px; cursor: pointer; border-left: 3px solid transparent; }
+.du .du-sg-voce.du-sg-liv2 { padding-left: 28px; }
+.du .du-sg-voce:hover { background: var(--du-sunken); }
+.du .du-sg-voce--sel { background: var(--du-acc-soft); border-left-color: var(--du-acc); }
+.du .du-sg-voce--attenuata { color: var(--du-ink4); }
+.du .du-sg-voce-t { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--du-t-ms); }
+.du .du-sg-voce-nome { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.du .du-sg-conto { font-family: var(--du-f-mono); font-size: var(--du-t-sm); color: var(--du-ink2); }
+.du .du-sg-delta { font-family: var(--du-f-mono); font-size: var(--du-t-xs); color: var(--du-acc); font-weight: 600; }
+.du .du-sg-voce-2 { font-size: var(--du-t-xs); color: var(--du-ink3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.du .du-sg-sep { padding: 8px 12px 2px; font-size: var(--du-t-xs); color: var(--du-ink4); }
+.du .du-sg-elenco { padding: 0 0 8px; display: flex; flex-direction: column; gap: 6px; }
+.du .du-sg-elenco > * { margin-left: 10px; margin-right: 10px; }
+.du .du-sg-elenco-t { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 8px 0 6px; background: var(--du-surf); border-bottom: 1px solid var(--du-line); }
+.du .du-sg-def { flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.du .du-sg-righe { list-style: none; padding: 0; display: grid; gap: 2px; }
+.du .du-sg-riga { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 4px 8px; align-items: start; padding: 6px 8px; border: 1px solid transparent; border-radius: var(--du-r2); cursor: pointer; }
+.du .du-sg-riga:hover { background: var(--du-surf2); border-color: var(--du-line); }
+.du .du-sg-riga--attiva { background: var(--du-acc-soft); border-color: var(--du-acc-line); }
+.du .du-sg-riga[aria-selected="true"] { box-shadow: inset 3px 0 0 var(--du-acc); }
+.du .du-sg-riga--voce .du-fr-nome { padding-left: 14px; }
+.du .du-sg-riga--fantasma { cursor: pointer; color: var(--du-ink3); font-style: italic; border: 1px dashed var(--du-line2); grid-template-columns: minmax(0, 1fr) auto; }
+.du .du-sg-cella-file { display: grid; gap: 3px; min-width: 0; }
+.du .du-sg-cella-gesto { justify-self: end; }
+.du .du-sg-dest { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: var(--du-t-sm); min-width: 0; }
+.du .du-sg-gruppo { padding: 8px 2px 2px; font-family: var(--du-f-cond); font-size: var(--du-t-xs); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--du-ink3); }
+.du .du-sg-vuoto { padding: 10px 2px; }
+.du .du-sg-gruppo-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--du-acc-line); border-radius: var(--du-r2); background: var(--du-acc-soft); }
+.du .du-sg-prodotto { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--du-line); border-radius: var(--du-r2); background: var(--du-surf2); }
+.du .du-sg-prodotto-t { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.du .du-sg-prodotto-c { display: grid; gap: 6px; }
+.du .du-sg-dettaglio { border-left: 1px solid var(--du-line); padding: 10px 12px; display: grid; align-content: start; gap: 10px; }
+.du .du-sg-file, .du .du-sg-candidature { display: grid; gap: 8px; min-width: 0; }
+.du .du-sg-azioni { display: grid; gap: 6px; justify-items: start; }
+.du .du-sg-cand { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--du-line); border-radius: var(--du-r2); font-size: var(--du-t-sm); }
+.du .du-sg-indietro { display: none; }
+.du .du-sg-mossa { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 2px 8px; border-radius: var(--du-r1); background: var(--du-surf); border: 1px solid var(--du-prop-line); font-size: var(--du-t-sm); max-width: 100%; }
+.du .du-sg-mossa[data-esito="parziale"], .du .du-sg-mossa[data-esito="ko"] { border-color: var(--du-ver-line); background: var(--du-ver-soft); }
+.du .du-st--att { color: var(--du-info); background: var(--du-info-soft); border-color: var(--du-info-line); border-style: dashed; }
+.du .du-st--wrap { white-space: normal; }
+/* l'anteprima di uno STEP nel dettaglio allargato (T-14): l'elenco resta una striscia di 40 px */
+.du .du-sg[data-larga="1"] .du-sg-spazio { grid-template-columns: 264px 40px minmax(0, 1fr); }
+.du .du-sg[data-larga="1"] .du-sg-elenco > * { visibility: hidden; }
+.du .du-sg-anteprima { display: grid; gap: 8px; min-width: 0; }
+.du .du-sg-anteprima-c { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); align-items: start; min-width: 0; }
+@media (max-width: 1439.98px) {
+  .du .du-sg-spazio { grid-template-columns: 216px minmax(0, 1fr) 344px; }
+  .du .du-sg[data-larga="1"] .du-sg-spazio { grid-template-columns: 216px 40px minmax(0, 1fr); }
+}
+@media (max-width: 1279.98px) { .du .du-sg-anteprima-c { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1023.98px) {
+  .du .du-sg-spazio { grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .du .du-sg-albero { grid-row: 1 / span 2; }
+  .du .du-sg-dettaglio { border-left: 0; border-top: 1px solid var(--du-line); }
+  .du .du-sg[data-larga="1"] .du-sg-spazio { grid-template-columns: 200px minmax(0, 1fr); }
+  .du .du-sg[data-larga="1"] .du-sg-elenco { display: none; }
+  .du .du-sg[data-larga="1"] .du-sg-dettaglio { grid-row: 1 / span 2; border-top: 0; }
+}
+@media (max-width: 599.98px) {
+  .du .du-sg-spazio, .du .du-sg[data-larga="1"] .du-sg-spazio { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .du .du-sg-albero { grid-row: auto; border-right: 0; }
+  .du .du-sg[data-vista="cartelle"] .du-sg-elenco, .du .du-sg[data-vista="cartelle"] .du-sg-dettaglio,
+  .du .du-sg[data-vista="elenco"] .du-sg-albero, .du .du-sg[data-vista="elenco"] .du-sg-dettaglio,
+  .du .du-sg[data-vista="dettaglio"] .du-sg-albero, .du .du-sg[data-vista="dettaglio"] .du-sg-elenco { display: none; }
+  .du .du-sg-indietro { display: inline-flex; }
+  .du .du-sg-dettaglio { border-top: 0; }
+  .du .du-sg-riga { grid-template-columns: 26px minmax(0, 1fr); }
+  .du .du-sg-cella-gesto { grid-column: 2; justify-self: start; }
+  .du .du-sg-cerca { flex-basis: 100%; max-width: none; }
 }

@@ -47,7 +47,12 @@ func decisioniValide() map[string]map[string]any {
 			"casella":       map[string]any{"allegato_id": id.allegato.String(), "gruppo": "bom", "rif": id.rif("#31")},
 			"motivo_codice": "elemento_cad", "motivo": "cordone", "azione_id": azioneV, "importazione": impProva(),
 			"segnale_visto": map[string]any{"codice": "ancoraggio.possibile_elemento_cad", "regola": "elemento_cad_nome_foglia_v1", "versione_servizio": "ancoraggio-3"}},
-		DecisioneScollegaDocumento: {"id": "d16", "tipo": DecisioneScollegaDocumento, "proposta_id": uuidD2, "componente_id": uuidD1},
+		DecisioneScollegaDocumento: {"id": "d16", "tipo": DecisioneScollegaDocumento, "allegato_id": uuidD2, "componente_id": uuidD1},
+		// U2 §6.4.2: il diciassettesimo tipo
+		DecisioneConfermaCategoria: {"id": "d17", "tipo": DecisioneConfermaCategoria, "soggetto": map[string]any{"chiave_bozza": "k-1"},
+			"categoria": "minuteria", "esito": "conferma", "origine_categoria": "classe_grammatica",
+			"classe_proposta": map[string]any{"categoria": "minuteria", "fonte": "acme-norma", "valore": "2.1051"},
+			"importazione":    impProva(), "ingresso": "editor", "motivo": "vite di serie"},
 	}
 }
 
@@ -60,10 +65,10 @@ func leggiDecisioneProva(t *testing.T, d map[string]any) (Decisione3, *Errore) {
 	return LeggiDecisione3("decisioni[0]", b)
 }
 
-func TestV1LeSediciDecisioni(t *testing.T) {
+func TestV1LeDiciassetteDecisioni(t *testing.T) {
 	valide := decisioniValide()
-	if len(valide) != 16 || len(formeDecisione) != 16 {
-		t.Fatalf("tipi: %d esempi, %d forme (attesi 16)", len(valide), len(formeDecisione))
+	if len(valide) != 17 || len(formeDecisione) != 17 {
+		t.Fatalf("tipi: %d esempi, %d forme (attesi 17: i 16 di EM §3.6 e conferma_categoria, U2 §6.4.2)", len(valide), len(formeDecisione))
 	}
 	for tipo, d := range valide {
 		t.Run(tipo, func(t *testing.T) {

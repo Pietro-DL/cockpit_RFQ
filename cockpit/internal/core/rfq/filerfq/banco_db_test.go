@@ -3,7 +3,8 @@
 package filerfq
 
 // L4 — V1, corsia file (PM23 §10 righe 7, 8, 9 e 13; A2 §8): il banco delle prove del ciclo dei file. Un DB di prova
-// (COCKPIT_TEST_DSN, schema pulito a ogni prova), lo staging, il deposito e il NAS in cartelle temporanee, contenuti
+// (COCKPIT_TEST_DSN, schema pulito a ogni prova), lo staging, il posto degli Altri file (conservatoreprova) e il NAS in
+// cartelle temporanee, contenuti
 // sintetici (D23:79): mai lo staging di una postazione o del server. Codici e nomi sintetici (ACME).
 
 import (
@@ -17,7 +18,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/core/rfq/filerfq/conservatoreprova"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/staging"
 	"promatec/cockpit/internal/platform/testutil"
@@ -65,14 +66,15 @@ type bancoFile struct {
 	cliente  uuid.UUID
 	thread   uuid.UUID
 	staging  string
-	deposito string
+	deposito string // la radice del conservatore delle prove
+	cons     *conservatoreprova.Locale
 	nas      string
 	s        *Servizio
 	pipe     *pipelineFinta
 	n        int
 }
 
-// nuovoBancoFile: schema pulito, un utente, un cliente ACME, una RFQ, il deposito preparato (segnaposto nuovo) e il
+// nuovoBancoFile: schema pulito, un utente, un cliente ACME, una RFQ, il conservatore delle prove e il
 // servizio con l'eta' minima a un nanosecondo (le prove che vogliono la regola dei 10 minuti la rimettono).
 func nuovoBancoFile(t *testing.T) *bancoFile {
 	t.Helper()
@@ -89,11 +91,8 @@ func nuovoBancoFile(t *testing.T) *bancoFile {
 	b.u = u
 	b.riga(`INSERT INTO cliente (cartella_nas, ragione_sociale) VALUES ('ACME', 'Acme Prova') RETURNING cliente_id`, &b.cliente)
 	b.thread = b.rfq("RFQ-A")
-	dep, err := PreparaDeposito(b.ctx, b.q, b.deposito)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.s = &Servizio{Pool: p, Staging: b.staging, Deposito: dep, NASRadice: b.nas, Pipeline: b.pipe,
+	b.cons = conservatoreprova.Nuovo(b.deposito)
+	b.s = &Servizio{Pool: p, Staging: b.staging, Conservatore: b.cons, NASRadice: b.nas, Pipeline: b.pipe,
 		Log: testutil.LogSilenzioso(), EtaMinima: time.Nanosecond}
 	return b
 }
@@ -129,6 +128,12 @@ func (b *bancoFile) rfq(chiave string) uuid.UUID {
 	b.t.Helper()
 	return valore[uuid.UUID](b, `INSERT INTO thread_offerta (cliente_id, canale, data_inizio, oggetto, cartella_relativa)
 		VALUES ($1, 'outlook', now(), $2, $3) RETURNING thread_id`, b.cliente, "RFQ "+chiave, `ACME\WIP\2026 10 18 `+chiave)
+}
+
+// cartellaRFQ: la cartella della RFQ sul NAS (cartella_relativa), relativa alla radice del conservatore delle prove.
+func (b *bancoFile) cartellaRFQ(thread uuid.UUID) string {
+	b.t.Helper()
+	return valore[string](b, `SELECT cartella_relativa FROM thread_offerta WHERE thread_id = $1`, thread)
 }
 
 // mail: un messaggio di posta della RFQ.
@@ -355,6 +360,18 @@ func (b *bancoFile) corpo(gesto string, thread, allegato uuid.UUID, motivo strin
 func conScollega(c *CorpoGesto)   { c.Scollega = vero() }
 func conUnicaCopia(c *CorpoGesto) { c.ConfermaUnicaCopia = vero() }
 
+// soloZip: il gesto sul solo archivio (U2 §3.10: perimetro contenitore, senza il perimetro delle voci).
+func soloZip(c *CorpoGesto) {
+	p := PerimetroContenitore
+	c.Perimetro, c.NVoci, c.ImprontaVoci = &p, nil, nil
+}
+
+// zipEContenuti: il gesto sull'archivio e sulle voci (perimetro contenitore_e_voci, con il perimetro letto).
+func zipEContenuti(c *CorpoGesto) {
+	p := PerimetroContenitoreEVoci
+	c.Perimetro = &p
+}
+
 func (b *bancoFile) scarta(thread, allegato uuid.UUID, mod ...func(*CorpoGesto)) (*EsitoGesto, error) {
 	b.t.Helper()
 	return b.s.Scarta(b.ctx, thread, allegato, b.u.UtenteID, b.corpo(GestoScarta, thread, allegato, "non serve alla RFQ", mod...))
@@ -451,45 +468,19 @@ func (b *bancoFile) percorsoContenuto(sha, nome string) string {
 	return p
 }
 
-// fileDelDeposito: i file del deposito, senza il segnaposto e senza i parziali, relativi alla radice.
-func (b *bancoFile) fileDelDeposito() []string {
-	b.t.Helper()
-	var out []string
-	_ = filepath.WalkDir(b.deposito, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		rel, _ := filepath.Rel(b.deposito, p)
-		if rel == NomeSegnaposto || rel == CartellaPartiDeposito || strings.HasPrefix(rel, CartellaPartiDeposito+string(filepath.Separator)) {
-			return nil
-		}
-		out = append(out, rel)
-		return nil
-	})
-	sort.Strings(out)
-	return out
-}
+// fileDelDeposito: i file definitivi del conservatore delle prove, relativi alla radice.
+func (b *bancoFile) fileDelDeposito() []string { return b.cons.File() }
 
-// partiDelDeposito: i parziali rimasti in <deposito>\_parti.
-func (b *bancoFile) partiDelDeposito() []string {
-	b.t.Helper()
-	voci, _ := os.ReadDir(filepath.Join(b.deposito, CartellaPartiDeposito))
-	var out []string
-	for _, v := range voci {
-		out = append(out, v.Name())
-	}
-	return out
-}
+// partiDelDeposito: i parziali rimasti sotto la radice del conservatore delle prove.
+func (b *bancoFile) partiDelDeposito() []string { return b.cons.Parti() }
 
 // copiaVerificata: il file della copia copiata dell'occorrenza, con il suo sha.
 func (b *bancoFile) copiaVerificata(thread, allegato uuid.UUID) (string, string) {
 	b.t.Helper()
-	rel := valore[string](b, `SELECT percorso_relativo FROM file_rfq_conservazione WHERE thread_id = $1 AND allegato_id = $2 AND stato = 'copiata'`,
-		thread, allegato)
-	p, err := b.s.Deposito.PercorsoCopia(rel)
-	if err != nil {
-		b.t.Fatal(err)
-	}
+	var cartella, rel string
+	b.rigaCon(`SELECT coalesce(cartella_thread, ''), percorso_relativo FROM file_rfq_conservazione
+		WHERE thread_id = $1 AND allegato_id = $2 AND stato = 'copiata'`, []any{thread, allegato}, &cartella, &rel)
+	p := b.cons.Percorso(cartella, rel)
 	h, err := shaDelFile(p)
 	if err != nil {
 		b.t.Fatalf("la copia verificata non si legge: %v", err)

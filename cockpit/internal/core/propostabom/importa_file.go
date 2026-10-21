@@ -429,13 +429,22 @@ func (b *costruttore) diagnosticaDelGruppo(d evidenze.Diagnostica) bool {
 }
 
 // diagnosticheDellAdattatore: le diagnostiche dell'adattatore, nella testata: il thread senza grammatica del cliente,
-// la struttura da rileggere (LS-01), un namespace con due emittenti, le evidenze lasciate fuori perché da occorrenze non
+// il contesto dichiarato e non applicato, la struttura da rileggere (LS-01), un namespace con due emittenti, le evidenze lasciate fuori perché da occorrenze non
 // attive.
 func (b *costruttore) diagnosticheDellAdattatore(c importazione.Contenuto) {
 	if !b.et.Valutato {
 		b.diagTestata = append(b.diagTestata, evidenze.Diagnostica{Codice: CodiceImportazioneSenzaGrammatica, Gravita: evidenze.GravitaAvviso,
 			Natura: evidenze.NaturaDati, Percorso: "regole.grammatica_cliente",
 			Messaggio: fmt.Sprintf("il thread non ha la grammatica del cliente (%s): la struttura si importa senza identità, e i codici restano da assegnare", b.et.Motivo)})
+	}
+	// il contesto dichiarato e non applicato (Q24 [U]; U2-P49): le diagnostiche del contesto del thread, nella testata,
+	// fra le evidenze, perché il contesto della proposta resti conoscibile (Q03 [U]) e un contesto non applicato non
+	// sembri applicato. contesto.non_valido (U2-P49) e, con la stessa ragione, contesto.non_attivo (un contesto
+	// dichiarato ma non attivo) [T].
+	for _, d := range b.in.Regole.Diagnostiche {
+		if d.Codice == motorea.CodiceContestoNonValido || d.Codice == motorea.CodiceContestoNonAttivo {
+			b.diagTestata = append(b.diagTestata, d)
+		}
 	}
 	if !b.st.GrafoCompleto && reGrafoDaRileggere.MatchString(b.st.MotivoGrafo) {
 		b.diagTestata = append(b.diagTestata, evidenze.Diagnostica{Codice: CodiceImportazioneGrafoDaRileggere, Gravita: evidenze.GravitaAvviso,

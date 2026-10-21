@@ -67,6 +67,14 @@ markmap:
   `fuori_per_decisione`, `file`, `diagnostiche`), le voci nell'ordine del registro e ognuna con la sua chiave `voce`;
   dei riferimenti documentali della radice, fra le evidenze, `riferimenti_documentali[{indice, discordanze,
   revisione_inferiore}]`.
+- Dentro le letture della parte confrontata di una voce (`identita_proposta`, `alternative[]`, `riferimenti[].lettura`)
+  `hash_grammatica` non entra in `impronta_contenuto` (`CampoFuoriDalConfronto`; B-1 strada (a), U2-P15): resta nella
+  lettura del registro, in `regole` e nell'impronta intera, così una grammatica nuova che non cambia le letture dà
+  «regole cambiate», mai «proposta cambiata».
+- `fuori_per_decisione[]`: `voce` e `segno` nel confronto; la traccia (`chi`, `quando`, `motivo`, `origine_legacy`,
+  `segno_albero`, `archi_tolti`, `mancanti`) e l'identità proposta con le due proiezioni (`identita_proposta`,
+  `codice_proposto`, `motivo_proposto`, `rev_proposta`, `motivo_rev`; U2 §4.4, U2-P22) fra le evidenze. L'identità
+  proposta di un nodo fuori è una lettura del registro come le altre (`validaLetture`, `TrovaLettura`).
 - Un cambio dell'elenco o della forma vuole `importazione-2` (EM §3.8.1): `Leggi` ricalcola e confronta le impronte
   solo per `importazione-1`.
 

@@ -3137,6 +3137,9 @@ type AnalisiFatti struct {
 	HashConfigurazione   string          `json:"hash_configurazione"`
 	Fatti                json.RawMessage `json:"fatti"`
 	CalcolatoIl          time.Time       `json:"calcolato_il"`
+	// sha256 della forma testuale di fatti, scritto dal trigger a ogni scrittura: impronta-ingressi-1 lo legge senza leggere
+	// i fatti interi.
+	Digest string `json:"digest"`
 }
 
 // Proposte dell'agente semantico. `risultato` e' gia' passato per lo schema e per il grounding in Go: ogni
@@ -3194,9 +3197,10 @@ type AnnotazionePdf struct {
 	ModificataIl *time.Time     `json:"modificata_il"`
 }
 
-// Chi e quando di ogni associazione di proposte e documenti (assegna, sgancia, scarta, riapri,
-// preassociazione, caricamento, spostamento), da tutte le strade quando le scriveranno: gli scrittori sono di B4, e
-// la storia comincia dal primo evento scritto da B4. Solo aggiunte.
+// Il giornale delle associazioni (direttiva 35 §2.4): chi e quando di ogni associazione di proposte, documenti e
+// allegati (assegna, sgancia, scarta, riapri, preassociazione, caricamento, spostamento, sostituzione), da tutte le
+// strade, e di ogni nascita e chiusura delle AR di file_rfq_associazione (associazione_id, associazione_precedente_id,
+// tx). Solo aggiunte.
 type AssociazioneEvento struct {
 	EventoID          int64         `json:"evento_id"`
 	ThreadID          uuid.UUID     `json:"thread_id"`
@@ -3209,8 +3213,16 @@ type AssociazioneEvento struct {
 	Motivo            pgtype.Text   `json:"motivo"`
 	Origine           string        `json:"origine"`
 	ChiaveIdempotenza uuid.NullUUID `json:"chiave_idempotenza"`
-	AutoreID          uuid.UUID     `json:"autore_id"`
+	AutoreID          uuid.NullUUID `json:"autore_id"`
 	Quando            time.Time     `json:"quando"`
+	AllegatoID        uuid.NullUUID `json:"allegato_id"`
+	// La riga di file_rfq_associazione che l'evento fa nascere (preassociazione, sostituisci) o chiude (sgancia). NULL per gli
+	// eventi di prima della 0023 e per quelli delle proposte senza AR.
+	AssociazioneID           uuid.NullUUID `json:"associazione_id"`
+	AssociazionePrecedenteID uuid.NullUUID `json:"associazione_precedente_id"`
+	// La transazione dell'evento (la scrive il database): lega l'evento alla nascita o alla chiusura della AR al COMMIT.
+	// NULL per le righe di prima della 0023.
+	Tx pgtype.Uint64 `json:"tx"`
 }
 
 // Attestazione esplicita del fascicolo di un prodotto (campo attesta di R9), sull'ultima conferma strutturale.
@@ -3569,8 +3581,9 @@ type ConfermaStrutturale struct {
 	// vuole anche una deroga_struttura motivata e valida per quello STEP, il suo sha256 e la sua analisi
 	// (D-SHOCK-S1 B): nessuna deroga universale, nessun Verificata scritto.
 	CriterioVerifica string `json:"criterio_verifica"`
-	// La verifica del Motore A calcolata al COMMIT (al_momento_della_conferma). Non e' BOM.Verificata, che si
-	// ricalcola a ogni lettura.
+	// Formati 1 e 2: la verifica del Motore A calcolata al COMMIT (al_momento_della_conferma). Formato 3: solo la regola con
+	// cui la verifica si deriva ({"regola": "prima-istanza-1"}, CHECK), mai un esito: la verifica di V1 la calcola il server
+	// a ogni lettura. Non e' BOM.Verificata.
 	Verifica          json.RawMessage `json:"verifica"`
 	ChiaveIdempotenza uuid.NullUUID   `json:"chiave_idempotenza"`
 	ConfermatoDa      uuid.UUID       `json:"confermato_da"`
@@ -3631,10 +3644,11 @@ type ConfermaStrutturaleNonIncluso struct {
 	Chiave       string           `json:"chiave"`
 	AllegatoID   uuid.UUID        `json:"allegato_id"`
 	Gruppo       string           `json:"gruppo"`
-	DecisioneID  string           `json:"decisione_id"`
-	AzioneID     uuid.UUID        `json:"azione_id"`
-	MotivoCodice string           `json:"motivo_codice"`
-	Motivo       string           `json:"motivo"`
+	Origine      string           `json:"origine"`
+	DecisioneID  pgtype.Text      `json:"decisione_id"`
+	AzioneID     uuid.NullUUID    `json:"azione_id"`
+	MotivoCodice pgtype.Text      `json:"motivo_codice"`
+	Motivo       pgtype.Text      `json:"motivo"`
 	Segnale      *json.RawMessage `json:"segnale"`
 	RigheChiuse  []uuid.UUID      `json:"righe_chiuse"`
 	ArchiChiusi  json.RawMessage  `json:"archi_chiusi"`
@@ -3729,6 +3743,7 @@ type CorrezioneDocumento struct {
 	ChiaveIdempotenza uuid.NullUUID `json:"chiave_idempotenza"`
 	AutoreID          uuid.UUID     `json:"autore_id"`
 	CreatoIl          time.Time     `json:"creato_il"`
+	AssociazioneID    uuid.NullUUID `json:"associazione_id"`
 }
 
 type DerogaFabbisogno struct {
@@ -3937,12 +3952,15 @@ type Documento struct {
 }
 
 type DocumentoProposta struct {
-	PropostaID   uuid.UUID       `json:"proposta_id"`
-	AllegatoID   uuid.UUID       `json:"allegato_id"`
-	ThreadID     uuid.NullUUID   `json:"thread_id"`
-	TipoProposto TipoDocumento   `json:"tipo_proposto"`
-	Codice       pgtype.Text     `json:"codice"`
-	Rev          pgtype.Text     `json:"rev"`
+	PropostaID   uuid.UUID     `json:"proposta_id"`
+	AllegatoID   uuid.UUID     `json:"allegato_id"`
+	ThreadID     uuid.NullUUID `json:"thread_id"`
+	TipoProposto TipoDocumento `json:"tipo_proposto"`
+	Codice       pgtype.Text   `json:"codice"`
+	Rev          pgtype.Text   `json:"rev"`
+	// Copia derivata di compatibilita' (direttiva 35 §3): il componente della AR attiva in file_rfq_associazione, scritto solo
+	// dal servizio delle associazioni nella stessa transazione. Non e' una fonte autorevole; si toglie dopo la migrazione dei
+	// lettori e degli scrittori legacy.
 	ComponenteID uuid.NullUUID   `json:"componente_id"`
 	Confidenza   int16           `json:"confidenza"`
 	Fonte        FonteProposta   `json:"fonte"`
@@ -4059,8 +4077,60 @@ type FileRfq struct {
 	AggiornatoIl  time.Time       `json:"aggiornato_il"`
 }
 
-// Copia verificata nel deposito di conservazione degli «Altri file» (fuori dallo staging e dal NAS): un file per riga,
-// <thread_id>\<allegato_id>.<conservazione_id>.<ext>, calcolato dal database.
+// Le associazioni registrate (AR) fra un allegato della RFQ e un componente della working (direttiva 35 §2): solo quelle
+// applicate da un atto autorizzato (R5 con la conferma formato 3; un gesto legacy solo in una RFQ interamente legacy).
+// Mai le proposte del Motore A (PA), mai le
+// preassociazioni delle bozze (PB), mai il legame dello STEP sorgente, mai un documento confermato (documento). Una riga
+// per nascita, con una PK propria: lo stato dice solo se la relazione registrata e' corrente (attiva) o no (chiusa);
+// chiudere e' una volta sola e la riga resta; riassociare e' una riga nuova; sostituire chiude e crea nella stessa
+// transazione (sostituisce_id). Una sola AR attiva per allegato (ux_fra_attiva_allegato): D-ASS-04 A, scelta tecnica della
+// direttiva 39. La scrive solo il servizio del core delle associazioni, che nella stessa transazione scrive
+// associazione_evento (il giornale) e la copia documento_proposta.componente_id.
+type FileRfqAssociazione struct {
+	AssociazioneID uuid.UUID `json:"associazione_id"`
+	ThreadID       uuid.UUID `json:"thread_id"`
+	AllegatoID     uuid.UUID `json:"allegato_id"`
+	ComponenteID   uuid.UUID `json:"componente_id"`
+	// attiva: la relazione registrata corrente; chiusa: non lo e' piu' (chiusa_il, chiusa_da, motivo_chiusura). Non dice
+	// niente dello stato del file (file_rfq), delle bozze, del fascicolo, del NAS ne' della revisione ufficiale del documento.
+	Stato string `json:"stato"`
+	// conferma_bom: R5 applica una PB con la conferma formato 3 (conferma_id, chiave_bozza, provenienza_pb, chiave della
+	// conferma). gesto_legacy: un gesto atomico di una RFQ interamente legacy, dal servizio unico (D-AR03 D), mai in una RFQ
+	// formato 3. Nessuna origine di backfill (D-AR04).
+	Origine     string        `json:"origine"`
+	ConfermaID  uuid.NullUUID `json:"conferma_id"`
+	ChiaveBozza pgtype.Text   `json:"chiave_bozza"`
+	// La provenienza della PB applicata da R5 (motore, corretta, manuale, legacy: D-PB03 A), copia verificata dallo snapshot
+	// confermato; obbligatoria con conferma_bom, NULL con gesto_legacy. Immutabile.
+	ProvenienzaPb pgtype.Text `json:"provenienza_pb"`
+	// Il registro d'importazione d'origine della PB (motore o corretta), risolto dall'impronta che la PB cita nello snapshot
+	// confermato e verificato al COMMIT; NULL se la PB non ne cita. La AR non e' un'autorita' sul contesto: si risale AR →
+	// conferma → snapshot → registro.
+	ImportazioneID    uuid.NullUUID `json:"importazione_id"`
+	SostituisceID     uuid.NullUUID `json:"sostituisce_id"`
+	Motivo            pgtype.Text   `json:"motivo"`
+	ChiaveIdempotenza uuid.UUID     `json:"chiave_idempotenza"`
+	CreataDa          uuid.UUID     `json:"creata_da"`
+	CreataIl          time.Time     `json:"creata_il"`
+	Tx                pgtype.Uint64 `json:"tx"`
+	ChiusaIl          *time.Time    `json:"chiusa_il"`
+	ChiusaDa          uuid.NullUUID `json:"chiusa_da"`
+	// svincolo_conferma: decisione scollega_documento applicata da R5; sostituita: rimpiazzata dalla riga che la cita in
+	// sostituisce_id; scollega_file: Scollega e scarta o Scollega e metti in Altri file (V1-Q22, V1-Q42); file_generale:
+	// «Documentazione generale» del Fascicolo; scarto_legacy: vecchio «Scarta il file»; sgancio_legacy: «Togli» di una RFQ
+	// interamente legacy (D-AR03 D).
+	MotivoChiusura   pgtype.Text   `json:"motivo_chiusura"`
+	ChiusaConfermaID uuid.NullUUID `json:"chiusa_conferma_id"`
+	ChiusaChiave     uuid.NullUUID `json:"chiusa_chiave"`
+	ChiusaNota       pgtype.Text   `json:"chiusa_nota"`
+	ChiusaTx         pgtype.Uint64 `json:"chiusa_tx"`
+}
+
+// Copia di un «Altro file» nella cartella ALTRO della RFQ sul NAS (la stessa dei documenti confermati di tipo «altro»:
+// che cosa e' confermato e che cosa e' solo conservato lo dice il database). percorso_relativo = ALTRO\<nome>, scelto e
+// riservato dal server in fase A, controllato e mai calcolato dal database, immutabile. creato_dal_cockpit e' la prova
+// che il file l'ha creato il cockpit: senza, il file non si toglie mai. trattenuta = copia del cockpit non piu' in Altri
+// file (il file resta); ceduta = il file e' passato alla riga erede.
 type FileRfqConservazione struct {
 	ConservazioneID     int64         `json:"conservazione_id"`
 	ThreadID            uuid.UUID     `json:"thread_id"`
@@ -4068,10 +4138,20 @@ type FileRfqConservazione struct {
 	Sha256              string        `json:"sha256"`
 	Bytes               pgtype.Int8   `json:"bytes"`
 	PercorsoRelativo    string        `json:"percorso_relativo"`
-	DepositoID          uuid.UUID     `json:"deposito_id"`
+	RadiceID            uuid.UUID     `json:"radice_id"`
+	CartellaThread      pgtype.Text   `json:"cartella_thread"`
+	CreatoDalCockpit    bool          `json:"creato_dal_cockpit"`
+	Token               uuid.UUID     `json:"token"`
+	TokenRimozione      uuid.NullUUID `json:"token_rimozione"`
+	UltimoBattito       *time.Time    `json:"ultimo_battito"`
+	EreditaDa           pgtype.Int8   `json:"eredita_da"`
+	CedutaA             pgtype.Int8   `json:"ceduta_a"`
 	SorgenteByte        pgtype.Text   `json:"sorgente_byte"`
 	Stato               string        `json:"stato"`
 	Causa               pgtype.Text   `json:"causa"`
+	EsitoRimozione      pgtype.Text   `json:"esito_rimozione"`
+	StatoCopia          pgtype.Text   `json:"stato_copia"`
+	StatoCopiaIl        *time.Time    `json:"stato_copia_il"`
 	Errore              pgtype.Text   `json:"errore"`
 	Tentativi           int32         `json:"tentativi"`
 	ProssimoTentativoIl *time.Time    `json:"prossimo_tentativo_il"`
@@ -4367,6 +4447,24 @@ type Postazione struct {
 	AggiornatoIl time.Time     `json:"aggiornato_il"`
 }
 
+// Il rifiuto della proposta aggiornata di un prodotto confermato (R15): la proposta (gruppo, impronta del contenuto)
+// che l'ingegnere non recepisce rispetto a quella conferma, con le differenze mostrate, il motivo e l'autore. Non
+// cambia la BOM, la fonte ne' la verifica. In sola aggiunta.
+type PropostaAggiornataRifiuto struct {
+	RifiutoID         uuid.UUID       `json:"rifiuto_id"`
+	ThreadID          uuid.UUID       `json:"thread_id"`
+	ProdottoID        uuid.UUID       `json:"prodotto_id"`
+	ConfermaID        uuid.UUID       `json:"conferma_id"`
+	Gruppo            string          `json:"gruppo"`
+	ImprontaContenuto string          `json:"impronta_contenuto"`
+	Differenze        json.RawMessage `json:"differenze"`
+	Motivo            string          `json:"motivo"`
+	AutoreID          uuid.UUID       `json:"autore_id"`
+	Quando            time.Time       `json:"quando"`
+	Tx                pgtype.Uint64   `json:"tx"`
+	ChiaveIdempotenza uuid.UUID       `json:"chiave_idempotenza"`
+}
+
 type PropostaTriage struct {
 	TriageID          uuid.UUID           `json:"triage_id"`
 	MessaggioID       uuid.UUID           `json:"messaggio_id"`
@@ -4421,6 +4519,16 @@ type RelazioneProposta struct {
 	DecisoDa     uuid.NullUUID   `json:"deciso_da"`
 	DecisoIl     *time.Time      `json:"deciso_il"`
 	CreatoIl     time.Time       `json:"creato_il"`
+}
+
+// Le RFQ formato 3 (direttiva 39 §6): una riga per RFQ, scritta dal database alla nascita della prima bozza formato 3 su
+// un suo prodotto, mai cambiata ne' cancellata. Resta anche quando la conservazione cancella la bozza abbandonata: una RFQ
+// formato 3 non torna legacy. La legge rfq_e_formato3.
+type RfqFormato3Segno struct {
+	ThreadID uuid.UUID     `json:"thread_id"`
+	BozzaID  uuid.UUID     `json:"bozza_id"`
+	Dal      time.Time     `json:"dal"`
+	Tx       pgtype.Uint64 `json:"tx"`
 }
 
 // Blocco 7B: la richiesta d'offerta a UN fornitore per UNA RFQ cliente (figlia della RFQ, non un thread
@@ -4563,6 +4671,25 @@ type Utente struct {
 	CreatoIl     time.Time   `json:"creato_il"`
 	// Quando questo utente ha aperto l'Inbox l'ultima volta. I messaggi con registrato_il successivo sono «nuovi dall'ultima visita» (voce 2.16). NULL = mai aperta. Aggiornata al caricamento della pagina, non ai poll HTMX: altrimenti il conteggio sarebbe sempre zero.
 	UltimaVistaInbox *time.Time `json:"ultima_vista_inbox"`
+}
+
+// Diagnostica del backfill delle AR (direttiva 35 §3), in sola lettura: gli allegati con un componente nella copia di
+// documento_proposta o in un documento confermato, per classe (C1, D1, X, P1, P2, P3; «s» = STEP su un finito). Nessuna
+// riga di file_rfq_associazione nasce da qui senza la decisione D-AR04.
+type VArBackfillDiagnostica struct {
+	ThreadID            uuid.UUID     `json:"thread_id"`
+	AllegatoID          uuid.UUID     `json:"allegato_id"`
+	PropostaID          uuid.NullUUID `json:"proposta_id"`
+	StatoProposta       string        `json:"stato_proposta"`
+	ComponenteProposta  uuid.NullUUID `json:"componente_proposta"`
+	DocumentoID         uuid.UUID     `json:"documento_id"`
+	ComponenteDocumento uuid.NullUUID `json:"componente_documento"`
+	AutoreRegistrato    bool          `json:"autore_registrato"`
+	OccorrenzaAttiva    pgtype.Bool   `json:"occorrenza_attiva"`
+	StepSuFinito        pgtype.Bool   `json:"step_su_finito"`
+	HaStoriaFonte       bool          `json:"ha_storia_fonte"`
+	HaArAttiva          bool          `json:"ha_ar_attiva"`
+	Classe              string        `json:"classe"`
 }
 
 type VBomVersioni struct {

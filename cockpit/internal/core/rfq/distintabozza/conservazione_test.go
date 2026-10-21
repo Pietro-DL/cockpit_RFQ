@@ -305,10 +305,11 @@ var casiConservazione = []casoConservazione{
 		uguale(t, "da_valutare", unisci(x.Tipo, x.ChiaveBozza), "da_valutare k-0007")
 	}, dopo: "decisioni della conferma (come il contratto rev. 3)"},
 	{id: "C-25", cosa: "preassociazioni e svincoli", prova: func(t *testing.T, d datiConservazione) {
-		uguale(t, "preassociazione", unisci(d.snapshot.DocumentiPreassociati[0].PropostaID, d.snapshot.DocumentiPreassociati[0].ChiaveBozza),
-			"00000000-0000-4000-8000-0000000d0001 k-0007")
+		// direttiva 35, C-2: la PB e lo svincolo citano l'occorrenza (allegato_id), non la proposta
+		uguale(t, "preassociazione", unisci(d.snapshot.DocumentiPreassociati[0].AllegatoID, d.snapshot.DocumentiPreassociati[0].ChiaveBozza),
+			d.id.pdf.String()+" k-0007")
 		x := decisioneDi3(d.snapshot, "sv-0001")
-		uguale(t, "svincolo", unisci(x.PropostaID.String(), x.ComponenteID.String()), "00000000-0000-4000-8000-0000000d0007 "+uuidD1)
+		uguale(t, "svincolo", unisci(x.AllegatoID.String(), x.ComponenteID.String()), allegatoSvincolo3+" "+uuidD1)
 	}, dopo: "associazione_evento (preassociazione, sgancia), delta.identita[].documenti, delta.svincoli[] (MAT §4.5)"},
 	{id: "C-26", cosa: "fonte della bozza", prova: func(t *testing.T, d datiConservazione) {
 		s := d.snapshot.Sorgente

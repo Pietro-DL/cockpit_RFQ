@@ -2,6 +2,7 @@ package filerfq
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/storage/staging"
 )
 
@@ -18,10 +20,10 @@ import (
 // fonte_step_evento, non rimette associazioni e non tocca bozze.
 //
 // Fase A: i controlli e la copia verificata di ogni occorrenza (altrimenti 422 CONSERVAZIONE_MANCANTE). Fuori
-// transazione: se lo staging non ha un file del contenuto, un parziale dal deposito con lo sha verificato scrivendo (e'
-// solo un'ottimizzazione). Fase C: i ricontrolli, poi BloccaContenuto e, sotto il lucchetto, il controllo che decide
-// (ContenutoGiaPresente sul file dello staging): se c'e' si usa, altrimenti si promuove il parziale (o si copia dal
-// deposito dentro la transazione); lo stato attivo, l'evento, la copia da rilasciare, la strada d'ingresso
+// transazione: se lo staging non ha un file del contenuto, un parziale letto dalla copia di conservazione (sola lettura,
+// dal Conservatore) con lo sha verificato scrivendo (e' solo un'ottimizzazione). Fase C: i ricontrolli, poi BloccaContenuto e, sotto il lucchetto, il controllo che decide
+// (ContenutoGiaPresente sul file dello staging): se c'e' si usa, altrimenti si promuove il parziale (o si copia dalla
+// copia di conservazione dentro la transazione); lo stato attivo, l'evento, la copia da rilasciare, la strada d'ingresso
 // dell'occorrenza, l'intento. Dopo il COMMIT, il rilascio della copia con le sue condizioni.
 func (s *Servizio) Riattiva(ctx context.Context, thread, allegato, utente uuid.UUID, c CorpoGesto) (*EsitoGesto, error) {
 	g, err := nuovoGesto(GestoRiattiva, thread, allegato, utente, c)
@@ -50,13 +52,13 @@ func (s *Servizio) Riattiva(ctx context.Context, thread, allegato, utente uuid.U
 		s.dopoIlGesto(ctx, thread, registrato.Occorrenze)
 		return s.ricomponi(ctx, thread, registrato)
 	}
-	// fuori transazione: i parziali dal deposito dove lo staging non ha il contenuto
+	// fuori transazione: i parziali dalla copia di conservazione dove lo staging non ha il contenuto
 	for i := range copie {
 		cp := &copie[i]
 		if presenteNelloStaging(s.Staging, cp.destinazione, cp.occ.Sha()) {
 			continue
 		}
-		parte, err := s.parzialeDalDeposito(cp)
+		parte, err := s.parzialeDallaCopia(cp)
 		if err != nil {
 			s.togliParziali(copie)
 			return nil, err
@@ -85,14 +87,16 @@ func (s *Servizio) Riattiva(ctx context.Context, thread, allegato, utente uuid.U
 type copiaDaRiattivare struct {
 	occ          Occorrenza
 	copia        db.FileRfqConservazione
-	deposito     string // il file della copia nel deposito
-	destinazione string // il posto del contenuto nello staging (staging.PercorsoContenuto)
-	parte        string // il parziale scritto fuori transazione, se serve
+	posto        nas.Posto // la copia di conservazione
+	destinazione string    // il posto del contenuto nello staging (staging.PercorsoContenuto)
+	parte        string    // il parziale scritto fuori transazione, se serve
 	promossa     bool
 }
 
 // copieDaRiattivare: le occorrenze in Altri file del gesto (l'archivio e le sue voci in Altri file) con la copia
-// copiata e il suo file presente con la dimensione attesa; altrimenti 422 CONSERVAZIONE_MANCANTE (EM §10.9, S4).
+// copiata. I byte servono da una parte sola (U2 §3.11): il contenuto gia' nello staging, oppure la copia presente con la
+// dimensione attesa; senza nessuno dei due 422 CONSERVAZIONE_MANCANTE con il motivo (copia_nas_mancante,
+// copia_nas_cambiata) e niente cambia (EM §10.9, S4).
 func (s *Servizio) copieDaRiattivare(ctx context.Context, q *db.Queries, g gesto, pr *preparato) ([]copiaDaRiattivare, error) {
 	if s.Staging == "" {
 		return nil, nonConfigurato("staging", "Lo staging non è configurato su questo server: niente è cambiato.")
@@ -102,43 +106,68 @@ func (s *Servizio) copieDaRiattivare(ctx context.Context, q *db.Queries, g gesto
 		if o.Stato != StatoAltriFile {
 			continue
 		}
-		c, err := q.GetConservazioneCopiata(ctx, db.GetConservazioneCopiataParams{ThreadID: g.thread, AllegatoID: o.AllegatoID})
+		c, err := q.GetConservazioneCopiataRiga(ctx, db.GetConservazioneCopiataRigaParams{ThreadID: g.thread, AllegatoID: o.AllegatoID})
 		if err != nil {
-			return nil, conservazioneMancante(o)
-		}
-		if s.Deposito == nil || c.DepositoID != s.Deposito.ID {
-			return nil, conservazioneMancante(o)
-		}
-		p, err := s.Deposito.PercorsoCopia(c.PercorsoRelativo)
-		if err != nil || !c.Bytes.Valid || !s.Deposito.CopiaPresente(c.PercorsoRelativo, c.DepositoID, c.Bytes.Int64) {
-			return nil, conservazioneMancante(o)
+			return nil, conservazioneMancante(o, "copia_nas_mancante")
 		}
 		dest, err := staging.PercorsoContenuto(s.Staging, o.Sha(), o.NomeFile)
 		if err != nil {
-			return nil, conservazioneMancante(o)
+			return nil, conservazioneMancante(o, "copia_nas_mancante")
 		}
-		out = append(out, copiaDaRiattivare{occ: o, copia: db.FileRfqConservazione{ConservazioneID: c.ConservazioneID,
-			Sha256: c.Sha256, Bytes: c.Bytes, PercorsoRelativo: c.PercorsoRelativo, DepositoID: c.DepositoID},
-			deposito: p, destinazione: dest})
+		posto := postoDellaRiga(c)
+		if !presenteNelloStaging(s.Staging, dest, o.Sha()) {
+			motivo := "copia_nas_mancante"
+			if s.Conservatore != nil {
+				st, err := s.Conservatore.Stato(posto, false)
+				switch {
+				case err == nil && st == nas.CopiaPresente:
+					motivo = ""
+				case err == nil && st == nas.CopiaCambiata:
+					motivo = "copia_nas_cambiata"
+				}
+			}
+			if motivo != "" {
+				return nil, conservazioneMancante(o, motivo)
+			}
+		}
+		out = append(out, copiaDaRiattivare{occ: o, copia: c, posto: posto, destinazione: dest})
 	}
 	return out, nil
 }
 
-func conservazioneMancante(o Occorrenza) *Rifiuto {
+// conservazioneMancante: 422 CONSERVAZIONE_MANCANTE con il motivo (U2 §3.11): la copia in ALTRO manca o e' cambiata, e
+// lo staging non ha i byte.
+func conservazioneMancante(o Occorrenza, motivo string) *Rifiuto {
 	return rifiuto(http.StatusUnprocessableEntity, "CONSERVAZIONE_MANCANTE",
-		"Niente è cambiato: la copia di conservazione di «"+o.NomeFile+"» non c'è o non torna con lo sha256. È un'anomalia: segnalala.",
-		extra("allegato_id", o.AllegatoID))
+		"Niente è cambiato: la copia in ALTRO di «"+o.NomeFile+"» non c'è più, o è stata cambiata, e lo staging non ha i suoi byte: ricarica il file.",
+		extra("allegato_id", o.AllegatoID, "motivo", motivo))
 }
 
-// parzialeDalDeposito copia il file del deposito in un parziale dello staging, verificando lo sha mentre scrive. Il
-// parziale ha il nome del ciclo dei file (PrefissoParteCiclo), non quello dei tentativi dei worker.
-func (s *Servizio) parzialeDalDeposito(cp *copiaDaRiattivare) (string, error) {
+// parzialeDallaCopia copia la copia di conservazione (letta dal Conservatore, in sola lettura) in un parziale dello
+// staging, verificando lo sha mentre scrive (U2 §3.11). Il parziale ha il nome del ciclo dei file (PrefissoParteCiclo),
+// non quello dei tentativi dei worker.
+func (s *Servizio) parzialeDallaCopia(cp *copiaDaRiattivare) (string, error) {
+	if s.Conservatore == nil {
+		return "", conservazioneMancante(cp.occ, "copia_nas_mancante")
+	}
+	in, err := s.Conservatore.Leggi(cp.posto)
+	if err != nil {
+		motivo := "copia_nas_mancante"
+		if errors.Is(err, nas.ErrCopiaCambiata) {
+			motivo = "copia_nas_cambiata"
+		}
+		return "", conservazioneMancante(cp.occ, motivo)
+	}
+	defer in.Close()
 	parte := percorsoParteCiclo(s.Staging)
-	causa, err := scriviParziale(cp.deposito, parte, cp.occ.Sha())
+	causa, err := scriviParziale(in, parte, cp.occ.Sha())
 	if err != nil {
 		_ = togliFile(parte)
-		if causa == "verifica_sha" || causa == "sorgente_illeggibile" {
-			return "", conservazioneMancante(cp.occ)
+		if causa == "verifica_sha" {
+			return "", conservazioneMancante(cp.occ, "copia_nas_cambiata")
+		}
+		if causa == "sorgente_illeggibile" {
+			return "", conservazioneMancante(cp.occ, "copia_nas_mancante")
 		}
 		return "", err
 	}
@@ -193,7 +222,7 @@ func (s *Servizio) faseCRiattiva(ctx context.Context, q *db.Queries, g gesto, co
 			return nil, err
 		}
 		if c.Stato != "copiata" {
-			return nil, conservazioneMancante(cp.occ)
+			return nil, conservazioneMancante(cp.occ, "copia_nas_mancante")
 		}
 		righe[c.ConservazioneID] = c
 	}
@@ -219,8 +248,8 @@ func (s *Servizio) faseCRiattiva(ctx context.Context, q *db.Queries, g gesto, co
 				return nil, err
 			}
 			if cp.parte == "" {
-				// sparito proprio fra il passo 2 e il lucchetto: si copia dal deposito dentro la transazione (raro)
-				parte, err := s.parzialeDalDeposito(cp)
+				// sparito proprio fra il passo 2 e il lucchetto: si copia dalla copia dentro la transazione (raro)
+				parte, err := s.parzialeDallaCopia(cp)
 				if err != nil {
 					return nil, err
 				}
@@ -273,8 +302,10 @@ func (s *Servizio) faseCRiattiva(ctx context.Context, q *db.Queries, g gesto, co
 			chiave: uid(g.it.chiave)}); err != nil {
 			return nil, err
 		}
+		// base B di U2-Q01 (V1-Q25, provvisoria [T]; U2 §3.11): la copia non va piu' a da_rilasciare con riattivato, va a
+		// trattenuta nella stessa transazione: il file resta nella cartella ALTRO, e S1 lo dice
 		c := righe[perID[o.AllegatoID].copia.ConservazioneID]
-		if _, err := q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "da_rilasciare", Causa: testo("riattivato"),
+		if _, err := q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: "trattenuta", Causa: testo("riattivato"),
 			Tentativi: c.Tentativi, ConservazioneID: c.ConservazioneID, StatoAtteso: c.Stato}); err != nil {
 			return nil, err
 		}
@@ -300,7 +331,7 @@ func (s *Servizio) faseCRiattiva(ctx context.Context, q *db.Queries, g gesto, co
 			esito.Analisi = statoAnalisi(a.Stato, a.Errore.String, pend).Stato
 		}
 	}
-	esito.Conservazione = &StatoConservazione{AllegatoID: g.allegato, Stato: "da_rilasciare"}
+	esito.Conservazione = &StatoConservazione{AllegatoID: g.allegato, Stato: "trattenuta"}
 	esito.Testo = "File riattivato: il motore lo rilegge e può proporlo di nuovo. Non conferma nessun documento e non autorizza nessuno STEP."
 	if err := registraIntento(ctx, q, g.thread, g.it, esito); err != nil {
 		return nil, err

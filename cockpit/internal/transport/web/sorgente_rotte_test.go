@@ -26,6 +26,8 @@ var rotteSorgente = []struct{ metodo, percorso, gestore string }{
 	{"", "/thread/{id}/sorgente/file/{allegato}/altri-file", `gemella("POST")`},
 	{"POST", "/thread/{id}/sorgente/file/{allegato}/riattiva", "catena(s.dopoIlGesto(s.sorgenteRiattiva))"},
 	{"", "/thread/{id}/sorgente/file/{allegato}/riattiva", `gemella("POST")`},
+	{"POST", "/thread/{id}/sorgente/file/{allegato}/riprova-rimozione", "catena(s.sorgenteRiprovaRimozione)"},
+	{"", "/thread/{id}/sorgente/file/{allegato}/riprova-rimozione", `gemella("POST")`},
 	{"GET", "/thread/{id}/sorgente/file/{allegato}/contenuto", "catena(s.sorgenteContenuto)"},
 	{"", "/thread/{id}/sorgente/file/{allegato}/contenuto", `gemella("GET, HEAD")`},
 }

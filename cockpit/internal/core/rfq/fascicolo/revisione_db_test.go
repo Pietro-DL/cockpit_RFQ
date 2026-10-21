@@ -19,6 +19,7 @@ import (
 
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // stepApplicato: la working P1 → B, C, D con lo STEP strutturale di P1 letto per intero, che propone di
@@ -312,7 +313,7 @@ func TestLaRadiceDiFamigliaNonRiscriveUnaDecisioneDellOperatore(t *testing.T) {
 	// di una proposta assegnata a un componente il codice e' quello del componente (la FK a tre campi)
 	comp := b.componente("77700009", db.TipoComponenteSciolto)
 	a3 := b.fileConProposta(msg, "assieme4.stp", "cad_3d", "77700009", "", "nome_file", "aperta", "")
-	b.esegui(`UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, a3, comp)
+	testutil.CopiaLegacy(b.t, b.p, `UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, a3, comp)
 	n, err = db.New(b.p).AggiornaValutazioneProposta(b.ctx, lettura(proposta(a3)))
 	ok(t, err)
 	if got := uno[string](b, `SELECT codice || ' ' || fonte FROM documento_proposta WHERE allegato_id = $1`, a3); n != 1 || got != "77700009 regola_cliente" {

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,11 +27,29 @@ import (
 	"promatec/cockpit/internal/platform/db"
 )
 
-// OpzioniR1 sono i parametri di R1 (EM §9.1): ?eventi=1, ?importazione=1, ?registro=<impronta>.
+// OpzioniR1 sono i parametri di R1 (EM §9.1): ?eventi=1, ?importazione=1, ?registro=<impronta>; con
+// ?suggerimenti_motore=1 l'adattatore passa il calcolo del motore di adesso (Adesso, adesso3.go: G39-01, G39-02 [U]).
 type OpzioniR1 struct {
 	Eventi       bool
 	Importazione bool
 	Registro     string
+	Adesso       *CalcoloAdesso
+}
+
+// EsitoMotoreR1: il calcolo del motore di R1 con ?suggerimenti_motore=1 (G39-01 [T-39]): calcolati vero con il calcolo;
+// altrimenti errore dice perche' (CALCOLO_OCCUPATO, CALCOLO_SCADUTO, ERRORE_CALCOLO: lo mette l'adattatore) e i suggerimenti
+// sono solo quelli del registro della versione. Mai un 5xx per il parametro, come gli avvisi del motore di R4.
+type EsitoMotoreR1 struct {
+	Calcolati bool   `json:"calcolati"`
+	Errore    string `json:"errore,omitempty"`
+}
+
+// StepCandidatoR1: uno STEP candidato sorgente del prodotto, non ancora confermato da S8 (G39-02 [U]): la pagina avvisa
+// quando si apre o si lavora una bozza manuale o «solo prodotto» con uno STEP candidato disponibile («molto sconsigliata»),
+// e propone la conferma S8. DalMotore: il riconoscimento e' del Motore A (sempre, in R1: senza il calcolo l'elenco non c'e').
+type StepCandidatoR1 struct {
+	AllegatoID uuid.UUID `json:"allegato_id"`
+	DalMotore  bool      `json:"dal_motore"`
 }
 
 // Conversione dice che una bozza formato 2 aperta va convertita (EM §9.1, §6.7).
@@ -65,6 +84,13 @@ type LetturaR1 struct {
 	Vassoio     *[]VoceVassoio  `json:"vassoio,omitempty"`
 	DaRivedere  json.RawMessage `json:"da_rivedere,omitempty"`
 	Conversione *Conversione    `json:"conversione,omitempty"`
+	// PreassociazioniProposte: i suggerimenti dopo l'apertura dal registro della versione (direttiva 39 §4, D-PB02 A [U];
+	// pbiniziali3.go), sempre per una bozza formato 3, anche vuoti; mai in da_rivedere[]. Con ?suggerimenti_motore=1 anche
+	// quelli del calcolo di adesso per i file che il registro della versione non propone (G39-01, adesso3.go)
+	PreassociazioniProposte *[]PreassociazioneProposta3 `json:"preassociazioni_proposte,omitempty"`
+	// SuggerimentiMotore e StepCandidati: solo con ?suggerimenti_motore=1 (G39-01, G39-02), anche per nessuna_bozza
+	SuggerimentiMotore *EsitoMotoreR1     `json:"suggerimenti_motore,omitempty"`
+	StepCandidati      *[]StepCandidatoR1 `json:"step_candidati,omitempty"`
 }
 
 // EventoR1 e' un evento del giornale come lo da' R1 ?eventi=1 (EM §9.1 e §9.2: «nel giornale la chiave si chiama
@@ -120,7 +146,11 @@ func LeggiR1(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, op 
 		if op.Registro != "" {
 			return LetturaR1{}, fuori("registro", "il prodotto non ha una bozza aperta che citi il registro %s", op.Registro)
 		}
-		return LetturaR1{Stato: StatoNessunaBozza, VersioneCorrente: &vc}, nil
+		out := LetturaR1{Stato: StatoNessunaBozza, VersioneCorrente: &vc}
+		if err := conIlCalcolo(ctx, q, thread, prodotto, op, &out); err != nil {
+			return LetturaR1{}, err
+		}
+		return out, nil
 	}
 	if err != nil {
 		return LetturaR1{}, err
@@ -160,6 +190,9 @@ func LeggiR1(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, op 
 		out.Eventi = EventiR1(eventi)
 		out.DaRivedere = daRivedereDa(eventi)
 	}
+	if err := conIlCalcolo(ctx, q, thread, prodotto, op, &out); err != nil {
+		return LetturaR1{}, err
+	}
 	if letto.Formato3 == nil {
 		// una bozza formato 2: com'era, da convertire (la si lavora solo dopo converti_da)
 		out.Conversione = &Conversione{Necessaria: true, Forma: FormaConvertiDa}
@@ -195,6 +228,8 @@ func LeggiR1(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, op 
 		perImpronta[strings.TrimSpace(r.Impronta)] = r
 		out.ImportazioniCitate = append(out.ImportazioniCitate, RegistroCitato{Impronta: strings.TrimSpace(r.Impronta), CreataIl: r.CreataIl})
 	}
+	proposte := []PreassociazioneProposta3{}
+	var regVersione *importazione.Registro
 	if s.Sorgente != nil && s.Sorgente.Importazione != "" {
 		r, ok := perImpronta[s.Sorgente.Importazione]
 		if !ok {
@@ -205,7 +240,23 @@ func LeggiR1(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, op 
 			return LetturaR1{}, err
 		}
 		out.Importazione = &il
+		reg, _, err := RileggiImportazione(rigaRegistro(r))
+		if err != nil {
+			return LetturaR1{}, err
+		}
+		regVersione = &reg
+		if proposte, err = suggerimentiDopoAperturaCon(ctx, q, thread, prodotto, s, regVersione, b.BozzaID, int(b.Versione), op.Adesso.step()); err != nil {
+			return LetturaR1{}, err
+		}
 	}
+	if op.Adesso != nil {
+		dalCalcolo, err := suggerimentiDelCalcolo(ctx, q, thread, prodotto, s, regVersione, op.Adesso, b.BozzaID, int(b.Versione))
+		if err != nil {
+			return LetturaR1{}, err
+		}
+		proposte = unisciSuggerimenti(proposte, dalCalcolo)
+	}
+	out.PreassociazioniProposte = &proposte
 	if op.Registro != "" {
 		r, ok := perImpronta[op.Registro]
 		if !ok {
@@ -218,6 +269,129 @@ func LeggiR1(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, op 
 		out.Registro = &il
 	}
 	return out, nil
+}
+
+// suggerimentiDopoApertura: i suggerimenti di R1 (direttiva 39 §4, D-PB02 A [U]): le proposte univoche del registro
+// della versione che la bozza non applica, con la regola delle PB iniziali (ClassificaProposte) sui dati salvati di
+// adesso; quelle che alla nascita sarebbero state PB sono dopo_apertura (dopo l'apertura niente modifiche silenziose:
+// si accettano con un salvataggio R2 esplicito). Senza la sorgente confermata da S8 nessuno (D-AR11 B [U]).
+func suggerimentiDopoApertura(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, s Snapshot3, riga db.GetDistintaImportazioneRow,
+	bozza uuid.UUID, versione int) ([]PreassociazioneProposta3, error) {
+	reg, _, err := RileggiImportazione(riga)
+	if err != nil {
+		return nil, err
+	}
+	return suggerimentiDopoAperturaCon(ctx, q, thread, prodotto, s, &reg, bozza, versione, nil)
+}
+
+// suggerimentiDopoAperturaCon e' suggerimentiDopoApertura sul registro gia' riletto, con gli STEP candidati del finito
+// del Motore A se ci sono (step; nil = il ripiego, G39-02).
+func suggerimentiDopoAperturaCon(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, s Snapshot3, reg *importazione.Registro,
+	bozza uuid.UUID, versione int, step *StepCandidati) ([]PreassociazioneProposta3, error) {
+	f, err := FattiDellaRfqCon(ctx, q, thread, prodotto, s.Sorgente.Sha256, reg, bozza, versione, step)
+	if err != nil {
+		return nil, err
+	}
+	applicabili, proposte := ClassificaProposte(s, reg, f)
+	for _, p := range applicabili {
+		proposte = append(proposte, PreassociazioneProposta3{AllegatoID: p.AllegatoID, ChiaveBozza: p.ChiaveBozza, Provenienza: ProvenienzaMotore,
+			Importazione: p.Importazione, Motivo: PropostaDopoApertura})
+	}
+	sort.SliceStable(proposte, func(i, j int) bool { return proposte[i].AllegatoID.String() < proposte[j].AllegatoID.String() })
+	return proposte, nil
+}
+
+// suggerimentiDelCalcolo (G39-01 [U], adesso3.go): i suggerimenti del registro del calcolo di adesso per i file che il
+// registro della versione non propone in modo univoco, con la regola delle PB iniziali (ClassificaProposte: solo le
+// proposte univoche, con la sorgente S8 valida, niente STEP candidato del finito): quelle che alla nascita sarebbero PB
+// sono dopo_apertura, con importazione = l'impronta del registro di adesso (non ancora salvato: lo scrive R2 quando il
+// suggerimento si accetta). Il registro di adesso deve avere come fonte la sorgente della bozza; lo stesso registro della
+// versione non da' niente di nuovo.
+func suggerimentiDelCalcolo(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, s Snapshot3, versione *importazione.Registro,
+	adesso *CalcoloAdesso, bozza uuid.UUID, nver int) ([]PreassociazioneProposta3, error) {
+	reg := adesso.registro()
+	if reg == nil || s.Sorgente == nil || s.Sorgente.AllegatoID == nil || strings.TrimSpace(s.Sorgente.Sha256) == "" ||
+		reg.Contenuto.Proposta.Fonte.AllegatoID != s.Sorgente.AllegatoID.String() {
+		return nil, nil
+	}
+	if versione != nil && versione.Impronta == reg.Impronta {
+		return nil, nil
+	}
+	gia := map[uuid.UUID]bool{}
+	if versione != nil {
+		for a, rif := range ProposteDelRegistro(versione.Contenuto) {
+			gia[a] = len(rif) == 1
+		}
+	}
+	f, err := FattiDellaRfqCon(ctx, q, thread, prodotto, s.Sorgente.Sha256, reg, bozza, nver, adesso.step())
+	if err != nil {
+		return nil, err
+	}
+	applicabili, proposte := ClassificaProposte(s, reg, f)
+	out := []PreassociazioneProposta3{}
+	for _, p := range applicabili {
+		if !gia[p.AllegatoID] {
+			out = append(out, PreassociazioneProposta3{AllegatoID: p.AllegatoID, ChiaveBozza: p.ChiaveBozza, Provenienza: ProvenienzaMotore,
+				Importazione: p.Importazione, Motivo: PropostaDopoApertura})
+		}
+	}
+	for _, p := range proposte {
+		if !gia[p.AllegatoID] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// unisciSuggerimenti: i suggerimenti del registro della versione e, per gli allegati che non ci sono, quelli del calcolo di
+// adesso, in ordine di allegato.
+func unisciSuggerimenti(versione, adesso []PreassociazioneProposta3) []PreassociazioneProposta3 {
+	visti := map[uuid.UUID]bool{}
+	out := append([]PreassociazioneProposta3{}, versione...)
+	for _, p := range versione {
+		visti[p.AllegatoID] = true
+	}
+	for _, p := range adesso {
+		if !visti[p.AllegatoID] {
+			out = append(out, p)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].AllegatoID.String() < out[j].AllegatoID.String() })
+	return out
+}
+
+// conIlCalcolo: con ?suggerimenti_motore=1 (op.Adesso) l'esito del calcolo e gli STEP candidati sorgente del prodotto non
+// ancora confermati da S8 (G39-02 [U]), per l'avviso della pagina sulla bozza manuale o «solo prodotto».
+func conIlCalcolo(ctx context.Context, q *db.Queries, thread, prodotto uuid.UUID, op OpzioniR1, out *LetturaR1) error {
+	if op.Adesso == nil {
+		return nil
+	}
+	out.SuggerimentiMotore = &EsitoMotoreR1{Calcolati: true}
+	elenco := []StepCandidatoR1{}
+	out.StepCandidati = &elenco
+	step := op.Adesso.step()
+	if step == nil || !step.DalMotore {
+		return nil
+	}
+	cand, err := StepCandidatiDelFinito(ctx, q, thread, step.DelProdotto(prodotto), step)
+	if err != nil {
+		return err
+	}
+	ids := cand.DelProdotto(prodotto)
+	if len(ids) == 0 {
+		return nil
+	}
+	rr, err := q.ListAllegatiPreassociabili(ctx, db.ListAllegatiPreassociabiliParams{ThreadID: thread, Allegati: ids})
+	if err != nil {
+		return err
+	}
+	for _, r := range rr {
+		if r.DellaRfq && r.Attivo && !r.LegatoComeSorgente {
+			elenco = append(elenco, StepCandidatoR1{AllegatoID: r.AllegatoID, DalMotore: true})
+		}
+	}
+	out.StepCandidati = &elenco
+	return nil
 }
 
 // FormaConvertiDa: la forma di R2 che converte una bozza formato 2 aperta (EM §6.7).

@@ -164,6 +164,11 @@ func (s *Server) preparaFile(ctx context.Context, thread uuid.UUID) (fascicolo.P
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
+	// INC-G25: la RFQ prima delle righe che la preparazione scrive (componenti, proposte), come i gesti
+	// (lucchetti_legacy.go)
+	if err := bloccaRfqDelGesto(ctx, q, thread); err != nil {
+		return p, ri, err
+	}
 	p, err = fascicolo.PreparaFile(ctx, q, thread, s.Analizzatore, s.maxCaricamentoEffettivo(), MaxPreparatiPerApertura, s.rileggiFatti())
 	if err != nil {
 		return p, ri, err

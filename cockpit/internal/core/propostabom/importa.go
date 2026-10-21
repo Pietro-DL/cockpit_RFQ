@@ -9,6 +9,7 @@ import (
 
 	"promatec/cockpit/internal/core/ancoraggio"
 	"promatec/cockpit/internal/core/estrazione/evidenze"
+	"promatec/cockpit/internal/core/fotorfq"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
 	"promatec/cockpit/internal/core/valutazione"
 	"promatec/cockpit/internal/platform/jsoncanonico"
@@ -42,6 +43,8 @@ const (
 //   - Prodotto: il Rif del prodotto valutato. Gruppo: la chiave opaca del gruppo (GruppoBOM o ChiaveCandidata), mai
 //     scomposta.
 //   - NonAttivi: le occorrenze in «Altri file» o scartate, dal ciclo dei file (EM §10.8): non entrano nel registro.
+//   - Foto: la fotografia del calcolo (obbligatoria): le righe legacy del thread danno la traccia dei nodi fuori per
+//     decisione (chi, quando, la nota, gli archi tolti: U2 §4.4), che l'esito non porta.
 type Ingresso struct {
 	Esito     *valutazione.Esito
 	Thread    *valutazione.EsitoThread
@@ -49,6 +52,7 @@ type Ingresso struct {
 	Prodotto  string
 	Gruppo    string
 	NonAttivi NonAttivi
+	Foto      *fotorfq.Fotografia
 }
 
 // ImportaGruppo: il registro d'importazione del gruppo del prodotto (EM §3.8), oppure un rifiuto:
@@ -106,6 +110,8 @@ type costruttore struct {
 	candidati []uuid.UUID
 	// diagTestata: le diagnostiche del registro non riconducibili a un nodo.
 	diagTestata []evidenze.Diagnostica
+	// foto: le righe legacy del thread nella fotografia (la traccia dei nodi fuori per decisione).
+	foto *fotoDelThread
 }
 
 func contenutoDelRegistro(in Ingresso) (importazione.Contenuto, error) {
@@ -121,6 +127,9 @@ func contenutoDelRegistro(in Ingresso) (importazione.Contenuto, error) {
 		citate: map[uuid.UUID]map[string]bool{}, nelVoci: map[string]bool{}, allegati: map[uuid.UUID]bool{}, esclusi: map[uuid.UUID]int{}}
 	for i := range et.File {
 		b.file[et.File[i].AllegatoID] = &et.File[i]
+	}
+	if err := b.indicizzaFoto(); err != nil {
+		return importazione.Contenuto{}, err
 	}
 	if err := b.trovaIlGruppo(); err != nil {
 		return importazione.Contenuto{}, err

@@ -41,8 +41,10 @@ type StatoRimozione struct {
 
 // StatoConservazione: lo stato dell'ultima copia di conservazione di un'occorrenza.
 type StatoConservazione struct {
-	AllegatoID   uuid.UUID  `json:"allegato_id"`
-	Stato        string     `json:"stato"`
+	AllegatoID uuid.UUID `json:"allegato_id"`
+	Stato      string    `json:"stato"`
+	// Motivo: l'esito della rimozione dalla cartella ALTRO (esito_rimozione, U2 §3.7), quando c'e'.
+	Motivo       string     `json:"motivo,omitempty"`
 	VerificatoIl *time.Time `json:"verificato_il,omitempty"`
 	Bytes        *int64     `json:"bytes,omitempty"`
 }
@@ -110,7 +112,7 @@ func statiCorrenti(ctx context.Context, q *db.Queries, thread uuid.UUID, ids []u
 	}
 	cons := make([]StatoConservazione, 0, len(cc))
 	for _, c := range cc {
-		sc := StatoConservazione{AllegatoID: c.AllegatoID, Stato: c.Stato, VerificatoIl: c.VerificatoIl}
+		sc := StatoConservazione{AllegatoID: c.AllegatoID, Stato: c.Stato, Motivo: c.EsitoRimozione.String, VerificatoIl: c.VerificatoIl}
 		if c.Bytes.Valid {
 			b := c.Bytes.Int64
 			sc.Bytes = &b

@@ -9,7 +9,6 @@
 package migrazioni_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -119,8 +118,8 @@ func TestV1M24GliInvariantiAlCommit(t *testing.T) {
 		`UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', causa = 'rifiutata' WHERE allegato_id = '{A3}' AND stato = 'copiata'`)
 	riuscita23(t, p, "la copia rilasciata con un'altra copia verificata",
 		`UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', causa = 'rifiutata' WHERE allegato_id = '{A3}' AND stato = 'copiata'`,
-		`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, percorso_relativo, deposito_id)
-		 VALUES ('{T}', '{A3}', repeat('3', 64), 'segnaposto', gen_random_uuid())`,
+		`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, percorso_relativo, radice_id)
+		 VALUES ('{T}', '{A3}', repeat('3', 64), 'ALTRO\ACM-1100_2.pdf', gen_random_uuid())`,
 		`UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'conservazione' WHERE allegato_id = '{A3}' AND stato = 'in_copia'`)
 	riuscita23(t, p, "Riattiva con il rilascio della copia",
 		`UPDATE file_rfq SET stato = 'attivo', versione = versione + 1, aggiornato_da = '{U}' WHERE allegato_id = '{A3}'`,
@@ -134,6 +133,16 @@ func TestV1M24GliInvariantiAlCommit(t *testing.T) {
 		`INSERT INTO file_rfq_rimozione (thread_id, allegato_id, evento_id, sha256)
 		 SELECT e.thread_id, e.allegato_id, e.evento_id, repeat('5', 64) FROM file_rfq_evento e WHERE e.allegato_id = '{A5}' AND e.azione = 'scarta'`,
 		`UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', causa = 'scartato' WHERE allegato_id = '{A5}' AND stato = 'copiata'`)
+	// U2 §3.14 riga 3 (base B di U2-Q01): «Riattiva» porta la copia a trattenuta, non a da_rilasciare; la copia trattenuta
+	// con il file ancora in Altri file no
+	riuscita23(t, p, "A4 in Altri file", inAltriFile("{A4}")...)
+	rifiuto23(t, p, "la copia trattenuta con il file ancora in Altri file", "P4X09", "non e' piu' copiata e il file non ha lasciato Altri file",
+		`UPDATE file_rfq_conservazione SET stato = 'trattenuta', causa = 'riattivato' WHERE allegato_id = '{A4}' AND stato = 'copiata'`)
+	riuscita23(t, p, "Riattiva con la copia trattenuta",
+		`UPDATE file_rfq SET stato = 'attivo', versione = versione + 1, aggiornato_da = '{U}' WHERE allegato_id = '{A4}'`,
+		`INSERT INTO file_rfq_evento (thread_id, allegato_id, azione, stato_prima, stato_dopo, fotografia, origine, autore_id)
+		 VALUES ('{T}', '{A4}', 'riattiva', 'altri_file', 'attivo', '{}', 'ponte', '{U}')`,
+		`UPDATE file_rfq_conservazione SET stato = 'trattenuta', causa = 'riattivato' WHERE allegato_id = '{A4}' AND stato = 'copiata'`)
 	if s := uno23[string](t, p, `SELECT stato || ' ' || versione FROM file_rfq WHERE allegato_id = '{A3}'`); s != "attivo 2" {
 		t.Errorf("A3 dopo Riattiva: %s", s)
 	}
@@ -200,46 +209,101 @@ func TestV1M26LaRimozione(t *testing.T) {
 	rifiuto23(t, p, "TRUNCATE delle rimozioni", "P4X02", "non si svuotano", `TRUNCATE file_rfq_rimozione`)
 }
 
-// M-27: la copia di conservazione: il percorso lo calcola il database (un file per riga), l'allegato e' della RFQ con
-// lo sha256 dichiarato, una sola copia viva per occorrenza, transizioni ammesse; la storia non si cancella.
+// M-27: la copia nella cartella ALTRO (U2 §3.14 righe 1-5): il percorso ALTRO\<nome> lo sceglie il server e il database
+// lo controlla senza calcolarlo; l'allegato e' della RFQ con lo sha256 dichiarato; una sola copia viva per occorrenza e
+// un solo proprietario vivo per nome (a meno delle maiuscole); la prova di creazione si registra dopo la promozione, anche
+// su una riga gia' da rilasciare, e non si toglie; la rimozione dal NAS con il suo token e i suoi esiti; trattenuta e la
+// cessione alla riga erede nella stessa istruzione; la storia non si cancella.
 func TestV1M27LaConservazione(t *testing.T) {
 	p := schema23ConStoria(t)
+	const radice = "00000000-0000-4000-8000-0000002309a1"
 	copia := func(allegato, shaExpr, percorso string) string {
-		return `INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, percorso_relativo, deposito_id)
-			VALUES ('{T}', '` + allegato + `', ` + shaExpr + `, '` + percorso + `', gen_random_uuid())`
+		return `INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, percorso_relativo, radice_id, cartella_thread)
+			VALUES ('{T}', '` + allegato + `', ` + shaExpr + `, '` + percorso + `', '` + radice + `', 'ACME\RFQ 1')`
 	}
-	riuscita23(t, p, "copia con un percorso del Go", copia("{A5}", "repeat('5', 64)", `C:\fuori\..\x.pdf`))
-	id := uno23[int64](t, p, `SELECT conservazione_id FROM file_rfq_conservazione WHERE allegato_id = '{A5}'`)
-	atteso := u23("{T}") + `\` + u23("{A5}") + "." + itoa(id) + ".pdf"
-	if got := uno23[string](t, p, `SELECT percorso_relativo FROM file_rfq_conservazione WHERE allegato_id = '{A5}'`); got != atteso {
-		t.Errorf("percorso %q, atteso %q: lo calcola il trigger", got, atteso)
+	riuscita23(t, p, "copia con il nome scelto dal server", copia("{A5}", "repeat('5', 64)", `ALTRO\ACM-3000.pdf`))
+	if got := uno23[string](t, p, `SELECT percorso_relativo FROM file_rfq_conservazione WHERE allegato_id = '{A5}'`); got != `ALTRO\ACM-3000.pdf` {
+		t.Errorf("percorso %q: il database lo controlla, non lo calcola", got)
 	}
-	rifiuto23(t, p, "allegato di un'altra RFQ", "P4X09", "non e' della RFQ", strings.Replace(copia("{AX}", "repeat('b', 64)", "x"), "'{T}'", "'{T}'", 1))
-	rifiuto23(t, p, "sha256 diverso dall'allegato", "P4X09", "non e' della RFQ", copia("{A3}", "repeat('9', 64)", "x"))
+	rifiuto23(t, p, "percorso fuori da ALTRO", "23514", "ck_cons_percorso", copia("{A3}", "repeat('3', 64)", `C:\fuori\..\x.pdf`))
+	rifiuto23(t, p, "allegato di un'altra RFQ", "P4X09", "non e' della RFQ", copia("{AX}", "repeat('b', 64)", `ALTRO\x.pdf`))
+	rifiuto23(t, p, "sha256 diverso dall'allegato", "P4X09", "non e' della RFQ", copia("{A3}", "repeat('9', 64)", `ALTRO\x.pdf`))
 	rifiuto23(t, p, "nascita non in_copia", "P4X09", "nasce in_copia", `INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, percorso_relativo,
-		deposito_id, stato, verificato_il, sorgente_byte) VALUES ('{T}', '{A3}', repeat('3', 64), 'x', gen_random_uuid(), 'copiata', now(), 'staging')`)
-	rifiuto23(t, p, "due copie vive per la stessa occorrenza", "23505", "ux_cons_viva", copia("{A5}", "repeat('5', 64)", "x"))
-	riuscita23(t, p, "battito della copia", `UPDATE file_rfq_conservazione SET tentativi = 1 WHERE allegato_id = '{A5}'`)
+		radice_id, stato, verificato_il, sorgente_byte) VALUES ('{T}', '{A3}', repeat('3', 64), 'ALTRO\x.pdf', gen_random_uuid(), 'copiata', now(), 'staging')`)
+	rifiuto23(t, p, "nascita con la prova di creazione", "P4X09", "si registra dopo la promozione",
+		`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, percorso_relativo, radice_id, creato_dal_cockpit)
+			VALUES ('{T}', '{A3}', repeat('3', 64), 'ALTRO\x.pdf', gen_random_uuid(), true)`)
+	rifiuto23(t, p, "due copie vive per la stessa occorrenza", "23505", "ux_cons_viva", copia("{A5}", "repeat('5', 64)", `ALTRO\ACM-3000_2.pdf`))
+	rifiuto23(t, p, "lo stesso nome a meno delle maiuscole per un'altra occorrenza", "23505", "ux_cons_percorso_vivo",
+		copia("{A3}", "repeat('3', 64)", `ALTRO\acm-3000.PDF`))
+	riuscita23(t, p, "battito della copia", `UPDATE file_rfq_conservazione SET tentativi = 1, ultimo_battito = now() WHERE allegato_id = '{A5}'`)
 	rifiuto23(t, p, "tentativi che calano", "P4X09", "i tentativi non calano", `UPDATE file_rfq_conservazione SET tentativi = 0 WHERE allegato_id = '{A5}'`)
-	rifiuto23(t, p, "deposito che cambia", "P4X09", "identita', percorso, deposito e chiave non cambiano",
-		`UPDATE file_rfq_conservazione SET deposito_id = gen_random_uuid() WHERE allegato_id = '{A5}'`)
-	rifiuto23(t, p, "percorso che cambia", "P4X09", "identita', percorso, deposito e chiave non cambiano",
-		`UPDATE file_rfq_conservazione SET percorso_relativo = percorso_relativo || 'x' WHERE allegato_id = '{A5}'`)
-	// battito fermo: da in_copia a da_rilasciare (tempo scaduto); poi una copia nuova della stessa occorrenza passa
-	riuscita23(t, p, "copia ferma da rilasciare", `UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', causa = 'tempo_scaduto' WHERE allegato_id = '{A5}'`)
-	riuscita23(t, p, "copia nuova accanto a una da rilasciare", copia("{A5}", "repeat('5', 64)", "x"))
-	rifiuto23(t, p, "da da_rilasciare a in_copia", "P4X09", "non e' ammesso",
-		`UPDATE file_rfq_conservazione SET stato = 'in_copia', causa = NULL WHERE allegato_id = '{A5}' AND stato = 'da_rilasciare'`)
-	riuscita23(t, p, "rilasciata", `UPDATE file_rfq_conservazione SET stato = 'rilasciata' WHERE allegato_id = '{A5}' AND stato = 'da_rilasciare'`)
+	frase := "identita', percorso, radice, cartella, token, eredita' e chiave non cambiano"
+	rifiuto23(t, p, "radice che cambia", "P4X09", frase, `UPDATE file_rfq_conservazione SET radice_id = gen_random_uuid() WHERE allegato_id = '{A5}'`)
+	rifiuto23(t, p, "percorso che cambia", "P4X09", frase, `UPDATE file_rfq_conservazione SET percorso_relativo = percorso_relativo || 'x' WHERE allegato_id = '{A5}'`)
+	rifiuto23(t, p, "token che cambia", "P4X09", frase, `UPDATE file_rfq_conservazione SET token = gen_random_uuid() WHERE allegato_id = '{A5}'`)
+	rifiuto23(t, p, "cartella che cambia", "P4X09", frase, `UPDATE file_rfq_conservazione SET cartella_thread = 'altra' WHERE allegato_id = '{A5}'`)
+	// la prova di creazione (passo 4) su una riga in copia; non si toglie
+	riuscita23(t, p, "prova di creazione registrata", `UPDATE file_rfq_conservazione SET creato_dal_cockpit = true WHERE allegato_id = '{A5}'`)
+	rifiuto23(t, p, "prova di creazione tolta", "P4X09", "la prova di creazione non si toglie",
+		`UPDATE file_rfq_conservazione SET creato_dal_cockpit = false WHERE allegato_id = '{A5}'`)
+	// lo scarto arriva: da rilasciare, poi la rimozione dal NAS con il suo token, un'attesa (file aperto) e la rimozione
+	riuscita23(t, p, "copia da rilasciare per lo scarto", `UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', causa = 'scartato' WHERE allegato_id = '{A5}'`)
+	rifiuto23(t, p, "token di rimozione fuori dall'ingresso in rimozione", "P4X09", "il token di rimozione cambia solo entrando in rimozione",
+		`UPDATE file_rfq_conservazione SET token_rimozione = gen_random_uuid() WHERE allegato_id = '{A5}'`)
+	riuscita23(t, p, "in rimozione", `UPDATE file_rfq_conservazione SET stato = 'in_rimozione', token_rimozione = gen_random_uuid() WHERE allegato_id = '{A5}'`)
+	riuscita23(t, p, "file aperto: torna in attesa", `UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', esito_rimozione = 'file_occupato',
+		tentativi = 2 WHERE allegato_id = '{A5}'`)
+	riuscita23(t, p, "di nuovo in rimozione, con un token nuovo", `UPDATE file_rfq_conservazione SET stato = 'in_rimozione', esito_rimozione = NULL,
+		token_rimozione = gen_random_uuid() WHERE allegato_id = '{A5}'`)
+	riuscita23(t, p, "rimossa", `UPDATE file_rfq_conservazione SET stato = 'rilasciata', esito_rimozione = 'rimosso' WHERE allegato_id = '{A5}'`)
 	rifiuto23(t, p, "da rilasciata a copiata", "P4X09", "non e' ammesso",
-		`UPDATE file_rfq_conservazione SET stato = 'copiata', causa = NULL, sorgente_byte = 'staging' WHERE allegato_id = '{A5}' AND stato = 'rilasciata'`)
-	riuscita23(t, p, "copiata", `UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'staging' WHERE allegato_id = '{A5}' AND stato = 'in_copia'`)
-	if !uno23[bool](t, p, `SELECT verificato_il IS NOT NULL AND concluso_il IS NULL FROM file_rfq_conservazione WHERE allegato_id = '{A5}' AND stato = 'copiata'`) {
-		t.Error("la copia verificata non ha verificato_il, o ha concluso_il")
-	}
+		`UPDATE file_rfq_conservazione SET stato = 'copiata', causa = NULL, esito_rimozione = NULL, sorgente_byte = 'staging' WHERE allegato_id = '{A5}'`)
 	if !uno23[bool](t, p, `SELECT concluso_il IS NOT NULL FROM file_rfq_conservazione WHERE allegato_id = '{A5}' AND stato = 'rilasciata'`) {
 		t.Error("la copia rilasciata non ha concluso_il")
 	}
+	// la prova registrata su una riga gia' da rilasciare (lo scarto arrivato prima del passo 4); senza prova non si rimuove
+	riuscita23(t, p, "copia nuova della stessa occorrenza, con il nome ripreso", copia("{A5}", "repeat('5', 64)", `ALTRO\ACM-3000.pdf`))
+	riuscita23(t, p, "scartata prima della prova", `UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', causa = 'scartato'
+		WHERE allegato_id = '{A5}' AND stato = 'in_copia'`)
+	rifiuto23(t, p, "rimozione senza la prova di creazione", "23514", "ck_cons_rimozione",
+		`UPDATE file_rfq_conservazione SET stato = 'in_rimozione', token_rimozione = gen_random_uuid() WHERE allegato_id = '{A5}' AND stato = 'da_rilasciare'`)
+	riuscita23(t, p, "prova registrata su una riga da rilasciare", `UPDATE file_rfq_conservazione SET creato_dal_cockpit = true
+		WHERE allegato_id = '{A5}' AND stato = 'da_rilasciare'`)
+	riuscita23(t, p, "file cambiato da una persona: non si tocca", `UPDATE file_rfq_conservazione SET stato = 'rilasciata', esito_rimozione = 'file_cambiato'
+		WHERE allegato_id = '{A5}' AND stato = 'da_rilasciare'`)
+	// trattenuta (base B di U2-Q01) e la cessione del file alla riga erede
+	riuscita23(t, p, "copia di A3", copia("{A3}", "repeat('3', 64)", `ALTRO\ACM-1100.pdf`),
+		`UPDATE file_rfq_conservazione SET creato_dal_cockpit = true WHERE allegato_id = '{A3}'`,
+		`UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'staging' WHERE allegato_id = '{A3}'`)
+	rifiuto23(t, p, "prova registrata su una copia gia' copiata", "P4X09", "la prova di creazione si registra solo",
+		copia("{A4}", "repeat('4', 64)", `ALTRO\ACM-2000.stp`),
+		`UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'staging' WHERE allegato_id = '{A4}'`,
+		`UPDATE file_rfq_conservazione SET creato_dal_cockpit = true WHERE allegato_id = '{A4}'`)
+	riuscita23(t, p, "trattenuta", `UPDATE file_rfq_conservazione SET stato = 'trattenuta', causa = 'riattivato' WHERE allegato_id = '{A3}'`)
+	if !uno23[bool](t, p, `SELECT concluso_il IS NOT NULL FROM file_rfq_conservazione WHERE allegato_id = '{A3}' AND stato = 'trattenuta'`) {
+		t.Error("la copia trattenuta non ha concluso_il")
+	}
+	trattenuta := itoa(uno23[int64](t, p, `SELECT conservazione_id FROM file_rfq_conservazione WHERE allegato_id = '{A3}'`))
+	rifiuto23(t, p, "da trattenuta a da rilasciare", "P4X09", "non e' ammesso",
+		`UPDATE file_rfq_conservazione SET stato = 'da_rilasciare' WHERE allegato_id = '{A3}'`)
+	rifiuto23(t, p, "ceduta senza una riga erede", "P4X09", "non e' ammesso",
+		`UPDATE file_rfq_conservazione SET stato = 'ceduta', ceduta_a = conservazione_id WHERE allegato_id = '{A3}'`)
+	rifiuto23(t, p, "un altro nome sul file trattenuto (stesso nome vivo)", "23505", "ux_cons_percorso_vivo", copia("{A3}", "repeat('3', 64)", `ALTRO\ACM-1100.pdf`))
+	erede := func(percorso, creato string) string {
+		return `INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, percorso_relativo, radice_id, cartella_thread, eredita_da, creato_dal_cockpit)
+			VALUES ('{T}', '{A3}', repeat('3', 64), '` + percorso + `', '` + radice + `', 'ACME\RFQ 1', ` + trattenuta + `, ` + creato + `)`
+	}
+	rifiuto23(t, p, "erede con un altro nome", "P4X09", "eredita dalla riga", erede(`ALTRO\ACM-1100_2.pdf`, "true"))
+	rifiuto23(t, p, "erede senza la prova", "P4X09", "eredita dalla riga", erede(`ALTRO\ACM-1100.pdf`, "false"))
+	riuscita23(t, p, "erede che riusa il file trattenuto", erede(`ALTRO\acm-1100.pdf`, "true"))
+	if got := uno23[string](t, p, `SELECT v.stato || ' ' || (v.ceduta_a = e.conservazione_id)::text || ' ' || e.stato || ' ' || e.creato_dal_cockpit::text
+		FROM file_rfq_conservazione v JOIN file_rfq_conservazione e ON e.eredita_da = v.conservazione_id WHERE v.conservazione_id = `+trattenuta); got != "ceduta true in_copia true" {
+		t.Errorf("la cessione: %s", got)
+	}
+	rifiuto23(t, p, "erede di una riga gia' ceduta", "P4X09", "eredita dalla riga",
+		`UPDATE file_rfq_conservazione SET stato = 'da_rilasciare', causa = 'tempo_scaduto' WHERE allegato_id = '{A3}' AND stato = 'in_copia'`,
+		erede(`ALTRO\ACM-1100.pdf`, "true"))
 	rifiuto23(t, p, "DELETE di una copia", "P4X02", "non si cancella", `DELETE FROM file_rfq_conservazione`)
 	rifiuto23(t, p, "TRUNCATE delle copie", "P4X02", "non si svuotano", `TRUNCATE file_rfq_conservazione`)
 }

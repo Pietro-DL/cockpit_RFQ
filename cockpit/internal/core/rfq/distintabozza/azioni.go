@@ -494,7 +494,7 @@ func (st *stato) snapshot() Snapshot {
 		s.Decisioni = append(s.Decisioni, d)
 	}
 	for p, k := range st.pre {
-		s.DocumentiPreassociati = append(s.DocumentiPreassociati, Preassociazione{PropostaID: p, ChiaveBozza: k})
+		s.DocumentiPreassociati = append(s.DocumentiPreassociati, Preassociazione2{PropostaID: p, ChiaveBozza: k})
 	}
 	s.normalizza()
 	return s
@@ -782,7 +782,7 @@ func (st *stato) applica(campo string, a Azione, r *Riconciliazione, cx Contesto
 		}
 		ev.Prima, ev.Dopo = p, d
 	case AzFilePreassociato, AzFileSvincolato:
-		var x Preassociazione
+		var x Preassociazione2
 		src, altro, nome := a.Dopo, a.Prima, "dopo"
 		if a.Azione == AzFileSvincolato {
 			src, altro, nome = a.Prima, a.Dopo, "prima"

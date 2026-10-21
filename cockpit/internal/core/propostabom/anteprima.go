@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/ancoraggio"
+	"promatec/cockpit/internal/core/fotorfq"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
 	"promatec/cockpit/internal/core/valutazione"
 )
@@ -26,6 +27,8 @@ import (
 // aggiornato: LS-01, mai una struttura inventata).
 const (
 	StatoAnteprimaPronta                     = "pronta"
+	StatoAnteprimaInAnalisi                  = "in_analisi"
+	StatoAnteprimaNonScaricato               = "non_scaricato"
 	StatoAnteprimaErrore                     = "errore"
 	StatoAnteprimaStrutturaNonDeterminabile  = "struttura_non_determinabile"
 	ConfrontoCodiceCoincide                  = "coincide"
@@ -37,7 +40,7 @@ const (
 // IngressoAnteprima: l'esito già calcolato, le regole di lettura, il prodotto, il codice del suo componente nella
 // working (componente.codice: lo legge chi chiama, dalla fotografia o dal database, come lo leggerà R2), lo STEP, il
 // gruppo chiesto ("" = la candidata in vista), le occorrenze non attive e, per l'effetto sulla bozza, la vista della
-// bozza aperta del prodotto con il registro della sua versione (nil senza).
+// bozza aperta del prodotto con il registro della sua versione (nil senza); la fotografia del calcolo (Ingresso.Foto).
 type IngressoAnteprima struct {
 	Esito          *valutazione.Esito
 	Thread         *valutazione.EsitoThread
@@ -49,6 +52,7 @@ type IngressoAnteprima struct {
 	NonAttivi      NonAttivi
 	Bozza          *VistaBozza
 	RegistroBozza  *importazione.Contenuto
+	Foto           *fotorfq.Fotografia
 }
 
 // GruppoAnteprima: un gruppo dello STEP per il prodotto (EM §10.9): la chiave, l'identità proposta della radice, la
@@ -111,6 +115,18 @@ type Anteprima struct {
 	EffettoSullaBozza *EffettoCambioFonte    `json:"effetto_sulla_bozza,omitempty"`
 	Versioni          json.RawMessage        `json:"versioni,omitempty"`
 	Avvisi            []AvvisoAnteprima      `json:"avvisi"`
+	// StrutturaSTEP: il caso della struttura dello STEP per il prodotto (direttiva 39 §3: con_struttura, sola_radice,
+	// nessuna_struttura, non_determinabile con lo stato dell'analisi) e la partenza che S8 offre (struttura_step.go).
+	StrutturaSTEP StrutturaSTEP `json:"struttura_step"`
+	// registro: il contenuto del registro della proposta (quello verso cui è calcolato l'effetto sulla bozza), per la
+	// rotta che riconcilia una bozza senza struttura (cambio-fonte-2, RegistroDellaProposta). Non va nel JSON.
+	registro *importazione.Contenuto
+}
+
+// RegistroDellaProposta: il contenuto del registro della proposta di S6 (nil senza proposta). La rotta lo passa a
+// distintabozza.RiconciliaEffetto per una bozza senza struttura, come R2 cambia_sorgente (direttiva 39 §3).
+func (a Anteprima) RegistroDellaProposta() *importazione.Contenuto {
+	return a.registro
 }
 
 // AnteprimaDelloSTEP: il contenuto di S6 per lo STEP e il prodotto. I gruppi sono le candidate del prodotto su quello
@@ -119,13 +135,29 @@ type Anteprima struct {
 // vista; il confronto del codice (ConfrontoDelCodice) è fra il codice proposto della radice di quella proposta e il
 // codice del componente del prodotto nella working, codice_prodotto (il motivo della scelta della fonte lo dice
 // MotivoFonteObbligatorio, la stessa funzione di R2, EM §6.3 passo 3). Con la bozza, l'effetto di cambio-fonte-1 verso
-// quel gruppo.
+// quel gruppo. StrutturaSTEP dice il caso della struttura (ClassificaStruttura, sugli stessi gruppi importati qui) e, con
+// l'analisi dello STEP ancora in corso, lo stato è in_analisi (EM §10.9: mai «nessuna struttura» per un'analisi non finita).
 func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
+	a, gg, grafoDaRileggere := anteprimaDelloSTEP(in)
+	a.StrutturaSTEP = ClassificaStruttura(StatoAnalisiDelFile(in.Thread, in.Allegato), gg)
+	if grafoDaRileggere && a.StrutturaSTEP.StatoAnalisi == AnalisiPronta {
+		// LS-01: una struttura letta da un worker non aggiornato non è una struttura determinata, né la sua assenza
+		a.StrutturaSTEP = StrutturaSTEP{StatoAnalisi: AnalisiPronta, Struttura: StrutturaNonDeterminabile, Partenza: PartenzaSoloProdotto,
+			PresaDAttoRichiesta: true, Testo: TestoGrafoDaRileggere}
+	}
+	if a.StrutturaSTEP.StatoAnalisi == AnalisiInCorso && a.Stato != StatoAnteprimaErrore {
+		a.Stato = StatoAnteprimaInAnalisi
+	}
+	return a
+}
+
+func anteprimaDelloSTEP(in IngressoAnteprima) (Anteprima, []GruppoImportato, bool) {
+	var gg []GruppoImportato
 	out := Anteprima{AllegatoID: in.Allegato, Gruppi: []GruppoAnteprima{}, Associazioni: []AssociazionePrevista{}, Avvisi: []AvvisoAnteprima{},
 		Confronto: ConfrontoCodiceNonDeterminabile, Stato: StatoAnteprimaStrutturaNonDeterminabile}
 	et := in.Thread
 	if et == nil || in.Esito == nil {
-		return out
+		return out, gg, false
 	}
 	var pv *valutazione.ProdottoValutato
 	for i := range et.ProdottiValutati {
@@ -148,7 +180,7 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 		}
 	}
 	if pv == nil {
-		return out
+		return out, gg, false
 	}
 	if pv.ComponenteID != nil {
 		out.ProdottoID = pv.ComponenteID.String()
@@ -163,7 +195,7 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 		}
 	}
 	if len(gruppi) == 0 {
-		return out
+		return out, gg, false
 	}
 	compatibili := 0
 	strutture := map[string]*ancoraggio.StrutturaProdotto{}
@@ -176,7 +208,7 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 		if st != nil && !st.GrafoCompleto && reGrafoDaRileggere.MatchString(st.MotivoGrafo) {
 			out.Struttura.Completa, out.Struttura.Motivo = false, st.MotivoGrafo
 			out.Avvisi = append(out.Avvisi, AvvisoAnteprima{Gruppo: g.Chiave, Codice: CodiceImportazioneGrafoDaRileggere, Testo: TestoGrafoDaRileggere})
-			return out // LS-01: una struttura letta da un worker non aggiornato non si mostra come una struttura determinata
+			return out, gg, true // LS-01: una struttura letta da un worker non aggiornato non si mostra come una struttura determinata
 		}
 	}
 	registri := map[string]importazione.Registro{}
@@ -193,13 +225,16 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 		if ga.InVista && scelto == "" {
 			scelto = g.Chiave
 		}
-		reg, err := importaProtetto(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave, NonAttivi: in.NonAttivi})
+		reg, err := importaProtetto(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave, NonAttivi: in.NonAttivi,
+			Foto: in.Foto})
+		gi := GruppoImportato{Chiave: g.Chiave, InVista: ga.InVista}
 		if err != nil {
 			ga.Importazione = erroreDiImportazione(err)
 			out.Avvisi = append(out.Avvisi, AvvisoAnteprima{Gruppo: g.Chiave, Codice: ga.Importazione.Codice + motivoConBarra(ga.Importazione.Motivo), Testo: ga.Importazione.Testo})
 		} else {
 			registri[g.Chiave] = reg
 			c := reg.Contenuto
+			gi.Registro = &c
 			ga.ImprontaContenuto, ga.Nodi, ga.Archi = c.ImprontaContenuto, len(c.Proposta.Nodi), len(c.Proposta.Archi)
 			for _, v := range c.Proposta.Nodi {
 				if len(v.Segnali) > 0 {
@@ -211,13 +246,15 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 			}
 		}
 		out.Gruppi = append(out.Gruppi, ga)
+		gg = append(gg, gi)
 	}
 	reg, ok := registri[scelto]
 	if !ok {
-		return out
+		return out, gg, false
 	}
 	c := reg.Contenuto
 	out.Proposta = &PropostaAnteprima{Gruppo: scelto, ImprontaContenuto: c.ImprontaContenuto, Contenuto: reg.Canonico}
+	out.registro = &c
 	out.Versioni = raw(c.Regole.Versioni)
 	out.Confronto = ConfrontoDelCodice(c, in.CodiceProdotto)
 	for _, v := range c.Proposta.Nodi {
@@ -237,7 +274,7 @@ func AnteprimaDelloSTEP(in IngressoAnteprima) Anteprima {
 		e := EffettoDelCambioFonte(*in.Bozza, in.RegistroBozza, c)
 		out.EffettoSullaBozza = &e
 	}
-	return out
+	return out, gg, false
 }
 
 func motivoConBarra(m string) string {

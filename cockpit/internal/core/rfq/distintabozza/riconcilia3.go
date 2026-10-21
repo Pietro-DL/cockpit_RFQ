@@ -34,6 +34,9 @@ type Contesto3 struct {
 	// LimiteServer: il numero dell'ultimo evento con cui comincia una versione costruita dal server (0 se nessuno): un
 	// annulla o un rifai di un evento con un numero fino a questo e' annullamento_non_ammesso.
 	LimiteServer int
+	// NodiTolti: per ogni chiave della bozza tolta da un evento nodo_tolto gia' salvato, i nodi che quella chiave ha
+	// portato (il prima degli eventi): una chiave tolta non torna per un nodo diverso (DEC-B PB-34, ChiaveRiusabile).
+	NodiTolti map[string][]json.RawMessage
 }
 
 // RebaseV2 e' il rebase della sola base del formato 3 (EM §9.2): la base nuova e il motivo, che la richiesta di R2 ripete
@@ -60,8 +63,9 @@ type Riconciliazione3 struct {
 	FontiCitate []Sorgente3
 	// Strutturali: quante azioni hanno cambiato lo snapshot.
 	Strutturali int
-	// ProposteCitate: le proposte che file_preassociato, file_svincolato e file_lasciato nominano.
-	ProposteCitate []uuid.UUID
+	// AllegatiDeiFile: gli allegati che file_preassociato, file_svincolato e file_lasciato nominano (direttiva 35, C-2:
+	// le occorrenze, non le proposte di documento).
+	AllegatiDeiFile []uuid.UUID
 	// Riferimenti: gli UUID e i registri che i prima e i dopo degli eventi nominano (EM §9, «ogni UUID del corpo e della
 	// query, ovunque sia annidato»): chi salva controlla anche quelli che compaiono solo nelle azioni, per esempio un nodo
 	// aggiunto e tolto nello stesso salvataggio.
@@ -70,6 +74,9 @@ type Riconciliazione3 struct {
 	// annulla o un rifai riporta): chi salva verifica il loro modo con le regole P-2...P-6 (EM §6.1, «le stesse regole
 	// valgono per l'importazione a mano»).
 	NodiAggiunti []string
+	// Riconosciuti: le PB che un file_riconosciuto di questo salvataggio nomina (R39-15): chi salva le verifica legacy e le
+	// segna verificate.
+	Riconosciuti []Preassociazione3
 }
 
 // RiferimentiEventi: gli UUID e i registri nominati dagli eventi di un salvataggio, ciascuno con il primo campo che lo
@@ -77,14 +84,14 @@ type Riconciliazione3 struct {
 type RiferimentiEventi struct {
 	Componenti map[uuid.UUID]string
 	Allegati   map[uuid.UUID]string
-	Proposte   map[uuid.UUID]string
 	Registri   map[string]string
 }
 
 // raccogli scorre un prima o un dopo scritto dal server e ne prende i riferimenti: componenti (componente_id, padre_id,
 // figlio_id, prodotti[]), allegati (allegato_id delle caselle, degli step, delle citazioni; l'allegato di una
-// chiave_lettura), proposte (proposta_id) e registri (importazione). azione_id, conferma_id della base e id delle
-// decisioni non sono riferimenti da controllare qui.
+// chiave_lettura, delle preassociazioni e degli svincoli: direttiva 35, C-2) e registri (importazione). azione_id,
+// conferma_id della base e id delle decisioni non sono riferimenti da controllare qui. Nel formato 3 nessun prima o dopo
+// porta piu' proposta_id (le forme chiuse lo rifiutano).
 func (r *RiferimentiEventi) raccogli(campo string, raw json.RawMessage) {
 	if nullo(raw) {
 		return
@@ -94,7 +101,7 @@ func (r *RiferimentiEventi) raccogli(campo string, raw json.RawMessage) {
 		return
 	}
 	if r.Componenti == nil {
-		r.Componenti, r.Allegati, r.Proposte, r.Registri = map[uuid.UUID]string{}, map[uuid.UUID]string{}, map[uuid.UUID]string{}, map[string]string{}
+		r.Componenti, r.Allegati, r.Registri = map[uuid.UUID]string{}, map[uuid.UUID]string{}, map[string]string{}
 	}
 	metti := func(m map[uuid.UUID]string, s, dove string) {
 		if u, err := uuid.Parse(s); err == nil && u != uuid.Nil {
@@ -115,8 +122,6 @@ func (r *RiferimentiEventi) raccogli(campo string, raw json.RawMessage) {
 					metti(r.Componenti, s, d)
 				case testo && k == "allegato_id":
 					metti(r.Allegati, s, d)
-				case testo && k == "proposta_id":
-					metti(r.Proposte, s, d)
 				case testo && k == "chiave_lettura":
 					metti(r.Allegati, strings.SplitN(s, "/", 2)[0], d)
 				case testo && k == "importazione" && reSha256.MatchString(s):
@@ -184,7 +189,7 @@ func Riconcilia3(prima, dopo Snapshot3, azioni []Azione, cx Contesto3) (Riconcil
 		if err != nil {
 			return r, err
 		}
-		if a.Azione != AzSorgenteVista && a.Azione != AzSorgenteRifiutata && a.Azione != AzFileLasciato {
+		if a.Azione != AzSorgenteVista && a.Azione != AzSorgenteRifiutata && a.Azione != AzFileLasciato && a.Azione != AzFileRiconosciuto {
 			r.Strutturali++
 		}
 		r.Riferimenti.raccogli(campo+".prima", ev.Prima)
@@ -230,6 +235,8 @@ type riconciliatore3 struct {
 	prodotto uuid.UUID
 	cx       Contesto3
 	r        *Riconciliazione3
+	// tolti: i nodi tolti dalle azioni di questo salvataggio, per chiave (DEC-B PB-34)
+	tolti map[string][]json.RawMessage
 }
 
 // nodo3Di: il nodo della bozza con quella chiave, tipizzato (gli oggetti dello stato sono nella forma canonica di Nodo3).
@@ -325,6 +332,7 @@ func (rc *riconciliatore3) leggiNodoV2(campo string, raw json.RawMessage) (Nodo3
 }
 
 func normalizzaNodo3(n *Nodo3) {
+	n.EvidenzeIdentita = ordinaEvidenze(n.EvidenzeIdentita)
 	if len(n.Caselle) == 0 {
 		n.Caselle = nil
 	}
@@ -369,8 +377,9 @@ func (rc *riconciliatore3) estremiPresenti(campo string, a Arco3) *Errore {
 // possono toccare (EM §9.2: nodo_modificato tocca identita, descrizione, tipo, op, caselle; componente_id serve a
 // «Fissa l'emittente» sul crea che collide, EM §3.6.1 caso P-4). La chiave e l'origine non cambiano.
 var (
-	campiNodoModificato3 = map[string]bool{"identita": true, "descrizione": true, "tipo": true, "op": true, "caselle": true, "componente_id": true}
-	campiNodoRiusato3    = map[string]bool{"op": true, "componente_id": true, "identita": true}
+	campiNodoModificato3 = map[string]bool{"identita": true, "descrizione": true, "tipo": true, "op": true, "caselle": true, "componente_id": true,
+		"evidenze_identita": true, "tipo_confermato": true} // U2 §6.4.2, §7.7
+	campiNodoRiusato3 = map[string]bool{"op": true, "componente_id": true, "identita": true}
 )
 
 // applica rifa' un'azione sullo stato e restituisce il suo evento.
@@ -408,6 +417,14 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := rc.controllaNodo(campo, n, nil); e != nil {
 			return ev, e
 		}
+		// DEC-B PB-34: una chiave tolta in questa bozza non torna per un nodo diverso (annulla e rifai non passano di qui)
+		for _, vecchi := range [][]json.RawMessage{rc.cx.NodiTolti[n.ChiaveBozza], rc.tolti[n.ChiaveBozza]} {
+			for _, v := range vecchi {
+				if !ChiaveRiusabile(v, n) {
+					return ev, corpo(campo+".chiave_bozza", "la chiave %s e' stata tolta da questa bozza per un altro nodo: un nodo diverso vuole una chiave nuova", n.ChiaveBozza)
+				}
+			}
+		}
 		ev.Dopo = conAzioneID(canonico(n), azione)
 		if e := rc.st.applicaV2(campo, a.Azione, nil, canonico(n)); e != nil {
 			return ev, e
@@ -435,6 +452,10 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := rc.st.applicaV2(campo, a.Azione, canonico(n), nil); e != nil {
 			return ev, e
 		}
+		if rc.tolti == nil {
+			rc.tolti = map[string][]json.RawMessage{}
+		}
+		rc.tolti[n.ChiaveBozza] = append(rc.tolti[n.ChiaveBozza], canonico(n))
 		ev.Prima = canonico(n)
 		if azione != nil {
 			ev.Dopo = conAzioneID(nil, azione)
@@ -556,6 +577,10 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if x.Figlio != y.Figlio || x.Padre == y.Padre || y.Origine != OrigineUtente || y.Step != nil {
 			return ev, corpo(campo, "arco_spostato cambia il padre dello stesso figlio: l'arco spostato ha origine utente, senza step")
 		}
+		// DEC-B PD-09 (c): la posizione e' il numero del cartiglio del padre di prima; sotto un altro padre e' un dato falso
+		if y.Posizione != "" {
+			return ev, corpo(campo+".dopo.posizione", "arco_spostato: l'arco spostato non porta la posizione (era il numero del cartiglio del padre di prima)")
+		}
 		if e := chiave(x.Figlio); e != nil {
 			return ev, e
 		}
@@ -592,6 +617,70 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		}
 		pp := canonico(map[string]any{"padre": p.Padre, "figlio": p.Figlio, "qta": *p.Qta})
 		dd := canonico(map[string]any{"padre": d.Padre, "figlio": d.Figlio, "qta": *d.Qta})
+		if e := rc.st.applicaV2(campo, a.Azione, pp, dd); e != nil {
+			return ev, e
+		}
+		ev.Prima, ev.Dopo = pp, dd
+	case AzArcoModificato:
+		// U2 §7.7: le sole evidenze_arco di un arco con origine utente; padre e figlio dicono quale arco
+		var p, d struct {
+			Padre        string          `json:"padre"`
+			Figlio       string          `json:"figlio"`
+			EvidenzeArco json.RawMessage `json:"evidenze_arco"`
+		}
+		if e := decodificaStretta(campo+".prima", a.Prima, &p); e != nil {
+			return ev, e
+		}
+		if e := decodificaStretta(campo+".dopo", a.Dopo, &d); e != nil {
+			return ev, e
+		}
+		if p.Padre == "" || p.Padre != d.Padre || p.Figlio != d.Figlio {
+			return ev, corpo(campo, "arco_modificato vuole prima e dopo con lo stesso padre e figlio e le evidenze_arco")
+		}
+		if e := chiave(p.Figlio); e != nil {
+			return ev, e
+		}
+		cur, ok := rc.st.archi[[2]string{p.Padre, p.Figlio}]
+		if !ok {
+			return ev, nonRiconciliate(campo, "arco_modificato: l'arco %s → %s non c'e'", p.Padre, p.Figlio)
+		}
+		curA, e := rc.leggiArcoV2(campo+".prima", canonico(cur))
+		if e != nil {
+			return ev, e
+		}
+		if curA.Origine != OrigineUtente {
+			return ev, corpo(campo, "arco_modificato: le evidenze stanno solo negli archi con origine utente (questo e' %s)", curA.Origine)
+		}
+		leggiEv := func(nome string, raw json.RawMessage) ([]EvidenzaDocumentale, *Errore) {
+			if nullo(raw) {
+				return nil, nil
+			}
+			var in []evidenzaIn
+			if e := decodificaStretta(campo+"."+nome+".evidenze_arco", raw, &in); e != nil {
+				return nil, e
+			}
+			ee := convertiEvidenze(in)
+			if e := validaEvidenze(campo+"."+nome+".evidenze_arco", ee); e != nil {
+				return nil, e
+			}
+			return ordinaEvidenze(ee), nil
+		}
+		pe, e := leggiEv("prima", p.EvidenzeArco)
+		if e != nil {
+			return ev, e
+		}
+		de, e := leggiEv("dopo", d.EvidenzeArco)
+		if e != nil {
+			return ev, e
+		}
+		if !bytes.Equal(canonico(evidenzeONull(pe)), canonico(evidenzeONull(ordinaEvidenze(curA.EvidenzeArco)))) {
+			return ev, nonRiconciliate(campo, "arco_modificato: l'arco %s → %s non ha le evidenze che l'azione dice di trovare", p.Padre, p.Figlio)
+		}
+		if bytes.Equal(canonico(evidenzeONull(pe)), canonico(evidenzeONull(de))) {
+			return ev, nonRiconciliate(campo, "arco_modificato: le evidenze dell'arco %s → %s non cambiano", p.Padre, p.Figlio)
+		}
+		pp := canonico(map[string]any{"padre": p.Padre, "figlio": p.Figlio, "evidenze_arco": evidenzeONull(pe)})
+		dd := canonico(map[string]any{"padre": d.Padre, "figlio": d.Figlio, "evidenze_arco": evidenzeONull(de)})
 		if e := rc.st.applicaV2(campo, a.Azione, pp, dd); e != nil {
 			return ev, e
 		}
@@ -660,8 +749,8 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := decodificaStretta(campo+".dopo", senzaAzioneID(a.Dopo), &x); e != nil {
 			return ev, e
 		}
-		if x.PropostaID == uuid.Nil || !reChiave.MatchString(x.ChiaveBozza) {
-			return ev, corpo(campo+".dopo", "proposta_id e chiave_bozza")
+		if x.AllegatoID == uuid.Nil || !reChiave.MatchString(x.ChiaveBozza) {
+			return ev, corpo(campo+".dopo", "allegato_id e chiave_bozza")
 		}
 		if e := chiave(x.ChiaveBozza); e != nil {
 			return ev, e
@@ -673,22 +762,22 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := rc.st.applicaV2(campo, a.Azione, nil, canonico(x)); e != nil {
 			return ev, e
 		}
-		rc.r.ProposteCitate = append(rc.r.ProposteCitate, x.PropostaID)
+		rc.r.AllegatiDeiFile = append(rc.r.AllegatiDeiFile, x.AllegatoID)
 		ev.Dopo = conAzioneID(canonico(x), azione)
 	case AzFileSvincolato:
 		var x svincolo
 		if e := decodificaStretta(campo+".prima", a.Prima, &x); e != nil {
 			return ev, e
 		}
-		if x.PropostaID == uuid.Nil || !reChiave.MatchString(x.ChiaveBozza) {
-			return ev, corpo(campo+".prima", "proposta_id e chiave_bozza")
+		if x.AllegatoID == uuid.Nil || !reChiave.MatchString(x.ChiaveBozza) {
+			return ev, corpo(campo+".prima", "allegato_id e chiave_bozza")
 		}
 		d, e := LeggiDopoSvincolo(campo+".dopo", a.Dopo)
 		if e != nil {
 			return ev, e
 		}
-		if d.PropostaID != x.PropostaID {
-			return ev, corpo(campo+".dopo.proposta_id", "prima e dopo dello svincolo nominano la stessa proposta")
+		if d.AllegatoID != x.AllegatoID {
+			return ev, corpo(campo+".dopo.allegato_id", "prima e dopo dello svincolo nominano lo stesso allegato")
 		}
 		if e := chiave(x.ChiaveBozza); e != nil {
 			return ev, e
@@ -696,8 +785,32 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := rc.st.applicaV2(campo, a.Azione, canonico(x), nil); e != nil {
 			return ev, e
 		}
-		rc.r.ProposteCitate = append(rc.r.ProposteCitate, x.PropostaID)
+		rc.r.AllegatiDeiFile = append(rc.r.AllegatiDeiFile, x.AllegatoID)
 		ev.Prima, ev.Dopo = canonico(x), canonico(d)
+	case AzFileRiconosciuto:
+		var x svincolo
+		if e := decodificaStretta(campo+".prima", a.Prima, &x); e != nil {
+			return ev, e
+		}
+		if x.AllegatoID == uuid.Nil || !reChiave.MatchString(x.ChiaveBozza) {
+			return ev, corpo(campo+".prima", "allegato_id e chiave_bozza")
+		}
+		d, e := LeggiDopoRiconosciuto(campo+".dopo", a.Dopo)
+		if e != nil {
+			return ev, e
+		}
+		if d.AllegatoID != x.AllegatoID || d.ChiaveBozza != x.ChiaveBozza {
+			return ev, corpo(campo+".dopo", "prima e dopo del riconoscimento nominano la stessa preassociazione")
+		}
+		if e := chiave(x.ChiaveBozza); e != nil {
+			return ev, e
+		}
+		if o, ok := rc.st.pre[x.AllegatoID.String()]; !ok || campoTesto(o, "chiave_bozza") != x.ChiaveBozza {
+			return ev, nonRiconciliate(campo, "file_riconosciuto: l'allegato %s non e' preassociato al nodo %s", x.AllegatoID, x.ChiaveBozza)
+		}
+		rc.r.AllegatiDeiFile = append(rc.r.AllegatiDeiFile, x.AllegatoID)
+		rc.r.Riconosciuti = append(rc.r.Riconosciuti, Preassociazione3{AllegatoID: x.AllegatoID, ChiaveBozza: x.ChiaveBozza})
+		ev.Prima, ev.Dopo = canonico(Preassociazione3{AllegatoID: x.AllegatoID, ChiaveBozza: x.ChiaveBozza}), canonico(d)
 	case AzFileLasciato:
 		if e := vuoto(a.Prima, "prima"); e != nil {
 			return ev, e
@@ -709,7 +822,7 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if e := chiave(""); e != nil {
 			return ev, e
 		}
-		rc.r.ProposteCitate = append(rc.r.ProposteCitate, d.PropostaID)
+		rc.r.AllegatiDeiFile = append(rc.r.AllegatiDeiFile, d.AllegatoID)
 		ev.Dopo = canonico(d)
 	case AzRebase:
 		if rc.r.Rebase != nil {
@@ -1146,4 +1259,36 @@ func unione(a, b []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// evidenzeONull: un elenco di evidenze, oppure null se e' vuoto (nel prima e nel dopo di arco_modificato «nessuna
+// evidenza» e' null, come un campo assente dell'arco).
+func evidenzeONull(ee []EvidenzaDocumentale) any {
+	if len(ee) == 0 {
+		return nil
+	}
+	return ee
+}
+
+// ChiaveRiusabile dice se un nodo che torna con la chiave di un nodo tolto e' lo stesso nodo (DEC-B PB-34): un nodo STEP
+// con una casella (allegato, rif) in comune; un nodo registrato con lo stesso componente; un nodo senza casella ne'
+// componente mai («Includi di nuovo» sulla stessa casella passa anche con un'identita' diversa; un nodo manuale rimesso
+// a mano vuole una chiave nuova, che genera la pagina). Il nodo tolto e' il prima dell'evento nodo_tolto, nella forma di
+// Nodo3; un prima illeggibile non e' lo stesso nodo.
+func ChiaveRiusabile(tolto json.RawMessage, nuovo Nodo3) bool {
+	var v Nodo3
+	if json.Unmarshal(tolto, &v) != nil {
+		return false
+	}
+	if v.ComponenteID != nil && nuovo.ComponenteID != nil && *v.ComponenteID == *nuovo.ComponenteID {
+		return true
+	}
+	for _, a := range v.Caselle {
+		for _, b := range nuovo.Caselle {
+			if a.AllegatoID == b.AllegatoID && a.Rif == b.Rif {
+				return true
+			}
+		}
+	}
+	return false
 }

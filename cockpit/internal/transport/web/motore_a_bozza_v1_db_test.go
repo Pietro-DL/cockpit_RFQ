@@ -153,6 +153,7 @@ func TestNessunaGetScriveDistintaV1(t *testing.T) {
 		{base + "/motore-a/bozza?prodotto=" + s.prodotto.String() + "&eventi=1&importazione=1", true},
 		{base + "/motore-a/bozza?prodotto=" + s.prodotto.String() + "&confronto=1", true},
 		{base + "/motore-a/bozza?prodotto=" + s.prodotto.String() + "&effetto_cambio_tipo=" + s.sotto.String() + "&tipo_nuovo=sciolto", true},
+		{base + "/motore-a/bozza?prodotto=" + s.prodotto.String() + "&ingressi=1", true},
 		{base + "/motore-a/intento/" + uuid.New().String(), true},
 		{base + "/motore-a/conferme?prodotto=" + s.prodotto.String(), true},
 		{base + "/distinta-unica", false},
@@ -201,10 +202,26 @@ func TestNessunaGetScriveDistintaV1(t *testing.T) {
 	if err := json.Unmarshal([]byte(corpo), &eff); err != nil || eff.ComponenteID != s.sotto || eff.TipoNuovo != "sciolto" || len(eff.FirmaEffetto) < 24 {
 		t.Errorf("effetto del cambio di tipo: %s", corpo)
 	}
-	if _, corpo = ad.fai(http.MethodGet, get[4].percorso, nil, false); !strings.Contains(corpo, `"stato":"non_registrato"`) {
+	// R1 ?ingressi=1 (U2 §6.3.3): le quattro parti, la bozza aperta alla versione 1, l'impronta di tutto; due letture
+	// danno gli stessi byte
+	_, corpo = ad.fai(http.MethodGet, get[4].percorso, nil, false)
+	var ing distintabozza.Ingressi
+	if err := json.Unmarshal([]byte(corpo), &ing); err != nil || ing.Algoritmo != distintabozza.AlgoritmoIngressi || len(ing.ImprontaIngressi) != 64 ||
+		ing.Parti.Bozza.BozzaID == nil || *ing.Parti.Bozza.BozzaID != s.bozza || ing.Parti.Bozza.Versione == nil || *ing.Parti.Bozza.Versione != 1 ||
+		ing.Parti.Analisi.InAnalisi == nil || len(ing.Parti.Proposta.Impronta) != 64 || len(ing.Parti.Bom.Impronta) != 64 {
+		t.Errorf("R1 ingressi: %s", corpo)
+	}
+	if _, corpo2 := ad.fai(http.MethodGet, get[4].percorso, nil, false); corpo2 != corpo {
+		t.Errorf("R1 ingressi: due letture diverse: %s / %s", corpo, corpo2)
+	}
+	if resp, corpo := ad.fai(http.MethodGet, get[4].percorso+"&eventi=1", nil, false); resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(corpo, `"campo":"eventi"`) {
+		t.Errorf("R1 ingressi con eventi: %d %s", resp.StatusCode, corpo)
+	}
+	if _, corpo = ad.fai(http.MethodGet, get[5].percorso, nil, false); !strings.Contains(corpo, `"stato":"non_registrato"`) {
 		t.Errorf("R6: %s", corpo)
 	}
-	if _, corpo = ad.fai(http.MethodGet, get[5].percorso, nil, false); !strings.Contains(corpo, `"conferme":[]`) {
+	if _, corpo = ad.fai(http.MethodGet, get[6].percorso, nil, false); !strings.Contains(corpo, `"conferme":[]`) {
 		t.Errorf("R7: %s", corpo)
 	}
 	// i rifiuti in lettura: un prodotto che non e' della RFQ (422 FUORI_RFQ), una RFQ che non c'e' (404)
@@ -309,6 +326,85 @@ func TestBozzaV1SalvaAbbandonaERiallineaViaHTTP(t *testing.T) {
 	}
 }
 
+// Direttiva 35, blocco C-2: la Prova 2 attraverso la rotta di R2. Un PDF della RFQ senza riga di documento_proposta si
+// preassocia con {allegato_id, chiave_bozza} (200, e R1 lo rilegge); la forma di prima {proposta_id} e' 422; lo STEP della
+// RFQ legato come sorgente del finito (qui il documento STEP storico del prodotto) e' 422 legato_come_sorgente, uno STEP
+// documentale si preassocia come un PDF (direttiva 39 §5, D-2 (c) [U]); nessun rifiuto scrive.
+func TestBozzaV1C2PreassociazioneViaHTTP(t *testing.T) {
+	b, s := bancoBozzaV1(t)
+	ad := b.browser("10.0.0.8")
+	ad.login("AD", "prova-ad")
+	base := "/thread/" + s.thread.String() + "/motore-a"
+	msg := uuidSQL(t, b, `SELECT messaggio_id FROM messaggio WHERE thread_id = $1 LIMIT 1`, s.thread)
+	pdf := uuidSQL(t, b, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, sha256, ricevuto_il)
+		VALUES ($1, 2, '7120010.pdf', 'pdf', repeat('d', 64), now()) RETURNING allegato_id`, msg)
+	step := uuidSQL(t, b, `SELECT allegato_id FROM allegato WHERE messaggio_id = $1 AND estensione = 'stp'`, msg)
+	if n := contaSQL(t, b, `SELECT count(*) FROM documento_proposta WHERE allegato_id = $1`, pdf); n != 0 {
+		t.Fatalf("la prova vuole un allegato senza documento_proposta: %d", n)
+	}
+	// lo STEP della RFQ legato come sorgente del finito: il suo contenuto e' il documento STEP storico del prodotto
+	// (confermato, senza conferme di S8: il legame storico di D-AR04 (iii))
+	uuidSQL(t, b, `INSERT INTO documento (thread_id, componente_id, tipo, codice, nome_file, estensione, sha256, path_relativo, confermato_da)
+		SELECT c.thread_id, c.componente_id, 'cad_3d', c.codice, a.nome_file, 'stp', a.sha256, 'PROVA/' || a.nome_file, c.confermato_da
+		  FROM componente c, allegato a WHERE c.componente_id = $1 AND a.allegato_id = $2 RETURNING documento_id`, s.prodotto, step)
+	corpo := func(versione int, pb map[string]any) string {
+		snap := map[string]any{}
+		for k, v := range s.snapshot {
+			snap[k] = v
+		}
+		snap["documenti_preassociati"] = []any{pb}
+		raw, _ := json.Marshal(map[string]any{"bozza_id": s.bozza, "versione_attesa": versione, "prodotto_id": s.prodotto, "vocabolario": 2,
+			"chiave_salvataggio": uuid.New(), "snapshot": snap,
+			"azioni": []any{map[string]any{"azione": "file_preassociato", "chiave_bozza": "k-root", "dopo": pb, "origine": "utente"}}})
+		return string(raw)
+	}
+	prima := fotoDelDatabase(t, b)
+	// la forma di prima: {proposta_id, chiave_bozza}
+	resp, testo := ad.chiediJSON(http.MethodPost, base+"/bozza", corpo(1, map[string]any{"proposta_id": uuid.New().String(), "chiave_bozza": "k-root"}))
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(testo, `"codice":"CORPO_NON_VALIDO"`) {
+		t.Errorf("PB con proposta_id: %d %s", resp.StatusCode, testo)
+	}
+	// lo STEP della RFQ legato come sorgente del finito
+	resp, testo = ad.chiediJSON(http.MethodPost, base+"/bozza", corpo(1, map[string]any{"allegato_id": step.String(), "chiave_bozza": "k-root"}))
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(testo, `"motivo":"legato_come_sorgente"`) {
+		t.Errorf("PB sullo STEP: %d %s", resp.StatusCode, testo)
+	}
+	if d := differenze(prima, fotoDelDatabase(t, b)); d != "" {
+		t.Errorf("i rifiuti hanno scritto in: %s", d)
+	}
+	// il PDF senza proposta
+	resp, testo = ad.chiediJSON(http.MethodPost, base+"/bozza", corpo(1, map[string]any{"allegato_id": pdf.String(), "chiave_bozza": "k-root"}))
+	controllaSenzaPercorsi(t, "R2", testo)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(testo, `"versione":2`) {
+		t.Fatalf("PB senza proposta: %d %s", resp.StatusCode, testo)
+	}
+	_, testo = ad.fai(http.MethodGet, base+"/bozza?prodotto="+s.prodotto.String()+"&eventi=1", nil, false)
+	// la provenienza la decide il server (direttiva 39 §4): una PB nuova senza registro e' manuale
+	if !strings.Contains(testo, `"documenti_preassociati":[{"allegato_id":"`+pdf.String()+`","chiave_bozza":"k-root","provenienza":"manuale"}]`) ||
+		!strings.Contains(testo, `"azione":"file_preassociato"`) || strings.Contains(testo, `"proposta_id"`) {
+		t.Errorf("R1 dopo la PB: %s", testo)
+	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM documento_proposta WHERE allegato_id = $1`, pdf); n != 0 {
+		t.Errorf("R2 ha scritto una proposta: %d", n)
+	}
+	// uno STEP documentale (di una parte, non legato come sorgente) si preassocia come un PDF
+	parte := uuidSQL(t, b, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, sha256, ricevuto_il)
+		VALUES ($1, 3, '7120020.stp', 'stp', repeat('e', 64), now()) RETURNING allegato_id`, msg)
+	pbParte := map[string]any{"allegato_id": parte.String(), "chiave_bozza": "k-root"}
+	snap := map[string]any{}
+	for k, v := range s.snapshot {
+		snap[k] = v
+	}
+	snap["documenti_preassociati"] = []any{map[string]any{"allegato_id": pdf.String(), "chiave_bozza": "k-root"}, pbParte}
+	raw, _ := json.Marshal(map[string]any{"bozza_id": s.bozza, "versione_attesa": 2, "prodotto_id": s.prodotto, "vocabolario": 2,
+		"chiave_salvataggio": uuid.New(), "snapshot": snap,
+		"azioni": []any{map[string]any{"azione": "file_preassociato", "chiave_bozza": "k-root", "dopo": pbParte, "origine": "utente"}}})
+	resp, testo = ad.chiediJSON(http.MethodPost, base+"/bozza", string(raw))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(testo, `"versione":3`) {
+		t.Errorf("PB sullo STEP documentale: %d %s", resp.StatusCode, testo)
+	}
+}
+
 // Prima l'esistenza della RFQ, poi la forma (EM §9, REV RS-11; rilievo della revisione dell'ondata B): ogni rotta con una
 // forma sbagliata da' 404 su una RFQ che non c'e' e 422 su una che c'e'; un corpo oltre 2 MiB + 4 KiB, 413.
 func TestBozzaV1PrimaLEsistenzaPoiLaForma(t *testing.T) {
@@ -371,6 +467,26 @@ func TestBozzaV1R26EffettoDelCambioDiTipo(t *testing.T) {
 	if err := json.Unmarshal([]byte(corpo), &eff); err != nil || eff.ComponenteID != s.sotto || eff.TipoNuovo != "sciolto" || eff.Effetto.Codice != "7120010" ||
 		eff.Effetto.TipoAttuale != "sottoassieme" {
 		t.Fatalf("effetto: %s", corpo)
+	}
+	// OB-03 (DEC-B PD-05, PE-B05): «spento» c'e' sempre, stringa (vuota quando il cambio si puo' fare, e allora c'e' il
+	// bottone); gli elenchi ci sono sempre, [] e mai null
+	var grezzo struct {
+		Effetto map[string]json.RawMessage `json:"effetto"`
+	}
+	if err := json.Unmarshal([]byte(corpo), &grezzo); err != nil {
+		t.Fatal(err)
+	}
+	var spento string
+	if raw, ok := grezzo.Effetto["spento"]; !ok || json.Unmarshal(raw, &spento) != nil {
+		t.Fatalf("OB-03: «spento» assente o non stringa: %s", corpo)
+	}
+	if _, ok := grezzo.Effetto["bottone"]; (spento == "") != ok {
+		t.Errorf("OB-03: spento %q e bottone presente %v: %s", spento, ok, corpo)
+	}
+	for _, k := range []string{"opzioni", "sospende", "con_lei", "resta_sospesa", "avvisi"} {
+		if raw, ok := grezzo.Effetto[k]; !ok || !strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
+			t.Errorf("OB-03: l'elenco %s non e' un elenco: %s", k, corpo)
+		}
 	}
 	// la stessa firma dell'anteprima della pagina legacy (la scheda del componente), per lo stesso componente e tipo
 	_, html := ad.fai(http.MethodGet, base+"/fascicolo/componente/"+s.sotto.String()+"/tipo?tipo=sciolto", nil, true)
@@ -454,5 +570,36 @@ func TestV1ConfermaLaFonteScriveLaStoriaDellaFonte(t *testing.T) {
 	conferma(pPdf)
 	if n := contaSQL(t, b, `SELECT count(*) FROM fonte_step_evento WHERE thread_id = $1`, thread); n != 1 {
 		t.Fatalf("righe della storia della fonte dopo lo STEP del sottoassieme e il PDF: %d, attesa una", n)
+	}
+}
+
+// R15 (U2 §5.7), la rotta: montata con la catena delle rotte della bozza (solo admin), il corpo stretto (422), e senza le
+// regole del motore 503 NON_CONFIGURATO prima di ogni scrittura. Il gesto sul database e' provato nel core
+// (TestV1R15RifiutoDellaPropostaAggiornata, distintabozza).
+func TestBozzaV1R15LaRotta(t *testing.T) {
+	b, s := bancoBozzaV1(t)
+	ad := b.browser("10.0.0.8")
+	ad.login("AD", "prova-ad")
+	op := operatore(b)
+	percorso := "/thread/" + s.thread.String() + "/motore-a/proposta-aggiornata/rifiuta"
+	corpo := `{"chiave_idempotenza":"` + uuid.New().String() + `","prodotto_id":"` + s.prodotto.String() + `","conferma_id":"` + uuid.New().String() +
+		`","gruppo":"bom","impronta_contenuto":"` + strings.Repeat("7", 64) + `","motivo":"manteniamo la BOM"}`
+	prima := fotoDelDatabase(t, b)
+	if resp, _ := op.chiediJSON(http.MethodPost, percorso, corpo); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("operatore: %d, atteso 403", resp.StatusCode)
+	}
+	if resp, testo := ad.chiediJSON(http.MethodPost, percorso, `{"prodotto_id":"x"}`); resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(testo, `"codice":"CORPO_NON_VALIDO"`) {
+		t.Errorf("corpo non valido: %d %s", resp.StatusCode, testo)
+	}
+	if resp, testo := ad.chiediJSON(http.MethodPost, percorso, corpo); resp.StatusCode != http.StatusServiceUnavailable ||
+		!strings.Contains(testo, `"codice":"NON_CONFIGURATO"`) || !strings.Contains(testo, `"esito":"non_registrato"`) {
+		t.Errorf("senza regole: %d %s", resp.StatusCode, testo)
+	}
+	if resp, _ := ad.fai(http.MethodGet, percorso, nil, false); resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET: %d, atteso 405", resp.StatusCode)
+	}
+	if d := differenze(prima, fotoDelDatabase(t, b)); d != "" {
+		t.Errorf("R15 non riuscita ha scritto in: %s", d)
 	}
 }

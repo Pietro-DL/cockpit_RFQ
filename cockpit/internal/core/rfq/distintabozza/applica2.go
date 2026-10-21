@@ -11,7 +11,9 @@ package distintabozza
 //     essere uguale al prima; nodo_modificato e nodo_riusato trovano nel nodo i campi del prima (null = assente) e ci
 //     scrivono quelli del dopo (null = toglie il campo);
 //   - arco_aggiunto, arco_tolto, arco_spostato, qta_modificata fanno lo stesso con gli archi, per (padre, figlio);
-//   - decisione_aggiunta e decisione_tolta, per id; file_preassociato e file_svincolato, per proposta_id;
+//   - decisione_aggiunta e decisione_tolta, per id; file_preassociato e file_svincolato, per allegato_id (direttiva 35,
+//     C-2: la preassociazione e' {allegato_id, chiave_bozza}); un file_preassociato di un allegato gia' preassociato e'
+//     rifiutato (prima lo svincolo), come vuole il validatore dello snapshot (base [T] D-ASS-04 A, provvisorio);
 //   - rebase porta versione_bom_base e firma_base dal prima al dopo: base = {conferma_id, numero, contatore,
 //     firma_struttura};
 //   - file_lasciato, sorgente_vista e sorgente_rifiutata non cambiano lo snapshot.
@@ -27,8 +29,8 @@ import (
 type oggettoV2 = map[string]json.RawMessage
 
 // statoV2 e' uno snapshot come oggetti per chiave: i quattro elenchi per la loro chiave, il resto (formato, prodotto,
-// sorgente, base, firma) com'e'. grado e preDi sono gli indici dei controlli locali: archi che toccano un nodo,
-// preassociazioni di un nodo.
+// sorgente, base, firma) com'e' (le preassociazioni per allegato_id). grado e preDi sono gli indici dei controlli locali:
+// archi che toccano un nodo, preassociazioni di un nodo.
 type statoV2 struct {
 	testa     oggettoV2
 	nodi      map[string]oggettoV2
@@ -125,7 +127,10 @@ func (s *statoV2) togliArco(k [2]string) {
 }
 
 func (s *statoV2) mettiPre(p oggettoV2) {
-	s.pre[campoTesto(p, "proposta_id")] = p
+	// direttiva 39 §4 (D-PB03 A [U]): provenienza e registro d'origine di una PB li decide il server (provenienza3.go);
+	// la riconciliazione delle azioni guarda solo l'occorrenza e il nodo
+	p = oggettoV2{"allegato_id": p["allegato_id"], "chiave_bozza": p["chiave_bozza"]}
+	s.pre[campoTesto(p, "allegato_id")] = p
 	s.preDi[campoTesto(p, "chiave_bozza")]++
 }
 
@@ -137,7 +142,7 @@ func (s *statoV2) togliPre(id string) {
 }
 
 // snapshotJSON: lo snapshot nella forma canonica, con gli elenchi in ordine (nodi per chiave, archi per padre e figlio,
-// decisioni per id, preassociazioni per proposta: lo stesso ordine dello scrittore del formato 3).
+// decisioni per id, preassociazioni per allegato: lo stesso ordine dello scrittore del formato 3).
 func (s *statoV2) snapshotJSON() ([]byte, error) {
 	top := map[string]any{}
 	for k, v := range s.testa {
@@ -316,6 +321,44 @@ func (s *statoV2) applicaV2(campo, verbo string, prima, dopo json.RawMessage) *E
 		}
 		nuovo["qta"] = d["qta"]
 		s.archi[k] = nuovo
+	case AzArcoModificato:
+		// U2 §7.7: le sole evidenze_arco; null o assente = nessuna evidenza
+		p, e := oggettoDa(campo+".prima", prima)
+		if e != nil {
+			return e
+		}
+		d, e := oggettoDa(campo+".dopo", dopo)
+		if e != nil {
+			return e
+		}
+		k := chiaveArco(p)
+		if chiaveArco(d) != k {
+			return corpo(campo, "arco_modificato vuole prima e dopo con lo stesso padre e figlio")
+		}
+		cur, c := s.archi[k]
+		if !c {
+			return nonRiconciliate(campo, "arco_modificato: l'arco %s → %s non c'e'", k[0], k[1])
+		}
+		vecchie, attese := cur["evidenze_arco"], p["evidenze_arco"]
+		if nullo(vecchie) {
+			vecchie = nil
+		}
+		if nullo(attese) {
+			attese = nil
+		}
+		if !bytes.Equal(canonico(vecchie), canonico(attese)) {
+			return nonRiconciliate(campo, "arco_modificato: l'arco %s → %s non ha le evidenze che l'azione dice di trovare", k[0], k[1])
+		}
+		nuovo := oggettoV2{}
+		for kk, v := range cur {
+			nuovo[kk] = v
+		}
+		if nullo(d["evidenze_arco"]) {
+			delete(nuovo, "evidenze_arco")
+		} else {
+			nuovo["evidenze_arco"] = d["evidenze_arco"]
+		}
+		s.archi[k] = nuovo
 	case AzDecisioneAggiunta:
 		d, e := oggettoDa(campo+".dopo", dopo)
 		if e != nil {
@@ -342,20 +385,20 @@ func (s *statoV2) applicaV2(campo, verbo string, prima, dopo json.RawMessage) *E
 		if e != nil {
 			return e
 		}
-		id := campoTesto(p, "proposta_id")
+		id := campoTesto(p, "allegato_id")
 		if _, c := s.pre[id]; c {
-			return nonRiconciliate(campo, "file_preassociato: la proposta %s e' gia' preassociata", id)
+			return nonRiconciliate(campo, "file_preassociato: l'allegato %s e' gia' preassociato (prima si svincola)", id)
 		}
-		s.mettiPre(oggettoV2{"proposta_id": p["proposta_id"], "chiave_bozza": p["chiave_bozza"]})
+		s.mettiPre(oggettoV2{"allegato_id": p["allegato_id"], "chiave_bozza": p["chiave_bozza"]})
 	case AzFileSvincolato:
 		p, e := oggettoDa(campo+".prima", prima)
 		if e != nil {
 			return e
 		}
-		id := campoTesto(p, "proposta_id")
+		id := campoTesto(p, "allegato_id")
 		cur, c := s.pre[id]
 		if !c || campoTesto(cur, "chiave_bozza") != campoTesto(p, "chiave_bozza") {
-			return nonRiconciliate(campo, "file_svincolato: la proposta %s non e' preassociata a %s", id, campoTesto(p, "chiave_bozza"))
+			return nonRiconciliate(campo, "file_svincolato: l'allegato %s non e' preassociato a %s", id, campoTesto(p, "chiave_bozza"))
 		}
 		s.togliPre(id)
 	case AzRebase:
@@ -489,7 +532,7 @@ func inversaV2(verbo string, prima, dopo json.RawMessage) (string, json.RawMessa
 		return AzArcoAggiunto, nil, prima, true
 	case AzArcoSpostato:
 		return AzArcoSpostato, senzaAzioneID(dopo), prima, true
-	case AzNodoModificato, AzNodoRiusato, AzQtaModificata:
+	case AzNodoModificato, AzNodoRiusato, AzQtaModificata, AzArcoModificato:
 		return verbo, dopo, prima, true
 	case AzDecisioneAggiunta:
 		return AzDecisioneTolta, dopo, nil, true

@@ -13,12 +13,11 @@ server lo fa. La sonda del banco (/__banco/...) dice gli identificativi, lo stat
 Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lasciato dalla precedente):
   01 apertura: solo letture, passo Sorgente senza bozza, indirizzo riscritto, nessun R4 e nessuna scrittura; il testo
      corretto di «Prepara i file»
-  02 Sorgente: cartelle, «Guarda» (S6), organigramma della proposta, pannello del nodo (proposta, riferimenti,
-     provenienza; le schede senza identita'), zoom e pan senza richieste
-  03 S7 «Associa lo STEP», poi «Conferma la fonte» e «Autorizza» (atti della lista chiusa, HX-Current-URL, presa d'atto
-     mai spuntata da sola)
-  04 «Usa per la BOM» (R2 crea): 409 ANTEPRIMA_SUPERATA chiude il dialogo e rilegge S6; poi la versione 1 dal server, il
-     passo Revisione, nessun R4 all'apertura della bozza
+  02 Sorgente (mockup v5, direzione A, ondata C): cartelle con i conti, la pagina che non scorre, «Da controllare» senza
+     bozza, «Guarda l'anteprima per ‹P›» (S6), organigramma della proposta, pannello del nodo, zoom e pan senza richieste
+  03 S8 «Conferma questo STEP come sorgente di ‹P›»: 409 al passo 0, «parziale» ritentabile ripreso con la stessa chiave,
+     i tre passi, la cartella del prodotto; poi «Autorizza» (atto della lista chiusa, presa d'atto mai spuntata da sola)
+  04 dopo S8: la versione 1 costruita dal server, «Vai alla Revisione →», nessun R4 all'apertura della bozza
   05 Elenco: «Accetta la proposta» (preassociazione) = R2 con vocabolario 2 e chiave_salvataggio; R4 in sottofondo; i
      gesti di V3 spenti con il motivo
   06 selezione multipla: «Seleziona tutti i segnalati», Ctrl+clic, «Non includere nella BOM...»: un salvataggio, un
@@ -43,7 +42,8 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
      «Fissa l'emittente»
   17 «Scollega da un padre» (togli_arco); con la conferma in sospeso R3 e' spento; abbandono esplicito del tentativo, R3
   18 proposta cambiata: striscia, «Vedi le differenze» (R1 ?confronto=1), «Aggiorna alla proposta di oggi...»
-  19 «Cambia lo STEP della BOM...»: l'effetto da S6 prima del gesto, il motivo, cambia_sorgente
+  19 «Cambia la sorgente di ‹P› con questo STEP…» (S8 con la bozza): prima la revoca dello STEP autorizzato, l'effetto
+     da S6, il motivo, sostituisci
   20 «Importa dalla proposta...» (selettivo, nessun elemento preselezionato, identita' delle regole della partenza)
      e «Riparti dalla proposta...» (crea con abbandona): niente della bozza di prima passa alla nuova
   21 file: «Scarta...» con le dipendenze (D-6 blocca, D-7 scollega, D-14 unica copia), l'archivio con le voci, «Altri
@@ -57,8 +57,8 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   26 secondo prodotto: lo STEP che non propone una struttura per il prodotto non inventa niente
   27 D-18: il modello che non si calcola (200 con «errore»): striscia, niente tela; «Aggiorna» lo rifa'
   28 impaginazione a 1440, 1024 e 390 px senza scorrimento orizzontale (Sorgente, Organigramma, Elenco, wizard)
-  29 la Sorgente dice dove va ogni file (SG-06: preassociato, proposto per un pezzo); «Assegna a un pezzo...» (FL-12) e
-     «Togli la preassociazione»; «Scarica» (FL-03); senza bozza «Assegna» e' spento con il motivo
+  29 la cartella del prodotto con lo smistamento di S9: «Salva nella bozza», «Annulla la mossa», «Togli dalla bozza»;
+     «Associa a un nodo...» con la riga fantasma e «Ultima mossa»; «Scarica» (FL-03)
   30 l'Elenco: filtri e ricerca (EL-01), «Accetta le proposte (N)» senza preselezione (EL-03, PE-21); «Confronto con la
      proposta» sulle schede (BZ-25)
   31 il pannello del nodo: la sezione «Documenti» (EL-08) e «⤴ Ricolloca i figli...» in un salvataggio (BZ-11)
@@ -78,7 +78,7 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   40 letture e forme di R2 che non riescono: R1 e S1 in 5xx, annullamento_non_ammesso, i 422 di cambia_sorgente, la rete
      caduta (stessa chiave_salvataggio), R3 409
   41 i 409 e i 422 dei gesti dei file (S3 e S4 ANTEPRIMA_SUPERATA, FILE_VERSIONE, COPIA_IN_CORSO, DIPENDENZE_ATTIVE,
-     RISOLUZIONE_RICHIESTA, registrato_senza_esito, S7 ANTEPRIMA_SUPERATA e GIA_DOCUMENTO, NESSUN_FILE_CARICATO, 413),
+     RISOLUZIONE_RICHIESTA, registrato_senza_esito, niente S7, NESSUN_FILE_CARICATO, 413),
      «Riattiva» di un archivio con le voci, gli atti in coda
   42 rebase con la base superata; BOM congelata: fascia e «Chiedi una revisione autorizzata...» spento
   43 pannello: linguette, documenti del nodo, azioni non in V1 con il motivo; «da ricodificare»; NI-06; linguette dei file;
@@ -110,6 +110,14 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
   34 le richieste della pagina: solo guscio, statici, rotte del ponte e sei atti; nessun gesto legacy
   57 (secondo passaggio, dopo la 34) l'uscita annullata: con le modifiche tenute da parte «esci» chiede conferma, si
      resta, e le chiavi cockpit.du. restano; la pagina d'accesso aperta dopo non le toglie (R-3, MAT §5.5 n. 7)
+  dall'ondata C (U2): 58 le notifiche con il wizard aperto (N1 con la presa d'atto, N2, N4, N5); 59 conferma_categoria
+     dall'editor del nodo e dal wizard, «Conferma il tipo proposto», «Non è minuteria…»; 60 (dopo la 14) R15 «Rifiuta la
+     proposta aggiornata…» senza bozza
+  dalla direttiva 35 (C-2): 61 (dopo la 36) la preassociazione per allegato_id: un file senza proposta di documento si
+     preassocia (Prova 2), niente STEP né archivi fra i file da smistare, «Sposta a un altro nodo…» con svincolo e
+     preassociazione
+  dal rilievo del revisore del 20/10: 67 (dopo la 66) CREA_SU_ESISTENTE con «Riusa ‹C›» e «Riusa i componenti con lo stesso
+     codice (n)» (riusa_esistente con R2), «Togli il riuso» nel pannello
   49 (per ultima: esce dalla sessione) all'uscita («esci» del layout) le chiavi cockpit.du. della memoria della scheda
      si tolgono sulla pagina d'accesso, quelle dell'editor subito, le altre restano (richiesta R-3 della corsia)
 
@@ -205,6 +213,14 @@ class Banco:
         r = self.page.request.post(self.url + "/__banco/bozza-formato2")
         verifica(r.status == 204, "la sonda non ha creato la bozza del formato di prima: %d" % r.status)
 
+    def sorgente_s8(self, prodotto):
+        """Dati di prova (sonda sorgente-s8): la bozza aperta del prodotto riceve una sorgente confermata da S8 e valida,
+        così il gate della sorgente, acceso come nel server, la lascia confermare; poi la pagina si rilegge."""
+        r = self.page.request.post(self.url + "/__banco/sorgente-s8", data=json.dumps({"prodotto": prodotto}), headers={"Content-Type": "application/json"})
+        verifica(r.status == 204, "la sonda sorgente-s8 ha risposto %d" % r.status)
+        self.page.click("#du-aggiorna")
+        expect(self.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+
     def sonda_post(self, percorso):
         """Un gesto della sonda dell'ondata B (conferma-formato2, bozza-registrato, sostituisci-bozza): 204 atteso."""
         r = self.page.request.post(self.url + "/__banco/" + percorso)
@@ -219,7 +235,7 @@ class Banco:
 
     def scritture(self):
         c = self.stato()["conti"]
-        return {k: v for k, v in c.items() if k in ("R2", "R3", "R4", "R5", "R11", "E1", "S2", "S3", "S4", "S7", "atti") and v}
+        return {k: v for k, v in c.items() if k in ("R2", "R3", "R4", "R5", "R11", "E1", "S2", "S3", "S4", "atti") and v}
 
     # ---- le richieste viste dal browser
     def segna(self):
@@ -292,6 +308,47 @@ class Banco:
     def scheda(self, k, **kw):
         self.page.click("#du-zoom-adatta")
         self.page.locator("#nc-" + sid(k)).click(**kw)
+
+    def cartella(self, k):
+        """Una cartella del tab Sorgente (mockup v5, direzione A): l'albero a sinistra."""
+        v = self.page.locator("#du-sg-c-" + sid(k))
+        v.click()
+        expect(v).to_have_attribute("aria-selected", "true", timeout=T_BREVE)
+
+    def file(self, allegato, cartella="tutti"):
+        """Il dettaglio di un file: la cartella, poi la riga (il nome), poi il dettaglio a destra."""
+        if self.page.locator("#du-passo-sorgente[aria-current=step]").count() == 0:
+            self.passo("sorgente")
+        self.cartella(cartella)
+        self.page.locator("#du-file-%s .du-fr-nome, #du-step-%s .du-fr-nome" % (sid(allegato), sid(allegato))).first.click()
+        expect(self.page.locator("#du-sg-file")).to_have_attribute("data-allegato", allegato, timeout=T_BREVE)
+
+    def azione(self, nome, allegato, cartella="tutti"):
+        """Un'azione del dettaglio di un file (la matrice del mockup v5): scegli il file, poi il pulsante «du-‹azione›-‹file›»."""
+        self.file(allegato, cartella)
+        self.page.click("#du-sg-dettaglio #du-" + nome + "-" + sid(allegato))
+
+    def apri_carica(self):
+        """«+ Aggiungi file» nella barra dello spazio di lavoro della Sorgente (mockup v5): il modulo di E1′."""
+        if self.page.locator("#du-passo-sorgente[aria-current=step]").count() == 0:
+            self.passo("sorgente")
+        if self.page.locator("#du-carica-file").count() == 0:
+            self.page.click("#du-sg-aggiungi")
+        expect(self.page.locator("#du-carica-file")).to_be_attached(timeout=T_BREVE)
+
+    def guarda(self, allegato, prodotto=None):
+        """«Guarda l'anteprima per ‹P›» dalla cartella «STEP della RFQ» (il gesto in riga della candidatura)."""
+        if self.page.locator("#du-passo-sorgente[aria-current=step]").count() == 0:
+            self.passo("sorgente")
+        self.cartella("step")
+        suf = sid(allegato) + ("" if not prodotto or prodotto == self.p1 else "-" + sid(prodotto))
+        bt = self.page.locator("#du-guarda-" + suf).first
+        if bt.inner_text().startswith("In anteprima"):
+            # l'anteprima di questo STEP è già aperta (nel riquadro stretto): il gesto la chiude, il secondo la riapre allargata
+            bt.click()
+            expect(self.page.locator("#du-guarda-" + suf).first).to_contain_text("Guarda l'anteprima", timeout=T_BREVE)
+        self.page.locator("#du-guarda-" + suf).first.click()
+        expect(self.page.locator("#du-anteprima")).to_be_visible(timeout=T_LUNGO)
 
     def linguetta(self, nome):
         """La linguetta del pannello del nodo: «dettaglio» o «documenti» (MAT PN-02)."""
@@ -409,17 +466,34 @@ def b01(b):
     p.click("#du-menu-rfq summary")
 
 
-@prova("02", "Sorgente: cartelle, «Guarda» (S6), proposta, pannello del nodo, zoom e pan")
+@prova("02", "Sorgente (mockup v5): cartelle con i conti, «Guarda l'anteprima per ‹P›» (S6), proposta, pannello del nodo, zoom e pan")
 def b02(b):
     p = b.page
-    expect(p.locator("#du-cartella-attivi")).to_have_text("Tutti (15)")
-    expect(p.locator("#du-cartella-altri")).to_have_text("Altri file (0)")
-    expect(p.locator("#du-cartella-scartati")).to_have_text("Scartati (0)")
+    # D-V5-01 (base [T] A′): finché nessun prodotto ha la bozza la Sorgente si apre su «STEP della RFQ»
+    expect(p.locator("#du-sg-c-step")).to_have_attribute("aria-selected", "true")
+    expect(p.locator("#du-sg-c-tutti .du-sg-conto")).to_have_text("15")
+    expect(p.locator("#du-sg-c-altri .du-sg-conto")).to_have_text("0")
+    expect(p.locator("#du-sg-c-scartati .du-sg-conto")).to_have_text("0")
+    expect(p.locator("#du-sg-c-step")).to_contain_text("sorgenti: 0 di 2")
+    expect(p.locator("#du-sg-c-p_" + sid(b.p1))).to_contain_text("○ da confermare · 2 STEP")
+    # lo spazio di lavoro sta nel tab: la pagina non scorre (R1 del mockup v5, [U] M32)
+    alt = p.evaluate("() => [document.documentElement.scrollHeight, window.innerHeight]")
+    verifica(alt[0] <= alt[1] + 2, "la pagina scorre nella Sorgente: %s" % alt)
     a1 = b.al["ACM-1000_assieme.stp"]
     # SG-01: per ogni STEP le radici candidate, la compatibilità, lo stato della struttura (LS-01) e i nodi segnalati
     expect(p.locator("#du-step-" + sid(a1))).to_contain_text("candidata ACM-1000 · compatibile · struttura completa · segnalati: 3")
     expect(p.locator("#du-step-" + sid(b.al["ACM-1000_rev2.stp"]))).to_contain_text("candidata ACM-1000-R2")
-    p.click("#du-guarda-" + sid(a1))
+    # «Da controllare» senza bozza: la fascia «Prima conferma una sorgente» (D-V5-01 A′)
+    b.cartella("dc")
+    expect(p.locator("#du-sg-prima-sorgente")).to_contain_text("Prima conferma una sorgente")
+    b.cartella("dc-senza")
+    b.file(b.al["SCHEMA_GENERALE.pdf"], "dc-senza")
+    expect(p.locator("#du-sg-motivo")).to_contain_text("nessun nodo candidato")
+    expect(p.locator("#du-sg-nondisp")).to_contain_text("nessun prodotto ha ancora la bozza: conferma prima una sorgente")
+    b.cartella("dc-att:" + b.p1)
+    expect(p.locator("#du-sg-elenco")).to_contain_text("ACM-1100_A.pdf")
+    expect(p.locator("#du-sg-elenco")).to_contain_text("attende la sorgente di ACM-1000")
+    b.guarda(a1)
     expect(p.locator("#du-anteprima")).to_contain_text("in vista, non confermata", timeout=T_LUNGO)
     expect(p.locator("#du-anteprima .du-vp .du-nc[data-k]")).to_have_count(10)
     testo_schede = p.locator("#du-anteprima .du-vp").inner_text()
@@ -460,81 +534,654 @@ def b02(b):
     verifica(b.scritture() == {}, "scritture nella Sorgente: %s" % b.scritture())
 
 
-@prova("03", "S7 «Associa lo STEP», «Conferma la fonte», «Autorizza» (atti con HX-Current-URL)")
-def b03(b):
-    p = b.page
-    expect(p.locator("#du-conferma-fonte")).to_be_disabled()
-    expect(p.locator("#du-fonte")).to_contain_text("lo STEP non è associato al prodotto")
-    i = b.segna()
-    p.click("#du-associa-step")
-    expect(b.finestra()).to_contain_text("Associa lo STEP a ACM-1000")
-    b.ok_finestra()
-    expect(b.avviso()).to_contain_text("STEP associato a ACM-1000", timeout=T_LUNGO)
-    s7 = b.corpi(i, "POST", r"/sorgente/step/[^/]+/associa$")
-    verifica(len(s7) == 1, "S7: %d richieste" % len(s7))
-    c = s7[0]
-    verifica(re.fullmatch(UUID, c.get("chiave_idempotenza", "")) and c.get("prodotto_id") == b.p1 and c.get("codice_atteso") == "ACM-1000", "corpo di S7: %s" % c)
-    verifica(not [k for k in c if re.search("percorso|path|staging", k, re.I)], "S7 manda un campo percorso: %s" % c)
-    expect(p.locator("#du-anteprima")).to_contain_text("STEP associato a ACM-1000", timeout=T_LUNGO)
-    verifica(not b.sospesi(), "S7 riuscito ha lasciato una chiave in sospeso")
-    # Conferma la fonte: una voce, l'atto con le intestazioni della pagina di motore-a
-    expect(p.locator("#du-conferma-fonte")).to_be_enabled(timeout=T_LUNGO)
-    i = b.segna()
-    p.click("#du-conferma-fonte")
-    b.ok_finestra()
-    expect(b.avviso()).to_contain_text("Fonte confermata", timeout=T_LUNGO)
-    atti = b.richieste_da(i, "POST", r"/fascicolo/conferma$")
-    verifica(len(atti) == 1, "«Conferma la fonte»: %d richieste" % len(atti))
-    h = atti[0]["headers"]
-    verifica(h.get("hx-request") == "true" and h.get("hx-current-url", "").endswith("/thread/%s/motore-a" % b.thread), "intestazioni dell'atto: %s" % h)
-    voce = b.stato()["fonte"]["voce"]
-    verifica(urllib.parse.parse_qs(atti[0]["corpo"] or "") == {"voce": [voce]}, "campi di «Conferma la fonte»: %s" % atti[0]["corpo"])
-    expect(p.locator("#du-passo-sorgente")).to_contain_text("fonte confermata")
-    # Autorizza: l'anteprima, la presa d'atto spuntata da chi guarda, la firma letta
-    p.click("#du-autorizza")
-    expect(b.finestra()).to_contain_text("diventa lo STEP strutturale di ACM-1000", timeout=T_LUNGO)
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    verifica(not p.locator("#f-presa").is_checked(), "la presa d'atto è già spuntata")
-    p.locator("#f-presa").check()
-    i = b.segna()
-    b.ok_finestra()
-    expect(b.avviso()).to_contain_text("STEP strutturale autorizzato", timeout=T_LUNGO)
-    aut = b.richieste_da(i, "POST", r"/fascicolo/componente/[^/]+/step-strutturale$")
-    verifica(len(aut) == 1 and ("/componente/%s/" % b.p1) in aut[0]["path"], "«Autorizza»: %s" % [r["path"] for r in aut])
-    f = urllib.parse.parse_qs(aut[0]["corpo"] or "")
-    verifica(f.get("presa_d_atto") == ["1"] and f.get("firma") == ["f" * 64], "campi di «Autorizza»: %s" % f)
-    expect(p.locator("#du-passo-sorgente")).to_contain_text("STEP autorizzato")
-    expect(p.locator("#du-revoca")).to_be_visible()
-
-
-@prova("04", "«Usa per la BOM»: 409 ANTEPRIMA_SUPERATA chiude il dialogo, poi la bozza v1 dal server")
-def b04(b):
+@prova("62", "direttiva 39: «Parti dal solo prodotto» senza STEP, pezzi e PB a mano, R4 con STEP_SORGENTE_NON_CONFERMATA e la conferma spenta; S8 riconcilia la stessa bozza (un abbinamento certo, uno da decidere, nessun doppione), «Abbina a…»; le differenze con lo STEP (quantità discordante, legami, tipo) con «Recepisci» e «Mantieni»; «Revoca come sorgente…»; lo STEP in analisi")
+def b62(b):
     p = b.page
     a1 = b.al["ACM-1000_assieme.stp"]
+    a10 = b.al["ACM-1000_rev2.stp"]
+    # 1. nessuna bozza e nessuno STEP confermato: «Parti dal solo prodotto…» (R2 crea vuota, direttiva 39 §1)
+    b.passo("revisione")
+    expect(p.locator("#du-da-vuota")).to_be_enabled(timeout=T_LUNGO)
+    i = b.segna()
+    p.click("#du-da-vuota")
+    expect(b.finestra()).to_contain_text("«Conferma BOM» richiederà uno STEP confermato come sorgente")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Bozza aperta dal solo prodotto", timeout=T_LUNGO)
+    c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
+    verifica(c["crea"] == {"partenza": "vuota"} and c["bozza_id"] is None and c["versione_attesa"] == 0 and c["vocabolario"] == 2, "corpo della partenza vuota: %s" % c)
+    verifica(not b.richieste_da(i, "POST", r"/conferma-sorgente$"), "la partenza vuota ha chiamato S8")
+    expect(p.locator("#du-senza-sorgente")).to_contain_text("Bozza senza STEP", timeout=T_LUNGO)
+    b.salvata(1)
+    # 2. due pezzi messi a mano sotto il prodotto (uno con codice e rev dello STEP che arriverà, uno con un'altra rev) e una
+    # PB manuale: la bozza senza STEP si salva e si versiona (direttiva 39 §1)
+    b.vista("org")
+    chiavi = []
+    for codice, rev, desc in (("ACM-1100", "A", "Telaio messo a mano"), ("ACM-1120", "B", "Traversa messa a mano")):
+        b.scheda("k-root")
+        b.linguetta("dettaglio")
+        p.click("#du-aggiungi-sotto")
+        p.select_option("#f-tipo", "sciolto")
+        p.fill("#f-desc", desc)
+        p.fill("#f-codice", codice)
+        p.fill("#f-rev", rev)
+        p.fill("#f-qta", "2")
+        b.ok_finestra()
+        expect(p.locator("#du-vp .du-nc", has_text=codice)).to_have_count(1, timeout=T_LUNGO)
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        chiavi.append(p.locator("#du-pannello").get_attribute("data-k"))
+    b.salvata(3)
+    k_telaio, k_traversa = chiavi
+    verifica(k_traversa == p.locator("#du-pannello").get_attribute("data-k"), "il pannello non è sulla traversa appena aggiunta")
+    # prima dello STEP nessuna differenza da mostrare (non c'è un cambio della fonte)
+    expect(p.locator("#du-differenze")).to_have_count(0)
+    b.linguetta("documenti")
+    i = b.segna()
+    p.select_option("#du-pannello-file", label="SCHEMA_GENERALE.pdf")
+    p.click("#du-pannello-preassocia")
+    az = b.ultime_azioni(i)
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"allegato_id": b.al["SCHEMA_GENERALE.pdf"], "chiave_bozza": k_traversa})], "PB manuale: %s" % az)
+    b.salvata(4)
+    b.linguetta("dettaglio")
+    # 3. R4 completo senza STEP, con il blocco della sorgente; la conferma spenta con il rimedio nella Sorgente (il gate è
+    # acceso nel banco come nel server, dal blocco R4/R5 della persistenza)
+    b.apri_wizard()
+    p.click("#du-wz-fase2")
+    expect(p.locator("#du-wz-confermabile")).to_contain_text("La BOM non è confermabile", timeout=T_LUNGO)
+    expect(p.locator("#du-wz-blocchi [data-codice=STEP_SORGENTE_NON_CONFERMATA]")).to_contain_text("non ha uno STEP confermato come sorgente")
+    expect(p.locator("#du-wz-vai-sorgente")).to_be_visible()
+    expect(p.locator("#du-wz-conferma")).to_be_disabled()
+    verifica("conferma uno STEP dalla Sorgente" in (p.locator("#du-wz-conferma").get_attribute("title") or ""), "conferma spenta senza il rimedio della sorgente")
+    # la consultazione resta completa: la sorgente (nessuno STEP), i documenti per gruppo con la PB manuale
+    expect(p.locator("#du-wz-sorgente-legata")).to_contain_text("parte dal solo prodotto")
+    expect(p.locator("#du-wz-gruppo-manuale")).to_contain_text("SCHEMA_GENERALE.pdf")
+    verifica(not b.richieste_da(i, "POST", r"/motore-a/bom/conferma$"), "R5 chiamata con il blocco della sorgente")
+    p.click("#du-wz-chiudi")
+    expect(p.locator("#du-wizard")).to_be_hidden()
+    # 4. senza S8 il motore non propone righe per il prodotto (D-AR11 B): i file attendono la sorgente
+    b.passo("sorgente")
+    expect(p.locator("#du-sg-c-p_" + sid(b.p1))).to_contain_text("bozza v4 senza sorgente confermata", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-c-dc-att_" + sid(b.p1))).to_be_visible()
+    # 5. arriva lo STEP: S8 sulla bozza aperta riconcilia la STESSA bozza (dichiarata nel corpo), con il motivo
+    b.guarda(a1)
+    expect(p.locator("#du-conferma-sorgente")).to_have_text("Conferma questo STEP come sorgente di ACM-1000…", timeout=T_LUNGO)
+    i = b.segna()
+    p.click("#du-conferma-sorgente")
+    expect(b.finestra()).to_contain_text("riconcilia la bozza senza STEP", timeout=T_LUNGO)
+    expect(p.locator("#f-effetto")).to_contain_text("nodi che entrano")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.fill("#f-motivo", "arriva lo STEP del cliente")
+    b.ok_finestra()
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    c = b.corpi(i, "POST", r"/conferma-sorgente$")[0]
+    verifica(c["bozza"]["versione_attesa"] == 4 and c["codice_atteso"] == "ACM-1000" and c.get("sha256") and c["gruppo"].startswith("cand:") and "partenza" not in c
+             and "componente_atteso" not in c and c["motivo"], "corpo di S8 sulla bozza senza STEP: %s" % c)
+    s6 = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
+    verifica(s6 and "bozza=" in s6[-1]["query"], "l'effetto non è stato letto con S6 ?bozza=: %s" % [r["query"] for r in s6])
+    expect(b.avviso()).to_contain_text("Abbinamenti da decidere nella Revisione: 1")
+    st = b.stato()
+    verifica(st["fonte"]["autorizzata"] is False, "S8 ha toccato la working (autorizzata): %s" % st["fonte"])
+    verifica(st["bozze"][b.p1]["versione"] == 5, "la riconciliazione non è la versione 5 della stessa bozza: %s" % st["bozze"][b.p1])
+    verifica(not b.richieste_da(i, "POST", r"/step-strutturale"), "S8 ha chiamato l'autorizzazione")
+    # 6. la vista della riconciliazione: nessun doppione, l'abbinamento incerto fuori da «da rivedere», «Abbina a…»
+    b.passo("revisione")
+    ab = p.locator("#du-abbinamenti")
+    expect(ab).to_contain_text("Abbinamenti da decidere (1)", timeout=T_LUNGO)
+    expect(ab.locator("[data-du-abbinamento='%s']" % k_traversa)).to_have_attribute("data-motivo", "incompatibile")
+    expect(p.locator("#du-vp .du-nc", has_text="ACM-1100")).to_have_count(1)
+    expect(p.locator("#du-vp .du-nc", has_text="ACM-1120")).to_have_count(1)
+    i = b.segna()
+    ab.get_by_role("button", name=re.compile(r"^Abbina a ACM-1120")).click()
+    az = b.ultime_azioni(i)
+    verifica(len(az) == 1 and az[0]["azione"] == "nodo_modificato" and az[0]["chiave_bozza"] == k_traversa and az[0]["prima"]["caselle"] is None
+             and az[0]["dopo"]["caselle"][0]["rif"].endswith(":#11") and az[0]["dopo"]["identita"]["codice"] == "ACM-1120" and az[0]["dopo"]["identita"]["modo"] == "proposta",
+             "«Abbina a…»: %s" % az)
+    expect(ab).to_have_count(0, timeout=T_LUNGO)
+    b.salvata(6)
+    # 6-bis. le differenze con lo STEP (direttiva 39 §3 [U + T-39]: quantità, padre/figlio e tipi si mostrano; «Recepisci» è
+    # un gesto normale, «Mantieni» non scrive): il telaio messo a mano ×2 sotto il prodotto, lo STEP dice ×1; la traversa
+    # abbinata sta sotto il prodotto nella bozza e sotto il telaio nello STEP (×4); il telaio è un particolare, lo STEP un
+    # assieme. Il server non le dà ancora nell'evento: la pagina le ricava dal registro della bozza (data-origine)
+    df = p.locator("#du-differenze")
+    expect(df).to_be_visible(timeout=T_LUNGO)
+    qta = df.locator("[data-du-differenza='a:cambiato:k-root>%s']" % k_telaio)
+    expect(qta).to_contain_text("bozza ×2, STEP ×1")
+    expect(qta).to_have_attribute("data-origine", "registro")
+    tolto = df.locator("[data-du-differenza='a:tolto:k-root>%s']" % k_traversa)
+    expect(tolto).to_contain_text("legame della bozza che lo STEP non ha")
+    aggiunto = df.locator("[data-du-differenza='a:aggiunto:%s>%s']" % (k_telaio, k_traversa))
+    expect(aggiunto).to_contain_text("STEP ×4")
+    # il legame sotto il telaio non si recepisce finché il telaio è un particolare (E37): prima il tipo
+    expect(aggiunto.get_by_role("button", name="Recepisci")).to_be_disabled()
+    verifica("non ha figli" in (aggiunto.get_by_role("button", name="Recepisci").get_attribute("title") or ""), "«Recepisci» spento senza il motivo E37")
+    expect(df.locator("[data-du-differenza='n:tipo:%s']" % k_telaio)).to_contain_text("bozza Particolare, STEP Assieme")
+    verifica(df.get_attribute("data-n") == "4", "differenze dopo la riconciliazione: %s" % df.get_attribute("data-n"))
+    # «Recepisci» della quantità: qta_modificata da ×2 a ×1, un salvataggio; la riga sparisce (il legame è toccato)
+    i = b.segna()
+    qta.get_by_role("button", name="Recepisci").click()
+    az = b.ultime_azioni(i)
+    verifica(len(az) == 1 and az[0]["azione"] == "qta_modificata" and az[0]["chiave_bozza"] == k_telaio and az[0]["prima"] == {"padre": "k-root", "figlio": k_telaio, "qta": 2}
+             and az[0]["dopo"] == {"padre": "k-root", "figlio": k_telaio, "qta": 1}, "«Recepisci» della quantità: %s" % az)
+    b.salvata(7)
+    expect(qta).to_have_count(0, timeout=T_LUNGO)
+    # «Mantieni» del legame che lo STEP non ha: nessuna scrittura, la bozza resta com'era
+    i = b.segna()
+    tolto.get_by_role("button", name="Mantieni").click()
+    expect(tolto).to_have_count(0, timeout=T_LUNGO)
+    expect(b.avviso()).to_contain_text("Mantenuto")
+    p.wait_for_timeout(1800)
+    verifica(not b.richieste_da(i, "POST", r"/motore-a/bozza$"), "«Mantieni» ha salvato la bozza")
+    verifica(b.stato()["bozze"][b.p1]["versione"] == 7, "«Mantieni» ha cambiato la bozza")
+    verifica(any(a["padre"] == "k-root" and a["figlio"] == k_traversa and a["qta"] == 2 for a in b.stato()["bozze"][b.p1]["snapshot"]["archi"]),
+             "il legame mantenuto non è più nella bozza")
+    b.foto("B62_differenze.png")
+    # 7. «Revoca come sorgente…» per uno STEP scelto per errore: il motivo, la rotta dedicata, la working non cambia
+    b.passo("sorgente")
+    b.cartella("p:" + b.p1)
+    if p.locator("#du-revoca-sorgente").count() == 0:
+        p.click("#du-sg-prodotto-apri")
+    # G39-03 [U]: la revoca porta la causa «sorgente errata» e la bozza che la pagina mostra; la bozza è nata da questo STEP
+    # e la BOM non è confermata con lui: il server la annulla (la storia resta), la working non cambia
+    p.click("#du-revoca-sorgente")
+    expect(b.finestra()).to_contain_text("Serve a correggere uno STEP scelto per errore")
+    expect(b.finestra()).to_contain_text("«sorgente errata»")
+    expect(p.locator("#f-revoca-bozza")).to_have_attribute("data-nata", "1")
+    expect(p.locator("#f-revoca-bozza")).to_contain_text("la revoca annulla la bozza")
+    verifica("non cambia la BOM confermata, la bozza" not in b.finestra().inner_text(), "il dialogo della revoca dice ancora che la bozza non cambia")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.fill("#f-motivo", "STEP del prodotto sbagliato")
+    i = b.segna()
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Sorgente revocata per ACM-1000", timeout=T_LUNGO)
+    expect(b.avviso()).to_contain_text("la bozza nata da questo STEP è annullata")
+    rv = b.corpi(i, "POST", r"/sorgente/step/[^/]+/revoca-sorgente$")
+    verifica(len(rv) == 1 and rv[0]["prodotto_id"] == b.p1 and rv[0]["motivo"] == "STEP del prodotto sbagliato" and re.fullmatch(UUID, rv[0]["chiave_idempotenza"])
+             and rv[0].get("sorgente_errata") is True and rv[0].get("bozza") == {"bozza_id": b.stato()["bozze"][b.p1]["bozza_id"], "versione_attesa": 7}
+             and ("/step/%s/" % a1) in b.richieste_da(i, "POST", r"/revoca-sorgente$")[0]["path"], "corpo della revoca: %s" % rv)
+    verifica(not b.richieste_da(i, "POST", r"/step-strutturale"), "la revoca è passata dall'atto legacy")
+    expect(p.locator("#du-passo-sorgente")).to_contain_text("sorgente revocata", timeout=T_LUNGO)
+    st = b.stato()
+    verifica(st["fonte"]["autorizzata"] is False and st["bozze"][b.p1]["stato"] == "abbandonata" and st["bozze"][b.p1]["versione"] == 7,
+             "la revoca ha cambiato la working o non ha annullato la bozza nata dallo STEP: %s" % st["bozze"][b.p1]["stato"])
+    # 8. lo STEP in analisi: l'anteprima dice lo stato (mai una prova geometrica) e la partenza dal solo prodotto, che senza
+    # bozza (annullata dalla revoca) non è spenta per «già uno STEP»
+    b.page.request.post(b.url + "/__banco/analisi-step", data=json.dumps({"nome": "ACM-1000_rev2.stp", "stato": "in_analisi"}), headers={"Content-Type": "application/json"})
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        b.cartella("dc-analisi")
+        b.file(a10, "dc-analisi")
+        p.click("#du-sg-dettaglio #du-guarda-" + sid(b.p1) + "-" + sid(a10))
+        expect(p.locator("#du-anteprima")).to_be_visible(timeout=T_LUNGO)
+        expect(p.locator("#du-struttura-step")).to_have_attribute("data-struttura", "non_determinabile")
+        expect(p.locator("#du-struttura-step")).to_contain_text("analisi in corso")
+        expect(p.locator("#du-conferma-solo-prodotto")).to_be_visible()
+        verifica("già uno STEP" not in (p.locator("#du-conferma-solo-prodotto").get_attribute("title") or ""), "partenza dal solo prodotto spenta per una bozza che non c'è più")
+        p.click("#du-anteprima-chiudi")
+    finally:
+        b.page.request.post(b.url + "/__banco/analisi-step", data=json.dumps({"nome": "ACM-1000_rev2.stp", "stato": "letto"}), headers={"Content-Type": "application/json"})
+    # 9. lo stato delle prove che seguono: la bozza abbandonata (dalla revoca, G39-03), la sorgente revocata
+    b.passo("revisione")
+    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-da-vuota")).to_be_enabled()
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    b.passo("sorgente")
+    b.guarda(a1)
+
+
+@prova("68", "G39-02 [U]: lo STEP proposto come sorgente del finito (S9 e /dati fonte.proposte_sorgente[], la forma del server): la domanda «Il motore ha trovato…» con le evidenze e la conferma (S8) nella cartella del prodotto, nel dettaglio dello STEP e nella Revisione; la bozza manuale con lo STEP proposto molto sconsigliata (l'avviso, «Conferma prima lo STEP proposto…», la presa d'atto); lo STEP proposto mai fra i file da preassociare")
+def b68(b):
+    p = b.page
+    a1 = b.al["ACM-1000_assieme.stp"]
+    pdf = b.al["ACM-1100_A.pdf"]
+    if p.locator("#du-anteprima-chiudi").count():
+        p.click("#du-anteprima-chiudi")
+    b.interruttore("step-proposto", True)
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        # (a) la cartella del prodotto: la domanda alla lettera, le evidenze della lettura del Motore A, la conferma (S8)
+        b.passo("sorgente")
+        b.cartella("p:" + b.p1)
+        if p.locator("#du-step-proposto-sg").count() == 0:
+            p.click("#du-sg-prodotto-apri")
+        box = p.locator("#du-step-proposto-sg")
+        expect(box).to_be_visible(timeout=T_LUNGO)
+        expect(box).to_have_attribute("data-allegato", a1)
+        expect(box).to_contain_text("Il motore ha trovato che questo file è molto probabilmente lo STEP strutturale di ACM-1000: lo confermi come sorgente?")
+        expect(box).to_contain_text("ACM-1000_assieme.stp")
+        ev = p.locator("#du-step-proposto-evidenze-sg")
+        expect(ev.locator("[data-evidenza=codice_prodotto]")).to_contain_text("codice del prodotto nella RFQ: ACM-1000")
+        # le evidenze nella forma del server (evidenze[] con il selettore): il nome del file e la radice dello STEP con il
+        # marcatore Z (PM-01: il codice letto con il marcatore contro il codice del prodotto)
+        expect(ev.locator("[data-evidenza=nome_file]")).to_contain_text("codice letto dal nome del file: ACM-1000")
+        expect(ev.locator("[data-evidenza=nome_file]")).to_contain_text("base: uguale")
+        expect(ev.locator("[data-evidenza='step.radice_id']")).to_contain_text("ACM-1000Z")
+        expect(ev.locator("[data-evidenza='step.radice_id']")).to_contain_text("marcatore Z")
+        expect(ev.locator("[data-evidenza='step.radice_id']")).to_have_attribute("data-marcatore", "Z")
+        verifica("il server non ha ancora" not in box.inner_text(), "la proposta mostra ancora il ripiego della pagina")
+        expect(ev.locator("[data-evidenza=struttura_candidata]")).to_contain_text("una struttura candidata del prodotto ha la radice di questo STEP")
+        verifica("nodo:" not in ev.inner_text(), "le evidenze mostrano la chiave interna del nodo: %s" % ev.inner_text())
+        expect(p.locator("#du-conferma-proposto-sg")).to_contain_text("come sorgente di ACM-1000")
+        expect(p.locator("#du-conferma-proposto-sg")).to_be_enabled()
+        b.foto("B68_step_proposto.png")
+        # il dettaglio dello STEP: la stessa proposta prima delle candidature
+        b.file(a1, "step")
+        expect(p.locator("#du-sg-dettaglio #du-step-proposto-d")).to_contain_text("molto probabilmente lo STEP strutturale di ACM-1000")
+        # la Revisione senza bozza: la proposta accanto alle partenze
+        b.passo("revisione")
+        expect(p.locator("#du-nessuna-bozza #du-step-proposto-rev")).to_be_visible(timeout=T_LUNGO)
+        # (b) «Parti dal solo prodotto…» con lo STEP proposto: l'avviso, la conferma spenta finché non si sceglie di partire
+        # senza; «Conferma prima lo STEP proposto…» porta al dialogo di S8 della proposta
+        i = b.segna()
+        p.click("#du-da-vuota")
+        expect(p.locator("#f-step-proposto")).to_contain_text("C'è uno STEP proposto come sorgente: è molto sconsigliato partire senza.")
+        expect(p.locator("#f-step-proposto")).to_contain_text("ACM-1000_assieme.stp")
+        expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+        verifica("partire senza lo STEP proposto" in (p.locator("#du-finestra #f-ok").get_attribute("title") or ""), "la conferma della bozza manuale è spenta senza il motivo")
+        p.click("#f-conferma-proposto")
+        expect(b.finestra()).to_contain_text("Conferma ACM-1000_assieme.stp come sorgente di ACM-1000", timeout=T_LUNGO)
+        p.locator("#du-finestra").get_by_role("button", name="Annulla").click()
+        expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
+        verifica(not b.richieste_da(i, "POST"), "«Conferma prima lo STEP proposto…» poi «Annulla» ha scritto: %s" % [r["path"] for r in b.richieste_da(i, "POST")])
+        # la bozza manuale, con la presa d'atto
+        b.passo("revisione")
+        p.click("#du-da-vuota")
+        expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+        p.check("#f-senza-proposto")
+        i = b.segna()
+        b.ok_finestra()
+        expect(b.avviso()).to_contain_text("Bozza aperta dal solo prodotto", timeout=T_LUNGO)
+        c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
+        verifica(c["crea"] == {"partenza": "vuota"}, "corpo della bozza manuale: %s" % c)
+        # la bozza senza STEP: la proposta resta in vista nella Revisione
+        expect(p.locator("#du-senza-sorgente")).to_be_visible(timeout=T_LUNGO)
+        expect(p.locator("#du-step-proposto-rev")).to_contain_text("lo confermi come sorgente?")
+        # (c) lo STEP proposto non è fra i file da preassociare a un nodo (un PDF sì)
+        b.vista("org")
+        b.scheda("k-root")
+        b.linguetta("documenti")
+        opzioni = p.locator("#du-pannello-file option").evaluate_all("(os) => os.map(o => o.value)")
+        verifica(a1 not in opzioni, "lo STEP proposto è fra i file da preassociare: %s" % opzioni)
+        verifica(pdf in opzioni, "i file da preassociare non hanno il PDF: %s" % opzioni)
+        b.linguetta("dettaglio")
+        # la conferma della proposta da qui riconcilia la bozza senza STEP (il dialogo di S8), poi «Annulla»
+        p.click("#du-conferma-proposto-rev")
+        expect(b.finestra()).to_contain_text("riconcilia la bozza senza STEP", timeout=T_LUNGO)
+        p.locator("#du-finestra").get_by_role("button", name="Annulla").click()
+        expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
+        # si torna allo stato delle prove che seguono: la bozza abbandonata, l'interruttore spento
+        p.click("#du-abbandona")
+        b.ok_finestra()
+        expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    finally:
+        b.interruttore("step-proposto", False)
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    expect(p.locator("#du-step-proposto-rev")).to_have_count(0)
+    b.passo("sorgente")
+    b.guarda(a1)
+
+
+# DU-B69 e DU-B70 girano solo se scelte (--prove 69, --prove 70), ciascuna su un banco suo: TestDistintaUnicaG39NelBrowser
+# (lo spostamento cambia le sorgenti dei due prodotti, che le prove della sequenza lunga non si aspettano) e
+# TestDistintaUnicaG39ProvenienzaNelBrowser (parte da un banco senza bozze)
+SOLO_SE_SCELTE = {"69", "70"}
+
+
+@prova("69", "G39-03 [U]: lo STEP della BOM confermato per errore come sorgente di ACM-2000: S8 su ACM-1000 rifiutato (sorgente_spostabile) con il rimedio «Sposta la sorgente su ACM-1000…»; con la BOM di ACM-2000 confermata rifiuto bom_confermata con «Apri la revisione di ACM-2000»; la proposta con sorgente_di e lo spostamento (sposta_da, la revoca «sorgente errata» e la bozza annullata di là); «Usa nuovo STEP…» con la correzione della sorgente dichiarata e il segno nel riepilogo; la revoca che annulla la bozza nata dallo STEP")
+def b69(b):
+    p = b.page
+    a1 = b.al["ACM-1000_assieme.stp"]
+    a10 = b.al["ACM-1000_rev2.stp"]
+    b.interruttore("step-proposto", True)
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    b.passo("sorgente")
+    b.cartella("p:" + b.p1)
+    if p.locator("#du-step-proposto-sg").count() == 0:
+        p.click("#du-sg-prodotto-apri")
+    expect(p.locator("#du-step-proposto-sg")).to_be_visible(timeout=T_LUNGO)
+    verifica(p.locator("#du-step-proposto-sg").get_attribute("data-sorgente-di") is None, "sorgente_di prima dello sbaglio")
+    # 1. l'errore, fuori dalla pagina (la vista resta quella di prima): lo STEP della BOM confermato come sorgente di
+    # ACM-2000, con la sua bozza nata da lì
+    r = p.request.post(b.url + "/__banco/sorgente-s8", data=json.dumps({"prodotto": b.p2, "allegato": a1, "bozza": True}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda sorgente-s8 ha risposto %d" % r.status)
+    bozza_p2 = b.stato()["bozze"][b.p2]["bozza_id"]
+    # 2. S8 su ACM-1000 dalla proposta (vista vecchia): 422 sorgente_spostabile, niente scritto, il rimedio nel dialogo
+    i = b.segna()
+    p.click("#du-conferma-proposto-sg")
+    expect(b.finestra()).to_contain_text("Conferma ACM-1000_assieme.stp come sorgente di ACM-1000", timeout=T_LUNGO)
+    b.ok_finestra()
+    expect(p.locator("#du-finestra-errore")).to_contain_text("è la sorgente confermata di ACM-2000", timeout=T_LUNGO)
+    expect(p.locator("#du-finestra-errore")).to_contain_text("sorgente_spostabile")
+    verifica(b.stato()["s8"][b.p2]["valida"] is True and b.stato()["bozze"][b.p2]["stato"] == "aperta", "il rifiuto ha scritto")
+    c0 = b.corpi(i, "POST", r"/conferma-sorgente$")
+    verifica(len(c0) == 1 and "sposta_da" not in c0[0], "S8 senza il gesto ha mandato sposta_da: %s" % c0)
+    # 3. il rimedio apre il dialogo dello spostamento: la spiegazione, il motivo obbligatorio
+    p.click("#f-rimedio-sposta")
+    expect(b.finestra()).to_contain_text("Sposta la sorgente su ACM-1000", timeout=T_LUNGO)
+    expect(p.locator("#f-sposta")).to_have_attribute("data-sposta-da", b.p2)
+    expect(p.locator("#f-sposta")).to_contain_text("revoca la sorgente di ACM-2000 con il motivo «sorgente errata»")
+    expect(p.locator("#f-sposta")).to_contain_text("annulla la bozza di ACM-2000")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.fill("#f-motivo", "lo STEP della BOM è di ACM-1000, non di ACM-2000")
+    # 4. ACM-2000 ha già confermato la BOM con quello STEP: 422 bom_confermata, niente spostamento, il rimedio della revisione
+    b.interruttore("bom-confermata-altro", True)
+    try:
+        i = b.segna()
+        b.ok_finestra()
+        expect(p.locator("#du-finestra-errore")).to_contain_text("è nella BOM confermata di ACM-2000", timeout=T_LUNGO)
+        expect(p.locator("#f-rimedio-revisione")).to_contain_text("Apri la revisione di ACM-2000")
+        c1 = b.corpi(i, "POST", r"/conferma-sorgente$")
+        verifica(len(c1) == 1 and c1[0].get("sposta_da") == b.p2 and c1[0].get("motivo"), "corpo dello spostamento: %s" % c1)
+        verifica(b.stato()["s8"][b.p2]["valida"] is True and b.stato()["bozze"][b.p2]["stato"] == "aperta", "bom_confermata ha scritto")
+        p.click("#f-rimedio-revisione")
+        expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
+        tab2 = p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)
+        expect(tab2).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+        expect(p.locator("#du-passo-revisione")).to_have_attribute("aria-current", "step", timeout=T_LUNGO)
+    finally:
+        b.interruttore("bom-confermata-altro", False)
+    # 5. di nuovo su ACM-1000, riletta: la proposta dice di chi è adesso lo STEP e il suo gesto è lo spostamento
+    tab1 = p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)
+    tab1.click()
+    expect(tab1).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    b.passo("sorgente")
+    b.cartella("p:" + b.p1)
+    if p.locator("#du-step-proposto-sg").count() == 0:
+        p.click("#du-sg-prodotto-apri")
+    box = p.locator("#du-step-proposto-sg")
+    expect(box).to_have_attribute("data-sorgente-di", b.p2, timeout=T_LUNGO)
+    expect(p.locator("#du-step-proposto-altro-sg")).to_contain_text("Adesso è la sorgente confermata di ACM-2000")
+    expect(p.locator("#du-conferma-proposto-sg")).to_contain_text("Sposta la sorgente su ACM-1000…")
+    b.foto("B69_sposta_sorgente.png")
+    i = b.segna()
+    p.click("#du-conferma-proposto-sg")
+    expect(b.finestra()).to_contain_text("Sposta la sorgente su ACM-1000", timeout=T_LUNGO)
+    p.fill("#f-motivo", "lo STEP della BOM è di ACM-1000, non di ACM-2000")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Spostamento:", timeout=T_LUNGO)
+    expect(b.avviso()).to_contain_text("bozza di ACM-2000 annullata")
+    c2 = b.corpi(i, "POST", r"/conferma-sorgente$")
+    verifica(len(c2) == 1 and c2[0].get("sposta_da") == b.p2 and c2[0].get("motivo") == "lo STEP della BOM è di ACM-1000, non di ACM-2000" and "correzione_sorgente" not in c2[0],
+             "corpo dello spostamento: %s" % c2)
+    st = b.stato()
+    verifica(st["s8"][b.p2]["valida"] is False and st["s8"][b.p2].get("causa") == "sorgente_errata" and st["bozze"][b.p2]["stato"] == "abbandonata"
+             and st["bozze"][b.p2]["bozza_id"] == bozza_p2 and st["s8"][b.p1]["valida"] is True and st["s8"][b.p1]["allegato_id"] == a1,
+             "lo spostamento non ha fatto la revoca, l'annullamento o la conferma: %s / %s" % (st["s8"], {k: v["stato"] for k, v in st["bozze"].items()}))
+    expect(p.locator("#du-step-proposto-sg")).to_have_count(0)
+    # 6. «Usa nuovo STEP per ACM-1000…» con la correzione della sorgente dichiarata (la spunta, mai spuntata): il segno nel
+    # riepilogo (R4 effetto_sulla_fonte.correzione_sorgente)
+    b.guarda(a10)
+    expect(p.locator("#du-cambia-sorgente")).to_be_enabled(timeout=T_LUNGO)
+    p.click("#du-cambia-sorgente")
+    expect(b.finestra()).to_contain_text("Usa nuovo STEP per ACM-1000", timeout=T_LUNGO)
+    expect(p.locator("#f-correzione")).not_to_be_checked()
+    expect(p.locator("#f-correzione-riga")).to_contain_text("una revisione interna, non una revisione del cliente")
+    p.check("#f-correzione")
+    p.fill("#f-motivo", "lo STEP di prima era sbagliato")
+    i = b.segna()
+    b.ok_finestra()
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    c3 = b.corpi(i, "POST", r"/conferma-sorgente$")
+    verifica(len(c3) == 1 and c3[0].get("correzione_sorgente") is True and c3[0].get("sostituisci") == {"conferma": True}, "corpo della correzione: %s" % c3)
+    b.passo("revisione")
+    b.apri_wizard()
+    p.click("#du-wz-fase2")
+    expect(p.locator("#du-wz-correzione-sorgente")).to_contain_text("revisione interna", timeout=T_LUNGO)
+    expect(p.locator("#du-wz-correzione-sorgente")).to_contain_text("Non è una revisione del cliente")
+    p.click("#du-wz-chiudi")
+    # 7. la revoca della sorgente nuova: la bozza nata da lei si annulla (prima di R5), con la causa e la bozza nel corpo
+    b.passo("sorgente")
+    b.cartella("p:" + b.p1)
+    if p.locator("#du-revoca-sorgente").count() == 0:
+        p.click("#du-sg-prodotto-apri")
+    p.click("#du-revoca-sorgente")
+    expect(p.locator("#f-revoca-bozza")).to_have_attribute("data-nata", "1", timeout=T_LUNGO)
+    p.fill("#f-motivo", "anche questo STEP è sbagliato")
+    i = b.segna()
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("la bozza nata da questo STEP è annullata", timeout=T_LUNGO)
+    rv = b.corpi(i, "POST", r"/revoca-sorgente$")
+    verifica(len(rv) == 1 and rv[0].get("sorgente_errata") is True and rv[0].get("bozza", {}).get("bozza_id") == b.stato()["bozze"][b.p1]["bozza_id"], "corpo della revoca: %s" % rv)
+    verifica(b.stato()["bozze"][b.p1]["stato"] == "abbandonata", "la revoca non ha annullato la bozza nata dalla sorgente")
+    b.interruttore("step-proposto", False)
+
+
+@prova("70", "G39-01 e G39-02, parte 2: l'avviso della bozza manuale con gli STEP candidati di R1 (?suggerimenti_motore=1, anche non univoci); il 422 proposta_non_corrispondente rilegge i suggerimenti; «Accetta la proposta» dell'Elenco salvata «dal motore»; un file proposto dal motore associato a un altro nodo diventa «corretta»; i gruppi del riepilogo")
+def b70(b):
+    p = b.page
+    a1 = b.al["ACM-1000_assieme.stp"]
+    a2 = b.al["ACM-1100_A.pdf"]
+    a3 = b.al["ACM-1120_B.pdf"]
+    # 1. nessuna proposta univoca, ma R1 con ?suggerimenti_motore=1 dà lo STEP candidato sorgente: la bozza manuale resta
+    # «molto sconsigliata» (G39-02 [U]); l'avviso arriva dopo la lettura, con la sua presa d'atto
+    b.interruttore("step-candidati", True)
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        b.passo("revisione")
+        verifica(p.locator("#du-step-proposto-rev").count() == 0, "con il solo candidato la pagina mostra una proposta univoca")
+        # R1 lento (rilievo minore della revisione indipendente 3 della corsia): finché la lettura dei candidati è in corso
+        # la bozza manuale non parte; oltre il tempo massimo (12 s) parte con la nota, e l'avviso entra se R1 risponde dopo
+        b.ritardo("GET /thread/{id}/motore-a/bozza", 2500)
+        p.click("#du-da-vuota")
+        expect(p.locator("#f-step-candidati")).to_have_attribute("data-stato", "in_lettura", timeout=T_BREVE)
+        expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+        expect(p.locator("#f-step-candidati")).to_have_attribute("data-stato", "candidati", timeout=T_LUNGO)
+        expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+        p.locator("#du-finestra").get_by_role("button", name="Annulla").click()
+        expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
+        b.ritardo("GET /thread/{id}/motore-a/bozza", 16000)
+        p.click("#du-da-vuota")
+        expect(p.locator("#f-step-candidati")).to_have_attribute("data-stato", "in_lettura", timeout=T_BREVE)
+        expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+        expect(p.locator("#f-step-candidati")).to_have_attribute("data-stato", "scaduto", timeout=T_LUNGO)
+        expect(p.locator("#f-step-candidati")).to_contain_text("non ha potuto controllare in tempo")
+        expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
+        expect(p.locator("#f-step-candidati")).to_have_attribute("data-stato", "candidati", timeout=T_LUNGO)
+        expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+        p.locator("#du-finestra").get_by_role("button", name="Annulla").click()
+        expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
+        i = b.segna()
+        p.click("#du-da-vuota")
+        expect(p.locator("#f-step-candidati")).to_have_attribute("data-stato", "candidati", timeout=T_LUNGO)
+        av = p.locator("#f-step-proposto")
+        expect(av).to_contain_text("che il motore riconosce come sorgente: è molto sconsigliato partire senza")
+        expect(av).to_contain_text("ACM-1000_assieme.stp")
+        expect(av).to_have_attribute("data-candidati", a1)
+        expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+        r1 = b.richieste_da(i, "GET", r"/motore-a/bozza$")
+        verifica(any("suggerimenti_motore=1" in r["query"] for r in r1), "l'avviso non ha letto R1 con ?suggerimenti_motore=1: %s" % [r["query"] for r in r1])
+        p.check("#f-senza-proposto")
+        expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
+        b.foto("B70_step_candidati.png")
+        p.click("#f-vai-sorgente")
+        expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
+        expect(p.locator("#du-passo-sorgente")).to_have_attribute("aria-current", "step", timeout=T_BREVE)
+        verifica(not b.richieste_da(i, "POST"), "l'avviso ha scritto: %s" % [r["path"] for r in b.richieste_da(i, "POST")])
+    finally:
+        b.interruttore("step-candidati", False)
+    # senza candidati: nessun avviso e nessuna presa d'atto
+    b.passo("revisione")
+    p.click("#du-da-vuota")
+    expect(p.locator("#f-step-candidati")).to_have_attribute("data-stato", "nessuno", timeout=T_LUNGO)
+    expect(p.locator("#f-step-proposto")).to_have_count(0)
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
+    p.locator("#du-finestra").get_by_role("button", name="Annulla").click()
+    expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
+    # 2. la bozza dallo STEP confermato (S8): il registro propone ACM-1100_A.pdf per ACM-1100 (k-7) e ACM-1120_B.pdf per
+    # ACM-1120 (k-11), ciascuno con una sola destinazione
+    b.guarda(a1)
+    expect(p.locator("#du-conferma-sorgente")).to_be_enabled(timeout=T_LUNGO)
+    p.click("#du-conferma-sorgente")
+    b.ok_finestra()
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    imp = b.stato()["bozze"][b.p1]["snapshot"]["sorgente"]["importazione"]
+    verifica(re.fullmatch(r"[0-9a-f]{64}", imp or ""), "la bozza dallo STEP senza registro: %r" % imp)
+    # 3. il calcolo cambiato fra la lettura e il salvataggio (G39-01): 422 proposta_non_corrispondente con due modifiche
+    # che dichiarano un registro, «Accetta la proposta» di ACM-1100_A.pdf e ACM-1120_B.pdf, proposto per ACM-1120 (k-11),
+    # associato dall'ingegnere alla Piastrina (k-12). «Rileggi la bozza salvata» rilegge anche i suggerimenti e le tiene
+    # da parte tutte e due, senza i registri (rilievo importante della revisione indipendente 3 della corsia: prima
+    # sparivano in silenzio). «Riapplica» ricalcola i registri con i suggerimenti riletti: il server registra «motore» la
+    # proposta accettata e «corretta» quella spostata su un altro nodo
+    b.passo("revisione")
+    b.vista("elenco")
+    b.modo("r2-superato", "422")
+    b.ritardo("POST /thread/{id}/motore-a/bozza", 4000)
+    i = b.segna()
+    p.click("#du-accetta-" + sid(a2))
+    b.azione("sposta", a3)
+    expect(p.locator("#f-provenienza-motore")).to_contain_text("su un altro nodo «corretta dall'ingegnere»", timeout=T_LUNGO)
+    p.select_option("#f-pezzo", "k-12")
+    b.ok_finestra()
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "rifiutata", timeout=T_LUNGO)
+    expect(p.locator("#du-conflitto-testo")).to_contain_text("non vale più")
+    cc = b.corpi(i, "POST", r"/motore-a/bozza$")
+    verifica(len(cc) == 1, "dopo il rifiuto la pagina ha salvato ancora: %d corpi" % len(cc))
+    pb = [d for d in cc[0]["snapshot"]["documenti_preassociati"] if d["allegato_id"] == a2]
+    verifica(pb == [{"allegato_id": a2, "chiave_bozza": "k-7", "importazione": imp}], "la PB accettata non dichiara il registro della proposta: %s" % pb)
+    verifica(all(set(a["dopo"]) == {"allegato_id", "chiave_bozza"} for a in cc[0]["azioni"] if a["azione"] == "file_preassociato"), "le azioni portano il registro: %s" % cc[0]["azioni"])
+    i = b.segna()
+    p.click("#du-rileggi-bozza")
+    b.attendi(lambda: any("suggerimenti_motore=1" in r["query"] for r in b.richieste_da(i, "GET", r"/motore-a/bozza$")),
+              "dopo proposta_non_corrispondente R1 non è riletto con ?suggerimenti_motore=1")
+    b.passo("revisione")
+    expect(p.locator("#du-da-parte")).to_have_count(1, timeout=T_LUNGO)
+    verifica(not b.stato()["bozze"][b.p1]["snapshot"].get("documenti_preassociati"), "il rifiuto ha scritto la PB")
+    i = b.segna()
+    p.click("#du-riapplica")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    b.attendi(lambda: {d["allegato_id"] for d in b.stato()["bozze"][b.p1]["snapshot"].get("documenti_preassociati", [])} >= {a2, a3}, "le modifiche riapplicate non sono salvate")
+    expect(p.locator("#du-da-parte")).to_have_count(0)
+    c = b.corpi(i, "POST", r"/motore-a/bozza$")[-1]
+    dich = {d["allegato_id"]: d for d in c["snapshot"]["documenti_preassociati"]}
+    verifica(dich[a2] == {"allegato_id": a2, "chiave_bozza": "k-7", "importazione": imp} and dich[a3] == {"allegato_id": a3, "chiave_bozza": "k-12", "importazione": imp},
+             "riapplicate, le PB non dichiarano il registro riletto (o scrivono la provenienza): %s" % dich)
+    pb = {d["allegato_id"]: d for d in b.stato()["bozze"][b.p1]["snapshot"]["documenti_preassociati"]}
+    verifica(pb[a2].get("provenienza") == "motore" and pb[a2].get("importazione") == imp and pb[a2]["chiave_bozza"] == "k-7", "«Accetta la proposta» riapplicata non è «motore»: %s" % pb[a2])
+    verifica(pb[a3]["chiave_bozza"] == "k-12" and pb[a3].get("provenienza") == "corretta" and pb[a3].get("importazione") == imp, "la proposta spostata su un altro nodo non è «corretta»: %s" % pb[a3])
+    # 6. la pagina mostra la provenienza che il server restituisce: i gruppi del riepilogo (R4)
+    b.passo("revisione")
+    b.vista("org")
+    b.apri_wizard()
+    p.click("#du-wz-fase2")
+    expect(p.locator("#du-wz-gruppo-motore_intatta [data-du-pb='%s']" % a2)).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-wz-gruppo-corretta [data-du-pb='%s']" % a3)).to_be_visible()
+    b.foto("B70_provenienze.png")
+    p.click("#du-wz-chiudi")
+    # 7. una PB legacy (la conversione di una pre-assegnazione delle pagine di prima, scritta dal server: sonda) spostata
+    # dall'ingegnere sul nodo che il motore propone resta «manuale»: la pagina non dichiara il registro (regola [T-39]
+    # «legacy → manuale» di provenienza3.go, rilievo minore della revisione indipendente 3 della corsia)
+    r = p.request.post(b.url + "/__banco/provenienza", data=json.dumps({"allegato_id": a3, "provenienza": "legacy"}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda della provenienza: %d" % r.status)
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    b.azione("sposta", a3)
+    expect(p.locator("#f-provenienza-legacy")).to_contain_text("il server la registra «manuale»", timeout=T_LUNGO)
+    expect(p.locator("#f-provenienza-motore")).to_have_count(0)
+    p.select_option("#f-pezzo", "k-11")
+    i = b.segna()
+    b.ok_finestra()
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    b.attendi(lambda: any(d["allegato_id"] == a3 and d["chiave_bozza"] == "k-11" for d in b.stato()["bozze"][b.p1]["snapshot"].get("documenti_preassociati", [])), "la PB legacy spostata non è salvata")
+    c = b.corpi(i, "POST", r"/motore-a/bozza$")[-1]
+    dich = [d for d in c["snapshot"]["documenti_preassociati"] if d["allegato_id"] == a3]
+    verifica(dich == [{"allegato_id": a3, "chiave_bozza": "k-11"}], "la PB legacy spostata dichiara il registro del motore: %s" % dich)
+    pb = [d for d in b.stato()["bozze"][b.p1]["snapshot"]["documenti_preassociati"] if d["allegato_id"] == a3]
+    verifica(pb[0].get("provenienza") == "manuale" and not pb[0].get("importazione"), "la PB legacy spostata non è «manuale»: %s" % pb)
+
+
+@prova("03","S8 «Conferma questo STEP come sorgente di ‹P›»: 409 al passo 0, «parziale» ritentabile con la stessa chiave, i tre passi; niente «Autorizza» (direttiva 39)")
+def b03(b):
+    p = b.page
+    a1 = b.al["ACM-1000_assieme.stp"]
+    s8_prima = b.stato()["conti"].get("S8", 0)
+    # la proposta cambia dopo l'anteprima: 409 ANTEPRIMA_SUPERATA al passo 0, niente scritto, S6 riletto
     b.proposta_cambia()
     i = b.segna()
-    p.click("#du-usa-bom")
-    expect(b.finestra()).to_contain_text("Usa per la BOM di ACM-1000")
+    p.click("#du-conferma-sorgente")
+    expect(b.finestra()).to_contain_text("Conferma ACM-1000_assieme.stp come sorgente di ACM-1000")
+    expect(b.finestra()).to_contain_text("Non è la conferma della BOM né del fascicolo")
+    expect(b.finestra()).to_contain_text("cambiano solo con «Conferma BOM»")
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("La proposta è cambiata mentre guardavi", timeout=T_LUNGO)
     expect(b.avviso()).to_have_attribute("data-esito", "conflitto")
     expect(b.finestra()).to_be_hidden()
     b.attendi(lambda: b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$"), "S6 non riletto dopo ANTEPRIMA_SUPERATA")
-    expect(p.locator("#du-usa-bom")).to_be_enabled(timeout=T_LUNGO)
-    p.click("#du-usa-bom")
+    s8 = b.corpi(i, "POST", r"/sorgente/step/[^/]+/conferma-sorgente$")
+    verifica(len(s8) == 1, "S8: %d richieste" % len(s8))
+    c0 = s8[0]
+    verifica(re.fullmatch(UUID, c0.get("chiave_idempotenza", "")) and c0.get("prodotto_id") == b.p1 and c0.get("codice_atteso") == "ACM-1000" and c0.get("gruppo", "").startswith("cand:")
+             and c0.get("impronta_contenuto") and "componente_atteso" not in c0, "corpo di S8: %s" % c0)
+    verifica(not [k for k in c0 if re.search("percorso|path|staging|autorizz", k, re.I)], "S8 manda un campo percorso o di autorizzazione: %s" % c0)
+    verifica(b.stato()["conti"].get("S8", 0) == s8_prima, "S8 ha scritto dopo il 409 del passo 0")
+    # il motore occupato al passo 3: «parziale» ritentabile, la striscia con «Riprova» che rimanda la stessa chiave
+    b.modo("S8", "occupato")
+    expect(p.locator("#du-conferma-sorgente")).to_be_enabled(timeout=T_LUNGO)
+    i = b.segna()
+    p.click("#du-conferma-sorgente")
     b.ok_finestra()
+    esito = p.locator("#du-sg-esito-s8")
+    expect(esito).to_have_attribute("data-esito", "parziale", timeout=T_LUNGO)
+    expect(esito).to_contain_text("Non riuscito: bozza")
+    expect(esito).to_contain_text("Riuscito: associazione, conferma della sorgente")
+    expect(p.locator("#du-sg-c-p_" + sid(b.p1))).to_have_attribute("aria-selected", "true")
+    riprova = p.locator("#du-riprova-sorgente_" + sid(b.p1))
+    expect(riprova).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-sospeso-sorgente_" + sid(b.p1))).to_contain_text("la bozza non è ancora nata")
+    chiave1 = b.corpi(i, "POST", r"/conferma-sorgente$")[0]["chiave_idempotenza"]
+    verifica(chiave1 != c0["chiave_idempotenza"], "dopo un 409 S8 riusa la chiave")
+    i = b.segna()
+    riprova.click()
+    expect(esito).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    expect(esito).to_contain_text("Sorgente confermata: la bozza di ACM-1000 è pronta da rivedere. La BOM non è confermata.")
+    rip = b.corpi(i, "POST", r"/conferma-sorgente$")
+    verifica(len(rip) == 1 and rip[0]["chiave_idempotenza"] == chiave1, "«Riprova» non rimanda la stessa chiave: %s" % rip)
+    p.locator("#du-sg-esito-s8 summary").click()
+    expect(esito.locator("[data-passo=associazione]")).to_contain_text("non_serve")
+    expect(esito.locator("[data-passo=bozza]")).to_contain_text("fatto")
+    expect(p.locator("#du-sospeso-sorgente_" + sid(b.p1))).to_have_count(0)
+    # la pagina resta nella Sorgente, sulla cartella del prodotto (T-15), con lo smistamento letto da S9
+    expect(p.locator("#du-passo-sorgente")).to_have_attribute("aria-current", "step")
+    expect(p.locator("#du-passo-sorgente")).to_contain_text("sorgente confermata")
+    expect(p.locator("#du-sg-c-p_" + sid(b.p1))).to_contain_text("✓ sorgente · bozza v1 · ◇2 ◈0 ●2")
+    expect(p.locator("#du-sg-mossa")).to_contain_text("Sorgente confermata")
+    st = b.stato()
+    verifica(st["conti"].get("S8", 0) == s8_prima + 2 and st["fonte"]["confermata"] is True and st["fonte"]["autorizzata"] is False, "S8 nel banco: %s" % st["conti"])
+    verifica(b.richieste_da(i, "GET", r"/motore-a/dati$") and any("sorgente=1" in r["query"] for r in b.richieste_da(i, "GET", r"/motore-a/dati$")), "S9 non riletto dopo S8")
+    # direttiva 39 §2 (D-TAB-02 B rivista [T-39]): niente «Autorizza» né «Revoca l'autorizzazione» nella pagina nuova; la
+    # working cambia solo con la conferma della BOM; c'è «Revoca come sorgente…» per uno STEP scelto per errore
+    if p.locator("#du-revoca-sorgente").count() == 0:
+        p.click("#du-sg-prodotto-apri")
+    expect(p.locator("#du-revoca-sorgente")).to_be_visible()
+    verifica(p.locator("#du-autorizza, #du-revoca").count() == 0, "«Autorizza» o «Revoca l'autorizzazione» ancora nella pagina")
+    expect(p.locator("#du-sg-fonte")).to_contain_text("diventa lo STEP della BOM con «Conferma BOM»")
+    expect(p.locator("#du-sg-c-p_" + sid(b.p1))).to_contain_text("✓ sorgente")
+    verifica(not b.richieste_da(0, "POST", r"/step-strutturale"), "la pagina ha chiamato l'autorizzazione legacy")
+    verifica(not b.richieste_da(0, "POST", r"/fascicolo/conferma$"), "«Conferma la fonte» legacy chiamato: la fa S8")
+    # i conti del banco dopo S8: la DU-B04 guarda che l'apertura della bozza non scriva (la DU-B62 prima ha scritto la sua)
+    b.conti_s8 = dict(b.stato()["conti"])
+
+
+@prova("04", "dopo S8: la bozza v1 costruita dal server; «Vai alla Revisione →»; nessun R4 all'apertura della bozza")
+def b04(b):
+    p = b.page
+    # un R4 in sottofondo delle prove di prima (la DU-B62 salva la bozza poco prima) può arrivare in ritardo: si aspetta che
+    # finisca e si contano gli R4 da qui
+    p.wait_for_timeout(2500)
+    r4_prima = b.stato()["conti"].get("R4", 0)
+    expect(p.locator("#du-vai-revisione")).to_be_enabled()
+    p.click("#du-vai-revisione")
     expect(p.locator("#du-passo-revisione")).to_have_attribute("aria-current", "step", timeout=T_LUNGO)
     b.salvata(1)
     expect(p.locator("#du-vp .du-nc[data-k]")).to_have_count(10)
-    crea = b.corpi(i, "POST", r"/motore-a/bozza$")
-    verifica(len(crea) == 2, "R2 crea: %d richieste" % len(crea))
-    verifica(crea[0]["crea"]["impronta_contenuto"] != crea[1]["crea"]["impronta_contenuto"], "il secondo invio porta l'impronta vecchia")
-    verifica(crea[0]["chiave_salvataggio"] != crea[1]["chiave_salvataggio"], "dopo un 409 la chiave_salvataggio non cambia")
-    c = crea[1]
-    verifica(c["bozza_id"] is None and c["versione_attesa"] == 0 and c["vocabolario"] == 2 and c["crea"]["partenza"] == "step"
-             and c["crea"]["sorgente"]["allegato_id"] == a1 and c["crea"]["sorgente"]["gruppo"].startswith("cand:"), "corpo di R2 crea: %s" % c)
-    verifica("snapshot" not in c and "azioni" not in c, "R2 crea manda lo snapshot o le azioni: la versione 1 la costruisce il server")
-    verifica(b.stato()["conti"].get("R4", 0) == 0, "R4 all'apertura della bozza")
+    base = getattr(b, "conti_s8", {})
+    verifica(b.stato()["conti"].get("R2", 0) == base.get("R2", 0), "la pagina ha scritto con R2: la bozza la crea S8")
+    verifica(b.stato()["conti"].get("R4", 0) == r4_prima, "R4 all'apertura della bozza")
     verifica(b.indirizzo().get("passo") == "revisione", "indirizzo: %s" % b.indirizzo())
 
 
@@ -552,7 +1199,7 @@ def b05(b):
     verifica("Organigramma" in (p.locator("#du-cta-bom").get_attribute("title") or ""), "il CTA nell'Elenco senza il motivo")
     expect(p.locator("#du-cta-fascicolo")).to_be_disabled()
     i = b.segna()
-    p.click("#du-accetta-" + sid(b.pr["ACM-1100_A.pdf"]))
+    p.click("#du-accetta-" + sid(b.al["ACM-1100_A.pdf"]))
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "modifiche")
     expect(p.locator("#du-salvataggio")).to_contain_text("1 modifiche non salvate")
     b.salvata(2)
@@ -561,7 +1208,10 @@ def b05(b):
     c = r2[0]
     verifica(c["vocabolario"] == 2 and c["versione_attesa"] == 1 and re.fullmatch(UUID, c["chiave_salvataggio"]), "testa di R2: %s" % {k: c[k] for k in c if k not in ("snapshot", "azioni")})
     verifica([a["azione"] for a in c["azioni"]] == ["file_preassociato"], "azioni: %s" % c["azioni"])
-    verifica(c["snapshot"]["documenti_preassociati"] == [{"proposta_id": b.pr["ACM-1100_A.pdf"], "chiave_bozza": "k-7"}], "snapshot: %s" % c["snapshot"]["documenti_preassociati"])
+    # G39-01 [U]: la proposta del registro accettata porta nello snapshot il registro della bozza (le azioni no); la
+    # provenienza «motore» la decide il server
+    reg = b.stato()["bozze"][b.p1]["snapshot"]["sorgente"].get("importazione")
+    verifica(reg and c["snapshot"]["documenti_preassociati"] == [{"allegato_id": b.al["ACM-1100_A.pdf"], "chiave_bozza": "k-7", "importazione": reg}], "snapshot: %s" % c["snapshot"]["documenti_preassociati"])
     verifica(not [k for k in ("bozza_id", "bozza_versione", "chiave_idempotenza") if k in c["snapshot"]], "lo snapshot porta campi della richiesta")
     expect(p.locator("#du-conti")).to_contain_text("blocchi", timeout=T_LUNGO)
     r4 = b.richieste_da(i, "POST", r"/motore-a/bom/riepilogo$")
@@ -580,7 +1230,7 @@ def b06(b):
     expect(p.locator("#du-segnalati")).to_contain_text("Nodi segnalati (3)")
     # il cassetto dice la regola, la spiegazione e i contro-indizi del segnale, con l'etichetta (richiesta R-1 della corsia motore)
     expect(p.locator('#du-segnalati .du-segnalato[data-k="k-33"]')).to_contain_text("elemento_cad_nome_foglia_v1")
-    expect(p.locator('#du-segnalati .du-segnalato[data-k="k-33"]')).to_contain_text("il grafo del file non è completo: la foglia potrebbe avere figli non letti (grafo_non_completo)")
+    expect(p.locator('#du-segnalati .du-segnalato[data-k="k-33"]')).to_contain_text("il grafo del file non è completo: che il nodo non abbia figli potrebbe non essere un'informazione (grafo_non_completo)")
     verifica("contro-indizi" not in p.locator('#du-segnalati .du-segnalato[data-k="k-31"]').inner_text(), "contro-indizi su un segnale che non ne ha")
     p.click("#du-seleziona-segnalati")
     expect(p.locator("#du-selezione")).to_contain_text("3 nodi selezionati")
@@ -589,7 +1239,8 @@ def b06(b):
     expect(p.locator("#nc-k-12")).to_have_class(re.compile(r"du-nc--selezionato"))
     p.locator("#sel-k-12").click()
     expect(p.locator("#du-selezione")).to_contain_text("3 nodi selezionati")
-    verifica(b.scritture().get("R2") == 2, "la selezione ha scritto qualcosa: %s" % b.scritture())
+    # una sola scrittura dopo S8 (la preassociazione della DU-B05); la DU-B62 prima ha scritto la sua bozza
+    verifica(b.scritture().get("R2", 0) - getattr(b, "conti_s8", {}).get("R2", 0) == 1, "la selezione ha scritto qualcosa: %s" % b.scritture())
     i = b.segna()
     p.click("#du-non-includere")
     expect(p.locator("#f-elenco input:checked")).to_have_count(3)
@@ -777,7 +1428,7 @@ def b11(b):
         p.unroute("**/motore-a/bozza", g)
 
 
-@prova("12", "wizard: R4 con gli avvisi del motore, fasi, non inclusi; avvisi non calcolati → presa d'atto")
+@prova("12", "wizard: R4 con gli avvisi del motore (firmati), fasi, non inclusi con gli effetti; avvisi non calcolati → conferma spenta, «Riprova»")
 def b12(b):
     p = b.page
     i = b.segna()
@@ -787,11 +1438,13 @@ def b12(b):
     p.click("#du-wz-g-noninc")
     expect(p.locator("#du-wz-noninclusi tbody tr")).to_have_count(3)
     expect(p.locator("#du-wz-noninclusi")).to_contain_text("Saldatura")
-    expect(p.locator("#du-wz-noninclusi")).to_contain_text("2D previsti: 1 → 0 dopo la conferma")
+    expect(p.locator("#du-wz-noninclusi")).to_contain_text("1 riga dello STEP si chiude alla conferma")
+    expect(p.locator("#du-wz-noninclusi")).to_contain_text("nessuna cascata sui figli")
     p.click("#du-wz-fase2")
     expect(p.locator("#du-wz-confermabile")).to_contain_text("La BOM è confermabile.")
     expect(p.locator("#du-wz-avvisi")).to_contain_text("VERIFICA_DOPO_COMMIT")
-    expect(p.locator("#du-wz-motore")).to_contain_text("calcolati adesso e non firmati")
+    expect(p.locator("#du-wz-motore")).to_contain_text("calcolati con il riepilogo e firmati")
+    expect(p.locator("#du-wz-conflitti-motore")).to_have_attribute("data-n", "0")
     expect(p.locator("#du-wz-criterio")).to_contain_text("nessuno")
     expect(p.locator("#du-wz-conferma")).to_be_enabled()
     b.foto("B12_wizard_fase2.png")
@@ -802,11 +1455,360 @@ def b12(b):
     p.click("#du-wz-fase2")
     expect(p.locator("#du-wz-motore")).to_contain_text("Avvisi del motore non calcolati (CALCOLO_OCCUPATO")
     expect(p.locator("#du-wz-conferma")).to_be_disabled()
-    verifica("presa d'atto" in (p.locator("#du-wz-conferma").get_attribute("title") or ""), "conferma spenta senza il motivo")
-    p.locator("#du-wz-presa").click()
-    expect(p.locator("#du-wz-conferma")).to_be_enabled()
+    verifica("avvisi del motore non sono calcolati" in (p.locator("#du-wz-conferma").get_attribute("title") or ""), "conferma spenta senza il motivo")
+    # il blocco «R4 completo» della persistenza: il riepilogo senza il motore non si conferma, niente presa d'atto
+    verifica(p.locator("#du-wz-presa").count() == 0, "la presa d'atto degli avvisi del motore è ancora nel wizard")
+    expect(p.locator("#du-wz-confermabile")).to_contain_text("finché gli avvisi del motore non sono calcolati")
     p.click("#du-wz-riprova-motore")
-    expect(p.locator("#du-wz-motore")).to_contain_text("calcolati adesso e non firmati", timeout=T_LUNGO)
+    expect(p.locator("#du-wz-motore")).to_contain_text("calcolati con il riepilogo e firmati", timeout=T_LUNGO)
+    expect(p.locator("#du-wz-conferma")).to_be_enabled()
+
+
+@prova("63", "R4/R5 formato 3 (direttiva 39 §4, §5, §8): D-ASS-01 su «Correggi codice» (annulla, mantieni, scollega); i gruppi D-PB-04 con la legacy da verificare e il suo rimedio; gia_associata_altrove con «Scollega da ‹C› e sostituisci» e lo spostamento di AR; condivisione[]; la riga «legato come sorgente»; R5 cumulativa: 503 con «Riprova» e la stessa chiave, R5_NON_APPLICABILE, il gate ricontrollato da R5, ingressi_in_movimento")
+def b63(b):
+    p = b.page
+    if p.locator("#du-wizard").is_visible():
+        p.click("#du-wz-chiudi")
+    a2, a11 = b.al["ACM-1100_A.pdf"], b.al["ACM-1400_A.pdf"]
+    st = b.stato()
+    nodi = {n["chiave_bozza"] for n in st["bozze"][b.p1]["snapshot"]["nodi"]}
+    verifica("k-7" in nodi and "k-41" in nodi, "la bozza non ha k-7 e k-41: %s" % sorted(nodi))
+    n_conf = len(st["conferme"].get(b.p1, []))
+
+    def provenienza(aid, prov, chiave=None, imp=None):
+        corpo = {"allegato_id": aid, "provenienza": prov}
+        if chiave:
+            corpo["chiave_bozza"] = chiave
+        if imp:
+            corpo["importazione"] = imp
+        r = p.request.post(b.url + "/__banco/provenienza", data=json.dumps(corpo), headers={"Content-Type": "application/json"})
+        verifica(r.status == 204, "la sonda della provenienza: %d" % r.status)
+
+    def rileggi():
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+
+    def wizard_fase2():
+        if p.locator("#du-wizard").is_visible():
+            p.click("#du-wz-chiudi")
+        b.apri_wizard()
+        p.click("#du-wz-fase2")
+        expect(p.locator("#du-wz-documenti")).to_be_visible(timeout=T_LUNGO)
+
+    # le PB scritte dal server (sonda): la PB iniziale del motore di ACM-1100_A.pdf su k-7 (D-PB-01 A, con il registro) e
+    # la conversione della pre-assegnazione P1 di ACM-1400_A.pdf, registrato su ACM-1400, sul pezzo k-41 (D-AR14 A)
+    provenienza(a2, "motore", "k-7", "registro")
+    provenienza(a11, "legacy", "k-41")
+    rileggi()
+    b.passo("revisione")
+    b.vista("org")
+    # 1. D-ASS-01 [U]: la rev nuova di k-7 non corrisponde più al file collegato: «mantieni / scollega / annulla»
+    def correggi_rev(rev):
+        b.scheda("k-7")
+        b.linguetta("dettaglio")
+        p.click("#du-correggi")
+        p.fill("#f-rev", rev)
+        p.fill("#f-motivo", "prova di D-ASS-01")
+        b.ok_finestra()
+        expect(b.finestra()).to_contain_text("I file collegati non corrispondono più", timeout=T_LUNGO)
+        expect(p.locator("#f-discordanti [data-du-discordante='%s']" % a2)).to_have_attribute("data-tipo", "pb")
+    i = b.segna()
+    correggi_rev("B")
+    b.finestra().get_by_role("button", name="Annulla").click()
+    expect(b.finestra()).to_be_hidden()
+    p.wait_for_timeout(1800)
+    verifica(not b.richieste_da(i, "POST", r"/motore-a/bozza$"), "«Annulla» di D-ASS-01 ha salvato")
+    i = b.segna()
+    correggi_rev("B")
+    p.click("#f-mantieni-discordanti")
+    az = b.ultime_azioni(i)
+    verifica([a["azione"] for a in az] == ["decisione_aggiunta", "nodo_modificato"] and az[1]["dopo"]["identita"]["rev"] == "B", "«Mantieni i collegamenti»: %s" % az)
+    verifica(any(d["allegato_id"] == a2 and d["chiave_bozza"] == "k-7" for d in b.stato()["bozze"][b.p1]["snapshot"]["documenti_preassociati"]), "«Mantieni» ha tolto la PB")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    p.click("#du-annulla")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    i = b.segna()
+    correggi_rev("B")
+    p.click("#f-scollega-discordanti")
+    az = b.ultime_azioni(i)
+    verifica([a["azione"] for a in az] == ["decisione_aggiunta", "nodo_modificato", "file_svincolato"] and az[2]["prima"]["allegato_id"] == a2, "«Scollega i file»: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    p.click("#du-annulla")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    b.attendi(lambda: any(d["allegato_id"] == a2 for d in b.stato()["bozze"][b.p1]["snapshot"]["documenti_preassociati"]), "dopo «Annulla» la PB non è tornata")
+    # 2. il riepilogo: la sorgente legata in sola lettura, i gruppi, la legacy da verificare con il suo rimedio, nessuna spunta
+    wizard_fase2()
+    expect(p.locator("#du-wz-sorgente-legata")).to_have_attribute("data-confermata", "1")
+    expect(p.locator("#du-wz-sorgente-legata")).to_contain_text("legato come sorgente")
+    expect(p.locator("#du-wz-gruppo-motore_intatta [data-du-pb='%s']" % a2)).to_be_visible()
+    leg = p.locator("#du-wz-gruppo-legacy_da_verificare [data-du-pb='%s']" % a11)
+    expect(leg).to_have_attribute("data-motivo", "legacy_da_verificare")
+    expect(leg).to_contain_text("in conflitto")
+    expect(p.locator("#du-wz-rimedio-togli-" + sid(a11))).to_be_visible()
+    # R39-15: «Riconosci…» = un salvataggio con file_riconosciuto, lo snapshot invariato; la PB resta legacy e diventa
+    # verificata (gruppo «Legacy riconosciute»); resta in conflitto solo perché il file è registrato su ACM-1400
+    i = b.segna()
+    p.click("#du-wz-rimedio-riconosci-" + sid(a11))
+    expect(b.finestra()).to_contain_text("Riconosci la preassociazione legacy", timeout=T_LUNGO)
+    expect(b.finestra()).to_contain_text("non si annulla")
+    p.fill("#f-motivo-riconosci", "cartiglio verificato")
+    b.ok_finestra()
+    b.attendi(lambda: b.corpi(i, "POST", r"/motore-a/bozza$"), "«Riconosci…» non ha salvato")
+    c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
+    az = c["azioni"]
+    verifica(len(az) == 1 and az[0]["azione"] == "file_riconosciuto" and az[0]["prima"] == {"allegato_id": a11, "chiave_bozza": "k-41"}
+             and az[0]["dopo"] == {"allegato_id": a11, "chiave_bozza": "k-41", "motivo": "cartiglio verificato"}, "«Riconosci…»: %s" % az)
+    verifica(not any(d.get("verificata") for d in c["snapshot"]["documenti_preassociati"]), "la pagina ha dichiarato la verifica: %s" % c["snapshot"]["documenti_preassociati"])
+    ver = p.locator("#du-wz-gruppo-legacy_verificate [data-du-pb='%s']" % a11)
+    expect(ver).to_have_attribute("data-motivo", "gia_associata_altrove", timeout=T_LUNGO)
+    expect(p.locator("#du-wz-gruppo-legacy_da_verificare [data-du-pb='%s']" % a11)).to_have_count(0)
+    pb = [d for d in b.stato()["bozze"][b.p1]["snapshot"]["documenti_preassociati"] if d["allegato_id"] == a11]
+    verifica(pb and pb[0].get("provenienza") == "legacy" and pb[0].get("verificata") is True, "la PB riconosciuta nel banco: %s" % pb)
+    expect(p.locator("#du-wz-cumulativa")).to_contain_text("non ci sono spunte per singolo file")
+    verifica(p.locator("#du-wz-documenti input[type=checkbox]").count() == 0, "spunte per singola PB nel riepilogo")
+    expect(p.locator("#du-wz-conferma")).to_be_disabled()
+    # 3. la PB rifatta a mano (manuale, come la decide il server): il file è registrato su ACM-1400, nello stesso prodotto
+    provenienza(a11, "manuale")
+    p.click("#du-wz-chiudi")
+    rileggi()
+    wizard_fase2()
+    man = p.locator("#du-wz-gruppo-manuale [data-du-pb='%s']" % a11)
+    expect(man).to_have_attribute("data-motivo", "gia_associata_altrove")
+    expect(man).to_contain_text("nello stesso prodotto")
+    i = b.segna()
+    p.click("#du-wz-rimedio-sostituisci-" + sid(a11))
+    az = b.ultime_azioni(i)
+    verifica(len(az) == 1 and az[0]["azione"] == "decisione_aggiunta" and az[0]["dopo"]["tipo"] == "scollega_documento" and az[0]["dopo"]["allegato_id"] == a11
+             and az[0]["dopo"]["componente_id"] == C40, "«Scollega da ACM-1400 e sostituisci»: %s" % az)
+    sp = p.locator("#du-wz-gruppo-spostamenti_ar [data-du-spostamento='%s']" % a11)
+    expect(sp).to_have_attribute("data-tipo", "sostituzione", timeout=T_LUNGO)
+    expect(sp).to_contain_text("da ACM-1400")
+    expect(man).to_have_attribute("data-esito", "sostituzione")
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+    # 4. condivisione[]: un altro prodotto toccato, con la conseguenza attribuita a chi conferma (D-TAB-03 A)
+    b.interruttore("condivisione", True)
+    try:
+        wizard_fase2()
+        expect(p.locator("#du-wz-condivisione")).to_contain_text("ACM-2000")
+        expect(p.locator("#du-wz-condivisione")).to_contain_text("attribuite a chi la conferma")
+    finally:
+        b.interruttore("condivisione", False)
+    wizard_fase2()
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+    # 5. R5 cumulativa: 503 non_registrato con «Riprova» e la stessa chiave; poi R5_NON_APPLICABILE, niente scritto
+    e = b.esito_wizard()
+    b.modo("R5", "503")
+    i = b.segna()
+    p.click("#du-wz-conferma")
+    expect(e).to_have_attribute("data-esito", "occupato", timeout=T_LUNGO)
+    expect(e).to_contain_text("Riprova fra poco con la stessa chiave")
+    sosp = b.sospesi()
+    verifica(len(sosp) == 1 and sosp[0][1].get("certo") is True and sosp[0][1].get("codice") == "CALCOLO_OCCUPATO", "503 di R5: memoria della scheda %s" % sosp)
+    b.modo("R5", "422_non_applicabile")
+    p.click("#du-wz-riprova-occupato")
+    expect(e).to_have_attribute("data-codice", "BLOCCHI", timeout=T_LUNGO)
+    expect(p.locator("#du-wz-esito-blocchi [data-codice=R5_NON_APPLICABILE]")).to_contain_text("una parte che la conferma non sa ancora applicare")
+    r5 = b.corpi(i, "POST", r"/motore-a/bom/conferma$")
+    verifica(len(r5) == 2 and r5[0]["bozza"]["chiave_idempotenza"] == r5[1]["bozza"]["chiave_idempotenza"] and r5[0] == r5[1], "«Riprova» dopo il 503 non riusa la chiave e il corpo")
+    verifica(not b.sospesi(), "BLOCCHI ha lasciato la chiave in sospeso")
+    expect(p.locator("#du-wz-conferma")).to_be_disabled()
+    p.click("#du-wz-rileggi-blocchi")
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+    # 6. il gate ricontrollato da R5 sotto il lucchetto (una revoca della sorgente dopo R4): risposta finta del server
+    g = rispondi_json(422, {"esito": "rifiutato", "codice": "BLOCCHI", "testo": "La BOM non si conferma: 1 blocchi.",
+                            "blocchi": [{"codice": "STEP_SORGENTE_NON_CONFERMATA", "motivo": "revocata", "testo": "La sorgente della bozza e' stata revocata: conferma di nuovo uno STEP come sorgente dalla Sorgente.",
+                                         "rimedi": ["«Conferma questo STEP come sorgente» del prodotto (S8)"]}]})
+    p.route("**/motore-a/bom/conferma", g)
+    try:
+        p.click("#du-wz-conferma")
+        expect(e).to_have_attribute("data-codice", "BLOCCHI", timeout=T_LUNGO)
+        expect(p.locator("#du-wz-esito-blocchi [data-codice=STEP_SORGENTE_NON_CONFERMATA]")).to_have_attribute("data-motivo", "revocata")
+        expect(p.locator("#du-wz-esito-vai-sorgente")).to_be_visible()
+    finally:
+        p.unroute("**/motore-a/bom/conferma", g)
+    p.click("#du-wz-rileggi-blocchi")
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+    # 7. 409 ANTEPRIMA_SUPERATA ingressi_in_movimento: niente registrato, la bozza intatta
+    b.modo("R5", "409_movimento")
+    p.click("#du-wz-conferma")
+    expect(e).to_have_attribute("data-codice", "ANTEPRIMA_SUPERATA", timeout=T_LUNGO)
+    expect(e).to_contain_text("i dati della proposta stavano cambiando")
+    st = b.stato()
+    verifica(len(st["conferme"].get(b.p1, [])) == n_conf and st["conti"].get("R5", 0) == 0 and not b.sospesi(), "un rifiuto di R5 ha registrato una conferma")
+    # 8. si torna allo stato delle prove che seguono: lo svincolo annullato, la PB di ACM-1400_A.pdf tolta (il rimedio)
+    p.click("#du-wz-chiudi")
+    p.click("#du-annulla")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    wizard_fase2()
+    i = b.segna()
+    p.click("#du-wz-rimedio-togli-" + sid(a11))
+    az = b.ultime_azioni(i)
+    verifica([a["azione"] for a in az] == ["file_svincolato"], "il rimedio «Togli la preassociazione»: %s" % az)
+    expect(p.locator("#du-wz-gruppo-manuale [data-du-pb='%s']" % a11)).to_have_count(0, timeout=T_LUNGO)
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+    verifica(not any(d["allegato_id"] == a11 for d in b.stato()["bozze"][b.p1]["snapshot"]["documenti_preassociati"]), "la PB di ACM-1400_A.pdf è rimasta")
+
+
+@prova("66", "R4 e R5 completi (persistenza): avviso del registro con il valore, blocco con il motivo (RICODIFICA_FILE_NAS documento_confermato), avvisi e conflitti del motore firmati, esclusioni legacy ed ereditata; R5 504 CALCOLO_SCADUTO e 500 ERRORE_CALCOLO non registrati con «Riprova» e la stessa chiave")
+def b66(b):
+    p = b.page
+
+    def wizard_fase2():
+        if p.locator("#du-wizard").is_visible():
+            p.click("#du-wz-chiudi")
+        b.apri_wizard()
+        p.click("#du-wz-fase2")
+        expect(p.locator("#du-wz-documenti")).to_be_visible(timeout=T_LUNGO)
+
+    # 1. le forme del blocco «R4 completo» e «R5 completo» (interruttore del banco r4-completo)
+    b.interruttore("r4-completo", True)
+    try:
+        wizard_fase2()
+        bl = p.locator("#du-wz-blocchi [data-codice=RICODIFICA_FILE_NAS]")
+        expect(bl).to_have_attribute("data-motivo", "documento_confermato", timeout=T_LUNGO)
+        expect(bl).to_contain_text("correggi il codice dalla scheda del componente")
+        expect(p.locator("#du-wz-avvisi [data-codice=EQUIVALENTE_NON_ADOTTATO] [data-du-valore='K4-0099']")).to_be_visible()
+        am = p.locator("#du-wz-avvisi-motore [data-codice=PROPOSTA_CAMBIATA]")
+        expect(am).to_have_attribute("data-motivo", "contenuto")
+        expect(am).to_contain_text("nodi diversi 2, legami diversi 1")
+        expect(p.locator("#du-wz-motore")).to_contain_text("calcolati con il riepilogo e firmati")
+        expect(p.locator("#du-wz-conflitti-motore")).to_have_attribute("data-n", "1")
+        expect(p.locator("#du-wz-conflitti-motore")).to_contain_text("nomenclatura")
+        expect(p.locator("#du-wz-altre-esclusioni tr[data-origine=legacy]")).to_contain_text("scartata nelle pagine di prima")
+        expect(p.locator("#du-wz-altre-esclusioni tr[data-origine=ereditata]")).to_contain_text("solo la traccia")
+        expect(p.locator("#du-wz-conferma")).to_be_disabled()
+        b.foto("B66_r4_completo.png")
+    finally:
+        b.interruttore("r4-completo", False)
+    wizard_fase2()
+    expect(p.locator("#du-wz-blocchi [data-codice=RICODIFICA_FILE_NAS]")).to_have_count(0)
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+    # 2. R5 con il motore nella connessione S: 504 CALCOLO_SCADUTO e 500 ERRORE_CALCOLO non registrati, il tentativo resta
+    # «certo» con la stessa chiave; «Riprova» rimanda lo stesso corpo; il 500 ERRORE_CALCOLO non è il controllo finale
+    e = b.esito_wizard()
+    n_conf = len(b.stato()["conferme"].get(b.p1, []))
+    i = b.segna()
+    b.modo("R5", "504")
+    p.click("#du-wz-conferma")
+    expect(e).to_have_attribute("data-esito", "occupato", timeout=T_LUNGO)
+    expect(e).to_contain_text("non è finito in tempo")
+    sosp = b.sospesi()
+    verifica(len(sosp) == 1 and sosp[0][1].get("certo") is True and sosp[0][1].get("codice") == "CALCOLO_SCADUTO", "504 di R5: memoria della scheda %s" % sosp)
+    b.modo("R5", "500_calcolo")
+    p.click("#du-wz-riprova-occupato")
+    expect(e).to_have_attribute("data-codice", "ERRORE_CALCOLO", timeout=T_LUNGO)
+    expect(e).to_have_attribute("data-esito", "occupato")
+    expect(e).to_contain_text("Il calcolo del motore non è riuscito")
+    expect(p.locator("#du-wz-rileggi-calcolo")).to_be_visible()
+    sosp = b.sospesi()
+    verifica(len(sosp) == 1 and sosp[0][1].get("certo") is True and sosp[0][1].get("codice") == "ERRORE_CALCOLO", "500 ERRORE_CALCOLO di R5: memoria della scheda %s" % sosp)
+    # si chiude il tentativo come DU-B63: un 422 BLOCCHI (esito certo) lo toglie dalla memoria della scheda
+    b.modo("R5", "422")
+    p.click("#du-wz-riprova-occupato")
+    expect(e).to_have_attribute("data-codice", "BLOCCHI", timeout=T_LUNGO)
+    r5 = b.corpi(i, "POST", r"/motore-a/bom/conferma$")
+    verifica(len(r5) == 3 and r5[0] == r5[1] == r5[2], "«Riprova» dopo il 504 e il 500 non riusa la chiave e il corpo: %d invii" % len(r5))
+    verifica(not b.sospesi(), "BLOCCHI ha lasciato la chiave in sospeso")
+    st = b.stato()
+    verifica(len(st["conferme"].get(b.p1, [])) == n_conf and st["conti"].get("R5", 0) == 0, "un rifiuto di R5 ha registrato una conferma")
+    p.click("#du-wz-rileggi-blocchi")
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
+
+
+@prova("67", "CREA_SU_ESISTENTE (rilievo del 20/10): «Riusa ‹C›» nel riepilogo scrive riusa_esistente con R2 e toglie il blocco; «Riusa i componenti con lo stesso codice (n)» in un salvataggio; «Togli il riuso» nel pannello")
+def b67(b):
+    p = b.page
+    if p.locator("#du-wizard").is_visible():
+        p.click("#du-wz-chiudi")
+    b.passo("revisione")
+    b.vista("org")
+
+    def aggiungi(desc):
+        b.scheda("k-root")
+        b.linguetta("dettaglio")
+        p.click("#du-aggiungi-sotto")
+        p.select_option("#f-tipo", "sciolto")
+        p.fill("#f-desc", desc)
+        p.fill("#f-codice", "ACM-1400")
+        p.fill("#f-rev", "A")
+        p.fill("#f-qta", "1")
+        b.ok_finestra()
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        k = p.locator("#du-pannello").get_attribute("data-k")
+        verifica(k and k.startswith("k-u"), "il pezzo nuovo non è il nodo scelto: %s" % k)
+        # un pezzo scritto a mano non ha una voce con decisione_esistente: nel pannello nessun «Riusa…» (il rimedio sta nel
+        # riepilogo, dove il server dice il componente)
+        verifica(p.locator("#du-riusa-esistente, #du-riuso-nodo").count() == 0, "riuso nel pannello di un pezzo senza voce")
+        return k
+
+    def fase2():
+        if p.locator("#du-wizard").is_visible():
+            p.click("#du-wz-chiudi")
+        b.apri_wizard()
+        p.click("#du-wz-fase2")
+        expect(p.locator("#du-wz-documenti")).to_be_visible(timeout=T_LUNGO)
+
+    # 1. un pezzo nuovo con il codice del registrato ACM-1400: CREA_SU_ESISTENTE con «Riusa ACM-1400» (uno solo: niente
+    # gesto in blocco), la conferma spenta
+    k1 = aggiungi("Supporto rifatto a mano")
+    fase2()
+    bl = p.locator("#du-wz-blocchi [data-codice=CREA_SU_ESISTENTE]")
+    expect(bl).to_have_count(1, timeout=T_LUNGO)
+    riusa = p.locator("#du-wz-riusa-" + sid(k1))
+    expect(riusa).to_have_text("Riusa ACM-1400")
+    expect(riusa).to_be_enabled()
+    expect(p.locator("#du-wz-riusa-tutti")).to_have_count(0)
+    expect(p.locator("#du-wz-conferma")).to_be_disabled()
+    i = b.segna()
+    riusa.click()
+    az = b.ultime_azioni(i)
+    verifica(len(az) == 1 and az[0]["azione"] == "decisione_aggiunta" and az[0]["chiave_bozza"] == k1 and az[0]["dopo"]["tipo"] == "riusa_esistente"
+             and az[0]["dopo"]["chiave_bozza"] == k1 and az[0]["dopo"]["componente_id"] == C40 and set(az[0]["dopo"]) == {"id", "tipo", "chiave_bozza", "componente_id"},
+             "«Riusa ACM-1400»: %s" % az)
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bom/riepilogo$"), "il riepilogo non si è riletto dopo il riuso")
+    expect(p.locator("#du-wz-blocchi [data-codice=CREA_SU_ESISTENTE]")).to_have_count(0, timeout=T_LUNGO)
+    # il riepilogo dice il nodo nel componente registrato (componente_id dell'identità, come componenteDi del server)
+    p.click("#du-wz-fase1")
+    expect(p.locator("#du-wz-identita tr[data-k='%s']" % k1)).to_be_visible(timeout=T_LUNGO)
+    p.click("#du-wz-chiudi")
+    # 2. il pannello del nodo dice il riuso e «Togli il riuso» lo toglie (un salvataggio): il blocco torna
+    b.scheda(k1)
+    b.linguetta("dettaglio")
+    expect(p.locator("#du-riuso-nodo")).to_have_attribute("data-componente", C40, timeout=T_LUNGO)
+    i = b.segna()
+    p.click("#du-togli-riuso")
+    az = b.ultime_azioni(i)
+    verifica(len(az) == 1 and az[0]["azione"] == "decisione_tolta" and az[0]["prima"]["tipo"] == "riusa_esistente" and az[0]["dopo"] is None, "«Togli il riuso»: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    # 3. due pezzi nuovi con lo stesso codice: «Riusa i componenti con lo stesso codice (2)», un salvataggio con le due
+    # decisioni; poi «Annulla» le toglie insieme
+    k2 = aggiungi("Supporto doppio")
+    fase2()
+    expect(p.locator("#du-wz-blocchi [data-codice=CREA_SU_ESISTENTE]")).to_have_count(2, timeout=T_LUNGO)
+    tutti = p.locator("#du-wz-riusa-tutti")
+    expect(tutti).to_have_text("Riusa i componenti con lo stesso codice (2)")
+    i = b.segna()
+    tutti.click()
+    az = b.ultime_azioni(i)
+    verifica(sorted((a["azione"], a["dopo"]["tipo"], a["dopo"]["chiave_bozza"], a["dopo"]["componente_id"]) for a in az) ==
+             sorted([("decisione_aggiunta", "riusa_esistente", k, C40) for k in (k1, k2)]), "«Riusa i componenti con lo stesso codice»: %s" % az)
+    expect(p.locator("#du-wz-blocchi [data-codice=CREA_SU_ESISTENTE]")).to_have_count(0, timeout=T_LUNGO)
+    b.foto("B67_riuso.png")
+    p.click("#du-wz-chiudi")
+    # 4. i due pezzi si tolgono («Non crearlo»: le decisioni del nodo escono con lui), e la bozza torna confermabile
+    for k in (k2, k1):
+        b.scheda(k)
+        b.linguetta("dettaglio")
+        i = b.segna()
+        p.click("#du-togli")
+        b.ok_finestra()
+        az = b.ultime_azioni(i)
+        verifica([a["azione"] for a in az] == ["arco_tolto", "decisione_tolta", "nodo_tolto"] and az[1]["prima"]["tipo"] == "riusa_esistente",
+                 "«Non crearlo» di un pezzo riusato: %s" % [a["azione"] for a in az])
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    fase2()
+    expect(p.locator("#du-wz-blocchi [data-codice=CREA_SU_ESISTENTE]")).to_have_count(0)
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
 
 
 @prova("13", "R5 rifiutata: 409 BASE_SUPERATA, 422 BLOCCHI e CONGELATA, 409 CHIAVE_RIUSATA e COPIA_IN_CORSO, 500 CONTROLLO_FINALE")
@@ -831,6 +1833,10 @@ def b13(b):
     expect(e).to_contain_text("Rimedi: Diventa particolare; Lascia assieme")
     expect(e).to_contain_text("Niente è registrato, la bozza resta")
     verifica(not b.sospesi(), "BLOCCHI ha lasciato la chiave in sospeso")
+    # dopo un 422 BLOCCHI di R5 la conferma resta spenta finché il riepilogo non si rilegge
+    expect(p.locator("#du-wz-conferma")).to_be_disabled()
+    p.click("#du-wz-rileggi-blocchi")
+    expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
     # 422 CONGELATA (risposta finta): il motivo, niente registrato, niente in sospeso
     g = rispondi_json(422, {"esito": "rifiutato", "codice": "CONGELATA", "testo": "La BOM è congelata."})
     p.route("**/motore-a/bom/conferma", g)
@@ -929,7 +1935,12 @@ def b14(b):
     p.click("#du-wz-rileggi")
     expect(p.locator("#du-wz-non-riletta")).to_have_count(0, timeout=T_LUNGO)
     expect(e).to_contain_text("Conferma n. 1 di ACM-1000")
-    expect(e).to_contain_text("Verificata: non ancora calcolata (arriva in V2)")
+    # i segni di U2 §5.5 (WZ-09): la conferma registrata e la verifica corrente di /dati, «in prima istanza», ricalcolata dal
+    # server (qui lo STEP della fonte è diventato lo STEP della working con questa conferma, R5: sì), mai «non ancora
+    # calcolata (arriva in V2)»
+    expect(p.locator("#du-wz-segni")).to_contain_text("v1 confermata")
+    expect(p.locator("#du-verifica-adesso-wz")).to_contain_text("Verificata in prima istanza, adesso: sì · poggia sulla conferma n. 1")
+    verifica("arriva in V2" not in e.inner_text(), "il wizard dice ancora «Verificata: non ancora calcolata (arriva in V2)»")
     # i nodi non inclusi della conferma, con il nome (MAT NI-10)
     expect(p.locator("#du-wz-noninclusi-conferma")).to_contain_text("Nodi non inclusi nella conferma n. 1")
     expect(p.locator("#du-wz-noninclusi-conferma")).to_contain_text("Saldatura")
@@ -940,21 +1951,84 @@ def b14(b):
     verifica(len(b.stato()["conferme"][b.p1]) == 1, "conferme registrate: %s" % b.stato()["conferme"])
 
 
+@prova("60", "R15 «Rifiuta la proposta aggiornata…» senza bozza (U2 §5.7): un nome diverso da «Scarta» e da «Abbandona», il motivo, ANTEPRIMA_SUPERATA, il segno del rifiuto")
+def b60(b):
+    p = b.page
+    if p.locator("#du-wizard").is_visible():
+        p.click("#du-wz-chiudi")
+    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    b.proposta_cambia()
+    p.click("#du-aggiorna")
+    seg = p.locator("#du-proposta-aggiornata")
+    expect(seg).to_have_attribute("data-du-proposta", "aperta", timeout=T_LUNGO)
+    expect(seg).to_contain_text("Proposta aggiornata: 1 differenze da valutare")
+    expect(p.locator("#du-pa-rifiuta")).to_have_text("Rifiuta la proposta aggiornata…")
+    p.click("#du-pa-rifiuta")
+    expect(b.finestra()).to_contain_text("Rifiuta la proposta aggiornata di ACM-1000")
+    expect(b.finestra()).to_contain_text("non cambia la verifica corrente")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.fill("#f-motivo", "la lettura nuova del codice non è affidabile")
+    # la proposta cambia ancora mentre il dialogo è aperto: 409 ANTEPRIMA_SUPERATA, niente scritto, il segno riletto
+    b.proposta_cambia()
+    i = b.segna()
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("ANTEPRIMA_SUPERATA", timeout=T_LUNGO)
+    verifica(b.stato()["conti"].get("R15", 0) == 0, "R15 ha scritto con l'impronta vecchia")
+    r15 = b.corpi(i, "POST", r"/proposta-aggiornata/rifiuta$")
+    verifica(len(r15) == 1 and r15[0]["prodotto_id"] == b.p1 and r15[0]["conferma_id"] and r15[0]["gruppo"].startswith("cand:") and len(r15[0]["impronta_contenuto"]) == 64
+             and r15[0]["motivo"] and re.fullmatch(UUID, r15[0]["chiave_idempotenza"]), "corpo di R15: %s" % r15)
+    expect(seg).to_have_attribute("data-du-proposta", "aperta", timeout=T_LUNGO)
+    p.click("#du-pa-rifiuta")
+    p.fill("#f-motivo", "la lettura nuova del codice non è affidabile")
+    i = b.segna()
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Proposta aggiornata rifiutata: la BOM confermata resta com'è.", timeout=T_LUNGO)
+    expect(seg).to_have_attribute("data-du-proposta", "rifiutata", timeout=T_LUNGO)
+    expect(seg).to_contain_text("rifiutata da AD")
+    r15b = b.corpi(i, "POST", r"/proposta-aggiornata/rifiuta$")
+    verifica(len(r15b) == 1 and r15b[0]["chiave_idempotenza"] != r15[0]["chiave_idempotenza"], "il rifiuto dopo il 409 riusa la chiave: %s" % r15b)
+    verifica(b.stato()["conti"].get("R15", 0) == 1, "R15 non registrato nel banco")
+    verifica(not b.sospesi(), "R15 ha lasciato una chiave in sospeso")
+
+
 @prova("15", "WZ-01: senza modifiche sulla BOM confermata il CTA è spento; R5 con la risposta persa: R6 «in corso» poi «registrato»")
 def b15(b):
     p = b.page
-    p.click("#du-wz-chiudi")
+    if p.locator("#du-wizard").is_visible():
+        p.click("#du-wz-chiudi")
     expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
     p.click("#du-da-conferma")
     b.salvata(1)
     expect(p.locator("#du-vp .du-nc[data-k]")).to_have_count(2)
-    # «v1 confermata il … da …» e «Verificata» restano due segni distinti; la verifica di una conferma di V1 non è calcolata
+    # «v1 confermata il … da …» e la verifica corrente restano due segni distinti (U2 §5.5): la verifica «in prima istanza»
+    # la calcola il server a ogni lettura di /dati (conferma_corrente.verifica_adesso), mai la pagina
     expect(p.locator("#du-stato-conferma")).to_contain_text("v1 confermata")
     expect(p.locator("#du-stato-conferma")).to_contain_text(" da AD")
-    expect(p.locator("#du-stato-conferma")).to_contain_text("Verificata: non ancora calcolata (arriva in V2)")
+    expect(p.locator("#du-verifica-adesso")).to_contain_text("Verificata in prima istanza, adesso: sì · poggia sulla conferma n. 1")
+    expect(p.locator("#du-verifica-adesso")).to_have_attribute("data-du-verifica", "si")
     # WZ-01: nessuna modifica su una versione confermata, il CTA è spento con il motivo (una conferma n+1 uguale alla n no)
     expect(p.locator("#du-cta-bom")).to_be_disabled()
     verifica("nessuna modifica: la v1 è già confermata" in (p.locator("#du-cta-bom").get_attribute("title") or ""), "il CTA senza modifiche non è spento con il motivo")
+    # la AR che R5 ha registrato con la conferma n. 1 (ACM-1100_A.pdf sul componente di ACM-1100) si legge dalle righe di S9
+    # (gia_registrato), mai dalla copia di S1 (DIR35-DP [U]); il documento confermato e la AR di ACM-1400 restano
+    a2 = b.al["ACM-1100_A.pdf"]
+    verifica(b.stato()["file"]["ACM-1100_A.pdf"]["stato"] == "attivo", "ACM-1100_A.pdf non è attivo")
+    b.passo("sorgente")
+    b.cartella("p:" + b.p1)
+    expect(p.locator("#du-sg-elenco li[data-allegato='%s']" % a2)).to_contain_text("già registrato", timeout=T_LUNGO)
+    # si torna ai dati delle prove che seguono (scritte con ACM-1100_A.pdf proposto dal motore e non registrato): la sonda
+    # toglie la AR, la pagina rilegge
+    r = p.request.post(b.url + "/__banco/ar", data=json.dumps({"nome": "ACM-1100_A.pdf", "componente_id": ""}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda della AR: %d" % r.status)
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    b.passo("revisione")
+    b.vista("org")
+    b.scheda("k-40")
+    b.linguetta("documenti")
+    expect(p.locator("#du-doc-nodo [data-du-doc=associato]")).to_contain_text("ACM-1400_A.pdf")
+    expect(p.locator("#du-doc-nodo [data-du-doc=confermato]")).to_contain_text("ACM-1400_ASSIEME.pdf")
+    b.linguetta("dettaglio")
     # una modifica: la quantità di ACM-1400 sotto il prodotto
     b.scheda("k-40")
     p.click("#du-quantita")
@@ -1007,7 +2081,7 @@ def b16(b):
     b.salvata(2)
     expect(riga).to_contain_text("⊘ da scollegare")
     dec = [a["dopo"] for a in b.ultime_azioni(i) if a["azione"] == "decisione_aggiunta"][0]
-    verifica(dec["tipo"] == "scollega_documento" and dec["proposta_id"] == b.pr["ACM-1400_A.pdf"] and re.fullmatch(UUID, dec["componente_id"]), "svincolo: %s" % dec)
+    verifica(dec["tipo"] == "scollega_documento" and dec["allegato_id"] == b.al["ACM-1400_A.pdf"] and re.fullmatch(UUID, dec["componente_id"]), "svincolo: %s" % dec)
     # PN-08: «Fissa l'emittente…» sul prodotto registrato presunto (decisione di-…): un'altra decisione, dopo la prima
     b.vista("org")
     b.scheda("k-root")
@@ -1061,6 +2135,12 @@ def b16(b):
     verifica(ids_dopo == sorted(ids_dopo) and sorted(ids_dopo) == sorted(ids_prima), "il corpo dopo la ricarica non è quello riletto dal server: %s" % ids_dopo)
     verifica(not b.sospesi(), "la chiave resta in sospeso dopo la conferma")
     expect(striscia).to_have_count(0)
+    # R5 ha applicato lo svincolo: la AR di ACM-1400_A.pdf è chiusa (direttiva 39 §7, AR dal servizio unico)
+    verifica(b.stato()["file"]["ACM-1400_A.pdf"]["componente"] == "", "la conferma non ha chiuso la AR scollegata")
+    # si torna allo stato delle prove che seguono (dati di prova): la AR rimessa dalla sonda (la pagina la rilegge con la
+    # prossima lettura di S9)
+    r = p.request.post(b.url + "/__banco/ar", data=json.dumps({"nome": "ACM-1400_A.pdf", "componente_id": C40}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda della AR: %d" % r.status)
 
 
 @prova("17", "«Scollega da un padre» (togli_arco); con la conferma in sospeso R3 è spento; abbandono del tentativo, poi R3")
@@ -1117,12 +2197,12 @@ def b17(b):
 def b18(b):
     p = b.page
     a1 = b.al["ACM-1000_assieme.stp"]
-    b.passo("sorgente")
-    p.click("#du-guarda-" + sid(a1))
-    expect(p.locator("#du-usa-bom")).to_be_enabled(timeout=T_LUNGO)
-    p.click("#du-usa-bom")
+    b.guarda(a1)
+    expect(p.locator("#du-conferma-sorgente")).to_have_text("Riprendi: crea la bozza di ACM-1000", timeout=T_LUNGO)
+    p.click("#du-conferma-sorgente")
     b.ok_finestra()
-    expect(p.locator("#du-passo-revisione")).to_have_attribute("aria-current", "step", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    b.passo("revisione")
     b.salvata(1)
     verifica(p.locator("#du-proposta-cambiata").count() == 0, "striscia della proposta cambiata su una bozza appena importata")
     b.proposta_cambia()
@@ -1148,36 +2228,46 @@ def b18(b):
     b.salvata(2)
 
 
-@prova("19", "«Cambia lo STEP della BOM…»: effetto da S6, motivo, cambia_sorgente")
+@prova("19", "«Usa nuovo STEP per ‹P›…» (S8 con la bozza, direttiva 39): nessuna revoca prima, l'effetto da S6, il motivo, sostituisci come presa d'atto; la working resta sullo STEP di prima")
 def b19(b):
     p = b.page
     a10 = b.al["ACM-1000_rev2.stp"]
-    b.passo("sorgente")
     i = b.segna()
-    p.click("#du-guarda-" + sid(a10))
-    expect(p.locator("#du-cambia-sorgente")).to_be_enabled(timeout=T_LUNGO)
+    b.guarda(a10)
     s6 = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
     verifica(s6 and "bozza=" in s6[-1]["query"], "S6 senza la bozza: %s" % [r["query"] for r in s6])
     expect(p.locator("#du-anteprima")).to_contain_text("diversa dal prodotto")
+    # direttiva 39 §2: lo STEP della working (promosso dalle conferme della BOM) non si revoca prima del cambio: la working
+    # resta su di lui fino alla prossima «Conferma BOM»; «Usa nuovo STEP» è subito disponibile
+    verifica(b.stato()["fonte"]["autorizzata"] is True, "la working non ha lo STEP di prima: %s" % b.stato()["fonte"])
+    expect(p.locator("#du-cambia-sorgente")).to_have_text("Usa nuovo STEP per ACM-1000…")
+    expect(p.locator("#du-cambia-sorgente")).to_be_enabled(timeout=T_LUNGO)
     i = b.segna()
     p.click("#du-cambia-sorgente")
     eff = p.locator("#f-effetto")
-    expect(eff).to_contain_text("nodi che restano: 1")
+    expect(eff).to_contain_text("nodi che restano: 1", timeout=T_LUNGO)
     expect(eff).to_contain_text("nodi che escono: 1")
     expect(eff).to_contain_text("nodi che entrano: 3")
-    # l'effetto è quello di S6 riletto adesso con la bozza (MAT §1.5, SG-04), con i nodi
-    s6b = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
-    verifica(s6b and "bozza=" in s6b[-1]["query"], "«Cambia lo STEP…» non rilegge S6 con la bozza prima del dialogo: %s" % [r["query"] for r in s6b])
     expect(eff).to_contain_text("(k-12)")
+    expect(p.locator("#f-sostituisci")).to_contain_text("ACM-1000_assieme.stp")
+    # l'effetto è quello di S6 riletto adesso con la bozza (MAT §1.5, SG-04)
+    s6b = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
+    verifica(s6b and "bozza=" in s6b[-1]["query"], "«Usa nuovo STEP…» non rilegge S6 con la bozza prima del dialogo: %s" % [r["query"] for r in s6b])
     expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
     p.fill("#f-motivo", "lo STEP rev D sostituisce la rev C")
     i = b.segna()
     b.ok_finestra()
-    expect(b.avviso()).to_contain_text("Fonte della bozza cambiata.", timeout=T_LUNGO)
-    expect(p.locator("#du-ultima-forma")).to_contain_text("identità aggiornate: 1")
-    c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
-    verifica(c["cambia_sorgente"]["sorgente"]["allegato_id"] == a10 and c["cambia_sorgente"]["motivo"] and c["versione_attesa"] == 2, "cambia_sorgente: %s" % c)
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    c = b.corpi(i, "POST", r"/conferma-sorgente$")[0]
+    verifica(c["motivo"] and c["bozza"]["versione_attesa"] == 2 and c["sostituisci"] == {"conferma": True} and "/step/%s/" % a10 in b.richieste_da(i, "POST", r"/conferma-sorgente$")[0]["path"],
+             "S8 del cambio: %s" % c)
+    verifica(b.stato()["conti"].get("R2", 0) == 0 or not b.corpi(i, "POST", r"/motore-a/bozza$"), "il cambio della sorgente passa da R2: lo fa S8")
+    verifica(not b.richieste_da(i, "POST", r"/step-strutturale"), "il cambio della sorgente ha chiamato l'autorizzazione o la revoca legacy")
+    # la working resta sullo STEP di prima fino alla conferma della BOM (direttiva 39 §2, revisione)
+    verifica(b.stato()["fonte"]["autorizzata"] is True, "S8 ha cambiato la working: %s" % b.stato()["fonte"])
+    b.guarda(a10)
     expect(p.locator("#du-riallinea-da-step")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-riallinea-da-step")).to_have_text("Aggiorna proposta…")
 
 
 @prova("20", "«Importa dalla proposta…» (BZ-15) e «Riparti dalla proposta…» (BZ-16)")
@@ -1235,15 +2325,20 @@ def b21(b):
     a = b.al
     ok = p.locator("#du-finestra #f-ok")
     b.passo("sorgente")
-    p.click("#du-cartella-attivi")
-    # D-6: la fonte della bozza blocca
-    p.click("#du-scarta-" + sid(a["ACM-1000_rev2.stp"]))
-    expect(p.locator('#f-dipendenze li[data-codice="D-6"][data-esito="blocca"]')).to_be_visible(timeout=T_LUNGO)
-    expect(ok).to_be_disabled()
-    verifica("D-6" in (ok.get_attribute("title") or ""), "Scarta spento senza il motivo D-6")
-    b.chiudi_finestra()
-    # D-7: lo STEP associato al prodotto vuole «Scollega e scarta»
-    p.click("#du-scarta-" + sid(a["ACM-1000_assieme.stp"]))
+    b.cartella("tutti")
+    # lo STEP sorgente della bozza: «Scarta» e «Metti in Altri file» spenti con la ragione nel dettaglio (matrice v5, «STEP
+    # sorgente»), fra le «Non disponibili»
+    b.file(a["ACM-1000_rev2.stp"])
+    nd = p.locator("#du-sg-nondisp")
+    expect(nd.locator('[data-azione="scarta"]')).to_contain_text("È un documento confermato")
+    expect(nd.locator('[data-azione="altri"]')).to_contain_text("È un documento confermato")
+    verifica(p.locator("#du-sg-dettaglio #du-scarta-" + sid(a["ACM-1000_rev2.stp"])).count() == 0, "«Scarta» offerto sullo STEP sorgente")
+    # direttiva 39 §2, §5: lo STEP superato come sorgente da «Usa nuovo STEP» resta un documento confermato (S8 non
+    # sostituisce): non si scarta da qui
+    b.file(a["ACM-1000_assieme.stp"])
+    expect(nd.locator('[data-azione="scarta"]')).to_contain_text("È un documento confermato")
+    # D-7: il file associato a un componente (AR) vuole «Scollega e scarta»
+    b.azione("scarta", a["ACM-1400_A.pdf"])
     expect(p.locator('#f-dipendenze li[data-codice="D-7"]')).to_be_visible(timeout=T_LUNGO)
     p.fill("#f-motivo", "prova")
     expect(ok).to_be_disabled()
@@ -1251,9 +2346,9 @@ def b21(b):
     b.chiudi_finestra()
     # D-14: l'unica copia
     i = b.segna()
-    p.click("#du-scarta-" + sid(a["collaudo_interno.pdf"]))
+    b.azione("scarta", a["collaudo_interno.pdf"])
     expect(p.locator("#f-unica")).to_be_visible(timeout=T_LUNGO)
-    expect(b.finestra()).to_contain_text("La mail originale, i documenti confermati, le copie sul NAS e la storia non si toccano.")
+    expect(b.finestra()).to_contain_text("La mail originale, i documenti confermati e la storia non si toccano. Se il file è in Altri file, anche la sua copia nella cartella ALTRO della RFQ sul NAS viene eliminata. Non si annulla: per riaverlo dovrai ricaricarlo.")
     p.fill("#f-motivo", "collaudo superato dalla versione nuova")
     expect(ok).to_be_disabled()
     p.locator("#f-unica").check()
@@ -1262,8 +2357,8 @@ def b21(b):
     s2 = b.corpi(i, "POST", r"/scarta$")
     verifica(len(s2) == 1 and s2[0].get("conferma_unica_copia") is True and s2[0]["motivo"] and re.fullmatch(UUID, s2[0]["chiave_idempotenza"])
              and len(s2[0]["impronta_dipendenze"]) == 64 and s2[0]["versione_attesa"] == 0, "corpo di S2: %s" % s2)
-    expect(p.locator("#du-cartella-scartati")).to_have_text("Scartati (1)", timeout=T_LUNGO)
-    p.click("#du-cartella-scartati")
+    expect(p.locator("#du-sg-c-scartati .du-sg-conto")).to_have_text("1", timeout=T_LUNGO)
+    b.cartella("scartati")
     riga = p.locator("#du-file-" + sid(a["collaudo_interno.pdf"]))
     expect(riga).to_have_attribute("data-stato", "scartato")
     expect(riga).to_contain_text("Scartato da AD")
@@ -1271,40 +2366,119 @@ def b21(b):
     # la riga dice lo stato di adesso (S1), non la frase della risposta di S2
     expect(riga).not_to_contain_text("ancora da completare")
     b.foto("B20_file_scartati.png")
-    # l'archivio porta le sue voci
-    p.click("#du-cartella-attivi")
+    # lo ZIP con le voci attive: niente cascata, il server rifiuta (VOCI_ATTIVE) e il dialogo dice quali voci
+    b.cartella("tutti")
     i = b.segna()
-    p.click("#du-scarta-" + sid(a["pacchetto.zip"]))
-    expect(b.finestra()).to_contain_text("lo seguono tutte le sue 2 voci attive", timeout=T_LUNGO)
+    b.azione("scarta", a["pacchetto.zip"])
+    expect(p.locator("#f-scarta-zip")).to_contain_text("si scarta solo il contenitore", timeout=T_LUNGO)
     p.fill("#f-motivo", "archivio duplicato")
     b.ok_finestra()
-    expect(p.locator("#du-cartella-scartati")).to_have_text("Scartati (4)", timeout=T_LUNGO)
-    c = b.corpi(i, "POST", r"/scarta$")[0]
-    verifica(c["n_voci"] == 2 and len(c["impronta_voci"]) == 64, "S2 dell'archivio senza il perimetro delle voci: %s" % c)
-    # Altri file e Riattiva
-    p.click("#du-altri-" + sid(a["PIASTRA_400123.dxf"]))
-    expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS", timeout=T_LUNGO)
+    expect(p.locator("#du-finestra-errore")).to_contain_text("Lo ZIP ha 2 file estratti ancora attivi (voce_1.pdf, voce_2.pdf)", timeout=T_LUNGO)
+    b.chiudi_finestra()
+    verifica(b.stato()["file"]["voce_1.pdf"]["stato"] == "attivo" and b.stato()["file"]["pacchetto.zip"]["stato"] == "attivo", "VOCI_ATTIVE ha scritto")
+    # le due voci in gruppo (D-V5-02, base [T] A): un dialogo, un motivo, l'esito file per file; poi lo ZIP da solo
+    b.cartella("tutti")
+    for nome in ("voce_1.pdf", "voce_2.pdf"):
+        p.locator("#du-file-" + sid(a[nome]) + " .du-sg-spunta").check()
+    expect(p.locator("#du-sg-gruppo")).to_contain_text("2 selezionati")
+    i = b.segna()
+    p.click("#du-sg-elenco #du-g-scarta")
+    expect(p.locator("#f-gruppo li")).to_have_count(2, timeout=T_LUNGO)
+    expect(ok).to_be_disabled()
+    verifica("il motivo" in (ok.get_attribute("title") or ""), "Scarta (2) spento senza la ragione: %s" % ok.get_attribute("title"))
+    p.fill("#f-motivo", "voci dell'archivio duplicato")
     b.ok_finestra()
-    expect(b.avviso()).to_contain_text("File messo in Altri file: il contenuto è conservato.", timeout=T_LUNGO)
-    expect(p.locator("#du-cartella-altri")).to_have_text("Altri file (1)", timeout=T_LUNGO)
-    p.click("#du-cartella-altri")
+    expect(p.locator("#du-sg-mossa")).to_contain_text("2 file → Scartati", timeout=T_LUNGO)
+    c2 = b.corpi(i, "POST", r"/scarta$")
+    verifica(len(c2) == 2 and len({c["chiave_idempotenza"] for c in c2}) == 2 and all(c["motivo"] == "voci dell'archivio duplicato" for c in c2), "S2 di gruppo: %s" % c2)
+    b.azione("scarta", a["pacchetto.zip"])
+    p.fill("#f-motivo", "archivio duplicato")
+    b.ok_finestra()
+    expect(p.locator("#du-sg-c-scartati .du-sg-conto")).to_have_text("4", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-mossa")).to_contain_text("pacchetto.zip → Scartati")
+    # Altri file e Riattiva
+    b.azione("altri", a["PIASTRA_400123.dxf"])
+    expect(b.finestra()).to_contain_text("cartella ALTRO della RFQ sul NAS", timeout=T_LUNGO)
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("File messo in Altri file: la copia è nella cartella ALTRO della RFQ.", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-c-altri .du-sg-conto")).to_have_text("1", timeout=T_LUNGO)
+    b.cartella("altri")
     riga = p.locator("#du-file-" + sid(a["PIASTRA_400123.dxf"]))
     expect(riga).to_have_attribute("data-stato", "altri_file")
-    expect(riga).to_contain_text("Conservato (copia verificata).")
-    p.click("#du-riattiva-" + sid(a["PIASTRA_400123.dxf"]))
+    expect(riga).to_contain_text("Copia nella cartella ALTRO della RFQ verificata")
+    b.azione("riattiva", a["PIASTRA_400123.dxf"])
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("File riattivato", timeout=T_LUNGO)
-    expect(p.locator("#du-cartella-altri")).to_have_text("Altri file (0)", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-c-altri .du-sg-conto")).to_have_text("0", timeout=T_LUNGO)
     # 503 NON_CONFIGURATO: il dialogo resta aperto, niente cambia
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     b.modo("S3", "503")
-    p.click("#du-altri-" + sid(a["SCHEMA_GENERALE.pdf"]))
+    b.azione("altri", a["SCHEMA_GENERALE.pdf"])
     b.ok_finestra()
-    expect(p.locator("#du-finestra-errore")).to_contain_text("non è configurata su questo server: niente è cambiato. (NON_CONFIGURATO", timeout=T_LUNGO)
+    expect(p.locator("#du-finestra-errore")).to_contain_text("La scrittura sul NAS è spenta su questo server: la cartella ALTRO sta sul NAS. Niente è cambiato. (NON_CONFIGURATO", timeout=T_LUNGO)
     expect(b.finestra()).to_be_visible()
     b.chiudi_finestra()
     verifica(b.stato()["file"]["SCHEMA_GENERALE.pdf"]["stato"] == "attivo", "il 503 ha cambiato il file")
     verifica(not b.sospesi(), "un 503 ha lasciato la chiave in sospeso")
+
+
+@prova("65", "D-ASS-03 nel formato 3 (C-6b): «Scollega e metti in Altri file» come gesto composto, prima lo svincolo con R2 poi S3 con «scollega»; lo stato parziale se il secondo effetto non riesce; con lo svincolo già salvato D-6 chiede solo «Scollega»")
+def b65(b):
+    p = b.page
+    a11 = b.al["ACM-1400_A.pdf"]
+    ok = p.locator("#du-finestra #f-ok")
+    st = b.stato()
+    verifica(any(n.get("componente_id") == C40 for n in st["bozze"][b.p1]["snapshot"]["nodi"]), "la bozza aperta non ha ACM-1400")
+    b.passo("sorgente")
+    b.cartella("tutti")
+    # 1. D-7 «blocca» (AR senza svincolo nella RFQ formato 3): il gesto composto; il secondo effetto rifiutato (risposta finta)
+    b.azione("altri", a11)
+    expect(p.locator('#f-dipendenze li[data-codice="D-7"]')).to_have_attribute("data-esito", "blocca", timeout=T_LUNGO)
+    expect(p.locator("#f-scollega-composto")).to_contain_text("prima lo svincolo si salva nella bozza di ACM-1000")
+    expect(ok).to_be_disabled()
+    p.locator("#f-scollega").check()
+    catturate = []
+    g = rispondi_json(422, {"esito": "rifiutato", "codice": "CORPO_NON_VALIDO", "testo": "rifiuto di prova"}, cattura=catturate)
+    p.route("**/sorgente/file/*/altri-file", g)
+    try:
+        i = b.segna()
+        b.ok_finestra()
+        expect(b.avviso()).to_contain_text("è salvato nella bozza; il gesto sul file non è riuscito", timeout=T_LUNGO)
+        az = b.ultime_azioni(i)
+        verifica(len(az) == 1 and az[0]["dopo"]["tipo"] == "scollega_documento" and az[0]["dopo"]["allegato_id"] == a11 and az[0]["dopo"]["componente_id"] == C40, "il primo effetto: %s" % az)
+        b.attendi(lambda: len(catturate) == 1, "S3 non è partito dopo lo svincolo")
+        verifica(catturate[0].get("scollega") is True and len(catturate[0]["impronta_dipendenze"]) == 64, "il secondo effetto: %s" % catturate[0])
+        r2 = [r for r in b.richieste_da(i) if r["metodo"] == "POST" and r["path"].endswith("/motore-a/bozza")]
+        s3 = [r for r in b.richieste_da(i) if r["metodo"] == "POST" and r["path"].endswith("/altri-file")]
+        verifica(r2 and s3 and b.richieste.index(r2[0]) < b.richieste.index(s3[0]), "gli effetti non sono in ordine (prima R2, poi S3)")
+    finally:
+        p.unroute("**/sorgente/file/*/altri-file", g)
+    b.chiudi_finestra()
+    verifica(b.stato()["file"]["ACM-1400_A.pdf"]["stato"] == "attivo", "il rifiuto di S3 ha cambiato il file")
+    # 2. con lo svincolo già nella bozza D-6 chiede «Scollega»: il gesto va avanti senza un altro R2
+    b.azione("altri", a11)
+    expect(p.locator('#f-dipendenze li[data-codice="D-6"]')).to_have_attribute("data-esito", "risoluzione", timeout=T_LUNGO)
+    verifica(p.locator("#f-scollega-composto").count() == 0, "gesto composto con lo svincolo già salvato")
+    p.locator("#f-scollega").check()
+    i = b.segna()
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("File messo in Altri file", timeout=T_LUNGO)
+    verifica(not b.richieste_da(i, "POST", r"/motore-a/bozza$"), "un altro svincolo salvato")
+    verifica(b.corpi(i, "POST", r"/altri-file$")[0].get("scollega") is True, "S3 senza «scollega»")
+    verifica(b.stato()["file"]["ACM-1400_A.pdf"]["stato"] == "altri_file", "il file non è in Altri file")
+    # 3. si torna allo stato delle prove che seguono: il file riattivato, la AR rimessa (sonda), lo svincolo annullato
+    b.azione("riattiva", a11, "altri")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("File riattivato", timeout=T_LUNGO)
+    r = p.request.post(b.url + "/__banco/ar", data=json.dumps({"nome": "ACM-1400_A.pdf", "componente_id": C40}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda della AR: %d" % r.status)
+    b.passo("revisione")
+    b.vista("org")
+    p.click("#du-annulla")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    b.attendi(lambda: not any(d.get("tipo") == "scollega_documento" and d.get("allegato_id") == a11 for d in b.stato()["bozze"][b.p1]["snapshot"]["decisioni"]), "lo svincolo non è stato annullato")
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
 
 
 @prova("22", "S2 con la risposta persa: «Esito da verificare», R6 con la stessa chiave, «registrato»")
@@ -1314,7 +2488,7 @@ def b22(b):
     g = perdi_la_risposta()
     p.route("**/sorgente/file/*/scarta", g)
     try:
-        p.click("#du-scarta-" + sid(a4))
+        b.azione("scarta", a4)
         expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
         p.fill("#f-motivo", "schema generale superato")
         b.ok_finestra()
@@ -1329,7 +2503,7 @@ def b22(b):
     k = corpi[0]["corpo"]["chiave_idempotenza"]
     verifica(k in st["chiavi_r6"], "R6 senza la chiave dello scarto")
     verifica(not b.sospesi(), "la chiave resta in sospeso dopo «registrato»")
-    expect(p.locator("#du-cartella-scartati")).to_have_text("Scartati (5)", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-c-scartati .du-sg-conto")).to_have_text("5", timeout=T_LUNGO)
 
 
 @prova("23", "S3 mai arrivata: R6 «non registrato», ricarica, «Riprova» dalla striscia con la stessa chiave")
@@ -1337,13 +2511,13 @@ def b23(b):
     p = b.page
     a3 = b.al["ACM-1120_B.pdf"]
     risorsa = "file:" + a3
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     catturate = []
     g = blocca_la_richiesta(catturate)
     p.route("**/sorgente/file/*/altri-file", g)
     try:
-        p.click("#du-altri-" + sid(a3))
-        expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS", timeout=T_LUNGO)
+        b.azione("altri", a3)
+        expect(b.finestra()).to_contain_text("cartella ALTRO della RFQ sul NAS", timeout=T_LUNGO)
         b.ok_finestra()
         expect(b.avviso()).to_contain_text("non è ancora registrato", timeout=T_LUNGO)
     finally:
@@ -1366,7 +2540,7 @@ def b23(b):
               "nessun R6 all'apertura per il tentativo in sospeso")
     i = b.segna()
     p.click("#du-riprova-" + sid(risorsa))
-    expect(b.avviso()).to_contain_text("File messo in Altri file: il contenuto è conservato.", timeout=T_LUNGO)
+    expect(b.avviso()).to_contain_text("File messo in Altri file: la copia è nella cartella ALTRO della RFQ.", timeout=T_LUNGO)
     s3 = b.corpi(i, "POST", r"/altri-file$")
     verifica(len(s3) == 1 and s3[0] == catturate[0], "«Riprova» non rimanda lo stesso corpo con la stessa chiave: %s" % s3)
     expect(striscia).to_have_count(0)
@@ -1377,8 +2551,9 @@ def b23(b):
 @prova("24", "«+ Aggiungi file» (E1′): parziale per file, in analisi poi letto, «già presente»")
 def b24(b):
     p = b.page
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     i = b.segna()
+    b.apri_carica()
     p.set_input_files("#du-carica-file", files=[
         {"name": "NUOVO_DISEGNO.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4\n% sintetico\n"},
         {"name": "programma.exe", "mimeType": "application/octet-stream", "buffer": b"MZ sintetico"},
@@ -1393,10 +2568,11 @@ def b24(b):
     e1 = b.richieste_da(i, "POST", r"/carica$")
     verifica(len(e1) == 1 and e1[0]["headers"].get("accept") == "application/json" and "multipart/form-data" in e1[0]["headers"].get("content-type", ""),
              "E1′: %s" % [r["headers"] for r in e1])
-    riga = p.locator("#du-file li.du-fr", has_text="NUOVO_DISEGNO.pdf")
+    riga = p.locator("#du-sg-elenco li.du-sg-riga", has_text="NUOVO_DISEGNO.pdf")
     expect(riga).to_contain_text("in analisi", timeout=T_LUNGO)
     expect(riga).to_contain_text("interna")
     expect(riga).to_contain_text("letto", timeout=25000)
+    b.apri_carica()
     p.set_input_files("#du-carica-file", files=[{"name": "NUOVO_DISEGNO.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4\n% sintetico\n"}])
     p.click("#du-carica-invia")
     expect(esiti.locator('li[data-esito="gia_presente"]')).to_contain_text("già presente", timeout=T_LUNGO)
@@ -1421,19 +2597,8 @@ def b25(b):
     expect(b.avviso()).to_contain_text("Copie riaccodate", timeout=T_LUNGO)
     verifica(len(b.richieste_da(i, "POST", r"/fascicolo/rianalizza$")) == 1 and len(b.richieste_da(i, "POST", r"/riprova-copie$")) == 1,
              "«Rifai l'analisi» e «Riprova le copie»: %s" % [(r["metodo"], r["path"]) for r in b.richieste_da(i, "POST")])
-    # «Revoca l'autorizzazione…»: il motivo, lo SHA della fonte
-    expect(p.locator("#du-revoca")).to_be_visible()
-    p.click("#du-revoca")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "lo STEP strutturale va cambiato")
-    i = b.segna()
-    b.ok_finestra()
-    expect(b.avviso()).to_contain_text("Autorizzazione revocata.", timeout=T_LUNGO)
-    rv = b.richieste_da(i, "POST", r"/fascicolo/componente/[^/]+/step-strutturale/revoca$")
-    verifica(len(rv) == 1, "«Revoca»: %d richieste" % len(rv))
-    f = urllib.parse.parse_qs(rv[0]["corpo"] or "")
-    verifica(f.get("motivo") == ["lo STEP strutturale va cambiato"] and f.get("sha") == [b.stato()["fonte"]["sha256"]], "campi di «Revoca»: %s" % f)
-    expect(p.locator("#du-passo-sorgente")).to_contain_text("STEP non autorizzato")
+    # direttiva 39 §2: nessun atto dell'autorizzazione nella pagina nuova (la revoca della sorgente sta nella DU-B62)
+    verifica(not b.richieste_da(0, "POST", r"/step-strutturale"), "la pagina ha chiamato un atto dell'autorizzazione")
     # R11: F8 in errore = «Riallinea i documenti» nel menu
     verifica(p.locator("#du-riallinea-documenti").count() == 0, "«Riallinea i documenti» con F8 eseguito")
     b.f8_errore()
@@ -1447,6 +2612,7 @@ def b25(b):
     verifica(p.locator("#du-riallinea-documenti").count() == 0, "«Riallinea i documenti» resta dopo R11")
     # «Apri» di un file che non è un PDF: un link a S5, che lo dà come allegato (FL-03)
     dxf = b.al["PIASTRA_400123.dxf"]
+    b.file(dxf)
     href = p.locator("#du-apri-" + sid(dxf)).get_attribute("href")
     verifica(href == "/thread/%s/sorgente/file/%s/contenuto?modo=anteprima" % (b.thread, dxf), "«Apri»: %s" % href)
     resp = p.request.get(b.url + href)
@@ -1455,6 +2621,7 @@ def b25(b):
     verifica(not b.richieste_da(i, "GET", r"/contenuto$"), "la pagina ha chiesto S5 con una fetch")
     # «Apri» di un PDF: il visore pdf.js della pagina, che legge l'indirizzo di S5 (modo=anteprima), una pagina alla volta
     a2 = b.al["ACM-1100_A.pdf"]
+    b.file(a2)
     i = b.segna()
     p.click("#du-apri-" + sid(a2))
     expect(p.locator("#du-visore-tela canvas")).to_be_visible(timeout=T_LUNGO)
@@ -1466,7 +2633,7 @@ def b25(b):
     b.chiudi_finestra()
 
 
-@prova("26", "secondo prodotto: indirizzo, nessuna struttura inventata")
+@prova("26", "secondo prodotto: indirizzo; senza candidate la sua cartella lo dice; lo STEP non candidato si guarda e si conferma con S8 (niente S7)")
 def b26(b):
     p = b.page
     a10 = b.al["ACM-1000_rev2.stp"]
@@ -1475,11 +2642,30 @@ def b26(b):
     expect(tab2).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
     b.attendi(lambda: b.indirizzo().get("prodotto") == b.p2, "l'indirizzo non porta il secondo prodotto")
     b.passo("sorgente")
-    expect(p.locator("#du-fonte")).to_contain_text("il prodotto non ha uno STEP associato")
-    p.click("#du-guarda-" + sid(a10))
-    expect(p.locator("#du-anteprima")).to_contain_text("La struttura dello STEP non è determinabile", timeout=T_LUNGO)
-    expect(p.locator("#du-anteprima")).to_contain_text("Nessuna struttura inventata.")
-    verifica(p.locator("#du-anteprima .du-vp").count() == 0, "un organigramma per una struttura non determinabile")
+    b.cartella("p:" + b.p2)
+    expect(p.locator("#du-sg-c-p_" + sid(b.p2))).to_contain_text("○ da confermare · 0 STEP")
+    if p.locator("#du-nessuna-candidata").count() == 0:
+        p.click("#du-sg-prodotto-apri")
+    expect(p.locator("#du-nessuna-candidata")).to_contain_text("Il Motore A non propone nessuno STEP per ACM-2000")
+    # lo STEP che il motore non propone per ACM-2000: «Guarda l'anteprima per ACM-2000», niente S7 («Associa lo STEP…», che il
+    # server non registra), nessuna anteprima inventata
+    b.file(a10, "step")
+    expect(p.locator("#du-sg-candidature")).to_contain_text("Guarda l'anteprima per ACM-2000")
+    verifica("Associa lo STEP" not in p.locator("#du-sg-candidature").inner_text(), "la candidatura offre ancora S7 per ACM-2000")
+    verifica(p.locator("#du-guarda-" + sid(a10) + "-" + sid(b.p2)).count() == 0, "una candidatura inventata per ACM-2000")
+    # direttiva 39 §3: lo STEP senza struttura per ACM-2000 si guarda lo stesso (S6 dice «nessuna struttura importabile») e
+    # si può confermare come sorgente partendo dal solo prodotto, con la presa d'atto; qui solo guardato
+    i = b.segna()
+    p.click("#du-sg-dettaglio #du-guarda-nc-" + sid(b.p2) + "-" + sid(a10))
+    expect(p.locator("#du-anteprima")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-struttura-step")).to_have_attribute("data-struttura", "nessuna_struttura")
+    expect(p.locator("#du-struttura-step")).to_contain_text("nessuna struttura importabile")
+    expect(p.locator("#du-conferma-solo-prodotto")).to_be_enabled()
+    verifica(p.locator("#du-conferma-sorgente, #du-cambia-sorgente").count() == 0, "S8 dallo STEP con una struttura inventata per ACM-2000")
+    s6 = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
+    verifica(s6 and ("prodotto=" + b.p2) in s6[-1]["query"] and "gruppo=" not in s6[-1]["query"], "S6 per ACM-2000: %s" % [r["query"] for r in s6])
+    p.click("#du-anteprima-chiudi")
+    verifica(not b.richieste_da(i, "POST", r"/conferma-sorgente$"), "guardare l'anteprima ha confermato la sorgente")
     b.passo("revisione")
     expect(p.locator("#du-nessuna-bozza")).to_contain_text("Nessuna bozza per ACM-2000.")
     tab1 = p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)
@@ -1530,44 +2716,66 @@ def b28(b):
         p.set_viewport_size({"width": 1440, "height": 900})
 
 
-@prova("29", "Sorgente: dove va il file (SG-06), «Assegna a un pezzo…» (FL-12), «Scarica» (FL-03)")
+@prova("29", "Sorgente (mockup v5): lo smistamento di S9 nella cartella del prodotto; «Salva nella bozza», «Annulla la mossa», «Togli dalla bozza»; «Associa a un nodo…» con la riga fantasma; «Scarica»")
 def b29(b):
     p = b.page
     a2 = b.al["ACM-1100_A.pdf"]
     b.passo("sorgente")
-    p.click("#du-cartella-attivi")
+    b.cartella("p:" + b.p1)
     riga = p.locator("#du-file-" + sid(a2))
-    expect(riga).to_contain_text("◇ proposto per ACM-1100", timeout=T_LUNGO)
+    expect(riga).to_contain_text("◇ proposto", timeout=T_LUNGO)
+    expect(riga).to_contain_text("ACM-1100")
+    b.file(a2, "p:" + b.p1)
     sc = p.locator("#du-scarica-" + sid(a2))
     verifica(sc.get_attribute("href") == "/thread/%s/sorgente/file/%s/contenuto?modo=scarica" % (b.thread, a2) and sc.get_attribute("download") == "ACM-1100_A.pdf",
              "«Scarica»: %s %s" % (sc.get_attribute("href"), sc.get_attribute("download")))
     i = b.segna()
-    p.click("#du-assegna-" + sid(a2))
-    expect(p.locator("#f-proposti")).to_contain_text("ACM-1100")
-    verifica(p.locator("#f-pezzo").input_value() == "", "«Assegna» ha un pezzo preselezionato")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.select_option("#f-pezzo", "k-7")
-    b.ok_finestra()
-    expect(riga).to_contain_text("◈ preassociato a ACM-1100", timeout=T_LUNGO)
-    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Assegna»")
+    p.click("#du-sg-dettaglio #du-salva-" + sid(a2))
+    expect(riga).to_contain_text("◈ salvato nella bozza", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-mossa")).to_contain_text("ACM-1100_A.pdf → salvato nella bozza di ACM-1000")
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Salva nella bozza»")
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
-    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"proposta_id": b.pr["ACM-1100_A.pdf"], "chiave_bozza": "k-7"})], "«Assegna»: %s" % az)
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"allegato_id": b.al["ACM-1100_A.pdf"], "chiave_bozza": "k-7"})], "«Salva nella bozza»: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    # «Annulla la mossa»: l'inverso esatto, una R2 nuova
+    i = b.segna()
+    p.click("#du-sg-mossa-annulla")
+    expect(riga).to_contain_text("◇ proposto", timeout=T_LUNGO)
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Annulla la mossa»")
+    verifica([a["azione"] for a in b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]] == ["annulla"], "«Annulla la mossa» non manda annulla{n}")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    # «Togli dalla bozza»
+    p.click("#du-sg-dettaglio #du-salva-" + sid(a2))
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     i = b.segna()
-    p.click("#du-togli-pb-" + sid(a2))
-    expect(riga).to_contain_text("◇ proposto per ACM-1100", timeout=T_LUNGO)
-    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Togli la preassociazione»")
+    p.click("#du-sg-dettaglio #du-togli-" + sid(a2))
+    expect(riga).to_contain_text("◇", timeout=T_LUNGO)
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Togli dalla bozza»")
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
-    verifica([a["azione"] for a in az] == ["file_svincolato"] and az[0]["dopo"]["motivo"] == "utente", "«Togli la preassociazione»: %s" % az)
+    verifica([a["azione"] for a in az] == ["file_svincolato"] and az[0]["dopo"]["motivo"] == "utente", "«Togli dalla bozza»: %s" % az)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
-    # senza bozza (il secondo prodotto) «Assegna» è spento con il motivo
-    p.locator('.du-ptab[data-prodotto="%s"]' % b.p2).click()
-    expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
-    bt = p.locator("#du-assegna-" + sid(a2))
-    expect(bt).to_be_disabled()
-    verifica("Usa per la BOM" in (bt.get_attribute("title") or ""), "«Assegna» spento senza il motivo")
-    p.locator('.du-ptab[data-prodotto="%s"]' % b.p1).click()
-    expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    # «Associa a un nodo…» di un file senza proposta: il dialogo della v4.2 (prodotto preselezionato, nodo da scegliere)
+    nd = b.allegato_di("NUOVO_DISEGNO.pdf")
+    b.file(nd, "dc-senza")
+    i = b.segna()
+    p.click("#du-sg-dettaglio #du-associa-" + sid(nd))
+    expect(p.locator("#f-senza-codice")).to_be_visible(timeout=T_LUNGO)
+    verifica(p.locator("#f-prodotto").input_value() == b.p1 and p.locator("#f-pezzo").input_value() == "", "«Associa a un nodo…»: preselezioni sbagliate")
+    verifica(p.locator('#f-prodotto option[value="%s"]' % b.p2).get_attribute("disabled") is not None, "ACM-2000 senza bozza offerto nel dialogo")
+    ok = p.locator("#du-finestra #f-ok")
+    expect(ok).to_be_disabled()
+    verifica("scegli il prodotto e il nodo" in (ok.get_attribute("title") or ""), "«Associa» spento senza la ragione")
+    p.select_option("#f-pezzo", "k-12")
+    b.ok_finestra()
+    expect(p.locator("#du-sg-fantasma")).to_contain_text("NUOVO_DISEGNO.pdf → ACM-1000", timeout=T_LUNGO)
+    expect(p.locator("#du-sg-mossa")).to_contain_text("NUOVO_DISEGNO.pdf → ACM-1000")
+    b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dopo «Associa a un nodo…»")
+    az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
+    verifica([(a["azione"], a["dopo"]["chiave_bozza"]) for a in az] == [("file_preassociato", "k-12")], "«Associa a un nodo…»: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    p.click("#du-sg-mossa-annulla")
+    expect(p.locator("#du-salvataggio")).to_contain_text("Bozza salvata", timeout=T_LUNGO)
+    b.attendi(lambda: b.stato()["bozze"][b.p1]["snapshot"].get("documenti_preassociati", []) == [], "l'annullamento non ha tolto la preassociazione")
 
 
 @prova("30", "Elenco: filtri e ricerca (EL-01), «Accetta le proposte (N)» (EL-03, PE-21), «Confronto con la proposta» (BZ-25)")
@@ -1653,7 +2861,7 @@ def b31(b):
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "nessun salvataggio dalla sezione «Documenti»")
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
-    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"proposta_id": b.pr["PIASTRA_400123.dxf"], "chiave_bozza": "k-41"})], "preassociazione dal pannello: %s" % az)
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"allegato_id": b.al["PIASTRA_400123.dxf"], "chiave_bozza": "k-41"})], "preassociazione dal pannello: %s" % az)
     p.click("#du-pannello-carica")
     expect(p.locator("#du-passo-sorgente")).to_have_attribute("aria-current", "step")
     b.attendi(lambda: p.evaluate("() => document.activeElement && document.activeElement.id") == "du-carica-file", "«Carica…» non porta al caricamento")
@@ -1669,15 +2877,20 @@ def b32(b):
     expect(p.locator("#f-riepilogo-prodotti")).to_contain_text("ACM-2000")
     b.chiudi_finestra()
     b.passo("sorgente")
+    b.cartella("p:" + b.p1)
+    if p.locator("#du-sg-fonte").count() == 0:
+        p.click("#du-sg-prodotto-apri")
     expect(p.locator("#du-step-secondario")).to_contain_text("STEP secondario disponibile")
     expect(p.locator("#du-step-secondario")).to_contain_text("ACM-1000_rev2.stp")
     expect(p.locator("#du-step-secondario")).to_contain_text("V5")
     verifica(p.locator("#du-nessuna-candidata").count() == 0, "«nessuna candidata» per un prodotto con candidate")
-    p.locator('.du-ptab[data-prodotto="%s"]' % b.p2).click()
-    expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
-    expect(p.locator("#du-nessuna-candidata")).to_contain_text("Nessuna candidata per ACM-2000")
+    b.cartella("p:" + b.p2)
+    if p.locator("#du-nessuna-candidata").count() == 0:
+        p.click("#du-sg-prodotto-apri")
+    expect(p.locator("#du-nessuna-candidata")).to_contain_text("ACM-2000")
     expect(p.locator("#du-nessuna-candidata")).to_contain_text("+ Aggiungi file")
     verifica(p.locator("#du-step-secondario").count() == 0, "STEP secondario per un prodotto senza")
+    b.cartella("p:" + b.p1)
     p.locator('.du-ptab[data-prodotto="%s"]' % b.p1).click()
     expect(p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
 
@@ -1754,13 +2967,13 @@ def b35(b):
     b.linguetta("documenti")
     opz = p.locator("#du-pannello-file option").all_inner_texts()
     verifica("NUOVO_DISEGNO.pdf" in opz, "file da smistare del pezzo nuovo: %s" % opz)
-    pid = b.proposta_di("NUOVO_DISEGNO.pdf")
+    aid = b.allegato_di("NUOVO_DISEGNO.pdf")
     i = b.segna()
     p.select_option("#du-pannello-file", label="NUOVO_DISEGNO.pdf")
     p.click("#du-pannello-preassocia")
     expect(p.locator("#du-doc-nodo")).to_contain_text("◈ preassociato", timeout=T_LUNGO)
     az = b.ultime_azioni(i)
-    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"proposta_id": pid, "chiave_bozza": k})], "preassociazione: %s" % az)
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"allegato_id": aid, "chiave_bozza": k})], "preassociazione: %s" % az)
     expect(p.locator("#du-doc-nodo")).to_contain_text("in_attesa_codice", timeout=T_LUNGO)
     # riga 2: «Non crearlo» toglie il nodo e manda il file nel vassoio (file_svincolato nodo_tolto), nello stesso salvataggio
     b.linguetta("dettaglio")
@@ -1770,32 +2983,32 @@ def b35(b):
     b.ok_finestra()
     expect(p.locator('#du-vp .du-nc[data-du-stato="nuovo"]')).to_have_count(0, timeout=T_LUNGO)
     az = b.ultime_azioni(i)
-    verifica([a["azione"] for a in az] == ["arco_tolto", "file_svincolato", "nodo_tolto"] and az[1]["dopo"] == {"proposta_id": pid, "motivo": "nodo_tolto"},
+    verifica([a["azione"] for a in az] == ["arco_tolto", "file_svincolato", "nodo_tolto"] and az[1]["dopo"] == {"allegato_id": aid, "motivo": "nodo_tolto"},
              "«Non crearlo»: %s" % az)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     # il vassoio nella linguetta «Da ricollocare» della Sorgente (MAT §3.3) e nell'Elenco
     b.passo("sorgente")
-    expect(p.locator("#du-cartella-ricollocare")).to_have_text("Da ricollocare (1)")
-    p.click("#du-cartella-ricollocare")
-    expect(p.locator("#du-file")).to_contain_text("NUOVO_DISEGNO.pdf")
-    p.click("#du-cartella-attivi")
+    expect(p.locator("#du-sg-c-dc-ric_" + sid(b.p1) + " .du-sg-conto")).to_have_text("1", timeout=T_LUNGO)
+    b.cartella("dc-ric:" + b.p1)
+    expect(p.locator("#du-sg-elenco")).to_contain_text("NUOVO_DISEGNO.pdf")
+    b.cartella("tutti")
     b.passo("revisione")
     b.vista("elenco")
     vass = p.locator("#du-vassoio")
     expect(vass).to_contain_text("NUOVO_DISEGNO.pdf")
     expect(vass).to_contain_text("nodo_tolto")
     i = b.segna()
-    p.click("#du-lascia-" + sid(pid))
+    p.click("#du-lascia-" + sid(aid))
     expect(vass).to_have_count(0, timeout=T_LUNGO)
     az = b.ultime_azioni(i)
-    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_lasciato", {"proposta_id": pid})], "«Lascia senza associazione»: %s" % az)
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_lasciato", {"allegato_id": aid})], "«Lascia senza associazione»: %s" % az)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
 
 
 @prova("36", "§4.3 righe 3 e 4: «Escludi» un registrato (scelta per le AR, documenti confermati, file nel vassoio con nodo_escluso, svincoli con da_decisione) e «Ripristina» dopo una ricarica")
 def b36(b):
     p = b.page
-    pid = b.proposta_di("NUOVO_DISEGNO.pdf")
+    aid = b.allegato_di("NUOVO_DISEGNO.pdf")
     b.vista("org")
     b.scheda("k-40")
     b.linguetta("documenti")
@@ -1833,7 +3046,7 @@ def b36(b):
     es, sv = az[2]["dopo"], az[3]["dopo"]
     # PE-27: lo svincolo cita l'esclusione in da_decisione, al posto della convenzione .svN; il motivo è quello
     # dell'esclusione
-    verifica(sv["proposta_id"] == b.pr["ACM-1400_A.pdf"] and sv.get("da_decisione") == es["id"] and ".sv" not in sv["id"] and sv["componente_id"] == es["componente_id"]
+    verifica(sv["allegato_id"] == b.al["ACM-1400_A.pdf"] and sv.get("da_decisione") == es["id"] and ".sv" not in sv["id"] and sv["componente_id"] == es["componente_id"]
              and sv.get("motivo") == es["motivo"], "svincolo dell'esclusione: %s" % sv)
     # la chiave_bozza degli eventi di escludi e scollega_documento, tipi senza il campo: null, come la deduce il server
     # (EM §9.2, tabella delle forme; RPC PD-08)
@@ -1847,7 +3060,7 @@ def b36(b):
     expect(p.locator("#du-vassoio [data-du-motivo=nodo_escluso]")).to_contain_text("pezzo escluso (nodo_escluso)")
     # un pezzo escluso non riceve preassociazioni (P-15): nel vassoio «Preassocia al nodo scelto» è spento con il motivo
     p.click("#el-k-40 .du-el-nodo")
-    bt = p.locator("#du-ricolloca-" + sid(pid))
+    bt = p.locator("#du-ricolloca-" + sid(aid))
     expect(bt).to_be_disabled()
     verifica("escluso" in (bt.get_attribute("title") or ""), "«Preassocia al nodo scelto» su un pezzo escluso, senza il motivo: %r" % bt.get_attribute("title"))
     # riga 4, dopo una ricarica (la pila e il giornale riletti da R1): «↺ Ripristina» toglie l'esclusione e lo svincolo
@@ -1866,12 +3079,69 @@ def b36(b):
     expect(p.locator("#nc-k-40")).to_have_attribute("data-du-stato", "registrato", timeout=T_LUNGO)
     az = b.ultime_azioni(i)
     verifica([a["azione"] for a in az] == ["nodo_modificato", "decisione_tolta", "decisione_tolta", "file_preassociato"] and az[0]["dopo"] == {"op": "riusa"}
-             and az[2]["prima"]["id"] == sv["id"] and az[3]["dopo"] == {"proposta_id": pid, "chiave_bozza": "k-40"}, "«Ripristina»: %s" % az)
+             and az[2]["prima"]["id"] == sv["id"] and az[3]["dopo"] == {"allegato_id": aid, "chiave_bozza": "k-40"}, "«Ripristina»: %s" % az)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     b.vista("elenco")
     expect(p.locator("#du-vassoio")).to_have_count(0)
     expect(p.locator("#el-k-40")).to_contain_text("● associato")
     expect(p.locator("#el-k-40")).to_contain_text("◈ preassociato")
+
+
+@prova("61", "direttiva 35, C-2: la preassociazione per allegato_id; un file senza proposta di documento si preassocia (Prova 2), niente STEP né archivi fra i file da smistare; «Sposta a un altro nodo…» manda svincolo e preassociazione")
+def b61(b):
+    p = b.page
+
+    def pannello():
+        b.passo("revisione")
+        b.vista("org")
+        b.scheda("k-41")
+        b.linguetta("documenti")
+        expect(p.locator("#du-sez-documenti")).to_be_visible()
+        return [x for x in p.locator("#du-pannello-file option").all_inner_texts() if not x.startswith("—")]
+
+    opz = pannello()
+    verifica(opz and not [x for x in opz if re.search(r"\.(stp|step|zip|7z|rar)$", x, re.I)], "file da smistare nel pannello (né STEP né archivi): %s" % opz)
+    nome = opz[0]
+    aid = b.allegato_di(nome)
+    # Prova 2: lo stesso file senza proposta di documento (S1 con proposta_id e proposta null) resta fra i file da smistare
+    r = p.request.post(b.url + "/__banco/interruttore", data=json.dumps({"nome": "senza-proposta", "attivo": True, "file": aid}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda non ha preso l'interruttore senza-proposta: %d" % r.status)
+    p.reload()
+    b.pronta()
+    opz = pannello()
+    verifica(nome in opz, "il file senza proposta non è fra i file da smistare: %s" % opz)
+    i = b.segna()
+    p.select_option("#du-pannello-file", label=nome)
+    p.click("#du-pannello-preassocia")
+    expect(p.locator("#du-doc-nodo")).to_contain_text(nome, timeout=T_LUNGO)
+    az = b.ultime_azioni(i)
+    verifica([(a["azione"], a["dopo"]) for a in az] == [("file_preassociato", {"allegato_id": aid, "chiave_bozza": "k-41"})], "preassociazione senza proposta: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    pb = b.stato()["bozze"][b.p1]["snapshot"]["documenti_preassociati"]
+    # la PB salvata porta anche la provenienza, che decide il server (direttiva 39 §4: una PB nuova della pagina è manuale)
+    verifica({"allegato_id": aid, "chiave_bozza": "k-41", "provenienza": "manuale"} in pb and not [x for x in pb if "proposta_id" in x], "PB salvate dal banco: %s" % pb)
+    # «Sposta a un altro nodo…» dalla Sorgente: il server non sostituisce una PB, quindi svincolo e preassociazione
+    i = b.segna()
+    b.azione("sposta", aid)
+    p.select_option("#f-pezzo", "k-7")
+    b.ok_finestra()
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    az = b.ultime_azioni(i)
+    verifica([a["azione"] for a in az] == ["file_svincolato", "file_preassociato"] and az[0]["prima"] == {"allegato_id": aid, "chiave_bozza": "k-41"}
+             and az[0]["dopo"] == {"allegato_id": aid, "motivo": "utente"} and az[1]["dopo"] == {"allegato_id": aid, "chiave_bozza": "k-7"}, "«Sposta»: %s" % az)
+    # lo stato di prima: «Togli dalla bozza», poi il file torna con la sua proposta
+    i = b.segna()
+    b.azione("togli", aid)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    az = b.ultime_azioni(i)
+    verifica([(a["azione"], a["prima"], a["dopo"]) for a in az] == [("file_svincolato", {"allegato_id": aid, "chiave_bozza": "k-7"}, {"allegato_id": aid, "motivo": "utente"})], "«Togli dalla bozza»: %s" % az)
+    r = p.request.post(b.url + "/__banco/interruttore", data=json.dumps({"nome": "senza-proposta", "attivo": False, "file": aid}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda non ha tolto l'interruttore senza-proposta: %d" % r.status)
+    p.reload()
+    b.pronta()
+    # dove la DU-B36 lascia la pagina, per la prova che segue: la Revisione, l'Elenco
+    b.passo("revisione")
+    b.vista("elenco")
 
 
 @prova("37", "D1 nel wizard: «Lascia assieme», «Diventa assieme»; «Cambia tipo» (§4.3 riga 8); Sposta, Collega, Scollega dai dialoghi")
@@ -1895,7 +3165,7 @@ def b37(b):
     i = b.segna()
     p.click("#du-cambia-tipo")
     p.select_option("#f-tipo", "commerciale")
-    expect(b.finestra()).to_contain_text("il suo 2D non è più richiesto, ma solo dopo la conferma")
+    expect(b.finestra()).to_contain_text("Il tipo non toglie il 2D: l'unica esenzione è la minuteria confermata da una persona")
     b.ok_finestra()
     az = b.ultime_azioni(i)
     verifica([(a["azione"], a["dopo"]) for a in az] == [("nodo_modificato", {"tipo": "commerciale"})], "«Cambia tipo»: %s" % az)
@@ -1954,11 +3224,10 @@ def b38(b):
     b.linguetta("dettaglio")
     rif = p.locator('#du-sez-riferimenti li[data-du-riferimento="equivalente_k4"]')
     expect(rif).to_contain_text("400777")
-    # «Adotta come codice…» del P/N K4: la lettura del codice della parte nel PDF della prova non è nel registro del banco,
-    # quindi il gesto è spento con il motivo (e la pagina non va in errore cercandola)
+    # «Adotta come codice…» del P/N K4: la lettura del codice della parte nel PDF della prova sta in file[].letture[] del
+    # registro con la sua proiezione (U2-P18; DEC-B PD-07 (a)), quindi il gesto è acceso (DU-B38 rovesciata, ondata C)
     ad = rif.locator("button", has_text="Adotta come codice")
-    expect(ad).to_be_disabled()
-    verifica("PDF della prova" in (ad.get_attribute("title") or ""), "«Adotta come codice» del P/N K4 senza il motivo: %r" % ad.get_attribute("title"))
+    expect(ad).to_be_enabled()
     bt = p.locator("#du-conferma-identita")
     expect(bt).to_be_enabled()
     i = b.segna()
@@ -1983,6 +3252,19 @@ def b38(b):
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     expect(p.locator("#du-conferma-identita")).to_be_disabled()
     verifica("già decisa" in (p.locator("#du-conferma-identita").get_attribute("title") or ""), "«Conferma l'identità proposta» spento senza il motivo")
+    # adesso il P/N K4: «Adotta come codice…» cita la lettura del PDF della prova (<allegato>/<lettura_codice>), con la sua
+    # proiezione e l'emittente del fornitore; la decisione di prima dello stesso nodo si toglie nello stesso gesto (PE-B16)
+    i = b.segna()
+    rif.locator("button", has_text="Adotta come codice").click()
+    expect(b.finestra()).to_contain_text("400777")
+    p.fill("#f-motivo", "il disegno del fornitore porta il suo P/N: è il codice del pezzo")
+    b.ok_finestra()
+    az = b.ultime_azioni(i)
+    dec = az[1]["dopo"] if len(az) > 1 else {}
+    verifica([a["azione"] for a in az] == ["decisione_tolta", "decisione_aggiunta", "nodo_modificato"] and dec.get("modo") == "alternativa"
+             and dec.get("chiave_lettura") == b.al["ACM-1100_A.pdf"] + "/l:pdf:pn" and dec["identita"] == {"emittente": "partner:beta", "namespace": "beta", "codice": "400777"}
+             and dec["lettura"]["letterale"] == "400777", "«Adotta come codice» del P/N K4: %s" % az)
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     b.scheda("k-11")
     b.linguetta("dettaglio")
     li = p.locator("#du-sez-riferimenti li", has_text="codice corretto a mano")
@@ -2049,6 +3331,44 @@ def b39(b):
         noninc.first.click()
         expect(p.locator("#du-includi")).to_be_disabled()
         verifica("componente registrato" in (p.locator("#du-includi").get_attribute("title") or ""), "«Includi di nuovo» spento senza il motivo (PE-10)")
+        # con l'identità registrata del componente data da /dati (decisione_esistente.identita_registrata dei nodi del
+        # gruppo: EM §9.9, PE-10; B-3) il gesto si accende e il nodo torna «registrato», con quell'identità byte per byte
+        # (MAT NI-07, BZ-15: «la corsia interfaccia accende il gesto all'ondata C»)
+        letture_dati = re.compile(r"/motore-a/dati(\?|$)")
+
+        def con_identita(route):
+            if route.request.method == "GET" and "sorgente=1" not in route.request.url:
+                resp = route.fetch()
+                j = resp.json()
+                for g in j.get("gruppi") or []:
+                    for n in g.get("nodi") or []:
+                        if str(n.get("rif", "")).endswith(":#32"):
+                            n["decisione_esistente"] = {"componente_id": "00000000-0000-4000-8000-000000009999", "identita_registrata": {
+                                "emittente": "cliente:" + b.dati["cliente"], "emittente_presunto": True, "codice": "ACM-1199", "rev": "A", "modo": "registrato"}}
+                route.fulfill(response=resp, json=j)
+            else:
+                route.continue_()
+        p.route(letture_dati, con_identita)
+        try:
+            p.click("#du-aggiorna")
+            expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+            p.click("#du-zoom-adatta")
+            noninc.first.click()
+            expect(p.locator("#du-includi")).to_be_enabled()
+            i = b.segna()
+            p.click("#du-includi")
+            az = b.ultime_azioni(i)
+            nodo = az[1]["dopo"] if len(az) > 1 else {}
+            verifica([a["azione"] for a in az][:2] == ["decisione_tolta", "nodo_aggiunto"] and nodo.get("op") == "riusa" and nodo.get("componente_id") == "00000000-0000-4000-8000-000000009999"
+                     and nodo["identita"] == {"emittente": "cliente:" + b.dati["cliente"], "emittente_presunto": True, "codice": "ACM-1199", "rev": "A", "modo": "registrato"},
+                     "«Includi di nuovo» di una voce registrata: %s" % az)
+            expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+            # si torna com'era: «Annulla» (il componente 9999 non è del banco)
+            p.click("#du-annulla")
+            expect(noninc).to_have_count(1, timeout=T_LUNGO)
+            expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        finally:
+            p.unroute(letture_dati, con_identita)
     finally:
         p.unroute(letture_r1, con_decisione)
     p.click("#du-aggiorna")
@@ -2065,6 +3385,7 @@ def b39(b):
     expect(riga).to_contain_text("◇ non richiesta: nodo non incluso (bozza)")
     expect(riga).to_contain_text("ACM-1100_A.pdf")
     b.passo("sorgente")
+    b.cartella("tutti")
     expect(p.locator("#du-file-" + sid(b.al["ACM-1100_A.pdf"]))).to_contain_text("non richiesta, nodo non incluso (bozza)")
     b.passo("revisione")
     b.vista("org")
@@ -2101,12 +3422,12 @@ def b40(b):
     try:
         p.click("#du-aggiorna")
         expect(p.locator("#du-file-non-letti")).to_be_visible(timeout=T_LUNGO)
-        verifica(p.locator("#du-file li.du-fr").count() == 0, "con S1 in 5xx la pagina mostra l'elenco vecchio dei file")
+        verifica(p.locator("#du-sg-elenco li.du-sg-riga").count() == 0, "con S1 in 5xx la pagina mostra l'elenco vecchio dei file")
         expect(p.locator("#du-step-non-letti")).to_be_visible()
     finally:
         p.unroute(lettura_s1, g)
     p.click("#du-aggiorna")
-    expect(p.locator("#du-file li.du-fr").first).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-sg-elenco li.du-sg-riga").first).to_be_visible(timeout=T_LUNGO)
     # 422 annullamento_non_ammesso: il testo di MAT §5.4 (BZ-18); le modifiche restano da parte
     b.passo("revisione")
     b.vista("org")
@@ -2127,21 +3448,22 @@ def b40(b):
     p.click("#du-scarta-da-parte")
     b.ok_finestra()
     expect(p.locator("#du-da-parte")).to_have_count(0)
-    # i 422 di cambia_sorgente (risposte finte): gruppo_su_altra_occorrenza apre S6 sull'allegato della busta,
-    # stessa_sorgente dice di usare «Aggiorna alla proposta di oggi», MOTIVO_OBBLIGATORIO lascia il dialogo aperto
-    b.passo("sorgente")
-    p.click("#du-guarda-" + sid(a1))
+    # il cambio della sorgente è S8 (U2 §2.2): i rifiuti del passo 0 (risposte finte) lasciano il dialogo aperto con il
+    # motivo (STEP_SORGENTE_DI_ALTRO_PRODOTTO, MOTIVO_OBBLIGATORIO); 409 BOZZA_VERSIONE lo chiude e rilegge R1
+    b.guarda(a1)
     expect(p.locator("#du-cambia-sorgente")).to_be_enabled(timeout=T_LUNGO)
+    s8_prima = b.stato()["conti"].get("S8", 0)
     casi = [
-        ({"esito": "rifiutato", "codice": "CORPO_NON_VALIDO", "motivo": "gruppo_su_altra_occorrenza", "allegato_id": a1, "testo": "gruppo su un'altra occorrenza"},
-         "Questo gruppo sta su un'altra copia dello stesso file", True),
-        ({"esito": "rifiutato", "codice": "CORPO_NON_VALIDO", "motivo": "stessa_sorgente", "testo": "stessa sorgente"}, "È la struttura della bozza", True),
-        ({"esito": "rifiutato", "codice": "MOTIVO_OBBLIGATORIO", "campo": "cambia_sorgente.motivo", "testo": "Il cambio della fonte vuole il motivo."}, "MOTIVO_OBBLIGATORIO", False),
+        ({"esito": "rifiutato", "codice": "STEP_SORGENTE_DI_ALTRO_PRODOTTO", "testo": "Questo STEP è già la sorgente di ACM-2000"}, 422, "in V1 uno STEP è la sorgente di un solo prodotto", False),
+        ({"esito": "rifiutato", "codice": "MOTIVO_OBBLIGATORIO", "campo": "motivo", "testo": "serve il motivo"}, 422, "Serve il motivo.", False),
+        ({"esito": "conflitto", "codice": "BOZZA_VERSIONE", "motivo": "altra_bozza_aperta", "testo": "la bozza è cambiata"}, 409, "La bozza è cambiata altrove", True),
     ]
-    for corpo, testo, chiude in casi:
-        g = rispondi_json(422, corpo)
-        p.route("**/motore-a/bozza", g)
+    for corpo, stato, testo, chiude in casi:
+        g = rispondi_json(stato, corpo)
+        p.route("**/conferma-sorgente", g)
         try:
+            if p.locator("#du-cambia-sorgente").count() == 0:
+                b.guarda(a1)
             p.click("#du-cambia-sorgente")
             expect(p.locator("#f-effetto")).to_be_visible(timeout=T_LUNGO)
             p.fill("#f-motivo", "la BOM segue lo STEP del cliente")
@@ -2154,31 +3476,32 @@ def b40(b):
                 expect(p.locator("#du-finestra-errore")).to_contain_text(testo, timeout=T_LUNGO)
                 expect(b.finestra()).to_be_visible()
                 b.chiudi_finestra()
-            if corpo.get("motivo") == "gruppo_su_altra_occorrenza":
-                b.attendi(lambda: [r for r in b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$") if a1 in r["path"]], "S6 non aperto sull'allegato della busta")
         finally:
-            p.unroute("**/motore-a/bozza", g)
-        expect(p.locator("#du-cambia-sorgente")).to_be_enabled(timeout=T_LUNGO)
-    # la rete caduta su cambia_sorgente: «Esito da verificare», e il gesto ripetuto rimanda lo stesso corpo con la stessa
-    # chiave_salvataggio (EM §9.2: se il primo era arrivato, «riproposto»)
+            p.unroute("**/conferma-sorgente", g)
+    verifica(b.stato()["conti"].get("S8", 0) == s8_prima, "i rifiuti finti hanno scritto: S8 = %s" % b.stato()["conti"].get("S8"))
+    # la rete caduta su S8: «Esito da verificare», R6 con la stessa chiave dice «non registrato», «Riprova la conferma della
+    # sorgente» dalla striscia rimanda lo stesso corpo con la stessa chiave; la procedura riprende e finisce
     catturate = []
     g = blocca_la_richiesta(catturate)
-    p.route("**/motore-a/bozza", g)
+    p.route("**/conferma-sorgente", g)
     try:
+        if p.locator("#du-cambia-sorgente").count() == 0:
+            b.guarda(a1)
         p.click("#du-cambia-sorgente")
         expect(p.locator("#f-effetto")).to_be_visible(timeout=T_LUNGO)
         p.fill("#f-motivo", "la BOM segue lo STEP del cliente")
         b.ok_finestra()
-        expect(p.locator("#du-finestra-errore")).to_contain_text("Esito da verificare: ripeti lo stesso gesto", timeout=T_LUNGO)
-        expect(b.finestra()).to_be_visible()
+        riprova = p.locator("#du-riprova-sorgente_" + sid(b.p1))
+        expect(riprova).to_be_visible(timeout=T_LUNGO)
     finally:
-        p.unroute("**/motore-a/bozza", g)
+        p.unroute("**/conferma-sorgente", g)
+    verifica(len(catturate) == 1, "richieste S8 bloccate: %d" % len(catturate))
     i = b.segna()
-    b.ok_finestra()
-    expect(b.avviso()).to_contain_text("Fonte della bozza cambiata.", timeout=T_LUNGO)
-    c = b.corpi(i, "POST", r"/motore-a/bozza$")
-    verifica(len(catturate) == 1 and len(c) == 1 and c[0]["chiave_salvataggio"] == catturate[0]["chiave_salvataggio"] and c[0] == catturate[0],
-             "il gesto ripetuto dopo la rete caduta non rimanda lo stesso corpo con la stessa chiave")
+    riprova.click()
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    c = b.corpi(i, "POST", r"/conferma-sorgente$")
+    verifica(len(c) == 1 and c[0] == catturate[0], "«Riprova» non rimanda lo stesso corpo con la stessa chiave: %s / %s" % (c, catturate))
+    expect(p.locator("#du-sospeso-sorgente_" + sid(b.p1))).to_have_count(0)
     # R3 con 409 BOZZA_VERSIONE (bozza_chiusa, il reinvio dopo una risposta persa): la pagina rilegge R1 (MAT §5.4)
     b.passo("revisione")
     abbandona = re.compile(r"/abbandona$")
@@ -2201,17 +3524,19 @@ def b41(b):
     zip2 = b.al["pacchetto2.zip"]
     v3, v4 = b.al["voce_3.pdf"], b.al["voce_4.pdf"]
     b.passo("sorgente")
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     # S3 409 ANTEPRIMA_SUPERATA (risposta finta): il dialogo si riapre con il dettaglio riletto, poi il gesto passa
     g = rispondi_json(409, {"esito": "conflitto", "codice": "ANTEPRIMA_SUPERATA", "anteprima": "voci_archivio", "testo": "Il perimetro delle voci è cambiato."})
     p.route("**/sorgente/file/*/altri-file", g)
     try:
         i = b.segna()
-        p.click("#du-altri-" + sid(zip2))
-        expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS", timeout=T_LUNGO)
+        # il gesto esteso, con il perimetro delle voci (U2 §3.10, [U] Q21): «Metti in Altri file anche i contenuti (N)…»
+        b.azione("altri-voci", zip2)
+        expect(b.finestra()).to_contain_text("cartella ALTRO della RFQ sul NAS", timeout=T_LUNGO)
+        expect(p.locator("#f-voci-altri")).to_contain_text("voce_3.pdf")
         b.ok_finestra()
         expect(b.avviso()).to_contain_text("rivedi il dialogo aggiornato", timeout=T_LUNGO)
-        expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS")
+        expect(b.finestra()).to_contain_text("cartella ALTRO della RFQ sul NAS")
         b.attendi(lambda: len([r for r in b.richieste_da(i, "GET", r"/sorgente$") if "file=" in r["query"]]) >= 2, "il dettaglio di S1 non è riletto dopo il 409")
     finally:
         p.unroute("**/sorgente/file/*/altri-file", g)
@@ -2219,14 +3544,14 @@ def b41(b):
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("File messo in Altri file", timeout=T_LUNGO)
     s3 = b.corpi(i, "POST", r"/altri-file$")
-    verifica(len(s3) == 1 and s3[0]["n_voci"] == 2 and len(s3[0]["impronta_voci"]) == 64, "S3 dell'archivio: %s" % s3)
+    verifica(len(s3) == 1 and s3[0]["perimetro"] == "contenitore_e_voci" and s3[0]["n_voci"] == 2 and len(s3[0]["impronta_voci"]) == 64, "S3 dell'archivio: %s" % s3)
     # S4 di un archivio: il dialogo dice le voci che tornano attive, S4 porta n_voci e impronta_voci del dettaglio (FL-10);
     # un 409 ANTEPRIMA_SUPERATA riapre il dialogo
-    p.click("#du-cartella-altri")
+    b.cartella("altri")
     g = rispondi_json(409, {"esito": "conflitto", "codice": "ANTEPRIMA_SUPERATA", "anteprima": "voci_archivio", "testo": "Il perimetro delle voci è cambiato."})
     p.route("**/sorgente/file/*/riattiva", g)
     try:
-        p.click("#du-riattiva-" + sid(zip2))
+        b.azione("riattiva-voci", zip2)
         expect(p.locator("#f-voci-riattiva")).to_contain_text("voce_3.pdf", timeout=T_LUNGO)
         expect(p.locator("#f-voci-riattiva")).to_contain_text("voce_4.pdf")
         b.ok_finestra()
@@ -2238,15 +3563,15 @@ def b41(b):
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("File riattivato", timeout=T_LUNGO)
     s4 = b.corpi(i, "POST", r"/riattiva$")
-    verifica(len(s4) == 1 and s4[0]["n_voci"] == 2 and len(s4[0]["impronta_voci"]) == 64, "S4 dell'archivio senza il perimetro delle voci: %s" % s4)
+    verifica(len(s4) == 1 and s4[0]["perimetro"] == "contenitore_e_voci" and s4[0]["n_voci"] == 2 and len(s4[0]["impronta_voci"]) == 64, "S4 dell'archivio senza il perimetro delle voci: %s" % s4)
     verifica(b.stato()["file"]["voce_3.pdf"]["stato"] == "attivo", "le voci dell'archivio non sono tornate attive")
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     # S3 409 FILE_VERSIONE (risposta finta): il dialogo si chiude e S1 si rilegge, con lo stato di prima e di adesso
     g = rispondi_json(409, {"esito": "conflitto", "codice": "FILE_VERSIONE", "stato": "altri_file", "versione": 9, "testo": "Lo stato del file è cambiato."})
     p.route("**/sorgente/file/*/altri-file", g)
     try:
-        p.click("#du-altri-" + sid(v4))
-        expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS", timeout=T_LUNGO)
+        b.azione("altri", v4)
+        expect(b.finestra()).to_contain_text("cartella ALTRO della RFQ sul NAS", timeout=T_LUNGO)
         i = b.segna()
         b.ok_finestra()
         expect(b.avviso()).to_contain_text("Lo stato del file è cambiato (era attivo, ora altri_file): rileggo la Sorgente.", timeout=T_LUNGO)
@@ -2260,8 +3585,8 @@ def b41(b):
     p.route("**/sorgente/file/*/altri-file", g)
     striscia = p.locator("#du-sospeso-" + sid("file:" + v4))
     try:
-        p.click("#du-altri-" + sid(v4))
-        expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS", timeout=T_LUNGO)
+        b.azione("altri", v4)
+        expect(b.finestra()).to_contain_text("cartella ALTRO della RFQ sul NAS", timeout=T_LUNGO)
         b.ok_finestra()
         expect(b.avviso()).to_contain_text("Una copia di conservazione è già in corso per questo file", timeout=T_LUNGO)
         expect(striscia).to_contain_text("una copia di conservazione è già in corso", timeout=T_LUNGO)
@@ -2280,7 +3605,7 @@ def b41(b):
         {"allegato_id": zip2, "codice": "D-6", "esito": "blocca", "testo": "è la fonte della bozza: cambia prima lo STEP"}]})
     p.route("**/sorgente/file/*/scarta", g)
     try:
-        p.click("#du-scarta-" + sid(v3))
+        b.azione("scarta", v3)
         expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
         p.fill("#f-motivo", "doppione")
         b.ok_finestra()
@@ -2305,7 +3630,7 @@ def b41(b):
     p.route("**/sorgente/file/*/scarta", gp)
     p.route("**/motore-a/intento/*", g6)
     try:
-        p.click("#du-scarta-" + sid(v3))
+        b.azione("scarta", v3)
         expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
         p.fill("#f-motivo", "doppione")
         b.ok_finestra()
@@ -2315,34 +3640,20 @@ def b41(b):
         p.unroute("**/motore-a/intento/*", g6)
     verifica(b.stato()["file"]["voce_3.pdf"]["stato"] == "scartato", "lo scarto non è nel banco")
     verifica(not [x for x in b.sospesi() if x[1]["risorsa"] == "file:" + v3], "la chiave resta in sospeso dopo «registrato_senza_esito»")
-    # S7 409 ANTEPRIMA_SUPERATA (proposta) e 422 GIA_DOCUMENTO (risposte finte)
+    # S7 non c'è (il server non registra …/associa: rilievo del 20/10, [T-39]): lo STEP non candidato per ACM-2000 ha solo
+    # l'anteprima per quel prodotto, poi S8; nessun gesto «Associa lo STEP…» e nessuna richiesta a …/associa
     a10 = b.al["ACM-1000_rev2.stp"]
-    p.click("#du-guarda-" + sid(a10))
-    expect(p.locator("#du-associa-step")).to_be_enabled(timeout=T_LUNGO)
-    g = rispondi_json(409, {"esito": "conflitto", "codice": "ANTEPRIMA_SUPERATA", "anteprima": "proposta", "testo": "La proposta è cambiata."})
-    p.route("**/sorgente/step/*/associa", g)
-    try:
-        p.click("#du-associa-step")
-        expect(b.finestra()).to_contain_text("Associa lo STEP a ACM-1000")
-        i = b.segna()
-        b.ok_finestra()
-        expect(b.avviso()).to_contain_text("La proposta dello STEP è cambiata", timeout=T_LUNGO)
-        expect(b.finestra()).to_be_hidden()
-        b.attendi(lambda: b.richieste_da(i, "GET", r"/motore-a/dati$") and [r for r in b.richieste_da(i, "GET", r"/sorgente$")]
-                  and b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$"), "dopo il 409 di S7 mancano le riletture di modello, S1 e S6")
-    finally:
-        p.unroute("**/sorgente/step/*/associa", g)
-    g = rispondi_json(422, {"esito": "rifiutato", "codice": "GIA_DOCUMENTO", "testo": "Già documento."})
-    p.route("**/sorgente/step/*/associa", g)
-    try:
-        p.click("#du-associa-step")
-        b.ok_finestra()
-        expect(p.locator("#du-finestra-errore")).to_contain_text("È già un documento confermato: per cambiarlo serve una revisione o una sostituzione (non in V1).", timeout=T_LUNGO)
-    finally:
-        p.unroute("**/sorgente/step/*/associa", g)
-    b.chiudi_finestra()
+    b.file(a10, "step")
+    expect(p.locator("#du-sg-dettaglio #du-guarda-nc-" + sid(b.p2) + "-" + sid(a10))).to_be_visible(timeout=T_LUNGO)
+    verifica(p.locator("[id^='du-associa-step']").count() == 0, "la pagina offre ancora S7 («Associa lo STEP…»)")
+    verifica("Associa lo STEP" not in p.locator("#du-sg-dettaglio").inner_text(), "il dettaglio dello STEP nomina ancora S7")
+    verifica(not [r for r in b.richieste if re.search(r"/associa$", r["path"])], "la pagina ha chiamato …/associa")
+    tab1 = p.locator('.du-ptab[data-prodotto="%s"]' % b.p1)
+    tab1.click()
+    expect(tab1).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
     # E1′: 422 NESSUN_FILE_CARICATO con i motivi file per file; 413 (risposta finta) «troppo grande»
     esiti = p.locator("#du-carica-esiti")
+    b.apri_carica()
     p.set_input_files("#du-carica-file", files=[{"name": "solo.exe", "mimeType": "application/octet-stream", "buffer": b"MZ sintetico"}])
     p.click("#du-carica-invia")
     expect(esiti.locator('li[data-esito="rifiutato"]')).to_contain_text("tipo di file non ammesso", timeout=T_LUNGO)
@@ -2350,6 +3661,7 @@ def b41(b):
     g = rispondi_json(413, {"esito": "rifiutato", "codice": "TROPPO_GRANDE", "testo": "troppo grande"})
     p.route("**/thread/*/carica", g)
     try:
+        b.apri_carica()
         p.set_input_files("#du-carica-file", files=[{"name": "GRANDE.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4\n% sintetico\n"}])
         p.click("#du-carica-invia")
         expect(b.avviso()).to_contain_text("Troppo grande: dividi in più invii.", timeout=T_LUNGO)
@@ -2430,7 +3742,10 @@ def b43(b):
     p.route("**/sorgente/file/*/contenuto*", g)
     try:
         p.click("#du-doc-apri-" + sid(a11))
-        expect(p.locator("#du-visore-errore")).to_contain_text("Contenuto non disponibile: il file è scartato o i suoi byte non ci sono più", timeout=T_LUNGO)
+        # il motivo lo dice il codice della risposta di S5 (X-Motivo o il codice della busta: EM §10.9; DEC-B PF-25), letto
+        # dal ponte con una richiesta di un byte dopo che il visore non ha aperto il file
+        expect(p.locator("#du-visore-errore")).to_contain_text("Contenuto non disponibile: i byte del file non ci sono più", timeout=T_LUNGO)
+        expect(p.locator("#du-visore-errore")).to_have_attribute("data-du-motivo", "BYTE_NON_DISPONIBILI")
     finally:
         p.unroute("**/sorgente/file/*/contenuto*", g)
     b.chiudi_finestra()
@@ -2440,11 +3755,15 @@ def b43(b):
     p.fill("#f-codice", "ACM-1401")
     p.fill("#f-motivo", "codice nuovo del supporto")
     b.ok_finestra()
+    # D-ASS-01 [U]: il file registrato non corrisponde più al codice nuovo; «Mantieni i collegamenti»: segue il codice nuovo
+    expect(p.locator("#f-discordanti [data-du-discordante='%s']" % b.al["ACM-1400_A.pdf"])).to_have_attribute("data-tipo", "ar", timeout=T_LUNGO)
+    expect(p.locator("#f-discordanza")).to_contain_text("seguono il codice nuovo alla conferma")
+    p.click("#f-mantieni-discordanti")
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     b.vista("elenco")
     expect(p.locator("#el-k-40")).to_contain_text("da ricodificare")
     b.passo("sorgente")
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     expect(p.locator("#du-file-" + sid(b.al["ACM-1400_A.pdf"]))).to_contain_text("da ricodificare")
     b.passo("revisione")
     b.vista("org")
@@ -2457,15 +3776,16 @@ def b43(b):
     verifica("ha un componente" in (p.locator("#sel-k-40").get_attribute("title") or ""), "la casella di un registrato senza il motivo")
     # le linguette dei file della Sorgente (MAT §3.3), con data, autore e motivo in Altri file (FL-08)
     b.passo("sorgente")
-    for k in ("attivi", "associati", "senza", "ricollocare", "altri", "scartati"):
-        expect(p.locator("#du-cartella-" + k)).to_be_visible()
-    p.click("#du-cartella-associati")
-    expect(p.locator("#du-file")).to_contain_text("ACM-1400_A.pdf")
-    p.click("#du-cartella-senza")
-    verifica("ACM-1400_A.pdf" not in p.locator("#du-file .du-fl").inner_text(), "un file associato fra quelli senza associazione")
-    p.click("#du-cartella-altri")
+    for k in ("dc", "dc-senza", "dc-analisi", "step", "prodotti", "altri", "scartati", "tutti"):
+        expect(p.locator("#du-sg-c-" + sid(k))).to_be_visible()
+    b.cartella("p:" + b.p1)
+    expect(p.locator("#du-sg-elenco")).to_contain_text("ACM-1400_A.pdf")
+    expect(p.locator("#du-file-" + sid(b.al["ACM-1400_A.pdf"]))).to_contain_text("● già registrato")
+    b.cartella("dc-senza")
+    verifica("ACM-1400_A.pdf" not in p.locator("#du-sg-elenco").inner_text(), "un file associato fra quelli senza proposta")
+    b.cartella("altri")
     expect(p.locator("#du-file-" + sid(b.al["voce_4.pdf"]))).to_contain_text("In Altri file da AD")
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     # «Gestisci nella Sorgente» dall'Elenco (MAT §3.6)
     b.passo("revisione")
     b.vista("elenco")
@@ -2477,8 +3797,9 @@ def b43(b):
     b.interruttore("s6-incerta", True)
     try:
         p.click("#du-aggiorna")
+        b.cartella("step")
         expect(p.locator("#du-step-" + sid(a1))).to_contain_text("incerta", timeout=T_LUNGO)
-        p.click("#du-guarda-" + sid(a1))
+        b.guarda(a1)
         expect(p.locator("#du-nessuna-in-vista")).to_be_visible(timeout=T_LUNGO)
         scelte = p.locator("#du-strutture button")
         expect(scelte).to_have_count(1)
@@ -2530,14 +3851,14 @@ def b45(b):
     nd = b.allegato_di("NUOVO_DISEGNO.pdf")
     risorsa = "file:" + nd
     b.passo("sorgente")
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     gp = perdi_la_risposta()
     g6 = interrompi("GET")
     p.route("**/sorgente/file/*/altri-file", gp)
     p.route("**/motore-a/intento/*", g6)
     try:
-        p.click("#du-altri-" + sid(nd))
-        expect(b.finestra()).to_contain_text("Non è la cartella ALTRO del NAS", timeout=T_LUNGO)
+        b.azione("altri", nd)
+        expect(b.finestra()).to_contain_text("cartella ALTRO della RFQ sul NAS", timeout=T_LUNGO)
         b.ok_finestra()
         expect(b.avviso()).to_have_attribute("data-esito", "da_verificare", timeout=T_LUNGO)
     finally:
@@ -2632,7 +3953,15 @@ def b47(b):
     expect(p.locator("#du-wz-avvisi")).not_to_contain_text("PRODOTTO_SENZA_FIGLI", timeout=T_LUNGO)
     p.click("#du-wz-chiudi")
     expect(p.locator("#du-stato-conferma")).to_contain_text("mono_pezzo proposto in bozza")
-    # R5 «da verificare» e il wizard chiuso: la verifica con R6 va avanti da sola (MAT §5.5 n. 2)
+    # la bozza convertita non ha uno STEP sorgente: il gate della direttiva 39 spegne la conferma, con il rimedio
+    b.apri_wizard()
+    p.click("#du-wz-fase2")
+    expect(p.locator("#du-wz-conferma")).to_be_disabled(timeout=T_LUNGO)
+    verifica("conferma uno STEP dalla Sorgente" in (p.locator("#du-wz-conferma").get_attribute("title") or ""), "la bozza convertita senza sorgente: la conferma non dice il gate")
+    p.click("#du-wz-chiudi")
+    # R5 «da verificare» e il wizard chiuso: la verifica con R6 va avanti da sola (MAT §5.5 n. 2). Il gate della sorgente
+    # resta acceso, come nel server: la bozza riceve una sorgente S8 valida dai dati di prova (sonda sorgente-s8)
+    b.sorgente_s8(b.p1)
     b.apri_wizard()
     p.click("#du-wz-fase2")
     expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
@@ -2753,8 +4082,14 @@ def b48(b):
 
 @prova("52", "PE-23: base formato 2 (la prima conferma formato 3 è ammessa), conferma dalla fase 2 senza rilettura e senza errori, «registrato» non offerto, uguale_alla_base di R4, NESSUNA_MODIFICA di R5")
 def b52(b):
+    # il secondo prodotto ha una sola conferma, formato 2 (della pagina vecchia). Nel banco non ha candidate: il gate della
+    # sorgente resta acceso, come nel server, e le bozze ricevono una sorgente S8 valida dai dati di prova (sonda
+    # sorgente-s8); il gate stesso lo provano DU-B62, DU-B63 e la prova sul server vero
+    b52_corpo(b)
+
+
+def b52_corpo(b):
     p = b.page
-    # il secondo prodotto ha una sola conferma, formato 2 (della pagina vecchia)
     b.sonda_post("conferma-formato2")
     tab_prodotto(b, b.p2).click()
     expect(tab_prodotto(b, b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
@@ -2766,6 +4101,7 @@ def b52(b):
     # aggiunge identità e caselle
     p.click("#du-da-conferma")
     b.salvata(1)
+    b.sorgente_s8(b.p2)
     b.vista("org")
     expect(p.locator("#du-cta-bom")).to_be_enabled()
     # la conferma dalla fase 2 con l'avviso PRODOTTO_SENZA_FIGLI e le letture di dopo che non rispondono: nessun errore
@@ -2822,6 +4158,7 @@ def b52(b):
         expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
         p.click("#du-da-conferma")
         b.salvata(1)
+        b.sorgente_s8(b.p1)
         expect(cta).to_be_disabled()
         b.scheda("k-40")
         b.linguetta("dettaglio")
@@ -2862,7 +4199,8 @@ def b52(b):
             p.unroute("**/motore-a/bom/conferma", g)
         p.click("#du-wz-chiudi")
     finally:
-        b.interruttore("uguale-alla-base", False)
+        # il banco torna com'è per difetto: uguale_alla_base acceso, come il server dal blocco R4 della persistenza
+        b.interruttore("uguale-alla-base", True)
 
 
 @prova("53", "WZ-01 con lo storico (R7) in 5xx: la bozza dalla conferma e quella «registrato» senza gesti hanno il CTA spento con «↻ Aggiorna», niente dice «nessuna conferma»; R4 su una bozza «registrato» dopo un annullamento netto (RPC PD-01, punto 3)")
@@ -2928,7 +4266,8 @@ def b53(b):
         b.salvata(3)
         cta_spento("nessuna modifica: la v3 è già confermata", "la bozza «registrato» dopo l'annullamento netto")
     finally:
-        b.interruttore("uguale-alla-base", False)
+        # il banco torna com'è per difetto: uguale_alla_base acceso, come il server dal blocco R4 della persistenza
+        b.interruttore("uguale-alla-base", True)
 
 
 @prova("54", "P-6: il nodo del prodotto con il segnale LS-02 non si «Non include»: casella spenta, «Seleziona tutti i segnalati» lo salta, nessun «Non includere» nel pannello")
@@ -2942,13 +4281,13 @@ def b54(b):
     b.interruttore("radice-segnalata", True)
     try:
         # una bozza nuova dalla proposta dello STEP, con il segnale anche sulla voce della radice
-        b.passo("sorgente")
         a1 = b.al["ACM-1000_assieme.stp"]
-        p.click("#du-guarda-" + sid(a1))
-        expect(p.locator("#du-usa-bom")).to_be_enabled(timeout=T_LUNGO)
-        p.click("#du-usa-bom")
+        b.guarda(a1)
+        expect(p.locator("#du-conferma-sorgente")).to_be_enabled(timeout=T_LUNGO)
+        p.click("#du-conferma-sorgente")
         b.ok_finestra()
-        expect(p.locator("#du-passo-revisione")).to_have_attribute("aria-current", "step", timeout=T_LUNGO)
+        expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+        b.passo("revisione")
         b.salvata(1)
         b.vista("org")
         expect(p.locator("#nc-k-root")).to_contain_text("possibile elemento CAD")
@@ -3238,11 +4577,132 @@ def b56(b):
     expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
 
 
+@prova("58", "RV3-25 con il wizard aperto (U2 §6.3; CN-06, CN-08): N1 documento in analisi con la presa d'atto, N2 proposta cambiata e il riepilogo nuovo, N4 bozza salvata altrove, N5 analisi senza cambi")
+def b58(b):
+    p = b.page
+    b.interruttore("firma-con-proposta", True)
+    try:
+        b.passo("revisione")
+        expect(p.locator("#du-cta-bom")).to_be_enabled(timeout=T_LUNGO)
+        b.apri_wizard()
+        cta = p.locator("#du-wz-conferma")
+        i0 = b.segna()
+        # N1: un documento nuovo entra in analisi (un altro utente lo carica): la notifica e la presa d'atto, mai spuntata
+        r = p.request.post(b.url + "/__banco/documento-nuovo", data=json.dumps({"nome": "ALLEGATO_TECNICO.pdf"}), headers={"Content-Type": "application/json"})
+        verifica(r.status == 200, "la sonda non ha aggiunto il documento: %d" % r.status)
+        n1 = p.locator("#du-wz-n1")
+        expect(n1).to_contain_text("È arrivato un documento nuovo (ALLEGATO_TECNICO.pdf): è in analisi e il riepilogo non lo considera ancora.", timeout=25000)
+        expect(p.locator("#du-wz-in-analisi")).to_contain_text("Confermo senza i documenti ancora in analisi: ALLEGATO_TECNICO.pdf")
+        verifica(not p.locator("#du-wz-presa-analisi").is_checked(), "la presa d'atto è già spuntata")
+        if cta.is_enabled():
+            raise Rotto("«Conferma BOM» acceso senza la presa d'atto dei documenti in analisi")
+        verifica("presa d'atto" in (cta.get_attribute("title") or ""), "«Conferma BOM» spento senza la ragione: %s" % cta.get_attribute("title"))
+        ing = [x for x in b.richieste_da(i0, "GET", r"/motore-a/bozza$") if "ingressi=1" in x["query"]]
+        verifica(ing, "nessuna lettura di R1 ?ingressi=1 con il wizard aperto")
+        # N2: l'analisi finisce e cambia la proposta: un R4 nuovo, firma diversa, «Conferma BOM» spento fino al riepilogo nuovo
+        r = p.request.post(b.url + "/__banco/analisi-conclusa", data=json.dumps({"nome": "ALLEGATO_TECNICO.pdf", "cambia": True}), headers={"Content-Type": "application/json"})
+        verifica(r.status == 204, "la sonda non ha concluso l'analisi: %d" % r.status)
+        n2 = p.locator("#du-wz-n2")
+        expect(n2).to_contain_text("Attenzione: il riepilogo non è più aggiornato. Un nuovo documento ha modificato la proposta del motore.", timeout=50000)
+        verifica("BOM confermata" not in n2.inner_text() and "BOM registrata" not in n2.inner_text(), "N2 parla della BOM registrata")
+        expect(cta).to_be_disabled()
+        verifica("riepilogo nuovo" in (cta.get_attribute("title") or ""), "«Conferma BOM» spento senza la ragione di N2")
+        p.click("#du-wz-n2-apri")
+        expect(n2).to_have_count(0)
+        expect(p.locator("#du-wz-in-analisi")).to_have_count(0)
+        # N4: un collega salva la bozza
+        b.sonda_post("bozza-altrove")
+        n4 = p.locator("#du-wz-n4")
+        # aggiornata_da è un utente_id (come nel server): la pagina non mostra mai l'identificativo
+        expect(n4).to_contain_text("è stata salvata da un altro utente", timeout=25000)
+        verifica(not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", n4.inner_text()), "N4 mostra un identificativo: %s" % n4.inner_text())
+        expect(n4).to_contain_text("Rileggi la bozza.")
+        expect(cta).to_be_disabled()
+        p.click("#du-wz-n4-rileggi")
+        expect(n4).to_have_count(0, timeout=T_LUNGO)
+        expect(p.locator("#du-wz-identita")).to_be_visible(timeout=T_LUNGO)
+        # N5: un'analisi che non cambia la proposta: una riga quieta, nessun conflitto
+        r = p.request.post(b.url + "/__banco/documento-nuovo", data=json.dumps({"nome": "NOTA_TECNICA.pdf"}), headers={"Content-Type": "application/json"})
+        expect(p.locator("#du-wz-n1")).to_contain_text("NOTA_TECNICA.pdf", timeout=25000)
+        p.request.post(b.url + "/__banco/analisi-conclusa", data=json.dumps({"nome": "NOTA_TECNICA.pdf", "cambia": False}), headers={"Content-Type": "application/json"})
+        expect(p.locator("#du-wz-n5")).to_contain_text("Il documento NOTA_TECNICA.pdf è stato analizzato: la proposta non cambia.", timeout=60000)
+        verifica(p.locator("#du-wz-n2").count() == 0, "N2 per un'analisi che non cambia la proposta")
+        b.foto("B58_wizard_notifiche.png")
+        p.click("#du-wz-chiudi")
+        expect(p.locator("#du-wizard")).to_be_hidden()
+    finally:
+        b.interruttore("firma-con-proposta", False)
+
+
+@prova("59", "RV3-34 (U2 §6.4; CAT-01, CAT-02): «Conferma la categoria…» dall'editor del nodo, «Conferma il tipo proposto», il gruppo «Categorie da confermare» nel wizard, «Non è minuteria…»")
+def b59(b):
+    p = b.page
+    b.passo("revisione")
+    b.vista("org")
+    b.scheda("k-12")
+    sez = p.locator("#du-sez-categoria")
+    expect(sez).to_contain_text("minuteria proposta, normativa 2.1051", timeout=T_LUNGO)
+    expect(sez).to_contain_text("da sola non esenta dal 2D")
+    i = b.segna()
+    p.click("#du-conferma-categoria")
+    expect(b.finestra()).to_contain_text("Solo la minuteria confermata da una persona non chiede il 2D")
+    verifica(p.locator("#f-origine").input_value() == "classe_grammatica", "origine della categoria: %s" % p.locator("#f-origine").input_value())
+    b.ok_finestra()
+    az = b.ultime_azioni(i)
+    dec = [a for a in az if a["azione"] == "decisione_aggiunta"]
+    verifica(len(dec) == 1 and dec[0]["chiave_bozza"] == "k-12", "«Conferma la categoria…»: %s" % az)
+    d = dec[0]["dopo"]
+    verifica(d["tipo"] == "conferma_categoria" and d["soggetto"] == {"chiave_bozza": "k-12"} and d["categoria"] == "minuteria" and d["esito"] == "conferma"
+             and d["origine_categoria"] == "classe_grammatica" and d["ingresso"] == "editor" and d["classe_proposta"]["valore"] == "2.1051" and len(d.get("importazione", "")) == 64,
+             "la decisione conferma_categoria: %s" % d)
+    verifica(set(d) <= {"id", "tipo", "soggetto", "categoria", "esito", "origine_categoria", "classe_proposta", "importazione", "ingresso", "motivo", "da_conferma"}, "campi fuori dalla forma: %s" % sorted(d))
+    expect(p.locator("#du-cat-effetto")).to_contain_text("in bozza: il 2D non sarà richiesto dopo la conferma", timeout=T_LUNGO)
+    b.salvata(b.stato()["bozze"][b.p1]["versione"])
+    # «Conferma il tipo proposto»: un nodo_modificato con tipo_confermato, nessun effetto sul 2D
+    i = b.segna()
+    p.click("#du-conferma-tipo")
+    az = b.ultime_azioni(i)
+    verifica([(a["azione"], a["chiave_bozza"], a["dopo"].get("tipo_confermato")) for a in az] == [("nodo_modificato", "k-12", True)], "«Conferma il tipo proposto»: %s" % az)
+    expect(p.locator("#du-sez-categoria")).to_contain_text("tipo confermato", timeout=T_LUNGO)
+    b.salvata(b.stato()["bozze"][b.p1]["versione"])
+    # il wizard: la decisione dell'editor c'è già, senza una seconda accettazione; le altre proposte non sono spuntate
+    b.apri_wizard()
+    p.click("#du-wz-g-categorie")
+    tab = p.locator("#du-wz-categorie")
+    expect(tab.locator('tr[data-k="k-12"]')).to_contain_text("minuteria confermata", timeout=T_LUNGO)
+    expect(tab.locator('tr[data-k="k-12"]')).to_contain_text("dall'editor")
+    verifica(tab.locator('tr[data-k="k-12"] input').count() == 0, "la decisione dell'editor chiede una seconda accettazione")
+    if tab.locator('tr[data-k="k-9"]').count():
+        verifica(not tab.locator('tr[data-k="k-9"] input').is_checked(), "una proposta di categoria già spuntata")
+        expect(p.locator("#du-wz-cat-conferma")).to_be_disabled()
+        p.click("#du-wz-cat-tutte")
+        i = b.segna()
+        p.click("#du-wz-cat-conferma")
+        expect(tab.locator('tr[data-k="k-9"]')).to_contain_text("commerciale confermata", timeout=T_LUNGO)
+        corpi = b.corpi(i, "POST", r"/motore-a/bozza$")
+        dw = [a["dopo"] for c in corpi for a in c["azioni"] if a["azione"] == "decisione_aggiunta"]
+        verifica(len(dw) == 1 and dw[0]["ingresso"] == "wizard" and dw[0]["categoria"] == "commerciale" and dw[0]["soggetto"] == {"chiave_bozza": "k-9"}, "«Conferma le categorie (N)»: %s" % dw)
+        expect(tab.locator('tr[data-k="k-9"]')).to_contain_text("2D richiesto")
+    p.click("#du-wz-chiudi")
+    expect(p.locator("#du-wizard")).to_be_hidden()
+    # «Non è minuteria…»: il motivo è obbligatorio, la decisione di prima si sostituisce nello stesso gesto
+    b.scheda("k-12")
+    p.click("#du-non-minuteria")
+    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
+    p.fill("#f-motivo", "è un pezzo a disegno, non di serie")
+    i = b.segna()
+    b.ok_finestra()
+    az = b.ultime_azioni(i)
+    verifica([a["azione"] for a in az] == ["decisione_tolta", "decisione_aggiunta"] and az[1]["dopo"]["esito"] == "rifiuto" and az[1]["dopo"]["motivo"], "«Non è minuteria…»: %s" % az)
+    expect(p.locator("#du-sez-categoria")).to_contain_text("non è minuteria", timeout=T_LUNGO)
+    b.salvata(b.stato()["bozze"][b.p1]["versione"])
+
+
 @prova("50","E1′ lento che avanza: oltre i 120 s delle chiamate JSON, l'avviso dice l'avanzamento, il file entra (tempo d'inattività, §5 n. 3)")
 def b50(b):
     p = b.page
     b.passo("sorgente")
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     cdp = p.context.new_cdp_session(p)
     cdp.send("Network.enable")
     # circa 64 KiB/s in salita: 8,2 MiB vogliono circa 131 s, più del tempo massimo delle chiamate JSON (120 s)
@@ -3252,6 +4712,7 @@ def b50(b):
     visti = []
     durata = 0.0
     try:
+        b.apri_carica()
         p.set_input_files("#du-carica-file", files=[{"name": "DISEGNO_LENTO.pdf", "mimeType": "application/pdf", "buffer": dati}])
         t0 = time.time()
         p.click("#du-carica-invia")
@@ -3278,12 +4739,13 @@ def b50(b):
 def b51(b):
     p = b.page
     b.passo("sorgente")
-    p.click("#du-cartella-attivi")
+    b.cartella("tutti")
     # il banco aspetta 130 s prima di leggere la richiesta, poi la lascia cadere: dopo l'invio non si muove niente. Il
     # tempo d'inattività è di 120 s, come il tempo massimo che sostituisce (secondo passaggio: un server che risponde fra
     # 60 e 120 s dopo il corpo deve arrivare in fondo come prima); i 10 s in più tengono la risposta del banco dopo
     b.ritardo("POST /thread/{id}/carica", 130000)
     b.modo("E1", "appeso")
+    b.apri_carica()
     p.set_input_files("#du-carica-file", files=[{"name": "DISEGNO_FERMO.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4\n% fermo\n"}])
     t0 = time.time()
     p.click("#du-carica-invia")
@@ -3302,22 +4764,26 @@ def b51(b):
 
 GUSCIO = [("GET", r"/thread/{T}/distinta-unica"), ("GET", r"/static/[A-Za-z0-9_.\-/]+"), ("GET", r"/stato/worker"), ("GET", r"/favicon\.ico")]
 DEDICATE = [
-    ("GET", r"/thread/{T}/motore-a/dati"), ("GET", r"/thread/{T}/motore-a/anteprima/step-strutturale"),
+    ("GET", r"/thread/{T}/motore-a/dati"),
     ("GET", r"/thread/{T}/motore-a/bozza"), ("POST", r"/thread/{T}/motore-a/bozza"), ("POST", r"/thread/{T}/motore-a/bozza/{U}/abbandona"),
     ("POST", r"/thread/{T}/motore-a/bom/riepilogo"), ("POST", r"/thread/{T}/motore-a/bom/conferma"), ("GET", r"/thread/{T}/motore-a/intento/{U}"),
     ("GET", r"/thread/{T}/motore-a/conferme"), ("POST", r"/thread/{T}/motore-a/riallinea"), ("POST", r"/thread/{T}/carica"),
     ("GET", r"/thread/{T}/sorgente"), ("POST", r"/thread/{T}/sorgente/file/{U}/scarta"), ("POST", r"/thread/{T}/sorgente/file/{U}/altri-file"),
     ("POST", r"/thread/{T}/sorgente/file/{U}/riattiva"), ("GET", r"/thread/{T}/sorgente/file/{U}/contenuto"),
-    ("GET", r"/thread/{T}/sorgente/step/{U}/anteprima"), ("POST", r"/thread/{T}/sorgente/step/{U}/associa"),
+    ("GET", r"/thread/{T}/sorgente/step/{U}/anteprima"),
+    # dall'ondata C (U2): S8 e R15 (S9 e R1 ?ingressi=1 sono varianti di lettura di /dati e di R1)
+    ("POST", r"/thread/{T}/sorgente/step/{U}/conferma-sorgente"), ("POST", r"/thread/{T}/motore-a/proposta-aggiornata/rifiuta"),
+    # direttiva 39 §2: la revoca della sorgente della bozza
+    ("POST", r"/thread/{T}/sorgente/step/{U}/revoca-sorgente"),
 ]
+# direttiva 39 §2 (D-TAB-02 B rivista [T-39]): «Autorizza» e «Revoca l'autorizzazione» non sono più atti della pagina
 ATTI = [
-    ("POST", r"/thread/{T}/fascicolo/componente/{U}/step-strutturale"), ("POST", r"/thread/{T}/fascicolo/componente/{U}/step-strutturale/revoca"),
-    ("POST", r"/thread/{T}/fascicolo/conferma"), ("POST", r"/thread/{T}/fascicolo/prepara"), ("POST", r"/thread/{T}/fascicolo/rianalizza"),
+    ("POST", r"/thread/{T}/fascicolo/prepara"), ("POST", r"/thread/{T}/fascicolo/rianalizza"),
     ("POST", r"/thread/{T}/riprova-copie"),
 ]
 
 
-@prova("34", "richieste della pagina: guscio, statici, rotte del ponte, sei atti; nessun legacy")
+@prova("34", "richieste della pagina: guscio, statici, rotte del ponte, tre atti (niente «Conferma la fonte», niente «Autorizza»: direttiva 39); nessun legacy")
 def b34(b):
     def compila(elenco):
         return [(m, re.compile("^" + r.replace("{T}", re.escape(b.thread)).replace("{U}", UUID) + "$")) for m, r in elenco]
@@ -3458,6 +4924,8 @@ def main():
             b.apri()
         for numero, nome, fn in PROVE:
             if scelte and numero not in scelte:
+                continue
+            if not scelte and numero in SOLO_SE_SCELTE:
                 continue
             fatte += 1
             inizio = time.time()

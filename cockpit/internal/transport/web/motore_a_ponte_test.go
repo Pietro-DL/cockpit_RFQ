@@ -153,6 +153,12 @@ var ponteEscluse = map[string]string{
 	"/thread/{id}/motore-a/bozza":                   "Distinta unica di V1: R2 del ponte nuovo (EM §9.2), fino a T-06",
 	"/thread/{id}/motore-a/bozza/{bozza}/abbandona": "Distinta unica di V1: R3 del ponte nuovo (EM §9.3), fino a T-06",
 	"/thread/{id}/motore-a/riallinea":               "Distinta unica di V1: R11 (EM §9.8), fino a T-06",
+	// ondata C, corsia persistenza (aggancio minimo nella prova della corsia interfaccia): R15 del ponte nuovo
+	"/thread/{id}/motore-a/proposta-aggiornata/rifiuta": "Distinta unica di V1: R15 (U2 §5.7), fino alla funzione del ponte nuovo",
+	// direttiva 39, corsia persistenza (aggancio minimo nella prova della corsia interfaccia): R4 del ponte nuovo
+	"/thread/{id}/motore-a/bom/riepilogo": "Distinta unica di V1: R4 (riepilogoBom del ponte nuovo, EM §9.4), fino a T-06",
+	// direttiva 39, corsia persistenza (aggancio minimo nella prova della corsia interfaccia): R5 del ponte nuovo
+	"/thread/{id}/motore-a/bom/conferma": "Distinta unica di V1: R5 (confermaBom del ponte nuovo, EM §9.5), fino a T-06",
 }
 
 // ponteDedicate (V1, PM23 PP-09 e T-06): le rotte POST che la pagina nuova chiama direttamente, con il loro contratto
@@ -160,10 +166,11 @@ var ponteEscluse = map[string]string{
 // «carica», che lascia le escluse per il suo ramo JSON (E1′; il ramo HTML resta della pagina della RFQ, 14/10). E' la
 // quarta parte del mondo chiuso: registrate = ROTTE ∪ {ALBERO} ∪ escluse ∪ dedicate, e le parti non si toccano.
 var ponteDedicate = map[string]string{
-	"/thread/{id}/sorgente/file/{allegato}/scarta":     "S2, EM §10.9",
-	"/thread/{id}/sorgente/file/{allegato}/altri-file": "S3, EM §10.9",
-	"/thread/{id}/sorgente/file/{allegato}/riattiva":   "S4, EM §10.9",
-	"/thread/{id}/carica":                              "E1′, il ramo JSON (EM §10.9); il ramo HTML resta della pagina della RFQ (14/10)",
+	"/thread/{id}/sorgente/file/{allegato}/scarta":            "S2, EM §10.9",
+	"/thread/{id}/sorgente/file/{allegato}/altri-file":        "S3, EM §10.9",
+	"/thread/{id}/sorgente/file/{allegato}/riattiva":          "S4, EM §10.9",
+	"/thread/{id}/sorgente/file/{allegato}/riprova-rimozione": "«Riprova la rimozione dalla cartella ALTRO», U2 §3.5 (direttiva 35, C-6a)",
+	"/thread/{id}/carica":                                     "E1′, il ramo JSON (EM §10.9); il ramo HTML resta della pagina della RFQ (14/10)",
 }
 
 // ponteRotteRegistrate: le rotte «METODO /thread/…» e «METODO /proposta/…» che il server registra, lette dai sorgenti

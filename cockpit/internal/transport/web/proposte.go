@@ -73,7 +73,13 @@ func (s *Server) gestoConDomanda(w http.ResponseWriter, r *http.Request, fai fun
 		return
 	}
 	defer tx.Rollback(ctx)
-	msg, err := fai(ctx, db.New(tx), thread, u.UtenteID)
+	q := db.New(tx)
+	// INC-G25: la RFQ prima di ogni altra riga, nell'ordine dei lucchetti di R5 (lucchetti_legacy.go)
+	if err := bloccaRfqDelGesto(ctx, q, thread); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	msg, err := fai(ctx, q, thread, u.UtenteID)
 	if err == nil {
 		err = tx.Commit(ctx)
 	}

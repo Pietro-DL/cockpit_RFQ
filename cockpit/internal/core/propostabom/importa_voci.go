@@ -39,10 +39,11 @@ func (b *costruttore) voci() ([]importazione.Voce, []importazione.FuoriPerDecisi
 			x := importazione.FuoriPerDecisione{Voce: vocePer(b.st.AllegatoID, n.Rif), Segno: importazione.SegnoNonRaggiunto}
 			if tolto {
 				x.Segno = importazione.SegnoTolto
-				if n.RigaDecisa != nil && n.RigaDecisa.DecisoDa != nil {
-					x.Chi = raw(n.RigaDecisa.DecisoDa.String())
-				}
 			}
+			b.traccia(n, &x)
+			id := b.identitaProposta(n, ns, b.lettoreDi(b.st.AllegatoID))
+			x.IdentitaProposta, x.CodiceProposto, x.MotivoProposto = id.identita, id.codice, id.motivoProposto
+			x.RevProposta, x.MotivoRev = id.rev, id.motivoRev
 			fuori = append(fuori, x)
 			continue
 		}
@@ -79,30 +80,12 @@ func (b *costruttore) voce(n ancoraggio.NodoProposto, ns ancoraggio.NodoStruttur
 		Segnali:       rawSeNonVuoto(n.Segnali),
 	}
 
-	// l'identità proposta: la lettura scelta dalla catena del codice (CatenaCodice.Forma, mai IdentitaNodo)
-	var scelta *motorea.LetturaCodice
-	if n.Codice.Lettura != "" {
-		for i := range ns.Letture {
-			if ns.Letture[i].ID == n.Codice.Lettura {
-				scelta = &ns.Letture[i]
-				break
-			}
-		}
-	}
-	if scelta != nil {
-		v.IdentitaProposta = raw(lt.lettura(*scelta))
-		b.nelVoci[lt.chiave(scelta.ID)] = true
-		testo := lt.unita[scelta.UnitaID].Testo
-		cod, motivo := ProiezioneCodice(scelta.Forma, testo)
-		v.CodiceProposto, v.MotivoProposto = cod, raw(motivo)
-		rev, mr := ProiezioneRev(scelta.Forma)
-		v.RevProposta, v.MotivoRev = rev, raw(mr)
-	} else {
-		v.MotivoProposto = raw(n.Codice.MotivoLettura)
-		if n.Codice.MotivoLettura == "" {
-			v.MotivoProposto = raw(ancoraggio.MotivoLetturaAssente)
-		}
-	}
+	// l'identità proposta: la lettura scelta dalla catena del codice (CatenaCodice.Forma, mai IdentitaNodo), le due
+	// proiezioni e il motivo della rev, sempre con la rev vuota (U2 §4.2 punto 2)
+	id := b.identitaProposta(n, ns, lt)
+	scelta := id.scelta
+	v.IdentitaProposta, v.CodiceProposto, v.MotivoProposto = id.identita, id.codice, id.motivoProposto
+	v.RevProposta, v.MotivoRev = id.rev, id.motivoRev
 	if n.Codice.Proposto != "" || n.Codice.MotivoProposto != "" {
 		v.CodiceComposto = raw(map[string]any{"testo": n.Codice.Proposto, "motivo": n.Codice.MotivoProposto})
 	}

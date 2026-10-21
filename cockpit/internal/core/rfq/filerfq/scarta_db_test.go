@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/rfq/documenti"
+	"promatec/cockpit/internal/core/rfq/filerfq/conservatoreprova"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/staging"
 )
@@ -226,11 +227,7 @@ func TestSC07RiavvioConUnaRimozioneInAttesa(t *testing.T) {
 	if got := b.rimozione(b.thread, a); got != "in_attesa/da_eseguire" {
 		t.Fatalf("rimozione %s", got)
 	}
-	dep, err := PreparaDeposito(b.ctx, b.q, b.deposito)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s2 := &Servizio{Pool: b.p, Staging: b.staging, Deposito: dep, Log: b.s.Log, EtaMinima: time.Nanosecond}
+	s2 := &Servizio{Pool: b.p, Staging: b.staging, Conservatore: conservatoreprova.Nuovo(b.deposito), Log: b.s.Log, EtaMinima: time.Nanosecond}
 	e, err := (&Custode{S: s2}).Giro(b.ctx)
 	if err != nil || e.Rimozioni != 1 {
 		t.Fatalf("custode del processo nuovo: %+v %v", e, err)
@@ -391,15 +388,31 @@ func TestSC09DipendenzeCheBloccano(t *testing.T) {
 		}
 		b.nienteScritto(prima, c.nome)
 	}
-	// archivio con una voce attiva non elencata: il perimetro visto e' vecchio
+	// archivio con una voce attiva non elencata: «Scarta» di uno ZIP con voci attive e' rifiutato prima di guardare il
+	// perimetro visto (U2 §3.10: 422 VOCI_ATTIVE con le due voci)
 	zip, _ := b.archivio(b.thread, "ACME-S09.zip", []string{"E1.pdf"}, opzFile{})
 	corpo := b.corpo(GestoScarta, b.thread, zip, "non serve")
 	msgZip := valore[uuid.UUID](b, `SELECT messaggio_id FROM allegato WHERE allegato_id = $1`, zip)
 	b.file(msgZip, "E2.pdf", contenuto("E2.pdf", 904, 2_000), opzFile{contenitore: zip, pathInterno: "cartella/E2.pdf"})
 	prima := b.foto()
 	_, err := b.s.Scarta(b.ctx, b.thread, zip, b.u.UtenteID, corpo)
-	rf := rifiutoAtteso(t, err, http.StatusConflict, "ANTEPRIMA_SUPERATA")
-	if rf.Extra["anteprima"] != "voci_archivio" || rf.Extra["n_voci"] != 2 {
+	rf := rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "VOCI_ATTIVE")
+	if rf.Extra["n_voci_attive"] != 2 {
+		t.Errorf("voci attive: %v", rf.Extra)
+	}
+	b.nienteScritto(prima, "voci attive")
+	// senza voci attive (scartate a una a una), il perimetro visto vecchio torna a contare: 409 voci_archivio
+	voci := valore[[]uuid.UUID](b, `SELECT array_agg(allegato_id ORDER BY indice) FROM allegato WHERE contenitore_id = $1`, zip)
+	corpo = b.corpo(GestoScarta, b.thread, zip, "non serve")
+	for _, v := range voci {
+		b.deveRiuscire(b.scarta(b.thread, v))
+	}
+	b.file(msgZip, "E3.pdf", contenuto("E3.pdf", 905, 2_000), opzFile{contenitore: zip, pathInterno: "cartella/E3.pdf"})
+	b.deveRiuscire(b.altriFile(b.thread, valore[uuid.UUID](b, `SELECT allegato_id FROM allegato WHERE contenitore_id = $1 AND nome_file = 'E3.pdf'`, zip)))
+	prima = b.foto()
+	_, err = b.s.Scarta(b.ctx, b.thread, zip, b.u.UtenteID, corpo)
+	rf = rifiutoAtteso(t, err, http.StatusConflict, "ANTEPRIMA_SUPERATA")
+	if rf.Extra["anteprima"] != "voci_archivio" || rf.Extra["n_voci"] != 1 {
 		t.Errorf("perimetro: %v", rf.Extra)
 	}
 	b.nienteScritto(prima, "perimetro")
@@ -502,35 +515,43 @@ func TestSC13RiattivaSuUnoScartato(t *testing.T) {
 	b.nienteScritto(prima, "Riattiva su uno scartato")
 }
 
-// SC-14: un archivio con il perimetro completo: archivio e voci scartati, una rimozione per occorrenza, i file tolti.
-func TestSC14ArchivioConIlPerimetroCompleto(t *testing.T) {
+// SC-14 e SC-33 (U2 §3.10, base [T] di V1-Q28): «Scarta» di uno ZIP con voci attive → 422 VOCI_ATTIVE con l'elenco,
+// niente scritto. Scartate due voci e messa la terza in Altri file, lo ZIP si scarta da solo: l'archivio scartato con la
+// sua rimozione, nessuna cascata sulle voci (la voce in Altri file resta con la sua copia); l'evento dell'archivio porta
+// il perimetro che restava.
+func TestSC14ArchivioSenzaCascata(t *testing.T) {
 	b := nuovoBancoFile(t)
 	zip, voci := b.archivio(b.thread, "ACME-S14.zip", []string{"A.pdf", "B.pdf", "C.stp"}, opzFile{})
-	percorsi := []string{b.pathStaging(zip)}
-	for _, v := range voci {
-		percorsi = append(percorsi, b.pathStaging(v))
+	prima := b.foto()
+	_, err := b.scarta(b.thread, zip)
+	rf := rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "VOCI_ATTIVE")
+	if rf.Extra["n_voci_attive"] != 3 {
+		t.Errorf("voci attive: %v", rf.Extra)
 	}
+	if l, _ := rf.Extra["voci"].([]map[string]any); len(l) != 3 {
+		t.Errorf("l'elenco delle voci: %v", rf.Extra["voci"])
+	}
+	b.nienteScritto(prima, "VOCI_ATTIVE")
+	b.deveRiuscire(b.scarta(b.thread, voci[0]))
+	b.deveRiuscire(b.scarta(b.thread, voci[1]))
+	b.deveRiuscire(b.altriFile(b.thread, voci[2]))
+	pZip := b.pathStaging(zip)
 	e := b.deveRiuscire(b.scarta(b.thread, zip))
-	if len(e.Occorrenze) != 4 {
-		t.Errorf("occorrenze del gesto: %d", len(e.Occorrenze))
+	if len(e.Occorrenze) != 1 || e.Occorrenze[0] != zip {
+		t.Errorf("occorrenze del gesto: %v", e.Occorrenze)
 	}
-	for _, id := range append([]uuid.UUID{zip}, voci...) {
-		if b.stato(b.thread, id) != StatoScartato || b.rimozione(b.thread, id) != "eseguita/rimosso" {
-			t.Errorf("%s: stato %q, rimozione %s", id, b.stato(b.thread, id), b.rimozione(b.thread, id))
-		}
+	if b.stato(b.thread, zip) != StatoScartato || b.rimozione(b.thread, zip) != "eseguita/rimosso" || esiste(pZip) {
+		t.Errorf("archivio: stato %q, rimozione %s, file %v", b.stato(b.thread, zip), b.rimozione(b.thread, zip), esiste(pZip))
 	}
-	if n := valore[int](b, `SELECT count(*) FROM file_rfq_rimozione`); n != 4 {
-		t.Errorf("rimozioni %d, attese 4", n)
+	if b.stato(b.thread, voci[2]) != StatoAltriFile || !uguali(b.copie(b.thread, voci[2]), "copiata/-") {
+		t.Errorf("la voce in Altri file: stato %q, copie %v", b.stato(b.thread, voci[2]), b.copie(b.thread, voci[2]))
 	}
-	for _, p := range percorsi {
-		if esiste(p) {
-			t.Errorf("file rimasto: %s", filepath.Base(p))
-		}
+	if n := valore[int](b, `SELECT count(*) FROM file_rfq_rimozione`); n != 3 {
+		t.Errorf("rimozioni %d, attese 3 (due voci e l'archivio)", n)
 	}
-	// l'evento dell'archivio porta il perimetro (conteggio e impronta), ogni voce ha la sua riga
 	var nVoci int
 	b.rigaCon(`SELECT (dipendenze ->> 'n_voci')::int FROM file_rfq_evento WHERE allegato_id = $1 AND azione = 'scarta'`, []any{zip}, &nVoci)
-	if nVoci != 3 {
+	if nVoci != 1 {
 		t.Errorf("n_voci nell'evento dell'archivio: %d", nVoci)
 	}
 }
@@ -565,7 +586,7 @@ func TestSC15UnicaCopiaDaAltriFile(t *testing.T) {
 	if got := b.fileDelDeposito(); len(got) != 0 {
 		t.Errorf("il deposito tiene ancora la copia: %v", got)
 	}
-	if !strings.Contains(e.Testo, "La copia di conservazione è stata eliminata.") {
+	if !strings.Contains(e.Testo, "File eliminato anche dalla cartella ALTRO della RFQ.") {
 		t.Errorf("testo %q", e.Testo)
 	}
 }
@@ -666,10 +687,10 @@ func TestSC17PinTransitorio(t *testing.T) {
 }
 
 // SC-18: uno zip caricato a mano (origine portale) di 900 file, uno dei quali e' uno zip di 900 voci: 1801 occorrenze,
-// tutte con D-14. «Scarta» con il perimetro, l'impronta e la conferma sta sotto i 64 KiB e passa; senza la conferma →
-// 422 RISOLUZIONE_RICHIESTA con le occorrenze; con l'elenco cambiato sotto il lucchetto → 409 dipendenze_file; con il
-// perimetro cambiato → 409 voci_archivio; un evento per occorrenza, nessuno oltre 256 KiB. «Metti in Altri file» dello
-// stesso zip (un altro, con i byte), con voci associate a componenti, passa con scollega.
+// tutte con D-14 nel dettaglio di S1. «Scarta» con il perimetro, l'impronta e la conferma sta sotto i 64 KiB e risponde
+// 422 VOCI_ATTIVE con le 1800 voci (U2 §3.10: nessuna cascata), niente scritto. «Metti in Altri file» dello stesso zip
+// (un altro, con i byte), con voci associate a componenti, passa con scollega; «Metti lo ZIP originale in Altri file» di
+// un terzo zip uguale scrive una copia sola.
 func TestSC18ArchivioGrandeAnnidato(t *testing.T) {
 	b := nuovoBancoFile(t)
 	zip := b.archivioGrande(b.thread, false)
@@ -687,58 +708,20 @@ func TestSC18ArchivioGrandeAnnidato(t *testing.T) {
 		t.Errorf("occorrenze con D-14: %d, attese 1801", d14)
 	}
 	corpo := b.corpo(GestoScarta, b.thread, zip, "pacchetto sbagliato")
-	senza := corpo
-	senza.ChiaveIdempotenza = chiave()
-	_, err := b.s.Scarta(b.ctx, b.thread, zip, b.u.UtenteID, senza)
-	rf := rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "RISOLUZIONE_RICHIESTA")
-	if l, _ := rf.Extra["occorrenze"].([]Dipendenza); len(l) != 1801 {
-		t.Errorf("occorrenze che chiedono la conferma: %d", len(l))
-	}
 	conferma := corpo
 	conferma.ConfermaUnicaCopia = vero()
 	if j, _ := json.Marshal(conferma); len(j) >= MaxCorpo {
 		t.Fatalf("il corpo pesa %d byte", len(j))
 	}
-	// una dipendenza in piu' (una nota su una voce) sotto il lucchetto: 409 dipendenze_file
-	voce := valore[uuid.UUID](b, `SELECT allegato_id FROM allegato WHERE contenitore_id = $1 ORDER BY indice LIMIT 1`, zip)
-	nota := valore[uuid.UUID](b, `INSERT INTO annotazione_pdf (thread_id, allegato_id, pagina, x_norm, y_norm, testo, creata_da)
-		VALUES ($1, $2, 1, 0.5, 0.5, 'nota', $3) RETURNING annotazione_id`, b.thread, voce, b.u.UtenteID)
-	c1 := conferma
-	c1.ChiaveIdempotenza = chiave()
-	_, err = b.s.Scarta(b.ctx, b.thread, zip, b.u.UtenteID, c1)
-	rf = rifiutoAtteso(t, err, http.StatusConflict, "ANTEPRIMA_SUPERATA")
-	if rf.Extra["anteprima"] != "dipendenze_file" {
-		t.Errorf("anteprima %v", rf.Extra["anteprima"])
-	}
-	b.esegui(`DELETE FROM annotazione_pdf WHERE annotazione_id = $1`, nota)
-	// il perimetro cambiato (una voce in piu' nello zip interno): 409 voci_archivio
-	interno := valore[uuid.UUID](b, `SELECT allegato_id FROM allegato WHERE contenitore_id = $1 AND lower(estensione) = 'zip'`, zip)
-	msg := valore[uuid.UUID](b, `SELECT messaggio_id FROM allegato WHERE allegato_id = $1`, zip)
-	extra := valore[uuid.UUID](b, `INSERT INTO allegato (messaggio_id, contenitore_id, indice, nome_file, estensione, natura, origine, bytes, sha256,
-		stato, ricevuto_il, caricato_da) VALUES ($1, $2, 9999, 'X.pdf', 'pdf', 'file', 'portale', 10, $3, 'analizzato', now(), $4) RETURNING allegato_id`,
-		msg, interno, shaDi([]byte("voce in piu'")), b.u.UtenteID)
-	c2 := conferma
-	c2.ChiaveIdempotenza = chiave()
-	_, err = b.s.Scarta(b.ctx, b.thread, zip, b.u.UtenteID, c2)
-	rf = rifiutoAtteso(t, err, http.StatusConflict, "ANTEPRIMA_SUPERATA")
-	if rf.Extra["anteprima"] != "voci_archivio" {
-		t.Errorf("anteprima %v", rf.Extra["anteprima"])
-	}
-	b.esegui(`DELETE FROM allegato WHERE allegato_id = $1`, extra)
-	// con il perimetro, l'impronta e la conferma: passa
-	conferma.ChiaveIdempotenza = chiave()
+	prima := b.foto()
 	inizio := time.Now()
-	e := b.deveRiuscire(b.s.Scarta(b.ctx, b.thread, zip, b.u.UtenteID, conferma))
-	t.Logf("SC-18: «Scarta» di 1801 occorrenze in %s", time.Since(inizio).Round(time.Millisecond))
-	if len(e.Occorrenze) != 1801 {
-		t.Errorf("occorrenze %d", len(e.Occorrenze))
+	_, err := b.s.Scarta(b.ctx, b.thread, zip, b.u.UtenteID, conferma)
+	rf := rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "VOCI_ATTIVE")
+	t.Logf("SC-18: «Scarta» rifiutato su 1800 voci attive in %s", time.Since(inizio).Round(time.Millisecond))
+	if rf.Extra["n_voci_attive"] != 1800 {
+		t.Errorf("voci attive %v", rf.Extra["n_voci_attive"])
 	}
-	var nEventi, massimo int
-	b.rigaCon(`SELECT count(*), coalesce(max(greatest(pg_column_size(dipendenze), pg_column_size(fotografia))), 0)
-		FROM file_rfq_evento WHERE azione = 'scarta'`, nil, &nEventi, &massimo)
-	if nEventi != 1801 || massimo > 256<<10 {
-		t.Errorf("eventi %d, il piu' grande %d byte", nEventi, massimo)
-	}
+	b.nienteScritto(prima, "VOCI_ATTIVE")
 
 	// «Metti in Altri file» di uno zip uguale con i byte presenti e voci associate a componenti: passa con scollega
 	altro := b.archivioGrande(b.rfq("RFQ-C"), true)
@@ -746,13 +729,29 @@ func TestSC18ArchivioGrandeAnnidato(t *testing.T) {
 	_, err = b.altriFile(thC, altro)
 	rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "RISOLUZIONE_RICHIESTA")
 	inizio = time.Now()
-	e = b.deveRiuscire(b.altriFile(thC, altro, conScollega))
+	e := b.deveRiuscire(b.altriFile(thC, altro, conScollega))
 	t.Logf("SC-18: «Metti in Altri file» di 1801 occorrenze in %s", time.Since(inizio).Round(time.Millisecond))
 	if n := valore[int](b, `SELECT count(*) FROM file_rfq_conservazione WHERE thread_id = $1 AND stato = 'copiata'`, thC); n != 1801 {
 		t.Errorf("copie verificate %d", n)
 	}
 	if n := valore[int](b, `SELECT count(*) FROM documento_proposta WHERE thread_id = $1 AND componente_id IS NOT NULL`, thC); n != 0 {
 		t.Errorf("%d proposte ancora associate", n)
+	}
+	if len(e.Occorrenze) != 1801 {
+		t.Errorf("occorrenze di «Altri file» con i contenuti: %d", len(e.Occorrenze))
+	}
+	// il solo ZIP: una copia, le voci restano attive (e le loro associazioni non chiedono «scollega»)
+	terzo := b.archivioGrande(b.rfq("RFQ-D"), true)
+	thD := valore[uuid.UUID](b, `SELECT m.thread_id FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id WHERE a.allegato_id = $1`, terzo)
+	e = b.deveRiuscire(b.altriFile(thD, terzo, soloZip))
+	if len(e.Occorrenze) != 1 {
+		t.Errorf("occorrenze del solo ZIP: %d", len(e.Occorrenze))
+	}
+	if n := valore[int](b, `SELECT count(*) FROM file_rfq_conservazione WHERE thread_id = $1`, thD); n != 1 {
+		t.Errorf("copie del solo ZIP: %d", n)
+	}
+	if n := valore[int](b, `SELECT count(*) FROM file_rfq WHERE thread_id = $1 AND stato <> 'attivo'`, thD); n != 1 {
+		t.Errorf("occorrenze non attive dopo il solo ZIP: %d", n)
 	}
 }
 
@@ -816,41 +815,70 @@ func (b *bancoFile) archivioGrande(thread uuid.UUID, conByte bool) uuid.UUID {
 	return zip
 }
 
-// SC-19: «Scarta» su uno zip la cui voce STEP e' la fonte della bozza → 422 DIPENDENZE_ATTIVE con l'allegato_id della
-// voce; una voce con D-1 o D-3 blocca allo stesso modo; una voce associata senza «scollega» → RISOLUZIONE_RICHIESTA.
+// SC-19 (U2 §3.10): uno zip la cui voce STEP e' la fonte della bozza (D-6) e la cui voce PDF e' confermata (D-1):
+// «Scarta» → 422 VOCI_ATTIVE (le voci sono attive), niente scritto; «Metti in Altri file anche i contenuti» → 422
+// DIPENDENZE_ATTIVE con le voci; «Metti lo ZIP originale in Altri file» passa: le dipendenze delle voci non lo fermano,
+// le voci restano attive e la bozza non cambia; «Riattiva» del solo ZIP lo riporta fra gli attivi.
 func TestSC19ZipConUnaVoceCheBlocca(t *testing.T) {
 	b := nuovoBancoFile(t)
 	zip, voci := b.archivio(b.thread, "ACME-S19.zip", []string{"P1.stp", "P1.pdf"}, opzFile{})
-	bozza := b.bozzaConFonte(voci[0], nil)
+	b.bozzaConFonte(voci[0], nil)
+	b.esegui(`UPDATE documento_proposta SET stato = 'confermata', deciso_da = $2, deciso_il = now() WHERE allegato_id = $1`, voci[1], b.u.UtenteID)
 	prima := b.foto()
 	_, err := b.scarta(b.thread, zip)
+	rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "VOCI_ATTIVE")
+	b.nienteScritto(prima, "Scarta dello zip")
+	_, err = b.altriFile(b.thread, zip, zipEContenuti)
 	rf := rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "DIPENDENZE_ATTIVE")
-	if !citaDipendenza(rf, voci[0], "D-6") {
-		t.Errorf("la voce fonte: %v", rf.Extra["dipendenze"])
+	if !citaDipendenza(rf, voci[0], "D-6") || !citaDipendenza(rf, voci[1], "D-1") {
+		t.Errorf("le voci che bloccano: %v", rf.Extra["dipendenze"])
 	}
-	b.nienteScritto(prima, "voce fonte della bozza")
-	// la bozza chiusa: ora la voce PDF confermata (D-1)
-	b.esegui(`UPDATE distinta_bozza SET stato = 'abbandonata', chiusa_da = $2, motivo_chiusura = 'prova' WHERE bozza_id = $1`, bozza, b.u.UtenteID)
-	b.esegui(`UPDATE documento_proposta SET stato = 'confermata', deciso_da = $2, deciso_il = now() WHERE allegato_id = $1`, voci[1], b.u.UtenteID)
-	prima = b.foto()
-	_, err = b.scarta(b.thread, zip)
-	rf = rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "DIPENDENZE_ATTIVE")
-	if !citaDipendenza(rf, voci[1], "D-1") {
-		t.Errorf("la voce confermata: %v", rf.Extra["dipendenze"])
+	b.nienteScritto(prima, "Altri file con i contenuti")
+	e := b.deveRiuscire(b.altriFile(b.thread, zip, soloZip))
+	if len(e.Occorrenze) != 1 || b.stato(b.thread, zip) != StatoAltriFile {
+		t.Errorf("solo ZIP: occorrenze %v, stato %q", e.Occorrenze, b.stato(b.thread, zip))
 	}
-	b.nienteScritto(prima, "voce confermata")
-	// la voce associata senza «scollega»
-	comp := b.componente(b.thread, "ACME-S19", "sciolto")
-	b.esegui(`UPDATE documento_proposta SET stato = 'aperta', deciso_da = NULL, deciso_il = NULL, componente_id = $2, codice = 'ACME-S19'
-		WHERE allegato_id = $1`, voci[1], comp)
-	prima = b.foto()
-	_, err = b.scarta(b.thread, zip)
-	rf = rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "RISOLUZIONE_RICHIESTA")
-	if !citaDipendenza(rf, voci[1], "D-7") {
-		t.Errorf("la voce associata: %v", rf.Extra["occorrenze"])
+	for _, v := range voci {
+		if b.stato(b.thread, v) != "" || len(b.copie(b.thread, v)) != 0 {
+			t.Errorf("la voce %s e' stata toccata: stato %q, copie %v", v, b.stato(b.thread, v), b.copie(b.thread, v))
+		}
 	}
-	b.nienteScritto(prima, "voce associata")
-	b.deveRiuscire(b.scarta(b.thread, zip, conScollega))
+	if !uguali(b.copie(b.thread, zip), "copiata/-") {
+		t.Errorf("copie dello zip: %v", b.copie(b.thread, zip))
+	}
+	b.deveRiuscire(b.riattiva(b.thread, zip, soloZip))
+	if b.stato(b.thread, zip) != StatoAttivo {
+		t.Errorf("dopo «Riattiva»: %q", b.stato(b.thread, zip))
+	}
+}
+
+// SC-19b (U2 §3.10): lo ZIP e le voci in Altri file con i contenuti; «Riattiva» del solo ZIP lascia le voci in Altri
+// file; «Scarta» dello ZIP (nessuna voce attiva) scarta solo l'archivio: le voci restano in Altri file con le copie.
+func TestSC19bZipConIContenutiPoiSoloLoZip(t *testing.T) {
+	b := nuovoBancoFile(t)
+	zip, voci := b.archivio(b.thread, "ACME-S19B.zip", []string{"V1.pdf", "V2.pdf"}, opzFile{})
+	e := b.deveRiuscire(b.altriFile(b.thread, zip, zipEContenuti))
+	if len(e.Occorrenze) != 3 {
+		t.Fatalf("occorrenze con i contenuti: %v", e.Occorrenze)
+	}
+	b.deveRiuscire(b.riattiva(b.thread, zip, soloZip))
+	if b.stato(b.thread, zip) != StatoAttivo {
+		t.Errorf("zip dopo «Riattiva»: %q", b.stato(b.thread, zip))
+	}
+	for _, v := range voci {
+		if b.stato(b.thread, v) != StatoAltriFile {
+			t.Errorf("voce %s dopo «Riattiva» del solo ZIP: %q", v, b.stato(b.thread, v))
+		}
+	}
+	b.deveRiuscire(b.scarta(b.thread, zip))
+	if b.stato(b.thread, zip) != StatoScartato {
+		t.Errorf("zip: %q", b.stato(b.thread, zip))
+	}
+	for _, v := range voci {
+		if b.stato(b.thread, v) != StatoAltriFile || !uguali(b.copie(b.thread, v), "copiata/-") {
+			t.Errorf("voce %s dopo «Scarta» dello zip: %q %v", v, b.stato(b.thread, v), b.copie(b.thread, v))
+		}
+	}
 }
 
 // SC-20 e CO-10: «Scarta» da attivo mentre un «Metti in Altri file» di un'altra scheda e' in copia (fra la copia e la

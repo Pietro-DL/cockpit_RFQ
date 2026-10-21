@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/core/rfq/filerfq"
+	"promatec/cockpit/internal/core/rfq/filerfq/conservatoreprova"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -55,13 +56,11 @@ func preparaBancoCiclo(t *testing.T) *bancoCiclo {
 	dir := t.TempDir()
 	an := coda.Analizzatore{Versione: 1, Parametri: map[string]any{"termini": []any{"scala"}}}
 	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Staging: dir, Analizzatore: an}
-	dep, err := filerfq.PreparaDeposito(ctx, q, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
 	b := &bancoCiclo{t: t, ctx: ctx, pool: pool, q: q, s: s, staging: dir,
-		svc: &filerfq.Servizio{Pool: pool, Staging: dir, Deposito: dep, Pipeline: s, Log: testutil.LogSilenzioso(), EtaMinima: time.Nanosecond}}
+		svc: &filerfq.Servizio{Pool: pool, Staging: dir, Conservatore: conservatoreprova.Nuovo(t.TempDir()), Pipeline: s,
+			Log: testutil.LogSilenzioso(), EtaMinima: time.Nanosecond}}
 	var uid uuid.UUID
+	var err error
 	b.riga(`INSERT INTO utente (sigla, nome, ufficio) VALUES ('CF', 'Prova Ciclo', 'Tecnico') RETURNING utente_id`, &uid)
 	if b.utente, err = q.GetUtente(ctx, uid); err != nil {
 		t.Fatal(err)

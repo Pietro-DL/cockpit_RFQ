@@ -83,7 +83,9 @@ func TestCO12NessunoScriveIlCicloDeiFileFuoriDalServizio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scrive := regexp.MustCompile(`(?i)(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+file_rfq`)
+	// le tabelle del ciclo dei file sono file_rfq, file_rfq_evento, file_rfq_rimozione e file_rfq_conservazione; non
+	// file_rfq_associazione (le AR della direttiva 35), che scrive solo core/rfq/associazioni (v1_associazioni.sql)
+	scrive := regexp.MustCompile(`(?i)(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+file_rfq(_evento|_rimozione|_conservazione)?\b`)
 	for _, v := range voci {
 		if v.Name() == "v1_formato3.sql" || v.Name() == "v1_file.sql" || !strings.HasSuffix(v.Name(), ".sql") {
 			continue

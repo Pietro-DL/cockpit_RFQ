@@ -21,16 +21,21 @@ import (
 	"promatec/cockpit/internal/platform/migrazioni"
 )
 
-// Le sei tabelle nuove della 0023 (PM23 §3).
+// Le nove tabelle nuove della 0023 (PM23 §3; file_rfq_associazione dalla direttiva 35, variante 20261019a;
+// rfq_formato3_segno dalla direttiva 39, variante 20261019c).
 var tabelle23 = []string{"distinta_importazione", "conferma_strutturale_non_incluso", "file_rfq", "file_rfq_evento",
-	"file_rfq_rimozione", "file_rfq_conservazione"}
+	"file_rfq_rimozione", "file_rfq_conservazione", "proposta_aggiornata_rifiuto", "file_rfq_associazione", "rfq_formato3_segno"}
 
-// Le otto colonne nuove delle tabelle della 22 (PM23 §0, punto 3).
+// Le tredici colonne nuove delle tabelle della 22: otto del formato 3 e dell'identita' (PM23 §0, punto 3), cinque del
+// giornale delle AR (direttiva 35 §2.4, variante 20261019a).
 var colonne23 = []struct{ tab, col string }{
 	{"distinta_bozza_versione", "importazione_id"}, {"distinta_bozza_versione", "chiave_salvataggio"},
 	{"distinta_bozza_versione", "impronta_richiesta"}, {"conferma_strutturale", "importazione_id"},
 	{"conferma_strutturale", "importazioni_citate"}, {"conferma_strutturale_componente", "emittente"},
 	{"conferma_strutturale_componente", "emittente_presunto"}, {"conferma_strutturale_componente", "namespace"},
+	{"associazione_evento", "allegato_id"}, {"associazione_evento", "associazione_id"},
+	{"associazione_evento", "associazione_precedente_id"}, {"associazione_evento", "tx"},
+	{"correzione_documento", "associazione_id"},
 }
 
 var sost23 = strings.NewReplacer(
@@ -313,6 +318,7 @@ func (c confermaC3) istruzioni(t *testing.T) []string {
 		{"impronta_snapshot", "repeat('5', 64)"}, {"delta", `'{"formato": 3}'`}, {"mappa", jsonSQL(t, c.mappa)}, {"decisioni", "'[]'"},
 		{"criterio_verifica", "'nessuno'"}, {"chiave_idempotenza", "'{K3}'"}, {"confermato_da", "'{U}'"},
 		{"importazione_id", "'{R1}'"}, {"importazioni_citate", "ARRAY['{R1}']::uuid[]"},
+		{"verifica", `'{"regola": "prima-istanza-1"}'`},
 	}
 	var cols, vals []string
 	visti := map[string]bool{}
@@ -364,8 +370,8 @@ func fotografiaFile(allegato, stato string) string {
 // la copia verificata, la riga di stato, l'evento.
 func inAltriFile(allegato string) []string {
 	return []string{
-		`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id)
-		 SELECT '{T}', a.allegato_id, a.sha256, 10, 'segnaposto', gen_random_uuid() FROM allegato a WHERE a.allegato_id = '` + allegato + `'`,
+		`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id)
+		 SELECT '{T}', a.allegato_id, a.sha256, 10, 'ALTRO\' || a.allegato_id || '.pdf', gen_random_uuid() FROM allegato a WHERE a.allegato_id = '` + allegato + `'`,
 		`UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'staging'
 		  WHERE thread_id = '{T}' AND allegato_id = '` + allegato + `' AND stato = 'in_copia'`,
 		fotografiaFile(allegato, "altri_file"),
@@ -391,7 +397,7 @@ func scartato(allegato string) []string {
 
 // La riga formato 3 completa di conferma_strutturale per i casi del catalogo (trigger spenti): passa ogni vincolo.
 var cambiF3 = map[string]string{
-	"formato": "3", "bozza_id": "'{B3}'", "bozza_versione": "1", "importazione_id": "'{R1}'",
+	"formato": "3", "bozza_id": "'{B3}'", "bozza_versione": "1", "importazione_id": "'{R1}'", "verifica": `'{"regola": "prima-istanza-1"}'`,
 	"importazioni_citate": "ARRAY['{R1}']::uuid[]", "fonte_allegato_id": "'{A}'", "fonte_sha256": "repeat('b', 64)", "fonte_gruppo": "'bom'",
 	"snapshot": snap3Compatto,
 }
@@ -444,7 +450,7 @@ var righeValide23 = map[string]riga{
 		{"fonte_sha256", "repeat('b', 64)"}, {"fonte_radice", "'nodo:' || repeat('b', 64) || ':#1'"}, {"allegati_citati", "ARRAY['{A}']::uuid[]"},
 		{"contenuto", contenutoDimp("{P}", "1", "bom", "'nodo:' || repeat('b', 64) || ':#1'", nil)}, {"creata_da", "'{U}'"}},
 	"conferma_strutturale_non_incluso": {{"conferma_id", "'{C1}'"}, {"thread_id", "'{T}'"}, {"sha256", "repeat('b', 64)"}, {"chiave", "'#99'"},
-		{"allegato_id", "'{A}'"}, {"gruppo", "'bom'"}, {"decisione_id", "'ni-9'"}, {"azione_id", "gen_random_uuid()"},
+		{"allegato_id", "'{A}'"}, {"gruppo", "'bom'"}, {"origine", "'non_includere'"}, {"decisione_id", "'ni-9'"}, {"azione_id", "gen_random_uuid()"},
 		{"motivo_codice", "'altro'"}, {"motivo", "'prova del catalogo'"}, {"segnale", "NULL"}, {"righe_chiuse", "'{}'"}, {"archi_chiusi", "'[]'"}},
 	"file_rfq": {{"thread_id", "'{T}'"}, {"allegato_id", "'{A2}'"}, {"stato", "'altri_file'"}, {"versione", "1"}, {"messaggio_id", "'{M}'"},
 		{"canale", "'outlook'"}, {"contenitore_id", "NULL"}, {"indice", "2"}, {"nome_file", "'ACM-1100.pdf'"}, {"path_interno", "NULL"},
@@ -459,9 +465,43 @@ var righeValide23 = map[string]riga{
 	// conservazione_id esplicito (OVERRIDING SYSTEM VALUE, insertCon): il percorso lo nomina, e con i trigger spenti
 	// nessuno lo calcola
 	"file_rfq_conservazione": {{"conservazione_id", "99999"}, {"thread_id", "'{T}'"}, {"allegato_id", "'{A2}'"}, {"sha256", "repeat('d', 64)"},
-		{"bytes", "10"}, {"percorso_relativo", `'{T}\{A2}.99999.pdf'`}, {"deposito_id", "gen_random_uuid()"}, {"sorgente_byte", "NULL"},
-		{"stato", "'in_copia'"}, {"causa", "NULL"}, {"errore", "NULL"}, {"tentativi", "0"}, {"verificato_il", "NULL"}, {"concluso_il", "NULL"}},
+		{"bytes", "10"}, {"percorso_relativo", `'ALTRO\ACM-1100.pdf'`}, {"radice_id", "gen_random_uuid()"}, {"cartella_thread", `'ACME\RFQ 1'`},
+		{"creato_dal_cockpit", "false"}, {"token", "gen_random_uuid()"}, {"token_rimozione", "NULL"}, {"eredita_da", "NULL"},
+		{"ceduta_a", "NULL"}, {"sorgente_byte", "NULL"}, {"stato", "'in_copia'"}, {"causa", "NULL"}, {"esito_rimozione", "NULL"},
+		{"stato_copia", "NULL"}, {"stato_copia_il", "NULL"}, {"errore", "NULL"}, {"tentativi", "0"}, {"verificato_il", "NULL"},
+		{"concluso_il", "NULL"}},
+	"proposta_aggiornata_rifiuto": {{"thread_id", "'{T}'"}, {"prodotto_id", "'{P}'"}, {"conferma_id", "'{C1}'"}, {"gruppo", "'bom'"},
+		{"impronta_contenuto", "repeat('7', 64)"}, {"differenze", "'{}'"}, {"motivo", "'la BOM confermata resta'"}, {"autore_id", "'{U}'"},
+		{"chiave_idempotenza", "gen_random_uuid()"}},
+	// direttiva 35: una AR attiva di R5 sul telaio S, certificato dalla conferma C1 (associazione_id esplicito: il
+	// caso di ck_fra_sostituisce lo ripete)
+	"file_rfq_associazione": {{"associazione_id", uuidNuovo23}, {"thread_id", "'{T}'"}, {"allegato_id", "'{A3}'"},
+		{"componente_id", "'{S}'"}, {"stato", "'attiva'"}, {"origine", "'conferma_bom'"}, {"conferma_id", "'{C1}'"},
+		{"chiave_bozza", "'k-s'"}, {"provenienza_pb", "'manuale'"}, {"importazione_id", "NULL"}, {"sostituisce_id", "NULL"}, {"motivo", "NULL"},
+		{"chiave_idempotenza", "gen_random_uuid()"},
+		{"creata_da", "'{U}'"}, {"chiusa_il", "NULL"}, {"chiusa_da", "NULL"}, {"motivo_chiusura", "NULL"},
+		{"chiusa_conferma_id", "NULL"}, {"chiusa_chiave", "NULL"}, {"chiusa_nota", "NULL"}, {"chiusa_tx", "NULL"}},
+	// direttiva 39: il segno della RFQ formato 3 (T2: T ce l'ha gia', dalla bozza formato 3 B3)
+	"rfq_formato3_segno": {{"thread_id", "'{T2}'"}, {"bozza_id", "gen_random_uuid()"}},
 }
+
+// legacy23: i campi di una AR di un gesto legacy valida (D-AR03 D [U], direttiva 39), da cambiare nei casi.
+var legacy23 = map[string]string{"origine": "'gesto_legacy'", "conferma_id": "NULL", "chiave_bozza": "NULL", "provenienza_pb": "NULL"}
+
+// PB formato 3 nella versione e nella conferma per i casi di ck_dbv_preassociazioni e ck_conferma_preassociazioni.
+func snapConPB(pb string) string {
+	return `'{"formato": 3, "nodi": [{"chiave_bozza": "k-p", "identita": {}}], "archi": [], "decisioni": [], "documenti_preassociati": [` + pb + `]}'`
+}
+
+func confSnapConPB(pb string) string {
+	return `jsonb_build_object('formato', 3, 'prodotto_id', '{P}'::text, 'nodi', jsonb_build_array(jsonb_build_object('chiave_bozza', 'k-p',
+	'identita', jsonb_build_object('codice', 'ACM-1000'))), 'archi', '[]'::jsonb, 'decisioni', '[]'::jsonb,
+	'documenti_preassociati', jsonb_build_array(` + pb + `))`
+}
+
+// chiusa23: i campi di una AR chiusa valida (scollegata dalla corsia file), da cambiare nei casi della chiusura.
+var chiusa23 = map[string]string{"stato": "'chiusa'", "chiusa_il": "now()", "chiusa_da": "'{U}'", "motivo_chiusura": "'scollega_file'",
+	"chiusa_tx": "pg_current_xact_id()"}
 
 // rigaValida: la riga valida di una tabella della 22 o della 23.
 func rigaValida(tab string) riga {
@@ -661,28 +701,145 @@ var casiVincoli23 = []casoVincolo{
 	{"file_rfq_rimozione", map[string]string{"evento_id": "999999999"}, "file_rfq_rimozione_evento_id_fkey", nil, false},
 	{"file_rfq_rimozione", map[string]string{}, "fk_rimozione_file", nil, true},
 
-	// M-27: la conservazione
+	// M-27: la conservazione nella cartella ALTRO (U2 §3.14 righe 1-5: radice, percorso controllato, stati ed esiti della
+	// rimozione dal NAS, prova di creazione, cessione, stato della copia)
 	{"file_rfq_conservazione", map[string]string{"stato": "'boh'"}, "ck_cons_stato", nil, false},
 	{"file_rfq_conservazione", map[string]string{"sha256": "'x'"}, "ck_cons_sha", nil, false},
-	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'..\{A2}.99999.pdf'`}, "ck_cons_percorso", nil, false},
-	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'C:\{T}\{A2}.99999.pdf'`}, "ck_cons_percorso", nil, false},
-	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'\{T}\{A2}.99999.pdf'`}, "ck_cons_percorso", nil, false},
-	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'{T}\{A}.99999.pdf'`}, "ck_cons_percorso", nil, false},
-	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'{T}\{A2}.99998.pdf'`}, "ck_cons_percorso", nil, false},
-	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'{T}\{A2}.pdf'`}, "ck_cons_percorso", nil, false},
-	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'{T}\{A2}.99999.pdf\..\x'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'..\ACM-1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'C:\ALTRO\ACM-1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'\ALTRO\ACM-1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'ALTRI FILES\ACM-1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'ALTRO\sotto\ACM-1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'ALTRO\sotto/ACM-1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'ALTRO\C:ACM-1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'ALTRO\..'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `'ALTRO\'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"percorso_relativo": `E'ALTRO\\ACM\t1100.pdf'`}, "ck_cons_percorso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"cartella_thread": "' '"}, "ck_cons_cartella", nil, false},
 	{"file_rfq_conservazione", map[string]string{"sorgente_byte": "'boh'"}, "ck_cons_sorgente", nil, false},
 	{"file_rfq_conservazione", map[string]string{"stato": "'errore_copia'", "concluso_il": "now()"}, "ck_cons_causa", nil, false},
 	{"file_rfq_conservazione", map[string]string{"stato": "'copiata'", "verificato_il": "now()", "sorgente_byte": "'staging'", "causa": "'spazio'"},
 		"ck_cons_causa", nil, false},
 	{"file_rfq_conservazione", map[string]string{"causa": "'boh'", "stato": "'da_rilasciare'"}, "ck_cons_causa", nil, false},
+	{"file_rfq_conservazione", map[string]string{"esito_rimozione": "'scrittura_nas_spenta'"}, "ck_cons_esito", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'da_rilasciare'", "esito_rimozione": "'gia_assente'"}, "ck_cons_esito", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'rilasciata'", "concluso_il": "now()", "esito_rimozione": "'file_occupato'"},
+		"ck_cons_esito", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'in_rimozione'", "causa": "'scartato'", "token_rimozione": "gen_random_uuid()"},
+		"ck_cons_rimozione", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'in_rimozione'", "causa": "'scartato'", "creato_dal_cockpit": "true"},
+		"ck_cons_rimozione", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'rilasciata'", "concluso_il": "now()", "esito_rimozione": "'rimosso'"},
+		"ck_cons_rimozione", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'ceduta'", "concluso_il": "now()"}, "ck_cons_ceduta", nil, false},
+	{"file_rfq_conservazione", map[string]string{"ceduta_a": "99999"}, "ck_cons_ceduta", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato_copia": "'boh'", "stato_copia_il": "now()"}, "ck_cons_stato_copia", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato_copia": "'cambiata'"}, "ck_cons_stato_copia", nil, false},
 	{"file_rfq_conservazione", map[string]string{"stato": "'copiata'", "sorgente_byte": "'staging'"}, "ck_cons_copiata", nil, false},
 	{"file_rfq_conservazione", map[string]string{"stato": "'copiata'", "verificato_il": "now()"}, "ck_cons_copiata", nil, false},
 	{"file_rfq_conservazione", map[string]string{"errore": "repeat('e', 2001)"}, "ck_cons_errore", nil, false},
 	{"file_rfq_conservazione", map[string]string{"tentativi": "-1"}, "ck_cons_tentativi", nil, false},
 	{"file_rfq_conservazione", map[string]string{"concluso_il": "now()"}, "ck_cons_concluso", nil, false},
-	{"file_rfq_conservazione", map[string]string{"thread_id": "'{TF}'", "percorso_relativo": `'{TF}\{A2}.99999.pdf'`},
-		"file_rfq_conservazione_thread_id_fkey", nil, false},
-	{"file_rfq_conservazione", map[string]string{"allegato_id": "'{AF}'", "percorso_relativo": `'{T}\{AF}.99999.pdf'`},
-		"file_rfq_conservazione_allegato_id_fkey", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'trattenuta'"}, "ck_cons_concluso", nil, false},
+	{"file_rfq_conservazione", map[string]string{"thread_id": "'{TF}'"}, "file_rfq_conservazione_thread_id_fkey", nil, false},
+	{"file_rfq_conservazione", map[string]string{"allegato_id": "'{AF}'"}, "file_rfq_conservazione_allegato_id_fkey", nil, false},
+	{"file_rfq_conservazione", map[string]string{"eredita_da": "999999"}, "file_rfq_conservazione_eredita_da_fkey", nil, false},
+	{"file_rfq_conservazione", map[string]string{"stato": "'ceduta'", "concluso_il": "now()", "ceduta_a": "999999"}, "fk_cons_ceduta", nil, true},
+
+	// M-35: il rifiuto della proposta aggiornata (U2 §3.14 riga 9)
+	{"proposta_aggiornata_rifiuto", map[string]string{"gruppo": "' '"}, "ck_par_gruppo", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"impronta_contenuto": "'x'"}, "ck_par_impronta", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"motivo": "' '"}, "ck_par_motivo", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"motivo": "repeat('m', 1001)"}, "ck_par_motivo", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"differenze": "'[]'"}, "ck_par_differenze", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"thread_id": "'{TF}'"}, "proposta_aggiornata_rifiuto_thread_id_fkey",
+		[]string{"proposta_aggiornata_rifiuto.fk_par_prodotto", "proposta_aggiornata_rifiuto.fk_par_conferma"}, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"autore_id": nuovo}, "proposta_aggiornata_rifiuto_autore_id_fkey", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"prodotto_id": "'{PF}'"}, "fk_par_prodotto", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"conferma_id": nuovo}, "fk_par_conferma", nil, false},
+	{"proposta_aggiornata_rifiuto", map[string]string{"prodotto_id": "'{S}'"}, "fk_par_conferma_prodotto", nil, false},
+
+	// M-37: la verifica di una conferma formato 3 porta solo la regola (U2 §3.14 riga 8)
+	{"conferma_strutturale", con(cambiF3, map[string]string{"verifica": "'{}'"}), "ck_conferma_verifica", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"verifica": `'{"regola": "prima-istanza-1", "verificata": true}'`}),
+		"ck_conferma_verifica", nil, false},
+
+	// M-15 (U2 §3.14 riga 7): l'origine delle esclusioni
+	{"conferma_strutturale_non_incluso", map[string]string{"origine": "'boh'"}, "ck_csni_origine", nil, false},
+	{"conferma_strutturale_non_incluso", map[string]string{"decisione_id": "NULL"}, "ck_csni_origine", nil, false},
+	{"conferma_strutturale_non_incluso", map[string]string{"motivo": "NULL"}, "ck_csni_origine", nil, false},
+
+	// direttiva 35 §2 (variante 20261019a): le associazioni registrate. Stato attiva | chiusa; la chiusura tutta o
+	// niente, con chi, quando e il motivo; svincolo_conferma solo con la conferma; l'origine di R5 con la conferma e il
+	// nodo; FK verso allegato, componente della stessa RFQ, conferma, componente certificato, riga sostituita
+	{"file_rfq_associazione", map[string]string{"stato": "'boh'"}, "ck_fra_stato", []string{"file_rfq_associazione.ck_fra_chiusura"}, false},
+	{"file_rfq_associazione", map[string]string{"stato": "'chiusa'"}, "ck_fra_chiusura", nil, false},
+	{"file_rfq_associazione", map[string]string{"chiusa_il": "now()"}, "ck_fra_chiusura", nil, false},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"chiusa_da": "NULL"}), "ck_fra_chiusura", nil, false},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"motivo_chiusura": "'boh'"}), "ck_fra_chiusura", nil, false},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"motivo_chiusura": "'sgancio_legacy'", "chiusa_conferma_id": "'{C1}'"}),
+		"ck_fra_chiusura", nil, false},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"motivo_chiusura": "'svincolo_conferma'"}), "ck_fra_chiusura", nil, false},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"chiusa_conferma_id": "'{C1}'"}), "ck_fra_chiusura", nil, false},
+	// direttiva 39: gesto_legacy senza conferma, nodo e provenienza (D-AR03 D [U]); nessuna origine di backfill (D-AR04 [U])
+	{"file_rfq_associazione", con(legacy23, map[string]string{"origine": "'backfill_proposta'"}), "ck_fra_origine", nil, false},
+	{"file_rfq_associazione", con(legacy23, map[string]string{"conferma_id": "'{C1}'"}), "ck_fra_conferma", nil, false},
+	{"file_rfq_associazione", con(legacy23, map[string]string{"chiave_bozza": "'k-s'"}), "ck_fra_conferma", nil, false},
+	{"file_rfq_associazione", con(legacy23, map[string]string{"provenienza_pb": "'manuale'"}), "ck_fra_provenienza_pb", nil, false},
+	// D-PB03 A [U]: la provenienza obbligatoria con conferma_bom, fra i quattro valori; il registro solo con motore o corretta
+	{"file_rfq_associazione", map[string]string{"provenienza_pb": "NULL"}, "ck_fra_provenienza_pb", nil, false},
+	{"file_rfq_associazione", map[string]string{"provenienza_pb": "'browser'"}, "ck_fra_provenienza_pb", nil, false},
+	{"file_rfq_associazione", map[string]string{"importazione_id": "'{R1}'"}, "ck_fra_provenienza_pb", nil, false},
+	{"file_rfq_associazione", map[string]string{"provenienza_pb": "'motore'", "importazione_id": nuovo}, "fk_fra_importazione", nil, false},
+	{"file_rfq_associazione", map[string]string{"conferma_id": "NULL"}, "ck_fra_conferma", nil, false},
+	{"file_rfq_associazione", map[string]string{"chiave_bozza": "NULL"}, "ck_fra_conferma", nil, false},
+	{"file_rfq_associazione", map[string]string{"chiave_bozza": "'k s'"}, "ck_fra_chiave_bozza", nil, false},
+	{"file_rfq_associazione", map[string]string{"motivo": "' '"}, "ck_fra_motivo", nil, false},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"chiusa_nota": "repeat('n', 1001)"}), "ck_fra_motivo", nil, false},
+	{"file_rfq_associazione", map[string]string{"sostituisce_id": uuidNuovo23}, "ck_fra_sostituisce", nil, false},
+	{"file_rfq_associazione", map[string]string{"thread_id": "'{TF}'"}, "file_rfq_associazione_thread_id_fkey",
+		[]string{"file_rfq_associazione.fk_fra_componente", "file_rfq_associazione.fk_fra_conferma"}, false},
+	{"file_rfq_associazione", map[string]string{"allegato_id": nuovo}, "file_rfq_associazione_allegato_id_fkey", nil, false},
+	{"file_rfq_associazione", map[string]string{"creata_da": nuovo}, "file_rfq_associazione_creata_da_fkey", nil, false},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"chiusa_da": nuovo}), "file_rfq_associazione_chiusa_da_fkey", nil, false},
+	{"file_rfq_associazione", map[string]string{"componente_id": "'{Q}'"}, "fk_fra_componente", nil, false},
+	{"file_rfq_associazione", map[string]string{"conferma_id": nuovo}, "fk_fra_conferma", nil, false},
+	{"file_rfq_associazione", map[string]string{"componente_id": "'{P2}'"}, "fk_fra_conferma_componente", nil, true},
+	{"file_rfq_associazione", con(chiusa23, map[string]string{"motivo_chiusura": "'svincolo_conferma'", "chiusa_conferma_id": nuovo,
+		"chiusa_chiave": "gen_random_uuid()"}), "fk_fra_chiusa_conferma", nil, false},
+	{"file_rfq_associazione", map[string]string{"sostituisce_id": "gen_random_uuid()"}, "fk_fra_sostituisce", nil, false},
+
+	// direttiva 35 §2.4: il giornale delle AR (associazione_evento della 0022 adeguata). I tre CHECK rimessi con lo stesso
+	// nome hanno gia' i loro casi della 22; qui i rami nuovi e le FK nuove
+	{"associazione_evento", map[string]string{"azione": "'mantieni'"}, "ck_associazione_azione", nil, false},
+	{"associazione_evento", map[string]string{"azione": "'sostituisci'", "componente_prima": "'{S}'", "componente_dopo": "'{S}'",
+		"allegato_id": "'{A2}'"}, "ck_associazione_coerente", nil, false},
+	{"associazione_evento", map[string]string{"associazione_id": nuovo}, "ck_associazione_coerente", nil, false},
+	{"associazione_evento", map[string]string{"associazione_precedente_id": nuovo, "allegato_id": "'{A2}'"}, "ck_associazione_coerente", nil, false},
+	{"associazione_evento", map[string]string{"azione": "'preassociazione'", "componente_dopo": "'{S}'", "conferma_id": "'{C1}'",
+		"origine": "'conferma_bom'", "tx": "pg_current_xact_id()"}, "ck_associazione_coerente", nil, false},
+	{"associazione_evento", map[string]string{"proposta_id": "NULL", "allegato_id": nuovo}, "associazione_evento_allegato_id_fkey", nil, false},
+	{"associazione_evento", map[string]string{"azione": "'sgancia'", "componente_prima": "'{S}'", "allegato_id": "'{A2}'",
+		"associazione_id": nuovo}, "fk_associazione_ar", nil, false},
+	{"associazione_evento", map[string]string{"azione": "'sostituisci'", "componente_prima": "'{S}'", "componente_dopo": "'{P2}'",
+		"allegato_id": "'{A2}'", "associazione_id": nuovo, "associazione_precedente_id": nuovo}, "fk_associazione_ar_precedente",
+		[]string{"associazione_evento.fk_associazione_ar"}, false},
+	{"correzione_documento", map[string]string{"associazione_id": nuovo}, "fk_correzione_associazione", nil, false},
+
+	// direttiva 39: l'autore nullo solo nella conversione di una pre-assegnazione legacy; la revoca della sorgente; il
+	// segno della RFQ formato 3; la provenienza delle PB nello snapshot formato 3
+	{"associazione_evento", map[string]string{"autore_id": "NULL"}, "ck_associazione_autore", nil, false},
+	{"associazione_evento", map[string]string{"origine": "'conversione_legacy'", "autore_id": "NULL"}, "ck_associazione_coerente", nil, false},
+	{"fonte_step_evento", map[string]string{"azione": "'revoca_sorgente'", "documento_id": "'{D}'", "motivo": "'STEP scelto per errore'"},
+		"ck_fonte_revoca_sorgente", nil, false},
+	{"rfq_formato3_segno", map[string]string{"thread_id": nuovo}, "rfq_formato3_segno_thread_id_fkey", nil, false},
+	{"distinta_bozza_versione", versioneF3(snapConPB(`{"allegato_id": "{A3}", "chiave_bozza": "k-p", "provenienza": "browser"}`)),
+		"ck_dbv_preassociazioni", nil, false},
+	{"distinta_bozza_versione", versioneF3(snapConPB(`{"allegato_id": "{A3}", "chiave_bozza": "k-p", "provenienza": "manuale", "importazione": "` + sha("6") + `"}`)),
+		"ck_dbv_preassociazioni", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnapConPB(`jsonb_build_object('allegato_id', '{A3}', 'chiave_bozza', 'k-p')`)}),
+		"ck_conferma_preassociazioni", nil, false},
+	{"conferma_strutturale", con(cambiF3, map[string]string{"snapshot": confSnapConPB(
+		`jsonb_build_object('allegato_id', '{A3}', 'chiave_bozza', 'k-p', 'provenienza', 'motore', 'importazione', 'x')`)}),
+		"ck_conferma_preassociazioni", nil, false},
 }

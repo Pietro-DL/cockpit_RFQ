@@ -415,7 +415,7 @@ func (q *Queries) FileNelFlusso(ctx context.Context, allegatoID uuid.UUID) (bool
 }
 
 const getAnalisiCorrente = `-- name: GetAnalisiCorrente :one
-SELECT af.sha256, af.versione_analizzatore, af.hash_configurazione, af.fatti, af.calcolato_il FROM analisi_fatti af
+SELECT af.sha256, af.versione_analizzatore, af.hash_configurazione, af.fatti, af.calcolato_il, af.digest FROM analisi_fatti af
   JOIN analizzatore_corrente ac ON ac.versione_analizzatore = af.versione_analizzatore
                                AND ac.hash_configurazione = af.hash_configurazione
  WHERE af.sha256 = $1
@@ -432,6 +432,7 @@ func (q *Queries) GetAnalisiCorrente(ctx context.Context, sha256 string) (Analis
 		&i.HashConfigurazione,
 		&i.Fatti,
 		&i.CalcolatoIl,
+		&i.Digest,
 	)
 	return i, err
 }

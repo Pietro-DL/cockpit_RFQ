@@ -44,6 +44,10 @@ const (
 	codiceManuale     = "ACM-1900"
 	codiceAccentato   = "ACM-9" + eAccento
 	descrizioneTelaio = "T" + eAccento + "laio"
+	// allegatoSvincolo3: l'occorrenza dello svincolo sv-0001 dello snapshot di prova (scollega_documento
+	// {allegato_id, componente_id}, direttiva 35, C-2; base [T] D-4 A). Nelle L4 lo snapshot di partenza si scrive senza
+	// R2, e lo svincolo gia' salvato non si ricontrolla
+	allegatoSvincolo3 = "00000000-0000-4000-8000-0000000a0007"
 )
 
 // letturaProva3: una lettura del registro, con il letterale e il testo dell'unita' byte per byte.
@@ -244,10 +248,11 @@ func snapshotProva3(id idProva3, imp string) map[string]any {
 				"motivo_codice": "elemento_cad", "motivo": "cordone di saldatura: annotazione CAD", "azione_id": "00000000-0000-4000-8000-0000000e0101",
 				"importazione": imp, "segnale_visto": map[string]any{"codice": "ancoraggio.possibile_elemento_cad",
 					"regola": "elemento_cad_nome_foglia_v1", "versione_servizio": "ancoraggio-3"}},
-			map[string]any{"id": "sv-0001", "tipo": "scollega_documento", "proposta_id": "00000000-0000-4000-8000-0000000d0007",
+			map[string]any{"id": "sv-0001", "tipo": "scollega_documento", "allegato_id": allegatoSvincolo3,
 				"componente_id": "00000000-0000-4000-8000-000000002200", "motivo": "il disegno e' di un'altra variante"},
 		},
-		"documenti_preassociati": []any{map[string]any{"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-0007"}},
+		// la PB formato 3 cita l'occorrenza (il PDF della prova), non la proposta di documento (direttiva 35, C-2)
+		"documenti_preassociati": []any{map[string]any{"allegato_id": id.pdf.String(), "chiave_bozza": "k-0007"}},
 	}
 }
 

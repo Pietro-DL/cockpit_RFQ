@@ -105,13 +105,16 @@ type ValutazioneProdotti struct {
 // che l'adattatore non legge, un uso dei segmenti che non torna con il documento (un segmento del caso che non c'è),
 // un errore di ProponiProdotti o di ProponiAncoraggi.
 func ValutaProdotti(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, caso *IngressoCaso) (ValutazioneProdotti, error) {
-	v, _, err := valutaThread(f, t, m, caso)
+	v, _, err := valutaThread(f, t, m, caso, nil)
 	return v, err
 }
 
 // valutaThread: ValutaProdotti con il collegamento del thread (i file letti e interpretati una volta, ancoraggi.go), che
 // Calcola riusa per i record dei file e per i record piatti; nil con un errore che arriva prima degli ancoraggi.
-func valutaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, caso *IngressoCaso) (ValutazioneProdotti, *collegamento, error) {
+// categorie: le conferme della categoria del thread (Ingressi.Categorie; V1, U2 §6.4.2), per la completezza e le
+// classificazioni; nil = nessuna conferma, com'era in A1c (LD-19).
+func valutaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, caso *IngressoCaso,
+	categorie []ConfermaCategoria) (ValutazioneProdotti, *collegamento, error) {
 	if caso != nil && (caso.ThreadID == nil || *caso.ThreadID != t.ID || caso.ClienteID != t.ClienteID) {
 		return ValutazioneProdotti{}, nil, fmt.Errorf("valutazione: il caso %q non è del thread %s e del suo cliente", caso.ID, t.ID)
 	}
@@ -187,11 +190,11 @@ func valutaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, cas
 	out.Disegni, dis = disegniDelThread(t, m, col, esito, targets)
 	ct := nuovaCompletezzaThread(f, t, m, b, dis, out.Disegni, out.ProdottiValutati)
 	for i := range out.ProdottiValutati {
-		doc, d := ct.completezzaDelProdotto(out.ProdottiValutati[i], daVerificare[i], esito.Strutture, nil)
+		doc, d := ct.completezzaDelProdotto(out.ProdottiValutati[i], daVerificare[i], esito.Strutture, categorie)
 		out.ProdottiValutati[i].Documenti = doc
 		diag = append(diag, d...)
 	}
-	out.Classificazioni = ct.classificazioniDelThread(nil)
+	out.Classificazioni = ct.classificazioniDelThread(categorie)
 	// B6, V2: lo smistamento, sui prodotti con gli assi di B1 e B5 (la completezza dà le voci certe).
 	sm := nuovoSmistamentoThread(f, t, m, col, esito, targets, out.ProdottiValutati, interpretati, b, dis).calcola()
 	out.Associazioni, out.DaSmistare, out.ConflittiSmistamento = sm.associazioni, sm.daSmistare, sm.conflitti

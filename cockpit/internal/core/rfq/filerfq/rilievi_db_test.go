@@ -113,32 +113,34 @@ func TestBonificaOltreLaPrimaPagina(t *testing.T) {
 func TestCustodeTutteLeRigheInUnaPassata(t *testing.T) {
 	b := nuovoBancoFile(t)
 	b.s.Agganci = &Agganci{SaltaTentativi: true}
-	var scartati, riattivati []uuid.UUID
+	var scartati, daAltriFile []uuid.UUID
 	for i := 0; i < 5; i++ {
 		a, _ := b.pdf(fmt.Sprintf("ACME-CUS-%d.pdf", i))
 		b.deveRiuscire(b.scarta(b.thread, a))
 		scartati = append(scartati, a)
 	}
+	// con la base B di U2-Q01 (provvisoria [T]) si rilascia dal NAS solo per lo scarto: le tre copie da rilasciare sono
+	// di file scartati da Altri file (ognuno porta anche la sua rimozione dallo staging)
 	for i := 0; i < 3; i++ {
 		a, _ := b.pdf(fmt.Sprintf("ACME-CUR-%d.pdf", i))
 		b.deveRiuscire(b.altriFile(b.thread, a))
-		b.deveRiuscire(b.riattiva(b.thread, a))
-		riattivati = append(riattivati, a)
+		b.deveRiuscire(b.scarta(b.thread, a))
+		daAltriFile = append(daAltriFile, a)
 	}
 	e, err := (&Custode{S: b.s, Limite: 2}).Giro(b.ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.Rimozioni != 5 || e.Rilasci != 3 {
-		t.Errorf("passata: %+v; attese 5 rimozioni e 3 rilasci", e)
+	if e.Rimozioni != 8 || e.Rilasci != 3 {
+		t.Errorf("passata: %+v; attese 8 rimozioni e 3 rilasci", e)
 	}
 	for _, a := range scartati {
 		if got := b.rimozione(b.thread, a); got != "eseguita/rimosso" {
 			t.Errorf("rimozione %s", got)
 		}
 	}
-	for _, a := range riattivati {
-		if got := b.copie(b.thread, a); !uguali(got, "rilasciata/riattivato") {
+	for _, a := range daAltriFile {
+		if got := b.copie(b.thread, a); !uguali(got, "rilasciata/scartato") {
 			t.Errorf("copie %v", got)
 		}
 	}
@@ -216,11 +218,13 @@ func TestScartoLegacyDuranteLaFaseC(t *testing.T) {
 	if got := b.stato(b.thread, a); got != StatoAttivo {
 		t.Errorf("stato %q", got)
 	}
-	if got := b.copie(b.thread, a); !uguali(got, "rilasciata/riattivato", "rilasciata/rifiutata") {
+	// base B di U2-Q01 (provvisoria [T]): ne' la «Riattiva» ne' la fase C rifiutata tolgono la copia dal NAS; il
+	// secondo tentativo ha riusato il file trattenuto della «Riattiva» (ceduta), e ora lo trattiene lui
+	if got := b.copie(b.thread, a); !uguali(got, "ceduta/riattivato", "trattenuta/rifiutata") {
 		t.Errorf("copie %v", got)
 	}
-	if got := b.fileDelDeposito(); len(got) != 0 {
-		t.Errorf("file rimasti nel deposito: %v", got)
+	if got := b.fileDelDeposito(); len(got) != 1 {
+		t.Errorf("file trattenuti nel posto delle copie: %v", got)
 	}
 	if f := fileDi(b.modello(b.thread, a), a); f == nil || f.Stato != StatoScartato || !f.ScartatoLegacy {
 		t.Errorf("S1: %+v", f)
@@ -290,16 +294,18 @@ func TestTentativoChiusoSuUnArchivioNellaFaseC(t *testing.T) {
 		t.Errorf("motivo %v", rf.Extra["motivo"])
 	}
 	b.s.Agganci = nil
+	// le altre righe del gesto escono dalla copia: con la base B di U2-Q01 (provvisoria [T]) restano trattenute, il
+	// loro file resta; la voce scartata si toglie (lo scarto e' l'unica causa che toglie una copia dal NAS)
 	for _, x := range []uuid.UUID{zip, voci[1]} {
-		if got := b.copie(b.thread, x); !uguali(got, "rilasciata/rifiutata") {
+		if got := b.copie(b.thread, x); !uguali(got, "trattenuta/rifiutata") {
 			t.Errorf("copie di %s: %v", x, got)
 		}
 	}
 	if got := b.copie(b.thread, voci[0]); !uguali(got, "rilasciata/scartato") {
 		t.Errorf("copie della voce scartata: %v", got)
 	}
-	if got := b.fileDelDeposito(); len(got) != 0 {
-		t.Errorf("file rimasti nel deposito: %v", got)
+	if got := b.fileDelDeposito(); len(got) != 2 {
+		t.Errorf("file trattenuti nel posto delle copie: %v", got)
 	}
 	// il nuovo tentativo, con una chiave nuova e il perimetro riletto (la voce scartata non c'e' piu')
 	b.deveRiuscire(b.altriFile(b.thread, zip))
@@ -344,7 +350,7 @@ func TestTentativoChiusoSuUnArchivioNellaCopia(t *testing.T) {
 	}
 	for _, x := range append([]uuid.UUID{zip}, voci...) {
 		got := b.copie(b.thread, x)
-		ok := uguali(got, "rilasciata/rifiutata") || uguali(got, "errore_copia/rifiutata")
+		ok := uguali(got, "trattenuta/rifiutata") || uguali(got, "errore_copia/rifiutata")
 		if x == bersaglio {
 			ok = uguali(got, "rilasciata/scartato")
 		}
@@ -352,8 +358,9 @@ func TestTentativoChiusoSuUnArchivioNellaCopia(t *testing.T) {
 			t.Errorf("copie di %s: %v", x, got)
 		}
 	}
-	if got := b.fileDelDeposito(); len(got) != 0 {
-		t.Errorf("file rimasti nel deposito: %v", got)
+	trattenute := valore[int](b, `SELECT count(*) FROM file_rfq_conservazione WHERE thread_id = $1 AND stato = 'trattenuta'`, b.thread)
+	if got := b.fileDelDeposito(); len(got) != trattenute {
+		t.Errorf("file nel posto delle copie %v, copie trattenute %d", got, trattenute)
 	}
 	if got := b.partiDelDeposito(); len(got) != 0 {
 		t.Errorf("parziali rimasti nel deposito: %v", got)
@@ -416,6 +423,8 @@ func TestTempo2RegolaArchivioVoci(t *testing.T) {
 	}
 	altra, _ := b.file(b.mail(b.thread), "V1-copia.pdf", cv, opzFile{}) // lo stesso contenuto della voce, attivo, proposta aperta
 	pZip := b.pathStaging(zip)
+	// prima la voce, poi lo ZIP: «Scarta» di uno ZIP con voci attive e' rifiutato (U2 §3.10)
+	b.deveRiuscire(b.scarta(b.thread, voci[0]))
 	b.deveRiuscire(b.scarta(b.thread, zip))
 	if _, err := b.s.EseguiRimozione(b.ctx, b.rimozioneID(b.thread, voci[0]), false); err != nil {
 		t.Fatal(err)

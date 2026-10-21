@@ -62,6 +62,15 @@ type Errore struct {
 	VersioneCorrente *confermabom.VersioneCorrente
 	// AllegatoID: per gruppo_su_altra_occorrenza, l'allegato del gruppo (EM §6.1); per le forme che lo dicono.
 	AllegatoID *uuid.UUID
+	// Anteprima, ImprontaContenuto, GruppoCorrente: per il 409 ANTEPRIMA_SUPERATA delle forme che importano (EM §6.1, V-7):
+	// l'anteprima superata (proposta_step), l'impronta del contenuto di adesso e, se la stessa struttura sta sotto
+	// un'altra chiave, il gruppo ritrovato (direttiva 35, C-3).
+	Anteprima         string
+	ImprontaContenuto string
+	GruppoCorrente    *GruppoRitrovato
+	// AltroProdotto: per S8 (STEP_SORGENTE_DI_ALTRO_PRODOTTO, MOTIVO_OBBLIGATORIO riassociazione), il prodotto a cui lo
+	// STEP e' gia' legato (G39-03 [U]; forma [T-39]).
+	AltroProdotto *uuid.UUID
 }
 
 // Conflitto descrive la bozza corrente quando un salvataggio o un abbandono arrivano su una versione superata.

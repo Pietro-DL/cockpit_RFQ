@@ -11,9 +11,17 @@ package distintabozza
 // Le verifiche contro il database e i registri che fa il salvataggio (EM §6.2, §6.4, §5.6, §3.4.2), sui riferimenti nuovi
 // o cambiati rispetto alla versione precedente (un riferimento gia' salvato e scaduto dopo passa: lo dicono R1 e R4):
 //   - appartenenza: ogni UUID citato e' della RFQ del percorso (componenti, allegati delle caselle e delle non_includere,
-//     proposte delle preassociazioni e degli svincoli, l'allegato di una chiave_lettura, le fonti viste) → 422 FUORI_RFQ;
+//     allegati delle preassociazioni e degli svincoli, l'allegato di una chiave_lettura, le fonti viste) → 422 FUORI_RFQ;
 //   - occorrenze: le caselle, le non_includere e le preassociazioni nuove o cambiate stanno su occorrenze attive →
 //     422 FILE_NON_ATTIVO; il rif ha lo sha256 dell'allegato;
+//   - le preassociazioni nuove o cambiate (direttiva 35, blocco C-2: {allegato_id, chiave_bozza}, senza bisogno di una
+//     riga di documento_proposta, Prova 2): l'occorrenza e' della RFQ (FUORI_RFQ), di una natura che si preassocia (422
+//     CORPO_NON_VALIDO natura_non_preassociabile; provvisorio, base [T] D-2 (a): file ed elementi di Outlook, ne' STEP ne'
+//     contenitori, la regola del punto 1 di trg_fra_nasce) e attiva, non scartata nemmeno col vecchio «Scarta il file»
+//     (FILE_NON_ATTIVO, il punto 4 di trg_fra_nasce);
+//   - gli svincoli (scollega_documento {allegato_id, componente_id}) nuovi o cambiati: l'allegato e' della RFQ e la AR
+//     attiva di quella coppia c'e' in file_rfq_associazione (EM §3.6.2; 422 CORPO_NON_VALIDO svincolo_senza_associazione:
+//     una copia senza AR non si svincola da qui, INC-S2/INC-S3);
 //   - i registri citati esistono, della RFQ e del prodotto, e una decisione nuova cita il registro della versione (V-2) →
 //     422 CORPO_NON_VALIDO importazione_sconosciuta;
 //   - V-1: un nodo in modo proposta porta l'identita' proposta del registro della versione (rev_proposta vuota = rev
@@ -31,8 +39,8 @@ package distintabozza
 //   - il rebase della sola base: la base nuova e' quella corrente (409 BASE_SUPERATA) e dopo il rebase non restano rif
 //     scaduti (422 CORPO_NON_VALIDO rif_scaduti).
 //
-// Le altre quattro forme di R2 (crea, cambia_sorgente, riallinea_proposta, converti_da) arrivano con l'ondata C: le prime
-// tre vogliono l'adattatore propostabom (passo 3), converti_da e' pronta come servizio (Converti, conversione.go).
+// Le altre quattro forme di R2 le costruisce il server (direttiva 35, blocco C-3): crea (crea3.go), riallinea_proposta
+// (riallinea3.go), cambia_sorgente (cambiafonte3.go), converti_da (Converti, conversione.go).
 
 import (
 	"bytes"
@@ -88,6 +96,9 @@ type Salvataggio3 struct {
 	Snapshot          json.RawMessage
 	Azioni            []Azione
 	Rebase            *RebaseRichiesta3
+	// Adesso: il calcolo del motore di adesso per la bozza (adesso3.go, G39-01 e G39-02 [U]), preparato dall'adattatore
+	// quando serve (MotoreDelSalvataggio); nil = senza il calcolo (il ripiego per gli STEP candidati del finito).
+	Adesso *CalcoloAdesso
 }
 
 // Salvato3 e' la risposta di R2 (EM §9.2): {bozza_id, formato, versione, nuova_versione, riproposto, eventi, impronta,
@@ -179,7 +190,7 @@ func SalvaFormato3(ctx context.Context, pool Avviatore, s Salvataggio3) (Salvato
 	if err != nil {
 		return out, err
 	}
-	limite, err := limiteServer(ctx, q, s.ThreadID, b.BozzaID, int(n0))
+	limite, tolti, err := limiteServer(ctx, q, s.ThreadID, b.BozzaID, int(n0))
 	if err != nil {
 		return out, err
 	}
@@ -193,26 +204,30 @@ func SalvaFormato3(ctx context.Context, pool Avviatore, s Salvataggio3) (Salvato
 		}
 		return eventoLetto(e), true, nil
 	}
-	ric, err := Riconcilia3(prima, nuovo, s.Azioni, Contesto3{N0: int(n0), Precedente: precedente, LimiteServer: limite})
+	// la provenienza e il registro d'origine delle PB li decide il server (direttiva 39 §4, provenienza3.go): la pagina li
+	// rimanda come li ha letti o li omette; la riconciliazione delle azioni guarda solo occorrenza e nodo
+	if err := controllaDichiarate(prima, nuovo); err != nil {
+		return out, err
+	}
+	ric, err := Riconcilia3(prima, senzaProvenienza(nuovo), s.Azioni, Contesto3{N0: int(n0), Precedente: precedente, LimiteServer: limite, NodiTolti: tolti})
 	if err != nil {
 		return out, err
 	}
 	if e := rebaseCoerente3(s.Rebase, ric.Rebase); e != nil {
 		return out, e
 	}
-	canon, err := nuovo.Canonico()
-	if err != nil {
-		return out, err
-	}
-	impronta := jsonImpronta(canon)
-	if impronta == improntaP && len(s.Azioni) == 0 {
-		return Salvato3{BozzaID: b.BozzaID, Formato: FormatoSnapshot3, Versione: int(b.Versione), Impronta: impronta, SalvataIl: v.SalvataIl}, nil
+	if len(s.Azioni) == 0 {
+		canonP, err1 := senzaProvenienza(prima).Canonico()
+		canonN, err2 := senzaProvenienza(nuovo).Canonico()
+		if err1 == nil && err2 == nil && bytes.Equal(canonP, canonN) {
+			return Salvato3{BozzaID: b.BozzaID, Formato: FormatoSnapshot3, Versione: int(b.Versione), Impronta: improntaP, SalvataIl: v.SalvataIl}, nil
+		}
 	}
 	st, err := confermabom.LeggiStatoRFQ(ctx, q, s.ThreadID)
 	if err != nil {
 		return out, err
 	}
-	vf := &verifica3{ctx: ctx, q: q, thread: s.ThreadID, prodotto: prodotto, prima: prima, nuovo: nuovo, st: st, bozza: b.BozzaID}
+	vf := &verifica3{ctx: ctx, q: q, thread: s.ThreadID, prodotto: prodotto, prima: prima, nuovo: nuovo, st: st, bozza: b.BozzaID, adesso: s.Adesso}
 	if err := vf.tutto(ric); err != nil {
 		return out, err
 	}
@@ -221,6 +236,24 @@ func SalvaFormato3(ctx context.Context, pool Avviatore, s Salvataggio3) (Salvato
 			return out, err
 		}
 	}
+	finali, err := vf.provenienzeDecise(ric.Riconosciuti)
+	if err != nil {
+		return out, err
+	}
+	nuovo.DocumentiPreassociati = finali
+	conProvenienzaNegliEventi(ric.Eventi, prima, finali)
+	// G39-01 (adesso3.go): il registro del calcolo di adesso che una PB accettata cita si scrive qui, sotto il lucchetto
+	// della RFQ, prima della versione (immutabile, citato per impronta: il riferimento stabile di D-PB03 A)
+	if vf.daScrivere != nil {
+		if _, err := registroDellaVersione(ctx, q, s.ThreadID, s.ProdottoID, s.UtenteID, *vf.daScrivere, "snapshot.documenti_preassociati"); err != nil {
+			return out, err
+		}
+	}
+	canon, err := nuovo.Canonico()
+	if err != nil {
+		return out, err
+	}
+	impronta := jsonImpronta(canon)
 	base := baseDelloSnapshot3(nuovo)
 	fonteAll, fonteSha, fonteGruppo := colonneFonte3(nuovo.Sorgente)
 	versione := int(b.Versione) + 1
@@ -262,23 +295,27 @@ func SalvaFormato3(ctx context.Context, pool Avviatore, s Salvataggio3) (Salvato
 func jsonImpronta(b []byte) string { return jsoncanonico.Impronta(b) }
 
 // limiteServer: il numero dell'ultimo evento con cui comincia una versione costruita dal server (EM §9.2: la pila
-// d'annullamento si ferma li').
-func limiteServer(ctx context.Context, q *db.Queries, thread, bozza uuid.UUID, n0 int) (int, error) {
+// d'annullamento si ferma li'), e i nodi tolti dagli eventi nodo_tolto del giornale, per chiave (DEC-B PB-34).
+func limiteServer(ctx context.Context, q *db.Queries, thread, bozza uuid.UUID, n0 int) (int, map[string][]json.RawMessage, error) {
 	if n0 == 0 {
-		return 0, nil
+		return 0, nil, nil
 	}
 	ee, err := q.ListDistintaBozzaEventi(ctx, db.ListDistintaBozzaEventiParams{BozzaID: bozza, ThreadID: thread, VersioneMax: 1 << 30,
 		DopoN: 0, Limite: int32(n0)})
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	limite := 0
+	tolti := map[string][]json.RawMessage{}
 	for _, e := range ee {
 		if azioniDelServer2[e.Azione] && int(e.N) > limite {
 			limite = int(e.N)
 		}
+		if e.Azione == AzNodoTolto && e.ChiaveBozza.Valid && e.Prima != nil && len(*e.Prima) > 0 {
+			tolti[e.ChiaveBozza.String] = append(tolti[e.ChiaveBozza.String], *e.Prima)
+		}
 	}
-	return limite, nil
+	return limite, tolti, nil
 }
 
 // rebaseCoerente3: il campo «rebase» della richiesta e l'azione rebase dicono la stessa base e lo stesso motivo, o non ci
@@ -328,6 +365,9 @@ type verifica3 struct {
 	cliente     string
 	certificate map[uuid.UUID]db.ListIdentitaRegistrateRow
 	versione1   *Snapshot3
+	// adesso: il calcolo del motore di adesso (G39-01, G39-02); daScrivere: il suo registro, se una PB lo cita
+	adesso     *CalcoloAdesso
+	daScrivere *importazione.Registro
 }
 
 // nodiCambiati: i nodi nuovi o cambiati rispetto alla versione precedente.
@@ -362,15 +402,17 @@ func (vf *verifica3) decisioniCambiate() map[int]Decisione3 {
 	return out
 }
 
-func (vf *verifica3) preassociazioniCambiate() []Preassociazione {
+// preassociazioniCambiate: le preassociazioni nuove o spostate su un altro nodo rispetto alla versione precedente, per
+// allegato (il campo dice il loro posto nello snapshot nuovo).
+func (vf *verifica3) preassociazioniCambiate() map[int]Preassociazione3 {
 	prima := map[uuid.UUID]string{}
 	for _, p := range vf.prima.DocumentiPreassociati {
-		prima[p.PropostaID] = p.ChiaveBozza
+		prima[p.AllegatoID] = p.ChiaveBozza
 	}
-	var out []Preassociazione
-	for _, p := range vf.nuovo.DocumentiPreassociati {
-		if k, ok := prima[p.PropostaID]; !ok || k != p.ChiaveBozza {
-			out = append(out, p)
+	out := map[int]Preassociazione3{}
+	for i, p := range vf.nuovo.DocumentiPreassociati {
+		if k, ok := prima[p.AllegatoID]; !ok || k != p.ChiaveBozza {
+			out[i] = p
 		}
 	}
 	return out
@@ -511,10 +553,21 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 		ids = append(ids, *f.AllegatoID)
 	}
 	// gli allegati che solo le azioni nominano (caselle, step e letture di oggetti aggiunti e tolti nello stesso
-	// salvataggio): della RFQ; non serve che siano attivi, perche' lo snapshot salvato non li porta
+	// salvataggio): della RFQ; non serve che siano attivi, perche' lo snapshot salvato non li porta. Gli allegati delle
+	// preassociazioni e degli svincoli nuovi o cambiati hanno le loro verifiche (preassociazioniESvincoli), con il campo
+	// dello snapshot: la raccolta generica li metterebbe fra i transitori, senza FILE_NON_ATTIVO (PD35 §6.1)
+	nuoviDeiFile := map[uuid.UUID]bool{}
+	for _, p := range pre {
+		nuoviDeiFile[p.AllegatoID] = true
+	}
+	for _, d := range decisioni {
+		if d.Tipo == DecisioneScollegaDocumento && d.AllegatoID != nil {
+			nuoviDeiFile[*d.AllegatoID] = true
+		}
+	}
 	transitori := map[uuid.UUID]string{}
 	for u, campo := range ric.Riferimenti.Allegati {
-		if !prec.allegati[u] {
+		if !prec.allegati[u] && !nuoviDeiFile[u] {
 			transitori[u] = campo
 			ids = append(ids, u)
 		}
@@ -555,69 +608,15 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 			return fuori(transitori[u], "l'allegato %s non e' un file di questa RFQ", u)
 		}
 	}
+	// le evidenze documentali nuove (U2 §7.7): file attivi della RFQ, con lo sha dell'allegato
+	if err := vf.evidenze(nodi, decisioni); err != nil {
+		return err
+	}
 
-	// le proposte: preassociazioni nuove o cambiate, svincoli nuovi o cambiati, quelle nominate dalle azioni
-	proposte := map[uuid.UUID]string{}
-	for i, p := range pre {
-		proposte[p.PropostaID] = fmt.Sprintf("snapshot.documenti_preassociati[%d].proposta_id", i)
-	}
-	for i, d := range decisioni {
-		if d.Tipo == DecisioneScollegaDocumento && d.PropostaID != nil {
-			proposte[*d.PropostaID] = fmt.Sprintf("snapshot.decisioni[%d].proposta_id", i)
-		}
-	}
-	// le proposte che le azioni nominano e che la versione precedente non aveva (uno svincolo o un «Lascia» di una
-	// preassociazione gia' salvata non e' un riferimento nuovo)
-	giaSalvate := map[uuid.UUID]bool{}
-	for _, p := range vf.prima.DocumentiPreassociati {
-		giaSalvate[p.PropostaID] = true
-	}
-	for _, d := range vf.prima.Decisioni {
-		if d.Tipo == DecisioneScollegaDocumento && d.PropostaID != nil {
-			giaSalvate[*d.PropostaID] = true
-		}
-	}
-	for _, p := range ric.ProposteCitate {
-		if _, ok := proposte[p]; !ok && !giaSalvate[p] {
-			proposte[p] = "azioni"
-		}
-	}
-	for p, campo := range ric.Riferimenti.Proposte {
-		if _, ok := proposte[p]; !ok && !giaSalvate[p] {
-			proposte[p] = campo
-		}
-	}
-	if len(proposte) > 0 {
-		ids := make([]uuid.UUID, 0, len(proposte))
-		for u := range proposte {
-			ids = append(ids, u)
-		}
-		rr, err := vf.q.ListProposteDellaRfq(vf.ctx, db.ListProposteDellaRfqParams{ThreadID: uuid.NullUUID{UUID: vf.thread, Valid: true}, Proposte: ids})
-		if err != nil {
-			return err
-		}
-		trovate := map[uuid.UUID]db.ListProposteDellaRfqRow{}
-		var allegatiPre []uuid.UUID
-		for _, r := range rr {
-			trovate[r.PropostaID] = r
-			allegatiPre = append(allegatiPre, r.AllegatoID)
-		}
-		for u, campo := range proposte {
-			if _, ok := trovate[u]; !ok {
-				return fuori(campo, "la proposta %s non e' di questa RFQ", u)
-			}
-		}
-		att, err := LeggiAllegatiCitati(vf.ctx, vf.q, vf.thread, allegatiPre)
-		if err != nil {
-			return err
-		}
-		for i, p := range pre {
-			r := trovate[p.PropostaID]
-			if !att[r.AllegatoID].Attivo {
-				return &Errore{Codice: CodiceFileNonAttivo, Campo: fmt.Sprintf("snapshot.documenti_preassociati[%d].proposta_id", i),
-					Messaggio: fmt.Sprintf("il file della proposta %s e' in Altri file o scartato: prima si riattiva", p.PropostaID)}
-			}
-		}
+	// le preassociazioni e gli svincoli nuovi o cambiati (direttiva 35, C-2): le loro verifiche, sull'occorrenza (la
+	// provenienza delle PB la decide il server dopo le verifiche: provenienza3.go)
+	if err := vf.preassociazioniESvincoli(pre, decisioni); err != nil {
+		return err
 	}
 
 	// i registri (V-2) e le verifiche contro di loro (V-1, V-3, V-5)
@@ -690,6 +689,10 @@ func (vf *verifica3) tutto(ric Riconciliazione3) error {
 					return e
 				}
 			}
+		case DecisioneConfermaCategoria:
+			if e := vf.classeProposta(campo, d, reg); e != nil {
+				return e
+			}
 		case DecisioneNonIncludere:
 			// il registro della decisione; per una decisione nuova o cambiata senza importazione, quello della versione
 			// (EM §7.1: «per una decisione nuova, quello della versione»; §3.4.1: con un registro citato ogni rif sta nel
@@ -725,16 +728,15 @@ func ordinati(m map[uuid.UUID]string) []uuid.UUID {
 }
 
 // riferimentiPrecedenti: gli UUID e i registri che uno snapshot salvato porta (componenti dei nodi e delle decisioni,
-// allegati della sorgente, delle caselle, degli step, delle non_includere e delle letture, proposte delle preassociazioni
-// e degli svincoli, registri della sorgente e delle decisioni).
+// allegati della sorgente, delle caselle, degli step, delle non_includere, delle letture, delle preassociazioni e degli
+// svincoli, registri della sorgente e delle decisioni).
 type riferimentiPrecedenti struct {
-	componenti, allegati, proposte map[uuid.UUID]bool
-	registri                       map[string]bool
+	componenti, allegati map[uuid.UUID]bool
+	registri             map[string]bool
 }
 
 func riferimentiDello(s Snapshot3) riferimentiPrecedenti {
-	r := riferimentiPrecedenti{componenti: map[uuid.UUID]bool{}, allegati: map[uuid.UUID]bool{}, proposte: map[uuid.UUID]bool{},
-		registri: map[string]bool{}}
+	r := riferimentiPrecedenti{componenti: map[uuid.UUID]bool{}, allegati: map[uuid.UUID]bool{}, registri: map[string]bool{}}
 	if s.Sorgente != nil && s.Sorgente.AllegatoID != nil {
 		r.allegati[*s.Sorgente.AllegatoID] = true
 	}
@@ -760,8 +762,8 @@ func riferimentiDello(s Snapshot3) riferimentiPrecedenti {
 				r.componenti[*u] = true
 			}
 		}
-		if d.PropostaID != nil {
-			r.proposte[*d.PropostaID] = true
+		if d.AllegatoID != nil {
+			r.allegati[*d.AllegatoID] = true
 		}
 		for _, p := range d.Prodotti {
 			r.componenti[p] = true
@@ -776,7 +778,7 @@ func riferimentiDello(s Snapshot3) riferimentiPrecedenti {
 		}
 	}
 	for _, p := range s.DocumentiPreassociati {
-		r.proposte[p.PropostaID] = true
+		r.allegati[p.AllegatoID] = true
 	}
 	return r
 }
@@ -849,7 +851,15 @@ func (vf *verifica3) modoDelNodo(campo string, n Nodo3, c *importazione.Contenut
 	}
 	v, ok := c.VocePerRif(n.Caselle[0].AllegatoID, n.Caselle[0].Rif)
 	if !ok {
-		return nil // una voce fuori per decisione: il nodo non e' dello stato di partenza, e V-3 l'ha gia' guardata
+		// una voce fuori per decisione (tolta nelle pagine vecchie, Q13 [U]): il ripristino e' un nodo_aggiunto sulla sua
+		// casella, mai registrato senza decisione_esistente (DEC-B PB-24, estensione della regola (ii); prova OB-06). Il
+		// modo proposta lo verifica V-1 sull'identita' proposta della voce (U2-P22, quando il registro la porta); da_decidere
+		// passa. V-3 ha gia' guardato che la voce ci sia.
+		if _, fuori := c.FuoriPerRif(n.Caselle[0].AllegatoID, n.Caselle[0].Rif); fuori && aggiunto && n.Identita.Modo == ModoRegistrato {
+			return corpoMotivo(campo+".identita.modo", MotivoPropostaNonCorrispondente,
+				"il ripristino di un nodo tolto nelle pagine vecchie non e' registrato: proposta con il codice proposto, altrimenti da decidere")
+		}
+		return nil
 	}
 	if n.Identita.Modo == ModoDaDecidere && v.CodiceProposto != "" {
 		return corpoMotivo(campo+".identita.modo", MotivoPropostaNonCorrispondente,
@@ -1019,13 +1029,12 @@ func (vf *verifica3) identitaRegistrata(comp uuid.UUID) (Identita, bool) {
 	if !ok {
 		return Identita{}, false
 	}
-	id := Identita{Emittente: vf.cliente, EmittentePresunto: true, Codice: c.CodiceLetterale, Modo: ModoRegistrato}
-	if x, ok := vf.certificate[comp]; ok && x.Valida && x.Emittente.Valid {
-		id.Emittente = x.Emittente.String
-		id.EmittentePresunto = x.EmittentePresunto.Bool
-		id.Namespace = x.Namespace.String
+	// la stessa regola dei costruttori della versione 1 (partenza3.go, direttiva 35 C-3): una sola definizione
+	cert := map[uuid.UUID]Certificazione{}
+	if x, ok := vf.certificate[comp]; ok {
+		cert = CertificazioniDa([]db.ListIdentitaRegistrateRow{x})
 	}
-	return id, true
+	return IdentitaRegistrataDi(c, cert, vf.cliente), true
 }
 
 func (vf *verifica3) identita(nodi []Nodo3, decisioni map[int]Decisione3, regVersione *importazione.Registro) error {
@@ -1050,6 +1059,16 @@ func (vf *verifica3) identita(nodi []Nodo3, decisioni map[int]Decisione3, regVer
 		if !vf.emittenteAmmesso(id.Emittente, regs, n.ComponenteID) {
 			return corpoMotivo(campo+".emittente", MotivoEmittenteNonAmmesso,
 				"l'emittente %s non e' il cliente della RFQ, un partner attivo nel registro citato o quello certificato del componente", id.Emittente)
+		}
+		// U2-P35 (Q16 [U]): su un nodo del componente (riusa, modifica) il codice cambia solo con una ricodifica; una
+		// decisione identita con un altro codice e' un'identita' che il componente registrato non ha
+		if id.Modo == ModoDecisione && n.ComponenteID != nil && (n.Op == OpRiusa || n.Op == OpModifica) {
+			if d, ok := perID[id.Decisione]; ok && d.Tipo == DecisioneIdentita {
+				if c, ok := vf.st.Componente(*n.ComponenteID); ok && c.CodiceLetterale != id.Codice {
+					return corpoMotivo(campo+".codice", MotivoRegistratoNonCorrispondente,
+						"il componente registrato ha il codice %s: per cambiarlo serve una ricodifica, non una decisione identita", c.CodiceLetterale)
+				}
+			}
 		}
 		switch id.Modo {
 		case ModoRegistrato:
@@ -1164,6 +1183,121 @@ func (vf *verifica3) rebase(b RebaseV2) error {
 	if len(scaduti) > 0 {
 		return corpoMotivo("rebase", MotivoRifScaduti, "dopo il rebase restano %d rif scaduti (%s %s): prima si tolgono o si rifanno", len(scaduti),
 			scaduti[0].Casella.Rif, scaduti[0].Motivo)
+	}
+	return nil
+}
+
+// evidenze: le evidenze documentali nuove o cambiate (U2 §7.7) nei nodi nuovi o cambiati (evidenze_identita), negli archi
+// nuovi o cambiati (evidenze_arco) e nelle decisioni nuove o cambiate (evidenza_documentale della correzione): ogni file
+// e' della RFQ (FUORI_RFQ), attivo (FILE_NON_ATTIVO), e lo sha mandato dal browser e' quello dell'allegato (422
+// CORPO_NON_VALIDO, sha_diverso). Il server non riscrive mai lo snapshot. Un'evidenza gia' salvata nella versione
+// precedente nello stesso posto (lo stesso nodo, lo stesso arco, la stessa decisione) non e' nuova: se il file e' stato
+// messo da parte dopo, passa (come le caselle); la stessa evidenza citata in un posto nuovo e' un riferimento nuovo.
+func (vf *verifica3) evidenze(nodi []Nodo3, decisioni map[int]Decisione3) error {
+	type ev struct {
+		campo string
+		e     EvidenzaDocumentale
+	}
+	salvate := map[string]bool{}
+	metti := func(posto string, ee []EvidenzaDocumentale) {
+		for _, e := range ee {
+			salvate[posto+"\x01"+e.chiaveOrdine()] = true
+		}
+	}
+	for _, n := range vf.prima.Nodi {
+		metti("n:"+n.ChiaveBozza, n.EvidenzeIdentita)
+	}
+	for _, a := range vf.prima.Archi {
+		metti("a:"+a.Padre+"\x00"+a.Figlio, a.EvidenzeArco)
+	}
+	for _, d := range vf.prima.Decisioni {
+		if d.EvidenzaDocumentale != nil {
+			metti("d:"+d.ID, []EvidenzaDocumentale{*d.EvidenzaDocumentale})
+		}
+	}
+	var tutte []ev
+	aggiungi := func(posto, campo string, ee []EvidenzaDocumentale) {
+		for j, e := range ee {
+			if !salvate[posto+"\x01"+e.chiaveOrdine()] {
+				tutte = append(tutte, ev{fmt.Sprintf("%s[%d]", campo, j), e})
+			}
+		}
+	}
+	for _, n := range nodi {
+		aggiungi("n:"+n.ChiaveBozza, campoNodo(vf.nuovo, n.ChiaveBozza)+".evidenze_identita", n.EvidenzeIdentita)
+	}
+	for i, a := range vf.nuovo.Archi {
+		aggiungi("a:"+a.Padre+"\x00"+a.Figlio, fmt.Sprintf("snapshot.archi[%d].evidenze_arco", i), a.EvidenzeArco)
+	}
+	idx := make([]int, 0, len(decisioni))
+	for i := range decisioni {
+		idx = append(idx, i)
+	}
+	sort.Ints(idx)
+	for _, i := range idx {
+		if d := decisioni[i]; d.EvidenzaDocumentale != nil && !salvate["d:"+d.ID+"\x01"+d.EvidenzaDocumentale.chiaveOrdine()] {
+			tutte = append(tutte, ev{fmt.Sprintf("snapshot.decisioni[%d].evidenza_documentale", i), *d.EvidenzaDocumentale})
+		}
+	}
+	if len(tutte) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, 0, len(tutte))
+	for _, x := range tutte {
+		ids = append(ids, x.e.AllegatoID)
+	}
+	allegati, err := LeggiAllegatiCitati(vf.ctx, vf.q, vf.thread, ids)
+	if err != nil {
+		return err
+	}
+	for _, x := range tutte {
+		a := allegati[x.e.AllegatoID]
+		switch {
+		case !a.DellaRfq:
+			return fuori(x.campo+".allegato_id", "l'allegato %s non e' un file di questa RFQ", x.e.AllegatoID)
+		case !a.Attivo:
+			return &Errore{Codice: CodiceFileNonAttivo, Campo: x.campo + ".allegato_id",
+				Messaggio: fmt.Sprintf("l'allegato %s e' in Altri file o scartato: un'evidenza cita un file attivo", x.e.AllegatoID)}
+		case a.Sha256 != x.e.Sha256:
+			return corpoMotivo(x.campo+".sha256", MotivoShaDiverso, "lo sha256 dichiarato non e' quello dell'allegato %s (rileggi la Sorgente)", x.e.AllegatoID)
+		}
+	}
+	return nil
+}
+
+// classeProposta: V-1 di una conferma_categoria con origine classe_grammatica (U2 §6.4.2): la classe copiata e' quella che
+// il registro citato da' alla voce della casella del nodo (tipo_proposto.classe: categoria, fonte, valore), byte per byte.
+// Un nodo senza casella o senza voce non ha una classe proposta: 422 proposta_non_corrispondente.
+func (vf *verifica3) classeProposta(campo string, d Decisione3, reg *importazione.Registro) *Errore {
+	if d.OrigineCategoria != OrigineCategoriaClasse || d.ClasseProposta == nil {
+		return nil
+	}
+	if reg == nil {
+		return corpoMotivo(campo+".importazione", MotivoImportazioneSconosciuta, "la classe proposta si verifica sul registro citato")
+	}
+	var casella *Casella3
+	for _, n := range vf.nuovo.Nodi {
+		if n.ChiaveBozza == d.Soggetto.ChiaveBozza && len(n.Caselle) > 0 {
+			c := n.Caselle[0]
+			casella = &c
+		}
+	}
+	if casella == nil {
+		return corpoMotivo(campo+".classe_proposta", MotivoPropostaNonCorrispondente, "il nodo %s non ha una casella: non ha una classe proposta dal registro", d.Soggetto.ChiaveBozza)
+	}
+	v, ok := reg.Contenuto.VocePerRif(casella.AllegatoID, casella.Rif)
+	if !ok {
+		return corpoMotivo(campo+".classe_proposta", MotivoPropostaNonCorrispondente, "la casella del nodo %s non e' una voce del registro citato", d.Soggetto.ChiaveBozza)
+	}
+	var tp struct {
+		Classe *ClasseProposta `json:"classe"`
+	}
+	if len(v.TipoProposto) == 0 || json.Unmarshal(v.TipoProposto, &tp) != nil || tp.Classe == nil {
+		return corpoMotivo(campo+".classe_proposta", MotivoPropostaNonCorrispondente, "la voce del nodo %s non ha una classe proposta", d.Soggetto.ChiaveBozza)
+	}
+	if *tp.Classe != *d.ClasseProposta {
+		return corpoMotivo(campo+".classe_proposta", MotivoPropostaNonCorrispondente,
+			"la classe proposta non e' quella del registro (%s, %s, %s)", tp.Classe.Categoria, tp.Classe.Fonte, tp.Classe.Valore)
 	}
 	return nil
 }

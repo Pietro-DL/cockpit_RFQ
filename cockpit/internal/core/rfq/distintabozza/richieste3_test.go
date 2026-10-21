@@ -1,8 +1,8 @@
 package distintabozza
 
 // Le prove L1 della lettura dei corpi di R2 e R3 nel formato 3 (V1, ondata B; EM §9.2, §9.3): una e una sola forma, il
-// vocabolario 2, la chiave del salvataggio UUID v4, le forme dell'ondata C che rispondono forma_non_disponibile, il corpo
-// del formato 2 rifiutato (T-12, meta' L1), l'impronta della richiesta sulla forma canonica.
+// vocabolario 2, la chiave del salvataggio UUID v4, il corpo del formato 2 rifiutato (T-12, meta' L1), l'impronta della
+// richiesta sulla forma canonica. Le forme costruite dal server (direttiva 35, C-3) sono in richieste3_forme_test.go.
 
 import (
 	"encoding/json"
@@ -81,10 +81,6 @@ func TestV1LeggiRichiestaR2IRifiuti(t *testing.T) {
 		{"senza versione attesa", func(m map[string]any) { delete(m, "versione_attesa") }, "versione_attesa", ""},
 		{"senza bozza", func(m map[string]any) { delete(m, "bozza_id") }, "bozza_id", ""},
 		{"campo sconosciuto", func(m map[string]any) { m["formato"] = 3 }, "richiesta", ""},
-		{"crea (ondata C)", func(m map[string]any) { delete(m, "snapshot"); m["crea"] = map[string]any{"importazione": imp} }, FormaCrea, MotivoFormaNonDisponibile},
-		{"cambia_sorgente (ondata C)", func(m map[string]any) { delete(m, "snapshot"); m["cambia_sorgente"] = map[string]any{} }, FormaCambiaSorgente, MotivoFormaNonDisponibile},
-		{"riallinea_proposta (ondata C)", func(m map[string]any) { delete(m, "snapshot"); m["riallinea_proposta"] = map[string]any{} }, FormaRiallineaProposta, MotivoFormaNonDisponibile},
-		{"converti_da (ondata C)", func(m map[string]any) { delete(m, "snapshot"); m["converti_da"] = map[string]any{} }, FormaConvertiDa, MotivoFormaNonDisponibile},
 	}
 	for _, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {

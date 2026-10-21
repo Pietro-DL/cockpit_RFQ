@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -32,8 +33,6 @@ type Config struct {
 	Agente     Agente       `toml:"agente"`     // [agente] — checkpoint 3R §9
 	Sicurezza  Sicurezza    `toml:"sicurezza"`  // [sicurezza] — checkpoint 3R, blocco 4
 	MotoreA    MotoreA      `toml:"motore_a"`   // [motore_a] — giro 5, A1d: la Distinta nuova, solo admin
-	// [conservazione] — V1 (EM §10.5): il deposito degli «Altri file» della Sorgente (conservazione.go)
-	Conservazione Conservazione `toml:"conservazione"`
 
 	// Avvisi sono le cose del file che non fermano l'avvio ma vanno dette nel log: le voci che non
 	// esistono (un refuso, che altrimenti vale come se la riga non ci fosse) e quelle che si leggono ma
@@ -657,6 +656,9 @@ func CaricaConRete(percorso string, rete Rete) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", percorso, err)
 	}
+	if err := sezioniTolte(md); err != nil {
+		return nil, err
+	}
 	c.Avvisi = vociSenzaEffetto(md, c)
 	if c.DB.DSN == "" {
 		return nil, fmt.Errorf("config: [db].dsn mancante")
@@ -702,12 +704,6 @@ func CaricaConRete(percorso string, rete Rete) (*Config, error) {
 		return nil, err
 	}
 	if err := c.normalizzaMotoreA(); err != nil {
-		return nil, err
-	}
-	// V1 (EM §10.5): il deposito degli «Altri file», relativo alla cartella di questo file, controllato contro lo
-	// staging, il NAS e le radici di produzione (conservazione.go)
-	c.Conservazione.Radice = assoluto(dir, c.Conservazione.Radice)
-	if err := c.normalizzaConservazione(); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -1010,6 +1006,21 @@ func cartellaDelFile(percorso string) string {
 		return abs
 	}
 	return dir
+}
+
+// ErrSezioneConservazione: la sezione [conservazione] (il deposito locale degli «Altri file» delle prove dell'ondata B
+// di V1) non esiste piu' (V1, U2 §3.13 punto 5; [U] Q06 e C-02 B): gli Altri file stanno nella cartella ALTRO della RFQ
+// sul NAS. Una sezione rimasta nel file ferma l'avvio invece di essere ignorata in silenzio (base [T] di U2): chi l'ha
+// scritta si aspetta un deposito che non c'e' piu'.
+var ErrSezioneConservazione = errors.New("config: la sezione [conservazione] non esiste più: gli Altri file stanno nella " +
+	"cartella ALTRO della RFQ sul NAS. Togliere la sezione dal file di configurazione")
+
+// sezioniTolte ferma l'avvio per le sezioni tolte che non si possono ignorare: oggi solo [conservazione], anche vuota.
+func sezioniTolte(md toml.MetaData) error {
+	if md.IsDefined("conservazione") {
+		return ErrSezioneConservazione
+	}
+	return nil
 }
 
 // vociSenzaEffetto sono gli avvisi sulle voci del file che non cambiano niente: quelle che non esistono

@@ -341,7 +341,8 @@ SELECT c.componente_id,
         OR EXISTS (SELECT 1 FROM distinta_bozza_registro x WHERE x.prodotto_id = c.componente_id)
         OR EXISTS (SELECT 1 FROM fonte_step_evento x WHERE x.prodotto_id = c.componente_id OR x.componente_id = c.componente_id)
         OR EXISTS (SELECT 1 FROM attestazione_fascicolo x WHERE x.prodotto_id = c.componente_id))::bool AS distinta,
-       EXISTS (SELECT 1 FROM copertura_documento x WHERE x.componente_id = c.componente_id)::bool AS coperture
+       EXISTS (SELECT 1 FROM copertura_documento x WHERE x.componente_id = c.componente_id)::bool AS coperture,
+       EXISTS (SELECT 1 FROM file_rfq_associazione x WHERE x.componente_id = c.componente_id)::bool AS associazioni
   FROM componente c
  WHERE c.thread_id = $1
  ORDER BY c.componente_id
@@ -356,6 +357,7 @@ type ListComponentiConStoriaRow struct {
 	Note         bool      `json:"note"`
 	Distinta     bool      `json:"distinta"`
 	Coperture    bool      `json:"coperture"`
+	Associazioni bool      `json:"associazioni"`
 }
 
 // I componenti della RFQ che una riga fuori dalla working tiene, e che cosa: un documento, una proposta (di documento,
@@ -363,7 +365,9 @@ type ListComponentiConStoriaRow struct {
 // DeleteComponente (cheCosaLoTiene): un componente cosi' non si cancella, si archivia. Solo lettura: il riepilogo
 // dell'albero proposto lo dice prima della conferma (giro 4, fase 4.4a.1a; domanda 29b = A). Dalla 0022 (P4) anche
 // la storia della distinta (conferme strutturali, bozze e il loro registro, storia della fonte STEP, attestazioni) e
-// le coperture documentali: le tabelle nuove con una FK verso componente (revisioni della notte, RD-04 / RSC-03).
+// le coperture documentali: le tabelle nuove con una FK verso componente (revisioni della notte, RD-04 / RSC-03). Dalla
+// 0023 (direttiva 35, blocco C-1c; INC-G26) anche le associazioni registrate dei file, attive e chiuse: la FK di
+// file_rfq_associazione verso componente vale anche per le righe chiuse (una AR e' un atto registrato, non un'audit).
 func (q *Queries) ListComponentiConStoria(ctx context.Context, threadID uuid.UUID) ([]ListComponentiConStoriaRow, error) {
 	rows, err := q.db.Query(ctx, listComponentiConStoria, threadID)
 	if err != nil {
@@ -382,6 +386,7 @@ func (q *Queries) ListComponentiConStoria(ctx context.Context, threadID uuid.UUI
 			&i.Note,
 			&i.Distinta,
 			&i.Coperture,
+			&i.Associazioni,
 		); err != nil {
 			return nil, err
 		}

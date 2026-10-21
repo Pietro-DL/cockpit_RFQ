@@ -1,7 +1,9 @@
 -- 0023_distinta_formato3.sql — V1 della Distinta unica (giro 5, A1d; direttiva 23).
 --   Formato 3 della bozza e della conferma; registro d'importazione del Motore A; nodi non inclusi (LS-02);
 --   identita' certificata dei componenti; gesto conferma_bom_v3; ciclo dei file della Sorgente (stato
---   dell'occorrenza nella RFQ, registro, rimozione dallo staging, deposito «Altri file»).
+--   dell'occorrenza nella RFQ, registro, rimozione dallo staging, copia degli «Altri file» nella cartella ALTRO della
+--   RFQ sul NAS); conferma della sorgente (S8) e rifiuto della proposta aggiornata (R15); le associazioni registrate
+--   file → componente (file_rfq_associazione, direttiva 35 §2-§3) con il loro giornale in associazione_evento.
 --
 -- Perche' una migrazione nuova. La ratifica 05 §1 ammette un'altra migrazione P4 solo per un'impossibilita' tecnica
 --   provata. La 0022 ha sette punti che vogliono un DDL: sei vincoli che vietano il formato 3 (ck_distinta_bozza_formato,
@@ -10,11 +12,15 @@
 --   esplicita (una bozza formato 2 aperta non diventa formato 3 sul posto). La 0022 e' distribuita: non si riscrive.
 --   La sua intestazione («non ci sara' un'altra migrazione P4») resta com'e'.
 --
--- Regole. Nessuna riga esistente cambia; nessun riempimento. I vincoli cambiati si tolgono e si rimettono con lo
---   stesso nome; il ramo formato 2 di ogni vincolo dice esattamente quello di prima. Le quattro funzioni della 0022
---   che cambiano (distinta_bozza_versione_nasce, conferma_strutturale_nasce, conferma_strutturale_contenuto,
---   conferma_strutturale_completa) hanno il corpo della 0022 byte per byte, salvo le righe marcate «(0023)», una
---   per una: la prova L1 T-11 confronta i corpi. Ritorno manuale: scripts/0023_indietro.sql (mai in migrations/).
+-- Regole. Nessuna riga esistente cambia; nessun riempimento, salvo il digest dei fatti (analisi_fatti.digest, sezione
+--   9c: eccezione dichiarata, PM23 §4.13); la tabella delle associazioni registrate e il segno della RFQ formato 3
+--   nascono vuoti (nessun backfill: sezione 9d, D-AR04 [U]). I vincoli cambiati si tolgono e si rimettono con lo stesso
+--   nome; il ramo
+--   formato 2 di ogni vincolo dice esattamente quello di prima. Le cinque funzioni della 0022 che cambiano
+--   (distinta_bozza_versione_nasce, conferma_strutturale_nasce, conferma_strutturale_contenuto,
+--   conferma_strutturale_completa, fonte_step_risolvi) hanno il corpo della 0022 byte per byte, salvo le righe marcate
+--   «(0023)», una per una: la prova L1 T-11 confronta i corpi. Ritorno manuale: scripts/0023_indietro.sql (mai in
+--   migrations/).
 --
 -- Deroga dichiarata (come la 0022 per v_fascicolo): v_fascicolo, v_step_prodotto, v_thread_da_riesaminare, v_cruscotto
 --   e v_codici_candidati_thread si ridefiniscono con le stesse colonne, nello stesso ordine e con lo stesso significato
@@ -22,7 +28,9 @@
 --   scartata non conta piu'. Il testo di ogni vista e' quello di oggi, con il solo predicato file_rfq_attivo aggiunto
 --   sulle righe marcate (la prova T-11 lo controlla). Senza righe in file_rfq le viste danno le righe di prima.
 --
--- Codici: P4X08 registro d'importazione; P4X09 ciclo dei file; P4X01-P4X04 come nella 0022.
+-- Codici: P4X08 registro d'importazione; P4X09 ciclo dei file; P4X10 associazioni registrate; P4X01-P4X04 come nella
+--   0022.
+-- Variante: 0023-v1-formato3-file-20261019d (direttiva 39; la storia delle varianti e' nella sezione 12).
 -- Si applica a server e worker fermi. Solo sui database di prova finche' l'utente non da' il suo OK: un database
 -- alla 23 ferma ogni binario che conosce solo la 22.
 --
@@ -33,8 +41,12 @@
 --         5. componenti certificati: l'identita' interrogabile
 --         6. nodi non inclusi (LS-02)
 --         7. il controllo al COMMIT della conferma
---         8. esito degli intenti
---         9. ciclo dei file della Sorgente (file_rfq, registro, rimozione, conservazione, file_rfq_attivo)
+--         8. esito degli intenti; rifiuto della proposta aggiornata (R15)
+--         9. ciclo dei file della Sorgente (file_rfq, registro, rimozione, conservazione nella cartella ALTRO,
+--            file_rfq_attivo, file_rfq_scartato_legacy); 9b. fonte_step_risolvi; 9c. digest dei fatti;
+--            9d. associazioni registrate (segno della RFQ formato 3, STEP legato come sorgente del finito,
+--            file_rfq_associazione, giornale in associazione_evento, revoca della sorgente, correzioni, controllo al
+--            COMMIT della conferma, copia derivata spenta, diagnostica del backfill)
 --        10. le cinque viste
 --        11. commenti
 --        12. variante e versione
@@ -171,6 +183,16 @@ ALTER TABLE distinta_bozza_versione
 CREATE INDEX ix_dbv_importazione ON distinta_bozza_versione (importazione_id) WHERE importazione_id IS NOT NULL;
 CREATE UNIQUE INDEX ux_dbv_chiave_salvataggio ON distinta_bozza_versione (chiave_salvataggio)
     WHERE chiave_salvataggio IS NOT NULL;
+-- La provenienza delle PB nello snapshot formato 3 (direttiva 39 §4, D-PB03 A [U]; NOMI (c) e R39-02 [T-39]): ogni PB
+-- {allegato_id, chiave_bozza, provenienza, importazione?} dice da dove viene (motore, corretta, manuale, legacy) e, con
+-- motore o corretta, il registro d'importazione d'origine per impronta (importazione, la convenzione dello snapshot). Nella
+-- versione della bozza la provenienza, quando c'e', ha uno dei quattro valori e l'importazione e' un'impronta, solo con
+-- motore o corretta; l'obbligo vale nella conferma (ck_conferma_preassociazioni) e sulla AR (provenienza_pb), cosi' una
+-- versione salvata prima che R2 scriva la provenienza resta leggibile e R5 non la conferma senza [T-39].
+ALTER TABLE distinta_bozza_versione
+    ADD CONSTRAINT ck_dbv_preassociazioni CHECK (snapshot ->> 'formato' <> '3'
+        OR (NOT jsonb_path_exists(snapshot, '$.documenti_preassociati[*] ? (exists(@.provenienza) && !(@.provenienza == "motore" || @.provenienza == "corretta" || @.provenienza == "manuale" || @.provenienza == "legacy"))')
+            AND NOT jsonb_path_exists(snapshot, '$.documenti_preassociati[*] ? (exists(@.importazione) && !((@.provenienza == "motore" || @.provenienza == "corretta") && @.importazione like_regex "^[0-9a-f]{64}$"))')));
 
 -- Corpo della 0022 con tre aggiunte: lo snapshot ha il formato della testata; il registro della sorgente e' della
 -- stessa RFQ e dello stesso prodotto, con l'impronta, il gruppo e la fonte dello snapshot; i registri citati dalle
@@ -275,6 +297,17 @@ ALTER TABLE conferma_strutturale
 CREATE INDEX ix_conferma_importazione ON conferma_strutturale (importazione_id) WHERE importazione_id IS NOT NULL;
 CREATE INDEX ix_conferma_importazioni_citate ON conferma_strutturale USING gin (importazioni_citate)
     WHERE importazioni_citate IS NOT NULL;
+-- La verifica di V1 si calcola, non si salva (U2 §5.4, U2-P29; base B di U2-Q14 / V1-Q36): nel formato 3 la colonna
+-- porta solo la regola con cui la verifica si deriva, mai un esito. I formati 1 e 2 restano come sono.
+ALTER TABLE conferma_strutturale
+    ADD CONSTRAINT ck_conferma_verifica CHECK (formato <> 3 OR verifica = '{"regola": "prima-istanza-1"}'::jsonb);
+-- La provenienza delle PB nella conferma formato 3 (direttiva 39 §4, D-PB03 A [U]): ogni PB confermata ha la sua
+-- provenienza fra i quattro valori, e l'importazione d'origine (un'impronta) solo con motore o corretta. E' la PB che R5
+-- copia sulla AR (provenienza_pb, importazione_id: invariante (b) di trg_fra_invarianti).
+ALTER TABLE conferma_strutturale
+    ADD CONSTRAINT ck_conferma_preassociazioni CHECK (formato <> 3
+        OR (NOT jsonb_path_exists(snapshot, '$.documenti_preassociati[*] ? (!(@.provenienza == "motore" || @.provenienza == "corretta" || @.provenienza == "manuale" || @.provenienza == "legacy"))')
+            AND NOT jsonb_path_exists(snapshot, '$.documenti_preassociati[*] ? (exists(@.importazione) && !((@.provenienza == "motore" || @.provenienza == "corretta") && @.importazione like_regex "^[0-9a-f]{64}$"))')));
 
 -- Un array non puo' avere una FK: l'esistenza e l'appartenenza dei registri in importazioni_citate le controlla il
 -- trigger di nascita qui sotto, e i registri non si cancellano (P4X02). Corpo della 0022 con tre aggiunte: la bozza
@@ -495,6 +528,11 @@ BEGIN
 END $$;
 
 -- ============================================================ 6. NODI NON INCLUSI (LS-02)
+-- Una riga per nodo della fonte che la conferma lascia fuori dalla BOM (U2 §6.1, U2-P28): origine non_includere (la
+-- decisione dello snapshot, con azione e motivo), oppure la traccia di un'esclusione senza decisione propria: assenza
+-- (voce della proposta assente dalla bozza), legacy (tolta nelle pagine vecchie, Q13), ereditata (dalla conferma di
+-- base), escludi (un registrato escluso, con la sua casella). Per queste decisione, azione e motivo sono facoltativi: il
+-- motivo che manca si dichiara, non si inventa ([UR] Q13).
 CREATE TABLE conferma_strutturale_non_incluso (
     conferma_id   uuid NOT NULL,
     thread_id     uuid NOT NULL,
@@ -502,10 +540,11 @@ CREATE TABLE conferma_strutturale_non_incluso (
     chiave        text NOT NULL,                      -- la chiave del PRODUCT nel file («#12»)
     allegato_id   uuid NOT NULL REFERENCES allegato,  -- l'occorrenza da cui e' stata presa la decisione
     gruppo        text NOT NULL,
-    decisione_id  text NOT NULL,                      -- id della decisione non_includere nello snapshot
-    azione_id     uuid NOT NULL,                      -- la selezione multipla
-    motivo_codice text NOT NULL,
-    motivo        text NOT NULL,
+    origine       text NOT NULL DEFAULT 'non_includere',
+    decisione_id  text,                               -- id della decisione nello snapshot (obbligatorio con non_includere)
+    azione_id     uuid,                               -- la selezione multipla (obbligatoria con non_includere)
+    motivo_codice text,
+    motivo        text,
     segnale       jsonb,                              -- {codice, regola, versione_servizio}; NULL = nodo non segnalato
     righe_chiuse  uuid[] NOT NULL DEFAULT '{}',       -- componente_proposta.proposta_id chiuse da R5 (copie storiche, senza FK)
     archi_chiusi  jsonb NOT NULL DEFAULT '[]',        -- [{allegato_id, padre_chiave, figlio_chiave}] di relazione_proposta chiuse da R5
@@ -516,9 +555,12 @@ CREATE TABLE conferma_strutturale_non_incluso (
     CONSTRAINT ck_csni_sha CHECK (sha256 ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_csni_chiave CHECK (btrim(chiave) <> '' AND char_length(chiave) <= 330),
     CONSTRAINT ck_csni_gruppo CHECK (btrim(gruppo) <> '' AND char_length(gruppo) <= 300),
-    CONSTRAINT ck_csni_decisione CHECK (decisione_id ~ '^[A-Za-z0-9._:-]{1,64}$'),
-    CONSTRAINT ck_csni_motivo CHECK (motivo_codice IN ('elemento_cad', 'duplicato_cad', 'non_articolo', 'altro')
-        AND btrim(motivo) <> '' AND char_length(motivo) <= 1000),
+    CONSTRAINT ck_csni_origine CHECK (origine IN ('non_includere', 'assenza', 'legacy', 'ereditata', 'escludi')
+        AND (origine <> 'non_includere' OR (decisione_id IS NOT NULL AND azione_id IS NOT NULL AND motivo_codice IS NOT NULL
+                                            AND motivo IS NOT NULL))),
+    CONSTRAINT ck_csni_decisione CHECK (decisione_id IS NULL OR decisione_id ~ '^[A-Za-z0-9._:-]{1,64}$'),
+    CONSTRAINT ck_csni_motivo CHECK ((motivo_codice IS NULL OR motivo_codice IN ('elemento_cad', 'duplicato_cad', 'non_articolo', 'altro'))
+        AND (motivo IS NULL OR (btrim(motivo) <> '' AND char_length(motivo) <= 1000))),
     CONSTRAINT ck_csni_json CHECK ((segnale IS NULL OR (jsonb_typeof(segnale) = 'object' AND pg_column_size(segnale) <= 8192))
         AND jsonb_typeof(archi_chiusi) = 'array' AND pg_column_size(archi_chiusi) <= 1048576)
 );
@@ -687,7 +729,7 @@ BEGIN
                           x -> 'segnale_visto' AS segnale                                             -- (0023)
                      FROM jsonb_array_elements(NEW.snapshot -> 'decisioni') x  -- un array: ck_conferma_snapshot  -- (0023)
                     WHERE x ->> 'tipo' = 'non_includere'),                                            -- (0023)
-             r AS (SELECT * FROM conferma_strutturale_non_incluso WHERE conferma_id = NEW.conferma_id)  -- (0023)
+             r AS (SELECT * FROM conferma_strutturale_non_incluso WHERE conferma_id = NEW.conferma_id AND origine = 'non_includere')  -- (0023)
         SELECT COALESCE(r.decisione_id, d.id) AS id INTO manca                                        -- (0023)
           FROM r FULL JOIN d ON d.id = r.decisione_id                                                 -- (0023)
          WHERE r.decisione_id IS NULL OR d.id IS NULL                                                 -- (0023)
@@ -698,6 +740,18 @@ BEGIN
         IF FOUND THEN                                                                                 -- (0023)
             RAISE EXCEPTION USING ERRCODE = 'P4X01',                                                  -- (0023)
                 MESSAGE = format('conferma %s: i nodi non inclusi non sono le decisioni non_includere dello snapshot (%s)', NEW.conferma_id, manca.id);  -- (0023)
+        END IF;                                                                                       -- (0023)
+        -- (iv) le tracce delle altre esclusioni (assenza, legacy, ereditata, escludi; U2 §6.1): una decisione citata e'  -- (0023)
+        --      una decisione dello snapshot, mai una non_includere (quelle hanno la loro riga)              -- (0023)
+        SELECT r.decisione_id AS id INTO manca                                                        -- (0023)
+          FROM conferma_strutturale_non_incluso r                                                     -- (0023)
+         WHERE r.conferma_id = NEW.conferma_id AND r.origine <> 'non_includere' AND r.decisione_id IS NOT NULL  -- (0023)
+           AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.snapshot -> 'decisioni') x          -- (0023)
+                            WHERE x ->> 'id' = r.decisione_id AND x ->> 'tipo' <> 'non_includere')    -- (0023)
+         LIMIT 1;                                                                                     -- (0023)
+        IF FOUND THEN                                                                                 -- (0023)
+            RAISE EXCEPTION USING ERRCODE = 'P4X01',                                                  -- (0023)
+                MESSAGE = format('conferma %s: la traccia di un''esclusione cita la decisione %s, che lo snapshot non ha (o e'' una non_includere)', NEW.conferma_id, manca.id);  -- (0023)
         END IF;                                                                                       -- (0023)
     END IF;                                                                                           -- (0023)
     IF NEW.bozza_id IS NOT NULL
@@ -716,7 +770,9 @@ ALTER TABLE esito_intento DROP CONSTRAINT ck_esito_intento_gesto, DROP CONSTRAIN
 ALTER TABLE esito_intento
     ADD CONSTRAINT ck_esito_intento_gesto CHECK (gesto IN (
         'conferma_bom_v2', 'conferma_bom_v3', 'lotto_fascicolo', 'correggi_documento', 'fonte_step', 'riprova_copia',
-        'scarta_file', 'altri_file', 'riattiva_file', 'associa_step')),
+        'scarta_file', 'altri_file', 'riattiva_file', 'associa_step',
+        'conferma_sorgente', 'rifiuta_proposta',       -- S8 e R15 (U2 §2.2, §5.7)
+        'revoca_sorgente')),                           -- la revoca della sorgente (direttiva 39 §2; R39-11)
     ADD CONSTRAINT ck_esito_intento_conferma CHECK ((gesto IN ('conferma_bom_v2', 'conferma_bom_v3')) = (conferma_id IS NOT NULL));
 
 -- Il gesto della conferma dice il suo formato: conferma_bom_v2 per una formato 2, conferma_bom_v3 per una formato 3.
@@ -736,6 +792,39 @@ BEGIN
 END $$;
 CREATE TRIGGER trg_esito_intento_formato BEFORE INSERT ON esito_intento
     FOR EACH ROW EXECUTE FUNCTION esito_intento_formato();
+
+-- Il rifiuto della proposta aggiornata di un prodotto confermato, senza bozza (R15; U2 §5.7, [U] C-04): «mantengo la BOM
+-- confermata» per quella proposta (gruppo e impronta del contenuto) rispetto a quella conferma. In sola aggiunta: non
+-- tocca componenti, conferme, fonti ne' righe di proposta; non cambia la verifica (vincolo [U] di DEC:125).
+CREATE TABLE proposta_aggiornata_rifiuto (
+    rifiuto_id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    thread_id          uuid NOT NULL REFERENCES thread_offerta,
+    prodotto_id        uuid NOT NULL,
+    conferma_id        uuid NOT NULL,
+    gruppo             text NOT NULL,
+    impronta_contenuto char(64) NOT NULL,
+    differenze         jsonb NOT NULL DEFAULT '{}',   -- le differenze mostrate (per tipo), com'erano al rifiuto
+    motivo             text NOT NULL,
+    autore_id          uuid NOT NULL REFERENCES utente,
+    quando             timestamptz NOT NULL DEFAULT now(),
+    tx                 xid8 NOT NULL DEFAULT pg_current_xact_id(),
+    chiave_idempotenza uuid NOT NULL,
+    CONSTRAINT fk_par_prodotto FOREIGN KEY (thread_id, prodotto_id) REFERENCES componente (thread_id, componente_id),
+    CONSTRAINT fk_par_conferma FOREIGN KEY (thread_id, conferma_id) REFERENCES conferma_strutturale (thread_id, conferma_id),
+    CONSTRAINT fk_par_conferma_prodotto FOREIGN KEY (conferma_id, prodotto_id) REFERENCES conferma_strutturale (conferma_id, prodotto_id),
+    CONSTRAINT ux_par_chiave UNIQUE (chiave_idempotenza),
+    CONSTRAINT ck_par_gruppo CHECK (btrim(gruppo) <> '' AND char_length(gruppo) <= 300),
+    CONSTRAINT ck_par_impronta CHECK (impronta_contenuto ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_par_motivo CHECK (btrim(motivo) <> '' AND char_length(motivo) <= 1000),
+    CONSTRAINT ck_par_differenze CHECK (jsonb_typeof(differenze) = 'object' AND pg_column_size(differenze) <= 1048576)
+);
+CREATE INDEX ix_par_conferma ON proposta_aggiornata_rifiuto (conferma_id, impronta_contenuto);
+CREATE TRIGGER trg_par_ora BEFORE INSERT ON proposta_aggiornata_rifiuto
+    FOR EACH ROW EXECUTE FUNCTION p4_ora_del_database('quando');
+CREATE TRIGGER trg_par_solo_aggiunte BEFORE UPDATE OR DELETE ON proposta_aggiornata_rifiuto
+    FOR EACH ROW EXECUTE FUNCTION p4_rifiuta('P4X02', 'il rifiuto di una proposta aggiornata non si modifica e non si cancella');
+CREATE TRIGGER trg_par_non_si_svuota BEFORE TRUNCATE ON proposta_aggiornata_rifiuto
+    FOR EACH STATEMENT EXECUTE FUNCTION p4_rifiuta('P4X02', 'i rifiuti delle proposte aggiornate non si svuotano');
 
 -- ============================================================ 9. CICLO DEI FILE DELLA SORGENTE
 -- Lo stato dell'occorrenza (RFQ, allegato) nella RFQ. «Nessuna riga» vale «attivo»: la riga nasce al primo gesto,
@@ -995,91 +1084,169 @@ CREATE TRIGGER trg_rim_non_si_cancella BEFORE DELETE ON file_rfq_rimozione
 CREATE TRIGGER trg_rim_non_si_svuota BEFORE TRUNCATE ON file_rfq_rimozione
     FOR EACH STATEMENT EXECUTE FUNCTION p4_rifiuta('P4X02', 'le rimozioni non si svuotano');
 
--- La copia nel deposito di conservazione degli «Altri file» ([conservazione].radice in cockpit.toml). La riga nasce
--- prima della transizione (fase A): FK verso RFQ e allegato, non verso file_rfq. Il percorso e' relativo alla radice,
--- lo calcola il trigger di nascita e ha la sola forma <thread_id>\<allegato_id>.<conservazione_id>.<ext>: un file per
--- riga, mai condiviso fra due righe, nemmeno fra due cicli della stessa occorrenza. deposito_id e' l'UUID del
--- segnaposto della radice in cui la copia e' stata scritta.
+-- La copia di un «Altro file» nella cartella ALTRO della RFQ sul NAS (U2 §3; [U] Q06, C-02 B): la stessa cartella dei
+-- documenti confermati di tipo «altro»; che cosa e' confermato e che cosa e' solo conservato lo dice il database. La riga
+-- nasce prima della transizione (fase A): FK verso RFQ e allegato, non verso file_rfq. percorso_relativo e' ALTRO\<nome>,
+-- relativo alla cartella della RFQ (la stessa base di documento.path_relativo): il nome lo sceglie e lo riserva il Go
+-- in fase A, sotto BloccaCartella; il database lo controlla e non lo calcola; non cambia piu'. radice_id e' l'impronta
+-- della radice del NAS normalizzata (UUID v5) in cui la copia e' stata scritta; cartella_thread la fotografia di
+-- thread_offerta.cartella_relativa al momento della copia. creato_dal_cockpit e' la prova durevole che il file l'ha
+-- creato il cockpit (token del tentativo, sha verificato): senza, il file non si toglie mai (U2 §3.4, §3.7).
 CREATE TABLE file_rfq_conservazione (
     conservazione_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     thread_id             uuid NOT NULL REFERENCES thread_offerta,
     allegato_id           uuid NOT NULL REFERENCES allegato,
     sha256                char(64) NOT NULL,
     bytes                 bigint,
-    percorso_relativo     varchar(500) NOT NULL,
-    deposito_id           uuid NOT NULL,
+    percorso_relativo     varchar(300) NOT NULL,
+    radice_id             uuid NOT NULL,
+    cartella_thread       varchar(500),
+    creato_dal_cockpit    boolean NOT NULL DEFAULT false,
+    token                 uuid NOT NULL DEFAULT gen_random_uuid(),   -- il tentativo di copia (parziale ALTRO\<nome>.parte.<token>)
+    token_rimozione       uuid,                                      -- il tentativo di rimozione (nome di servizio)
+    ultimo_battito        timestamptz,                               -- il battito della copia in volo (§3.3 passo 2)
+    eredita_da            bigint REFERENCES file_rfq_conservazione,  -- la riga trattenuta di cui riusa il file e la prova
+    ceduta_a              bigint,                                    -- la riga erede, per una riga ceduta
     sorgente_byte         text,
     stato                 text NOT NULL DEFAULT 'in_copia',
     causa                 text,
+    esito_rimozione       text,
+    stato_copia           text,                                      -- l'ultima verifica del custode (S1, §3.12)
+    stato_copia_il        timestamptz,
     errore                text,
     tentativi             int NOT NULL DEFAULT 0,
     prossimo_tentativo_il timestamptz,
     chiave_idempotenza    uuid,
     iniziata_il           timestamptz NOT NULL DEFAULT now(),
     verificato_il         timestamptz,
-    aggiornato_il         timestamptz NOT NULL DEFAULT now(),     -- il battito della copia (in_copia → in_copia)
+    aggiornato_il         timestamptz NOT NULL DEFAULT now(),
     concluso_il           timestamptz,
-    CONSTRAINT ck_cons_stato CHECK (stato IN ('in_copia', 'copiata', 'errore_copia', 'da_rilasciare', 'rilasciata')),
+    CONSTRAINT fk_cons_ceduta FOREIGN KEY (ceduta_a) REFERENCES file_rfq_conservazione DEFERRABLE INITIALLY DEFERRED,
+    -- vive: in_copia, copiata, da_rilasciare, in_rimozione, trattenuta; finali: errore_copia, rilasciata, ceduta
+    -- (trattenuta e' finale per il ciclo, ma il suo file e' ancora del cockpit: puo' solo essere ceduto a una riga erede)
+    CONSTRAINT ck_cons_stato CHECK (stato IN ('in_copia', 'copiata', 'errore_copia', 'da_rilasciare', 'in_rimozione', 'rilasciata',
+                                              'trattenuta', 'ceduta')),
     CONSTRAINT ck_cons_sha CHECK (sha256 ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT ck_cons_percorso CHECK (percorso_relativo ~ ('^' || thread_id::text || '[\\/]' || allegato_id::text
-                                                            || '\.' || conservazione_id::text || '\.[a-z0-9]{1,10}$')),
+    -- ALTRO\<nome>: un nome solo, senza barre, senza due punti, senza «..» e senza caratteri di controllo
+    CONSTRAINT ck_cons_percorso CHECK (percorso_relativo ~ '^ALTRO\\[^\\/:[:cntrl:]]+$' AND position('..' IN percorso_relativo) = 0),
+    CONSTRAINT ck_cons_cartella CHECK (cartella_thread IS NULL OR btrim(cartella_thread) <> ''),
     CONSTRAINT ck_cons_sorgente CHECK (sorgente_byte IS NULL OR sorgente_byte IN ('staging', 'conservazione', 'nas')),
-    -- causa: obbligatoria con errore_copia; facoltativa con da_rilasciare e rilasciata (perche' la copia si rilascia)
+    -- causa: obbligatoria con errore_copia; vietata con in_copia e copiata; facoltativa negli altri stati (perche' la copia
+    -- esce da Altri file)
     CONSTRAINT ck_cons_causa CHECK ((stato <> 'errore_copia' OR causa IS NOT NULL)
         AND (stato NOT IN ('in_copia', 'copiata') OR causa IS NULL)
         AND (causa IS NULL OR causa IN ('spazio', 'permessi', 'sorgente_illeggibile', 'verifica_sha', 'conflitto', 'tempo_scaduto',
-                                        'rifiutata', 'riattivato', 'scartato'))),
+                                        'rifiutata', 'riattivato', 'scartato', 'nas_irraggiungibile'))),
+    -- gli esiti della rimozione dal NAS (U2 §3.7): in attesa o in errore da ripulire con da_rilasciare; conclusi con
+    -- rilasciata («rimosso» solo con la prova di creazione); nessun esito negli altri stati
+    CONSTRAINT ck_cons_esito CHECK (
+           (esito_rimozione IS NULL AND stato NOT IN ('da_rilasciare', 'rilasciata'))
+        OR (stato = 'da_rilasciare' AND (esito_rimozione IS NULL OR esito_rimozione IN ('scrittura_nas_spenta', 'nas_irraggiungibile',
+                'file_occupato', 'copia_in_volo', 'radice_cambiata', 'fuori_cartella', 'nome_ripreso')))
+        OR (stato = 'rilasciata' AND (esito_rimozione IS NULL OR esito_rimozione IN ('rimosso', 'gia_assente', 'non_nostro',
+                'percorso_di_un_documento', 'file_cambiato')))),
+    CONSTRAINT ck_cons_rimozione CHECK ((stato <> 'in_rimozione' OR (creato_dal_cockpit AND token_rimozione IS NOT NULL
+                                                                     AND cartella_thread IS NOT NULL AND causa IS NOT NULL))
+        AND (esito_rimozione IS DISTINCT FROM 'rimosso' OR creato_dal_cockpit)),
+    CONSTRAINT ck_cons_ceduta CHECK ((stato = 'ceduta') = (ceduta_a IS NOT NULL)),
+    CONSTRAINT ck_cons_stato_copia CHECK ((stato_copia IS NULL OR stato_copia IN ('presente', 'cambiata', 'non_trovata'))
+        AND ((stato_copia IS NULL) = (stato_copia_il IS NULL))),
     CONSTRAINT ck_cons_copiata CHECK (stato <> 'copiata' OR (verificato_il IS NOT NULL AND sorgente_byte IS NOT NULL)),
     CONSTRAINT ck_cons_errore CHECK (errore IS NULL OR char_length(errore) <= 2000),
     CONSTRAINT ck_cons_tentativi CHECK (tentativi >= 0),
-    CONSTRAINT ck_cons_concluso CHECK ((stato IN ('errore_copia', 'rilasciata')) = (concluso_il IS NOT NULL))
+    CONSTRAINT ck_cons_concluso CHECK ((stato IN ('errore_copia', 'rilasciata', 'trattenuta', 'ceduta')) = (concluso_il IS NOT NULL))
 );
 -- una sola copia in corso o copiata per occorrenza; le righe da_rilasciare non contano: ognuna ha il suo file
 CREATE UNIQUE INDEX ux_cons_viva ON file_rfq_conservazione (thread_id, allegato_id)
     WHERE stato IN ('in_copia', 'copiata');
+-- un nome, un proprietario (U2 §3.2, §3.8): due righe vive non nominano mai lo stesso file della cartella ALTRO della
+-- stessa RFQ, a meno delle maiuscole (su SMB ALTRO\A.pdf e ALTRO\a.pdf sono lo stesso file)
+CREATE UNIQUE INDEX ux_cons_percorso_vivo ON file_rfq_conservazione (thread_id, lower(percorso_relativo))
+    WHERE stato IN ('in_copia', 'copiata', 'da_rilasciare', 'in_rimozione', 'trattenuta');
 CREATE INDEX ix_cons_custode ON file_rfq_conservazione (prossimo_tentativo_il)
-    WHERE stato IN ('in_copia', 'da_rilasciare');
-CREATE INDEX ix_cons_allegato ON file_rfq_conservazione (allegato_id) WHERE stato IN ('copiata', 'da_rilasciare');
+    WHERE stato IN ('in_copia', 'da_rilasciare', 'in_rimozione');
+CREATE INDEX ix_cons_allegato ON file_rfq_conservazione (allegato_id) WHERE stato IN ('copiata', 'da_rilasciare', 'trattenuta');
 CREATE TRIGGER trg_cons_ora BEFORE INSERT ON file_rfq_conservazione
     FOR EACH ROW EXECUTE FUNCTION p4_ora_del_database('iniziata_il', 'aggiornato_il');
 
+-- La nascita: l'allegato e' della RFQ con lo sha256; la riga nasce in_copia, senza esiti; il percorso (gia' scelto dal
+-- Go, ALTRO\<nome>) lo controlla il CHECK. La prova di creazione nasce falsa, salvo l'eredita' (U2 §3.8): una riga che
+-- riusa il file di una riga trattenuta della stessa RFQ, con lo stesso nome, lo stesso sha e la stessa radice, ne
+-- eredita la prova; la riga trattenuta passa a ceduta nella stessa istruzione, cosi' un solo file ha una sola riga viva.
 CREATE FUNCTION file_rfq_conservazione_nasce() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
-    ext text;
+    v record;
 BEGIN
-    SELECT CASE WHEN lower(a.estensione) ~ '^[a-z0-9]{1,10}$' THEN lower(a.estensione) ELSE 'bin' END INTO ext
-      FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
-     WHERE a.allegato_id = NEW.allegato_id AND m.thread_id = NEW.thread_id AND a.sha256 = NEW.sha256;
-    IF NOT FOUND THEN
+    IF NOT EXISTS (SELECT 1 FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+                    WHERE a.allegato_id = NEW.allegato_id AND m.thread_id = NEW.thread_id AND a.sha256 = NEW.sha256) THEN
         RAISE EXCEPTION USING ERRCODE = 'P4X09',
             MESSAGE = format('file_rfq_conservazione: l''allegato %s non e'' della RFQ %s con lo sha256 %s', NEW.allegato_id, NEW.thread_id, NEW.sha256);
     END IF;
-    IF NEW.stato <> 'in_copia' OR NEW.verificato_il IS NOT NULL OR NEW.concluso_il IS NOT NULL THEN
+    IF NEW.stato <> 'in_copia' OR NEW.verificato_il IS NOT NULL OR NEW.concluso_il IS NOT NULL OR NEW.token_rimozione IS NOT NULL
+       OR NEW.ceduta_a IS NOT NULL OR NEW.esito_rimozione IS NOT NULL OR NEW.stato_copia IS NOT NULL THEN
         RAISE EXCEPTION USING ERRCODE = 'P4X09',
-            MESSAGE = format('file_rfq_conservazione %s: nasce in_copia', NEW.allegato_id);
+            MESSAGE = format('file_rfq_conservazione %s: nasce in_copia, senza esiti', NEW.allegato_id);
     END IF;
-    -- il percorso lo calcola il database, mai il client ne' il Go
-    NEW.percorso_relativo := NEW.thread_id::text || '\' || NEW.allegato_id::text || '.' || NEW.conservazione_id::text || '.' || ext;
+    IF NEW.eredita_da IS NULL THEN
+        IF NEW.creato_dal_cockpit THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X09',
+                MESSAGE = format('file_rfq_conservazione %s: la prova di creazione si registra dopo la promozione, non alla nascita', NEW.allegato_id);
+        END IF;
+        RETURN NEW;
+    END IF;
+    SELECT c.* INTO v FROM file_rfq_conservazione c WHERE c.conservazione_id = NEW.eredita_da FOR UPDATE;
+    IF NOT FOUND OR v.stato <> 'trattenuta' OR NOT v.creato_dal_cockpit OR v.thread_id <> NEW.thread_id OR v.sha256 <> NEW.sha256
+       OR lower(v.percorso_relativo) <> lower(NEW.percorso_relativo) OR v.radice_id <> NEW.radice_id
+       OR v.cartella_thread IS DISTINCT FROM NEW.cartella_thread OR NOT NEW.creato_dal_cockpit THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X09',
+            MESSAGE = format('file_rfq_conservazione %s: eredita dalla riga %s solo una copia trattenuta del cockpit della stessa RFQ, con lo stesso nome, sha e radice, e ne prende la prova',
+                             NEW.allegato_id, NEW.eredita_da);
+    END IF;
+    PERFORM set_config('cockpit.cons_cessione', NEW.eredita_da::text, true);
+    UPDATE file_rfq_conservazione SET stato = 'ceduta', ceduta_a = NEW.conservazione_id WHERE conservazione_id = NEW.eredita_da;
+    PERFORM set_config('cockpit.cons_cessione', '', true);
     RETURN NEW;
 END $$;
 CREATE TRIGGER trg_cons_nasce BEFORE INSERT ON file_rfq_conservazione FOR EACH ROW EXECUTE FUNCTION file_rfq_conservazione_nasce();
--- conservazione_id (identita') ha gia' il suo valore nel trigger BEFORE: la riga si inserisce con un percorso
--- segnaposto e il trigger lo sostituisce; il Go legge il percorso con RETURNING.
 
--- Transizioni: in_copia → in_copia (battito) | copiata | errore_copia | da_rilasciare; copiata → da_rilasciare;
--- da_rilasciare → da_rilasciare (nuovo tentativo) | rilasciata. errore_copia e rilasciata sono finali.
+-- Transizioni (U2 §3.3, §3.7, §3.8; base B di U2-Q01): in_copia → in_copia (battito) | copiata | errore_copia |
+-- da_rilasciare; copiata → copiata (la verifica del custode, stato_copia) | da_rilasciare | trattenuta; trattenuta →
+-- trattenuta (la verifica del custode); da_rilasciare → da_rilasciare (nuovo tentativo, esito) |
+-- in_rimozione | rilasciata | trattenuta; in_rimozione → in_rimozione | da_rilasciare | rilasciata; trattenuta → ceduta
+-- (solo nella nascita della riga erede). errore_copia, rilasciata e ceduta sono finali. La prova di creazione si
+-- registra (falso → vero) solo su una riga in_copia o gia' da_rilasciare (passo 4: lo scarto puo' arrivare prima) e non
+-- torna mai falsa; il token di rimozione cambia solo entrando in in_rimozione.
 CREATE FUNCTION file_rfq_conservazione_cambia() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-    IF (NEW.thread_id, NEW.allegato_id, NEW.sha256, NEW.percorso_relativo, NEW.deposito_id, NEW.chiave_idempotenza, NEW.iniziata_il)
-       IS DISTINCT FROM (OLD.thread_id, OLD.allegato_id, OLD.sha256, OLD.percorso_relativo, OLD.deposito_id, OLD.chiave_idempotenza, OLD.iniziata_il) THEN
+    IF (NEW.thread_id, NEW.allegato_id, NEW.sha256, NEW.percorso_relativo, NEW.radice_id, NEW.cartella_thread, NEW.token,
+        NEW.eredita_da, NEW.chiave_idempotenza, NEW.iniziata_il)
+       IS DISTINCT FROM (OLD.thread_id, OLD.allegato_id, OLD.sha256, OLD.percorso_relativo, OLD.radice_id, OLD.cartella_thread, OLD.token,
+                         OLD.eredita_da, OLD.chiave_idempotenza, OLD.iniziata_il) THEN
         RAISE EXCEPTION USING ERRCODE = 'P4X09',
-            MESSAGE = format('file_rfq_conservazione %s: identita'', percorso, deposito e chiave non cambiano', OLD.conservazione_id);
+            MESSAGE = format('file_rfq_conservazione %s: identita'', percorso, radice, cartella, token, eredita'' e chiave non cambiano', OLD.conservazione_id);
     END IF;
     IF NOT ((OLD.stato = 'in_copia' AND NEW.stato IN ('in_copia', 'copiata', 'errore_copia', 'da_rilasciare'))
-            OR (OLD.stato = 'copiata' AND NEW.stato = 'da_rilasciare')
-            OR (OLD.stato = 'da_rilasciare' AND NEW.stato IN ('da_rilasciare', 'rilasciata'))) THEN
+            OR (OLD.stato = 'copiata' AND NEW.stato IN ('copiata', 'da_rilasciare', 'trattenuta'))
+            OR (OLD.stato = 'trattenuta' AND NEW.stato = 'trattenuta')
+            OR (OLD.stato = 'da_rilasciare' AND NEW.stato IN ('da_rilasciare', 'in_rimozione', 'rilasciata', 'trattenuta'))
+            OR (OLD.stato = 'in_rimozione' AND NEW.stato IN ('in_rimozione', 'da_rilasciare', 'rilasciata'))
+            OR (OLD.stato = 'trattenuta' AND NEW.stato = 'ceduta'
+                AND COALESCE(current_setting('cockpit.cons_cessione', true), '') = OLD.conservazione_id::text)) THEN
         RAISE EXCEPTION USING ERRCODE = 'P4X09',
             MESSAGE = format('file_rfq_conservazione %s: da %s a %s non e'' ammesso', OLD.conservazione_id, OLD.stato, NEW.stato);
+    END IF;
+    IF OLD.creato_dal_cockpit AND NOT NEW.creato_dal_cockpit THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X09',
+            MESSAGE = format('file_rfq_conservazione %s: la prova di creazione non si toglie', OLD.conservazione_id);
+    END IF;
+    IF NEW.creato_dal_cockpit AND NOT OLD.creato_dal_cockpit AND OLD.stato NOT IN ('in_copia', 'da_rilasciare') THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X09',
+            MESSAGE = format('file_rfq_conservazione %s: la prova di creazione si registra solo su una copia in corso o gia'' da rilasciare (stato %s)',
+                             OLD.conservazione_id, OLD.stato);
+    END IF;
+    IF NEW.token_rimozione IS DISTINCT FROM OLD.token_rimozione AND NOT (NEW.stato = 'in_rimozione' AND OLD.stato = 'da_rilasciare') THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X09',
+            MESSAGE = format('file_rfq_conservazione %s: il token di rimozione cambia solo entrando in rimozione', OLD.conservazione_id);
     END IF;
     IF NEW.tentativi < OLD.tentativi THEN
         RAISE EXCEPTION USING ERRCODE = 'P4X09',
@@ -1089,7 +1256,7 @@ BEGIN
     IF NEW.stato = 'copiata' AND OLD.stato <> 'copiata' THEN
         NEW.verificato_il := now();
     END IF;
-    IF NEW.stato IN ('errore_copia', 'rilasciata') THEN
+    IF NEW.stato IN ('errore_copia', 'rilasciata', 'trattenuta', 'ceduta') AND NEW.stato <> OLD.stato THEN
         NEW.concluso_il := now();
     END IF;
     RETURN NEW;
@@ -1154,6 +1321,827 @@ CREATE FUNCTION file_rfq_attivo(p_thread uuid, p_allegato uuid) RETURNS boolean 
     SELECT p_thread IS NULL OR NOT EXISTS (
         SELECT 1 FROM file_rfq f WHERE f.thread_id = p_thread AND f.allegato_id = p_allegato AND f.stato <> 'attivo')
 $$;
+
+-- Lo scarto fatto col vecchio «Scarta il file», scritto una volta sola (DEC-B §5.1, PF-06 rivista): la proposta del
+-- documento scartata da una persona; l'occorrenza attiva per il ciclo dei file (nessuna riga, o la riga in attivo dopo
+-- una «Riattiva»); nessun evento «scarta» del ciclo per l'allegato, in nessuna RFQ. Per il ciclo dei file, il Motore A,
+-- F8 e la bozza vale scartato; file_rfq_attivo resta com'e' per le viste e i lettori legacy, che escludono gia' le
+-- proposte scartate.
+CREATE FUNCTION file_rfq_scartato_legacy(p_thread uuid, p_allegato uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (SELECT 1 FROM documento_proposta p
+                    WHERE p.allegato_id = p_allegato AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL)
+       AND NOT EXISTS (SELECT 1 FROM file_rfq f WHERE f.thread_id = p_thread AND f.allegato_id = p_allegato AND f.stato <> 'attivo')
+       AND NOT EXISTS (SELECT 1 FROM file_rfq_evento e WHERE e.allegato_id = p_allegato AND e.azione = 'scarta')
+$$;
+
+-- ============================================================ 9b. LA RISOLUZIONE DELLA FONTE SECONDARIA (DEC-B PB-34)
+-- Corpo della 0022 con «lo stesso nodo» del vocabolario 2: una chiave tolta e rimessa e' lo stesso nodo se il nodo
+-- rimesso ha una casella (allegato, rif) in comune con la copia dell'evento (nodo STEP), oppure lo stesso componente
+-- (nodo registrato), oppure (vocabolario 1) e' la stessa copia; azione_id, che il vocabolario 2 mette nel dopo, non
+-- conta. Un nodo senza casella ne' componente rimesso con un'altra forma resta diverso: P4X07 come prima.
+CREATE OR REPLACE FUNCTION fonte_step_risolvi() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    h       record;
+    riusata bigint;
+BEGIN
+    IF NEW.chiave_bozza IS NULL THEN
+        RETURN NULL;
+    END IF;
+    SELECT x.bozza_id, x.numero, x.confermato_da INTO h FROM conferma_strutturale x WHERE x.conferma_id = NEW.conferma_id;
+    IF NOT FOUND OR h.bozza_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    SELECT e.evento_id INTO riusata
+      FROM fonte_step_evento e
+     WHERE e.bozza_id = h.bozza_id AND e.chiave_bozza = NEW.chiave_bozza AND e.ruolo = 'sottoassieme'
+       AND e.componente_id IS NULL AND e.azione <> 'risoluzione'
+       AND NOT EXISTS (SELECT 1 FROM fonte_step_evento r WHERE r.risolve_evento_id = e.evento_id)
+       AND EXISTS (SELECT 1 FROM distinta_bozza_evento g
+                    WHERE g.bozza_id = h.bozza_id AND g.chiave_bozza = NEW.chiave_bozza AND g.azione = 'nodo_aggiunto'
+                      AND g.versione > (e.destinazione ->> 'versione')::int
+                      AND (g.dopo - 'azione_id') IS DISTINCT FROM ((e.destinazione -> 'nodo') - 'azione_id')            -- (0023)
+                      AND NOT (g.dopo ? 'componente_id' AND (e.destinazione -> 'nodo') ? 'componente_id'               -- (0023)
+                               AND g.dopo ->> 'componente_id' = (e.destinazione -> 'nodo') ->> 'componente_id')       -- (0023)
+                      AND NOT EXISTS (SELECT 1                                                                         -- (0023)
+                                        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(g.dopo -> 'caselle') = 'array'  -- (0023)
+                                                                       THEN g.dopo -> 'caselle' ELSE '[]'::jsonb END) cg,  -- (0023)
+                                             jsonb_array_elements(CASE WHEN jsonb_typeof(e.destinazione -> 'nodo' -> 'caselle') = 'array'  -- (0023)
+                                                                       THEN e.destinazione -> 'nodo' -> 'caselle' ELSE '[]'::jsonb END) ce  -- (0023)
+                                       WHERE cg ->> 'allegato_id' = ce ->> 'allegato_id' AND cg ->> 'rif' = ce ->> 'rif'))  -- (0023)
+     LIMIT 1;
+    IF FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X07',
+            MESSAGE = format('conferma n. %s: la destinazione temporanea %s dell''evento %s della fonte e'' stata riusata per un nodo diverso dopo l''evento; non si risolve sul nodo certificato',
+                             h.numero, NEW.chiave_bozza, riusata),
+            HINT = 'una chiave della bozza tolta non torna per un nodo diverso (regola di R2)';
+    END IF;
+    INSERT INTO fonte_step_evento (thread_id, prodotto_id, ruolo, componente_id, chiave_bozza, destinazione, risolve_evento_id, azione,
+                                   allegato_id, sha256, gruppo, proposta_id, documento_id, bozza_id, motivo, autore_id)
+    SELECT e.thread_id, e.prodotto_id, 'sottoassieme', NEW.componente_id, e.chiave_bozza, e.destinazione, e.evento_id, 'risoluzione',
+           e.allegato_id, e.sha256, e.gruppo, e.proposta_id, e.documento_id, e.bozza_id,
+           format('destinazione %s della bozza %s risolta dalla conferma n. %s', e.chiave_bozza, e.bozza_id, h.numero),
+           h.confermato_da
+      FROM fonte_step_evento e
+     WHERE e.bozza_id = h.bozza_id AND e.chiave_bozza = NEW.chiave_bozza AND e.ruolo = 'sottoassieme'
+       AND e.componente_id IS NULL AND e.azione <> 'risoluzione'
+       AND NOT EXISTS (SELECT 1 FROM fonte_step_evento r WHERE r.risolve_evento_id = e.evento_id)
+     ORDER BY e.evento_id;
+    RETURN NULL;
+END $$;
+
+-- ============================================================ 9c. IL DIGEST DEI FATTI (U2 §6.3.3, §3.14 riga 10)
+-- Lo sha256 di fatti (la forma testuale di jsonb, che e' canonica): la parte «proposta» di impronta-ingressi-1 lo legge
+-- senza leggere i fatti interi. Lo scrive il trigger per ogni scrittore (UpsertAnalisiFatti compreso), mai il Go; le
+-- righe di prima si riempiono qui (eccezione dichiarata alla regola «nessun riempimento», PM23 §4.13).
+ALTER TABLE analisi_fatti ADD COLUMN digest char(64);
+UPDATE analisi_fatti SET digest = encode(sha256(convert_to(fatti::text, 'UTF8')), 'hex');
+ALTER TABLE analisi_fatti ALTER COLUMN digest SET NOT NULL,
+    ADD CONSTRAINT ck_analisi_fatti_digest CHECK (digest ~ '^[0-9a-f]{64}$');
+CREATE FUNCTION analisi_fatti_digest() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.digest := encode(sha256(convert_to(NEW.fatti::text, 'UTF8')), 'hex');
+    RETURN NEW;
+END $$;
+CREATE TRIGGER trg_analisi_fatti_digest BEFORE INSERT OR UPDATE ON analisi_fatti
+    FOR EACH ROW EXECUTE FUNCTION analisi_fatti_digest();
+
+-- ============================================================ 9d. LE ASSOCIAZIONI REGISTRATE (direttiva 35 §2, §3)
+-- Le responsabilita' (direttiva 35 §1 [U]): file_rfq_associazione tiene le sole AR, le associazioni file → componente
+-- applicate da un atto autorizzato. Mai le proposte del Motore A (PA), mai le preassociazioni delle bozze (PB), mai il
+-- legame dello STEP sorgente di S7/S8, mai un documento confermato (quello e' documento). documento_proposta resta la
+-- classificazione; il suo componente_id diventa la copia derivata di compatibilita', scritta solo dal servizio unico
+-- delle AR nella stessa transazione (direttiva 35 §3 [U]).
+--
+-- Provenienza. [U] direttiva 35: la tabella, il nome, il contenuto (solo AR), la FK verso allegato e non file_rfq, le
+-- sei verifiche nel database (§2.1), l'unico scrittore, la copia derivata, R5 che registra le AR nella transazione
+-- della conferma (§2.2, strada raccomandata). [T] tutto il resto (piano delle dipendenze della direttiva 35, §3; base
+-- [T] del reviewer adottata dall'orchestratore): la PK propria, lo stato attiva | chiusa, le righe chiuse che restano,
+-- l'unicita' della AR attiva in un indice parziale separato dall'identita', il riuso di associazione_evento.
+--
+-- Lo stato dice solo se la relazione registrata e' quella corrente (attiva) o non lo e' piu' (chiusa): non incorpora
+-- file_rfq, R4, le preassociazioni, il fascicolo, il NAS, ne' quale revisione del PDF e' ufficiale. Una riga si chiude
+-- una volta sola (chi, quando, motivo) e resta; «Riattiva» non riapre una AR chiusa: riassociare e' una riga nuova.
+-- Spostare un nodo o confermare di nuovo senza cambiamenti non tocca le righe: la conferma d'origine resta in
+-- conferma_id. Le letture della working usano le sole righe attive. associazione_evento e' il giornale.
+--
+-- LE DECISIONI (direttiva 39, 19/10; [U] parola dell'utente, [T-39] scelta tecnica della delega operativa):
+--   D-AR01 A [U]     la AR nasce dalla conferma del wizard (R5): origine conferma_bom, punto 6 di trg_fra_nasce,
+--                     trg_conferma_associazioni;
+--   D-2 (c) [U]      non si escludono gli STEP per estensione: si rifiuta solo lo STEP legato come sorgente strutturale
+--                     del finito (allegato_sorgente_del_finito, punto 1 di trg_fra_nasce); contenitori e archivi restano
+--                     esclusi;
+--   D-AR03 D [U]     nelle RFQ formato 3 (rfq_e_formato3) i gesti atomici non scrivono AR; nelle RFQ interamente legacy
+--                     passano dal servizio unico con l'origine gesto_legacy, chiusa da sgancio_legacy;
+--   D-AR04 [U]       nessun backfill di AR; con D-AR14 A [T-39] la pre-assegnazione aperta (P1) si converte alla presa
+--                     in carico: un evento conversione_legacy nel giornale, l'unico con l'autore nullo;
+--   D-PB03 A [U]     la AR porta la provenienza della PB (provenienza_pb) e il registro d'importazione d'origine
+--                     (importazione_id), copia verificata dallo snapshot confermato (invariante (b));
+--   D-AR07 A [T-39]  unicita' per allegato, con il blocco se lo stesso contenuto e' gia' un documento confermato di un
+--                     altro componente (punto 5 di trg_fra_nasce);
+--   D-AR08 A [T-39]  con la BOM congelata associare e' rifiutato, scollegare resta libero (trg_fra_bom);
+--   D-4 A [T-39]     lo svincolo di una AR (decisione scollega_documento) cita {allegato_id, componente_id}
+--                     (invariante (c), trg_conferma_associazioni);
+--   D-ASS-04 A [T-39] una sola AR attiva per allegato (ux_fra_attiva_allegato, invariante (e)), con le righe chiuse che
+--                     restano;
+--   D-5              accertato con letture aggregate sulle due copie leggibili fuori dai database di prova (nessuna bozza
+--                     formato 3, nessun evento del giornale): la 0023 non e' distribuita e non va su dati di produzione.
+--                     Questa variante non cambia nessuna riga esistente: allarga solo vocabolari e aggiunge vincoli che le
+--                     righe di prima passano.
+--   La copia derivata  trg_proposta_copia_derivata e' ACCESO (variante 20261019d): dopo C-6b tutti gli scrittori della
+--                     copia documento_proposta.componente_id passano dal servizio unico (core/rfq/associazioni), che
+--                     scrive l'evento del giornale nella stessa transazione; le pre-assegnazioni P1 gia' scritte restano
+--                     com'erano (il trigger guarda solo i cambi nuovi).
+-- FUORI DA QUESTA VARIANTE: l'origine sorgente_step del giornale (S8 non ha il passo 1 e non scrive la copia dello STEP
+--   sorgente).
+--
+-- Codice d'errore: P4X10 (associazioni registrate).
+--
+-- «RFQ formato 3» (direttiva 39 §6 [U]; NOMI (i) e rilievo R39-08 [T-39]): una RFQ che ha avuto, in qualunque momento,
+-- una bozza formato 3 su un suo prodotto (una conferma formato 3 chiude sempre una bozza formato 3: ck_conferma_bozza,
+-- conferma_strutturale_nasce). L'abbandono non la riporta a legacy, e la conservazione cancella le bozze abbandonate dopo
+-- 90 giorni: il segno e' una riga per RFQ che il database scrive alla nascita della prima bozza formato 3 e che nessuno
+-- cambia o cancella. bozza_id dice da quale bozza e' nato, senza FK (la bozza si cancella, il segno resta). Nessun
+-- riempimento: prima della 0023 una bozza formato 3 non poteva esistere (ck_distinta_bozza_formato della 0022).
+CREATE TABLE rfq_formato3_segno (
+    thread_id uuid PRIMARY KEY REFERENCES thread_offerta,
+    bozza_id  uuid NOT NULL,
+    dal       timestamptz NOT NULL DEFAULT now(),
+    tx        xid8 NOT NULL DEFAULT pg_current_xact_id()
+);
+CREATE FUNCTION rfq_formato3_segna() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO rfq_formato3_segno (thread_id, bozza_id) VALUES (NEW.thread_id, NEW.bozza_id)
+    ON CONFLICT (thread_id) DO NOTHING;
+    RETURN NULL;
+END $$;
+CREATE TRIGGER trg_distinta_bozza_formato3 AFTER INSERT ON distinta_bozza
+    FOR EACH ROW WHEN (NEW.formato = 3) EXECUTE FUNCTION rfq_formato3_segna();
+CREATE TRIGGER trg_rfq_formato3_solo_aggiunte BEFORE UPDATE OR DELETE ON rfq_formato3_segno
+    FOR EACH ROW EXECUTE FUNCTION p4_rifiuta('P4X10', 'il segno della RFQ formato 3 non si cambia e non si cancella');
+CREATE TRIGGER trg_rfq_formato3_non_si_svuota BEFORE TRUNCATE ON rfq_formato3_segno
+    FOR EACH STATEMENT EXECUTE FUNCTION p4_rifiuta('P4X10', 'i segni delle RFQ formato 3 non si svuotano');
+-- L'unica definizione nel database; il Go la legge con associazioni.RFQFormato3.
+CREATE FUNCTION rfq_e_formato3(p_thread uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (SELECT 1 FROM rfq_formato3_segno s WHERE s.thread_id = p_thread)
+$$;
+
+-- Lo STEP «legato come sorgente strutturale del finito» (direttiva 39 §5 [U]; D-2 (c) [U]; EM I.10, il predicato lo
+-- fissa la persistenza [T-39]): l'allegato della RFQ il cui contenuto (sha256), per un prodotto finito della RFQ, e'
+--   (a) confermato come documento della sorgente (fonte_step_evento, ruolo prodotto, conferma_documento: da S8 o dalle
+--       pagine legacy) e non revocato (revoca, revoca_sorgente) ne' rifiutato dopo, con il documento non sostituito;
+--   (b) un documento cad_3d .stp/.step del finito, confermato e non sostituito, di un prodotto senza conferme di S8: il
+--       legame storico di D-AR04 (iii), preso anche quando non e' univoco (per prudenza [T-39]: quel file e' gia' un
+--       documento del finito);
+--   (c) il documento di componente.step_strutturale_id del finito (la sorgente della working);
+--   (d) la sorgente di una bozza aperta di un prodotto della RFQ (distinta_bozza.fonte_sha256, anche solo_prodotto).
+-- Solo questi STEP non diventano AR (punto 1 di trg_fra_nasce; R2 motivo legato_come_sorgente con la stessa funzione):
+-- gli STEP di parti e sottoassiemi usati come CAD 3D documentali seguono PB, R2, R4, R5 e AR come un PDF.
+CREATE FUNCTION allegato_sorgente_del_finito(p_thread uuid, p_allegato uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+    WITH a AS (SELECT x.sha256::text AS sha
+                 FROM allegato x JOIN messaggio m ON m.messaggio_id = x.messaggio_id
+                WHERE x.allegato_id = p_allegato AND m.thread_id = p_thread AND x.sha256 IS NOT NULL)
+    SELECT EXISTS (SELECT 1
+                     FROM a
+                     JOIN fonte_step_evento f ON f.thread_id = p_thread AND f.ruolo = 'prodotto' AND f.azione = 'conferma_documento'
+                                             AND f.sha256::text = a.sha
+                     JOIN componente c ON c.componente_id = f.prodotto_id AND c.thread_id = f.thread_id AND c.tipo = 'finito'
+                     LEFT JOIN documento d ON d.documento_id = f.documento_id
+                    WHERE d.sostituito_da IS NULL
+                      AND NOT EXISTS (SELECT 1 FROM fonte_step_evento g
+                                       WHERE g.thread_id = f.thread_id AND g.prodotto_id = f.prodotto_id AND g.ruolo = 'prodotto'
+                                         AND g.sha256 = f.sha256 AND g.evento_id > f.evento_id
+                                         AND g.azione IN ('revoca', 'revoca_sorgente', 'rifiuto')))
+        OR EXISTS (SELECT 1
+                     FROM a
+                     JOIN documento d ON d.thread_id = p_thread AND d.sha256::text = a.sha AND d.tipo = 'cad_3d'
+                                     AND lower(d.estensione) IN ('stp', 'step') AND d.sostituito_da IS NULL
+                     JOIN componente c ON c.componente_id = d.componente_id AND c.tipo = 'finito'
+                    WHERE NOT EXISTS (SELECT 1 FROM fonte_step_evento s
+                                       WHERE s.thread_id = d.thread_id AND s.prodotto_id = d.componente_id AND s.ruolo = 'prodotto'
+                                         AND s.azione = 'conferma_documento' AND s.chiave_idempotenza IS NOT NULL))
+        OR EXISTS (SELECT 1
+                     FROM a
+                     JOIN documento d ON d.sha256::text = a.sha
+                     JOIN componente c ON c.step_strutturale_id = d.documento_id AND c.thread_id = p_thread AND c.tipo = 'finito')
+        OR EXISTS (SELECT 1
+                     FROM a
+                     JOIN distinta_bozza b ON b.thread_id = p_thread AND b.stato = 'aperta' AND b.fonte_sha256::text = a.sha)
+$$;
+
+CREATE TABLE file_rfq_associazione (
+    -- l'identita' della riga: un UUID suo. La terna (thread, allegato, componente) non e' la chiave: lo stesso file si
+    -- associa, si scollega e si riassocia allo stesso componente, e ogni nascita e' una riga nuova
+    associazione_id    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    thread_id          uuid NOT NULL REFERENCES thread_offerta,
+    allegato_id        uuid NOT NULL REFERENCES allegato,         -- verso allegato, non file_rfq (direttiva 35 §2.1)
+    componente_id      uuid NOT NULL,
+    stato              text NOT NULL DEFAULT 'attiva',
+    -- l'atto che l'ha fatta nascere: conferma_bom (R5, D-AR01 A [U]) o gesto_legacy (un gesto atomico di una RFQ
+    -- interamente legacy, dal servizio unico: D-AR03 D [U])
+    origine            text NOT NULL,
+    conferma_id        uuid,                                       -- la conferma formato 3 che ha applicato la PB
+    chiave_bozza       text,                                       -- il nodo della bozza della PB applicata
+    -- la provenienza della PB applicata (D-PB03 A [U]) e il registro d'importazione d'origine, copia verificata dallo
+    -- snapshot confermato (invariante (b)); solo con conferma_bom
+    provenienza_pb     text,
+    importazione_id    uuid,
+    sostituisce_id     uuid,                                       -- la riga chiusa «sostituita» che questa rimpiazza
+    motivo             text,
+    chiave_idempotenza uuid NOT NULL,                              -- la chiave dell'atto (per R5 quella della conferma)
+    creata_da          uuid NOT NULL REFERENCES utente,
+    creata_il          timestamptz NOT NULL DEFAULT now(),         -- la scrive il database
+    tx                 xid8 NOT NULL DEFAULT pg_current_xact_id(),
+    -- la chiusura, una volta sola; la riga chiusa resta
+    chiusa_il          timestamptz,
+    chiusa_da          uuid REFERENCES utente,
+    motivo_chiusura    text,
+    chiusa_conferma_id uuid,                                       -- svincolo_conferma, sostituita da R5: la conferma
+    chiusa_chiave      uuid,                                       -- la chiave dell'atto che chiude
+    chiusa_nota        text,
+    chiusa_tx          xid8,
+    CONSTRAINT ux_fra_thread_id UNIQUE (thread_id, associazione_id),          -- bersaglio delle FK composite
+    -- §2.1 punto 2: il componente e' della stessa RFQ (ux_componente_thread_id, 0018); senza il codice, che resta solo
+    -- nella FK a tre campi della copia
+    CONSTRAINT fk_fra_componente FOREIGN KEY (thread_id, componente_id) REFERENCES componente (thread_id, componente_id),
+    CONSTRAINT fk_fra_conferma FOREIGN KEY (thread_id, conferma_id) REFERENCES conferma_strutturale (thread_id, conferma_id),
+    -- §2.1 punto 6: il componente di una AR di R5 e' certificato dalla conferma che l'ha fatta nascere (al COMMIT: R5
+    -- scrive i componenti certificati prima delle AR, ma il vincolo non impone l'ordine)
+    CONSTRAINT fk_fra_conferma_componente FOREIGN KEY (conferma_id, componente_id)
+        REFERENCES conferma_strutturale_componente (conferma_id, componente_id) DEFERRABLE INITIALLY DEFERRED,
+    CONSTRAINT fk_fra_chiusa_conferma FOREIGN KEY (thread_id, chiusa_conferma_id)
+        REFERENCES conferma_strutturale (thread_id, conferma_id),
+    CONSTRAINT fk_fra_sostituisce FOREIGN KEY (thread_id, sostituisce_id) REFERENCES file_rfq_associazione (thread_id, associazione_id),
+    -- il registro d'origine e' della stessa RFQ (del prodotto della conferma: invariante (b))
+    CONSTRAINT fk_fra_importazione FOREIGN KEY (thread_id, importazione_id) REFERENCES distinta_importazione (thread_id, importazione_id),
+    CONSTRAINT ck_fra_stato CHECK (stato IN ('attiva', 'chiusa')),
+    -- niente origini di backfill (D-AR04 [U])
+    CONSTRAINT ck_fra_origine CHECK (origine IN ('conferma_bom', 'gesto_legacy')),
+    -- conferma_bom: la conferma e il nodo; gesto_legacy: nessuno dei due (e nessuna provenienza: ck_fra_provenienza_pb)
+    CONSTRAINT ck_fra_conferma CHECK ((origine = 'conferma_bom') = (conferma_id IS NOT NULL)
+        AND (conferma_id IS NULL) = (chiave_bozza IS NULL)),
+    -- la provenienza della PB: obbligatoria con conferma_bom, vietata altrimenti; il registro d'origine solo con una PB
+    -- motore o corretta (EM I.8)
+    CONSTRAINT ck_fra_provenienza_pb CHECK ((provenienza_pb IS NULL OR provenienza_pb IN ('motore', 'corretta', 'manuale', 'legacy'))
+        AND (origine = 'conferma_bom') = (provenienza_pb IS NOT NULL)
+        AND (importazione_id IS NULL OR provenienza_pb IN ('motore', 'corretta'))),
+    CONSTRAINT ck_fra_chiave_bozza CHECK (chiave_bozza IS NULL OR chiave_bozza ~ '^[A-Za-z0-9._:-]{1,64}$'),
+    CONSTRAINT ck_fra_motivo CHECK ((motivo IS NULL OR (btrim(motivo) <> '' AND char_length(motivo) <= 1000))
+        AND (chiusa_nota IS NULL OR (btrim(chiusa_nota) <> '' AND char_length(chiusa_nota) <= 1000))),
+    CONSTRAINT ck_fra_sostituisce CHECK (sostituisce_id IS NULL OR sostituisce_id <> associazione_id),
+    -- attiva: nessun campo della chiusura; chiusa: chi, quando, la transazione e il motivo. svincolo_conferma e' di R5
+    -- (la conferma e la sua chiave); scollega_file (Scollega e scarta, Scollega e metti in Altri file: V1-Q22, V1-Q42
+    -- [U]), file_generale («Documentazione generale»), scarto_legacy (vecchio «Scarta il file») e sgancio_legacy («Togli»
+    -- di una RFQ interamente legacy, D-AR03 D [U]) non sono una conferma; sostituita puo' esserlo o no
+    CONSTRAINT ck_fra_chiusura CHECK (
+        (stato = 'attiva' AND chiusa_il IS NULL AND chiusa_da IS NULL AND motivo_chiusura IS NULL AND chiusa_conferma_id IS NULL
+         AND chiusa_chiave IS NULL AND chiusa_nota IS NULL AND chiusa_tx IS NULL)
+     OR (stato = 'chiusa' AND chiusa_il IS NOT NULL AND chiusa_da IS NOT NULL AND chiusa_tx IS NOT NULL
+         AND motivo_chiusura IN ('svincolo_conferma', 'sostituita', 'scollega_file', 'file_generale', 'scarto_legacy', 'sgancio_legacy')
+         AND (motivo_chiusura <> 'svincolo_conferma' OR (chiusa_conferma_id IS NOT NULL AND chiusa_chiave IS NOT NULL))
+         AND (motivo_chiusura NOT IN ('scollega_file', 'file_generale', 'scarto_legacy', 'sgancio_legacy') OR chiusa_conferma_id IS NULL)))
+);
+-- §2.3, D-ASS-04 A [T-39] (direttiva 39 §6): una sola AR attiva per allegato della RFQ. Indice PARZIALE, separato
+-- dall'identita': con D-ASS-04 = B si toglie solo questo (resta ux_fra_attiva_coppia).
+CREATE UNIQUE INDEX ux_fra_attiva_allegato ON file_rfq_associazione (thread_id, allegato_id) WHERE stato = 'attiva';
+-- con qualunque cardinalita': mai due righe attive della stessa coppia
+CREATE UNIQUE INDEX ux_fra_attiva_coppia ON file_rfq_associazione (thread_id, allegato_id, componente_id) WHERE stato = 'attiva';
+-- una riga si sostituisce al piu' una volta: la catena delle sostituzioni e' lineare
+CREATE UNIQUE INDEX ux_fra_sostituisce ON file_rfq_associazione (sostituisce_id) WHERE sostituisce_id IS NOT NULL;
+-- §2.4: lo stesso atto con la stessa chiave non fa nascere e non chiude due volte la stessa coppia (il componente sta
+-- nella chiave, cosi' il limite di cardinalita' resta solo in ux_fra_attiva_allegato)
+CREATE UNIQUE INDEX ux_fra_chiave ON file_rfq_associazione (chiave_idempotenza, allegato_id, componente_id);
+CREATE UNIQUE INDEX ux_fra_chiusa_chiave ON file_rfq_associazione (chiusa_chiave, allegato_id, componente_id)
+    WHERE chiusa_chiave IS NOT NULL;
+CREATE INDEX ix_fra_thread ON file_rfq_associazione (thread_id, creata_il);
+CREATE INDEX ix_fra_allegato ON file_rfq_associazione (allegato_id, creata_il);
+CREATE INDEX ix_fra_componente_attive ON file_rfq_associazione (componente_id) WHERE stato = 'attiva';
+CREATE INDEX ix_fra_conferma ON file_rfq_associazione (conferma_id) WHERE conferma_id IS NOT NULL;
+CREATE INDEX ix_fra_chiusa_conferma ON file_rfq_associazione (chiusa_conferma_id) WHERE chiusa_conferma_id IS NOT NULL;
+CREATE TRIGGER trg_fra_ora BEFORE INSERT ON file_rfq_associazione
+    FOR EACH ROW EXECUTE FUNCTION p4_ora_del_database('creata_il');
+
+-- La nascita (direttiva 35 §2.1): punto 1 (allegato → messaggio → thread, la natura, e non lo STEP legato come
+-- sorgente del finito), punto 3 (il componente della working non e' archiviato), punto 4 (l'occorrenza e' attiva),
+-- punto 5 (nessun legame incompatibile fuori dalle AR: quelle attive le ferma ux_fra_attiva_allegato), punto 6 (l'atto:
+-- la conferma formato 3 della stessa transazione, oppure un gesto legacy di una RFQ interamente legacy). Il punto 2 e'
+-- la FK composita.
+CREATE FUNCTION file_rfq_associazione_nasce() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    a     record;
+    c     record;
+    k     record;
+    copia uuid;
+BEGIN
+    IF NEW.stato <> 'attiva' OR NEW.chiusa_il IS NOT NULL OR NEW.chiusa_da IS NOT NULL OR NEW.motivo_chiusura IS NOT NULL
+       OR NEW.chiusa_conferma_id IS NOT NULL OR NEW.chiusa_chiave IS NOT NULL OR NEW.chiusa_nota IS NOT NULL OR NEW.chiusa_tx IS NOT NULL THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: l''associazione dell''allegato %s nasce attiva; la chiusura e'' un gesto successivo', NEW.allegato_id);
+    END IF;
+    -- (1) allegato → messaggio → thread
+    SELECT x.natura, x.sha256, x.estensione, m.thread_id INTO a
+      FROM allegato x JOIN messaggio m ON m.messaggio_id = x.messaggio_id
+     WHERE x.allegato_id = NEW.allegato_id;
+    IF NOT FOUND THEN
+        RETURN NEW;                                            -- lo rifiuta la FK
+    END IF;
+    IF a.thread_id IS DISTINCT FROM NEW.thread_id THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: l''allegato %s non e'' della RFQ %s', NEW.allegato_id, NEW.thread_id);
+    END IF;
+    -- (1) solo file ed elementi di Outlook, ne' contenitori (un archivio, o un allegato con voci estratte); D-2 (c) [U]:
+    --     uno STEP si associa come un PDF (CAD 3D documentale di una parte o di un sottoassieme), tranne lo STEP legato
+    --     come sorgente strutturale del finito, che resta a fonte_step_evento e al documento
+    IF a.natura NOT IN ('file', 'elemento_outlook')
+       OR lower(COALESCE(a.estensione, '')) IN ('zip', '7z', 'rar')
+       OR EXISTS (SELECT 1 FROM allegato v WHERE v.contenitore_id = NEW.allegato_id) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: l''allegato %s (natura %s, estensione %s) non si associa: solo file ed elementi di Outlook, esclusi i contenitori',
+                             NEW.allegato_id, a.natura, COALESCE(a.estensione, '-'));
+    END IF;
+    IF allegato_sorgente_del_finito(NEW.thread_id, NEW.allegato_id) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: l''allegato %s e'' lo STEP legato come sorgente strutturale di un prodotto finito: non e'' un documento da associare',
+                             NEW.allegato_id),
+            HINT = 'R4: PREASSOCIAZIONE_NON_APPLICABILE, motivo legato_come_sorgente (direttiva 39 §5, D-2 (c))';
+    END IF;
+    -- (6) D-AR03 D [U]: un gesto legacy scrive una AR solo in una RFQ interamente legacy; nelle RFQ formato 3 i gesti
+    --     atomici cambiano le PB con R2
+    IF NEW.origine = 'gesto_legacy' AND rfq_e_formato3(NEW.thread_id) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: la RFQ %s e'' formato 3: un gesto legacy non scrive associazioni registrate (cambia la preassociazione della bozza con R2)',
+                             NEW.thread_id),
+            HINT = 'D-AR03 D';
+    END IF;
+    -- (3) il componente e' della working registrata (FK) e non e' archiviato
+    SELECT x.archiviato_il INTO c FROM componente x WHERE x.componente_id = NEW.componente_id AND x.thread_id = NEW.thread_id;
+    IF FOUND AND c.archiviato_il IS NOT NULL THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: il componente %s e'' archiviato: un file non vi si associa', NEW.componente_id);
+    END IF;
+    -- (4) l'occorrenza e' attiva: ne' Altri file, ne' scartata (anche col vecchio «Scarta il file»)
+    IF NOT file_rfq_attivo(NEW.thread_id, NEW.allegato_id) OR file_rfq_scartato_legacy(NEW.thread_id, NEW.allegato_id) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: l''occorrenza %s non e'' attiva nella RFQ %s (Altri file o scartata)', NEW.allegato_id, NEW.thread_id);
+    END IF;
+    -- (5) nessun legame nascosto: la copia di compatibilita' dice un altro componente e nessuna AR di quel componente si
+    --     chiude in questa transazione (legame dello STEP sorgente, pre-assegnazione legacy, «Assegna» non passato dal
+    --     servizio)
+    SELECT p.componente_id INTO copia FROM documento_proposta p WHERE p.allegato_id = NEW.allegato_id;
+    IF copia IS NOT NULL AND copia <> NEW.componente_id
+       AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione r
+                        WHERE r.thread_id = NEW.thread_id AND r.allegato_id = NEW.allegato_id AND r.componente_id = copia
+                          AND r.chiusa_tx = pg_current_xact_id()) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: l''allegato %s e'' gia'' legato al componente %s fuori dalle associazioni registrate',
+                             NEW.allegato_id, copia),
+            HINT = 'R4: PREASSOCIAZIONE_NON_APPLICABILE, motivo gia_associata_altrove';
+    END IF;
+    -- (5) D-AR07 A [T-39]: lo stesso contenuto e' gia' un documento confermato di un altro componente della RFQ
+    --     (documento e' UNIQUE (thread_id, sha256), con un solo componente)
+    IF a.sha256 IS NOT NULL AND EXISTS (SELECT 1 FROM documento d
+            WHERE d.thread_id = NEW.thread_id AND d.sha256 = a.sha256
+              AND d.componente_id IS NOT NULL AND d.componente_id <> NEW.componente_id) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: il contenuto dell''allegato %s e'' un documento confermato di un altro componente', NEW.allegato_id),
+            HINT = 'R4: PREASSOCIAZIONE_NON_APPLICABILE, motivo documento_confermato_altrove (D-AR07 A)';
+    END IF;
+    -- (6) D-AR01 A [U]: una AR di R5 nasce nella transazione della sua conferma formato 3, con la chiave e l'autore della
+    --     conferma
+    IF NEW.origine = 'conferma_bom' THEN
+        SELECT x.formato, x.tx, x.chiave_idempotenza, x.confermato_da INTO k
+          FROM conferma_strutturale x WHERE x.conferma_id = NEW.conferma_id AND x.thread_id = NEW.thread_id;
+        IF FOUND AND (k.formato <> 3 OR k.tx <> pg_current_xact_id()
+                      OR k.chiave_idempotenza IS DISTINCT FROM NEW.chiave_idempotenza
+                      OR k.confermato_da IS DISTINCT FROM NEW.creata_da) THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('file_rfq_associazione: la conferma %s non e'' una formato 3 di questa transazione, o chiave e autore non sono i suoi', NEW.conferma_id);
+        END IF;
+    END IF;
+    NEW.tx := pg_current_xact_id();
+    RETURN NEW;
+END $$;
+CREATE TRIGGER trg_fra_nasce BEFORE INSERT ON file_rfq_associazione
+    FOR EACH ROW EXECUTE FUNCTION file_rfq_associazione_nasce();
+
+-- D-AR08 A [T-39]: con la BOM congelata (0020, D26) un file non si associa, come per documento; la chiusura resta
+-- libera, come lo sgancio di una proposta.
+CREATE FUNCTION file_rfq_associazione_bom() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    n int;
+BEGIN
+    n := bom_working_bloccata(NEW.thread_id);
+    IF n IS NOT NULL THEN
+        RAISE EXCEPTION USING ERRCODE = 'BOM01',
+            MESSAGE = format('la BOM della RFQ %s e'' congelata nella V%s: un file si associa solo aprendo una revisione', NEW.thread_id, n),
+            HINT = 'addendum A4.7, D26; D-AR08 A';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER trg_fra_bom BEFORE INSERT ON file_rfq_associazione
+    FOR EACH ROW EXECUTE FUNCTION file_rfq_associazione_bom();
+
+-- Le transizioni: solo attiva → chiusa, una volta; tutto il resto e' immutabile (spostare un nodo, confermare di nuovo
+-- senza cambiamenti, «Riattiva» non toccano la riga; la provenienza e il registro d'origine non cambiano). Una chiusura
+-- di R5 e' della transazione della sua conferma formato 3, con la sua chiave e il suo autore; lo sgancio legacy
+-- («Togli», D-AR03 D [U]) vale solo in una RFQ interamente legacy.
+CREATE FUNCTION file_rfq_associazione_cambia() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    k record;
+BEGIN
+    IF (NEW.associazione_id, NEW.thread_id, NEW.allegato_id, NEW.componente_id, NEW.origine, NEW.conferma_id, NEW.chiave_bozza,
+        NEW.provenienza_pb, NEW.importazione_id, NEW.sostituisce_id, NEW.motivo, NEW.chiave_idempotenza, NEW.creata_da,
+        NEW.creata_il, NEW.tx)
+       IS DISTINCT FROM
+       (OLD.associazione_id, OLD.thread_id, OLD.allegato_id, OLD.componente_id, OLD.origine, OLD.conferma_id, OLD.chiave_bozza,
+        OLD.provenienza_pb, OLD.importazione_id, OLD.sostituisce_id, OLD.motivo, OLD.chiave_idempotenza, OLD.creata_da,
+        OLD.creata_il, OLD.tx) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: identita'', atto e nascita non cambiano', OLD.associazione_id);
+    END IF;
+    IF OLD.stato = 'chiusa' THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: e'' chiusa e non si riapre; una riassociazione e'' una riga nuova', OLD.associazione_id);
+    END IF;
+    IF NEW.stato <> 'chiusa' OR NEW.motivo_chiusura IS NULL OR NEW.chiusa_da IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: l''unico cambiamento ammesso e'' la chiusura, con chi e il motivo', OLD.associazione_id);
+    END IF;
+    IF NEW.motivo_chiusura = 'sgancio_legacy' AND rfq_e_formato3(NEW.thread_id) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: la RFQ e'' formato 3: «Togli» cambia la preassociazione della bozza con R2, non chiude la AR',
+                             OLD.associazione_id),
+            HINT = 'D-AR03 D';
+    END IF;
+    IF NEW.chiusa_conferma_id IS NOT NULL THEN
+        SELECT x.formato, x.tx, x.chiave_idempotenza, x.confermato_da INTO k
+          FROM conferma_strutturale x WHERE x.conferma_id = NEW.chiusa_conferma_id AND x.thread_id = NEW.thread_id;
+        IF FOUND AND (k.formato <> 3 OR k.tx <> pg_current_xact_id() OR k.chiave_idempotenza IS DISTINCT FROM NEW.chiusa_chiave
+                      OR k.confermato_da IS DISTINCT FROM NEW.chiusa_da) THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('file_rfq_associazione %s: la conferma che chiude non e'' una formato 3 di questa transazione, o chiave e autore non sono i suoi', OLD.associazione_id);
+        END IF;
+    END IF;
+    NEW.chiusa_il := now();
+    NEW.chiusa_tx := pg_current_xact_id();
+    RETURN NEW;
+END $$;
+CREATE TRIGGER trg_fra_cambia BEFORE UPDATE ON file_rfq_associazione
+    FOR EACH ROW EXECUTE FUNCTION file_rfq_associazione_cambia();
+CREATE TRIGGER trg_fra_non_si_cancella BEFORE DELETE ON file_rfq_associazione
+    FOR EACH ROW EXECUTE FUNCTION p4_rifiuta('P4X10', 'un''associazione registrata non si cancella: si chiude');
+CREATE TRIGGER trg_fra_non_si_svuota BEFORE TRUNCATE ON file_rfq_associazione
+    FOR EACH STATEMENT EXECUTE FUNCTION p4_rifiuta('P4X10', 'le associazioni registrate non si svuotano');
+
+-- Al COMMIT (direttiva 35 §2.1 punto 6, §2.4):
+-- (a) ogni nascita e ogni chiusura ha il suo evento in associazione_evento, nella stessa transazione;
+-- (b) una AR di R5 ha la sua PB {allegato_id, chiave_bozza} nello snapshot della conferma (DIR35-PB [U]), risolta sul
+--     suo componente dalla mappa, e ne porta la copia verificata (D-PB03 A [U], direttiva 39 §4): provenienza_pb uguale
+--     alla provenienza della PB, importazione_id uguale al registro del prodotto della conferma la cui impronta e'
+--     l'importazione della PB (nessun registro se la PB non ne cita);
+-- (c) una chiusura svincolo_conferma ha la sua decisione scollega_documento {allegato_id, componente_id} nello snapshot
+--     della conferma che chiude (D-4 A [T-39]);
+-- (d) la sostituzione: la riga sostituita e' dello stesso allegato, di un altro componente, chiusa «sostituita» qui;
+-- (e) la copia di compatibilita' di una proposta aperta e' il componente della AR attiva, o nessuno quando la AR si
+--     chiude senza un'altra (D-ASS-04 A [T-39]: la copia ha un solo valore).
+CREATE FUNCTION file_rfq_associazione_invarianti() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    x      xid8 := pg_current_xact_id();
+    s      jsonb;
+    m      jsonb;
+    prod   uuid;
+    pbj    jsonb;
+    reg    uuid;
+    attiva uuid;
+    p      record;
+BEGIN
+    IF NEW.tx = x AND NOT EXISTS (SELECT 1 FROM associazione_evento e
+            WHERE e.associazione_id = NEW.associazione_id AND e.tx = x AND e.azione IN ('preassociazione', 'sostituisci', 'assegna')) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: la nascita non ha il suo evento in associazione_evento', NEW.associazione_id);
+    END IF;
+    IF NEW.chiusa_tx = x AND NOT EXISTS (SELECT 1 FROM associazione_evento e
+            WHERE e.tx = x AND ((e.associazione_id = NEW.associazione_id AND e.azione = 'sgancia')
+                                OR (e.associazione_precedente_id = NEW.associazione_id AND e.azione = 'sostituisci'))) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: la chiusura non ha il suo evento in associazione_evento', NEW.associazione_id);
+    END IF;
+    IF NEW.tx = x AND NEW.origine = 'conferma_bom' THEN
+        SELECT c.snapshot, c.mappa, c.prodotto_id INTO s, m, prod FROM conferma_strutturale c WHERE c.conferma_id = NEW.conferma_id;
+        SELECT d INTO pbj FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s -> 'documenti_preassociati') = 'array'
+                                                         THEN s -> 'documenti_preassociati' ELSE '[]'::jsonb END) d
+         WHERE d ->> 'allegato_id' = NEW.allegato_id::text AND d ->> 'chiave_bozza' = NEW.chiave_bozza
+         LIMIT 1;
+        IF pbj IS NULL OR (m ->> NEW.chiave_bozza) IS DISTINCT FROM NEW.componente_id::text THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('file_rfq_associazione %s: la conferma %s non ha la preassociazione (%s, %s) risolta sul componente %s',
+                                 NEW.associazione_id, NEW.conferma_id, NEW.allegato_id, NEW.chiave_bozza, NEW.componente_id);
+        END IF;
+        IF (pbj ->> 'provenienza') IS DISTINCT FROM NEW.provenienza_pb THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('file_rfq_associazione %s: provenienza_pb %s, ma la PB confermata ha la provenienza %s',
+                                 NEW.associazione_id, COALESCE(NEW.provenienza_pb, '-'), COALESCE(pbj ->> 'provenienza', '-')),
+                HINT = 'la AR copia la provenienza della PB dello snapshot confermato (D-PB03 A)';
+        END IF;
+        IF pbj ->> 'importazione' IS NOT NULL THEN
+            SELECT r.importazione_id INTO reg FROM distinta_importazione r
+             WHERE r.thread_id = NEW.thread_id AND r.prodotto_id = prod AND r.impronta::text = pbj ->> 'importazione';
+            IF reg IS NULL THEN
+                RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                    MESSAGE = format('file_rfq_associazione %s: la PB confermata cita il registro %s, che non e'' del prodotto della conferma',
+                                     NEW.associazione_id, pbj ->> 'importazione');
+            END IF;
+        END IF;
+        IF reg IS DISTINCT FROM NEW.importazione_id THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('file_rfq_associazione %s: importazione_id %s, ma la PB confermata cita il registro %s',
+                                 NEW.associazione_id, COALESCE(NEW.importazione_id::text, '-'), COALESCE(reg::text, '-')),
+                HINT = 'la AR copia il registro d''importazione d''origine della PB (D-PB03 A)';
+        END IF;
+    END IF;
+    IF NEW.chiusa_tx = x AND NEW.motivo_chiusura = 'svincolo_conferma' THEN
+        SELECT c.snapshot INTO s FROM conferma_strutturale c WHERE c.conferma_id = NEW.chiusa_conferma_id;
+        IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s -> 'decisioni') = 'array'
+                                                              THEN s -> 'decisioni' ELSE '[]'::jsonb END) d
+                        WHERE d ->> 'tipo' = 'scollega_documento' AND d ->> 'allegato_id' = NEW.allegato_id::text
+                          AND d ->> 'componente_id' = NEW.componente_id::text) THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('file_rfq_associazione %s: la conferma %s non ha lo svincolo (scollega_documento) di questa associazione',
+                                 NEW.associazione_id, NEW.chiusa_conferma_id);
+        END IF;
+    END IF;
+    IF NEW.tx = x AND NEW.sostituisce_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione o
+            WHERE o.associazione_id = NEW.sostituisce_id AND o.allegato_id = NEW.allegato_id
+              AND o.componente_id <> NEW.componente_id AND o.motivo_chiusura = 'sostituita' AND o.chiusa_tx = x) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: la riga sostituita %s non e'' dello stesso file su un altro componente, chiusa qui come sostituita',
+                             NEW.associazione_id, NEW.sostituisce_id);
+    END IF;
+    IF NEW.chiusa_tx = x AND NEW.motivo_chiusura = 'sostituita' AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione n
+            WHERE n.sostituisce_id = NEW.associazione_id AND n.tx = x) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione %s: chiusa come sostituita, ma nessuna riga la sostituisce', NEW.associazione_id);
+    END IF;
+    -- (e) sullo stato di adesso, non su quello dell'evento
+    SELECT r.componente_id INTO attiva FROM file_rfq_associazione r
+     WHERE r.thread_id = NEW.thread_id AND r.allegato_id = NEW.allegato_id AND r.stato = 'attiva';
+    SELECT q.stato, q.componente_id INTO p FROM documento_proposta q WHERE q.allegato_id = NEW.allegato_id;
+    IF FOUND AND p.stato = 'aperta' AND (attiva IS NOT NULL OR NEW.chiusa_tx = x) AND p.componente_id IS DISTINCT FROM attiva THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq_associazione: la copia di compatibilita'' dell''allegato %s (%s) non e'' la AR attiva (%s)',
+                             NEW.allegato_id, COALESCE(p.componente_id::text, 'nessuna'), COALESCE(attiva::text, 'nessuna')),
+            HINT = 'la copia la scrive solo il servizio delle associazioni, nella stessa transazione';
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER trg_fra_invarianti AFTER INSERT OR UPDATE ON file_rfq_associazione
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION file_rfq_associazione_invarianti();
+
+-- La stessa garanzia vista dall'occorrenza (§2.1 punto 4): al COMMIT un file in Altri file o scartato non ha AR attive
+-- (D-ASS-03 / V1-Q42 [U]: lo svincolo viene prima dello scarto o della conservazione).
+CREATE FUNCTION file_rfq_senza_ar_attive() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    attuale text;
+BEGIN
+    SELECT f.stato INTO attuale FROM file_rfq f WHERE f.thread_id = NEW.thread_id AND f.allegato_id = NEW.allegato_id;
+    IF attuale IS DISTINCT FROM 'attivo' AND EXISTS (SELECT 1 FROM file_rfq_associazione r
+            WHERE r.thread_id = NEW.thread_id AND r.allegato_id = NEW.allegato_id AND r.stato = 'attiva') THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('file_rfq %s: in %s con un''associazione registrata ancora attiva', NEW.allegato_id, attuale),
+            HINT = 'D-ASS-03: prima lo svincolo (chiusura scollega_file), poi lo scarto o Altri file';
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER trg_file_rfq_senza_ar AFTER INSERT OR UPDATE ON file_rfq
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION file_rfq_senza_ar_attive();
+
+-- Al COMMIT di una conferma formato 3 (D-AR01 A [U]; direttiva 35 §2.4: R5 tutto o niente): ogni
+-- svincolo scollega_documento dello snapshot non lascia la sua AR attiva (applicato da R5, oppure gia' chiuso dalla
+-- corsia file dopo lo svincolo R2: esito svincolo_gia_chiuso), e ogni PB applicabile ha la sua AR attiva sul componente
+-- della mappa. Applicabile [T]: il nodo non e' commerciale (MAT §4.2, non_richiesta); le PB in conflitto le ferma gia'
+-- R4. Funzione nuova: il corpo di conferma_strutturale_completa non cambia (T-11).
+CREATE FUNCTION conferma_strutturale_associazioni() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    manca record;
+BEGIN
+    IF NEW.formato <> 3 THEN
+        RETURN NULL;
+    END IF;
+    SELECT d ->> 'allegato_id' AS allegato, d ->> 'componente_id' AS componente INTO manca
+      FROM jsonb_array_elements(NEW.snapshot -> 'decisioni') d
+     WHERE d ->> 'tipo' = 'scollega_documento'
+       AND EXISTS (SELECT 1 FROM file_rfq_associazione r
+                    WHERE r.thread_id = NEW.thread_id AND r.allegato_id::text = d ->> 'allegato_id'
+                      AND r.componente_id::text = d ->> 'componente_id' AND r.stato = 'attiva')
+     LIMIT 1;
+    IF FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('conferma %s: lo svincolo dell''allegato %s dal componente %s non e'' stato applicato', NEW.conferma_id, manca.allegato, manca.componente);
+    END IF;
+    SELECT d ->> 'allegato_id' AS allegato, NEW.mappa ->> (d ->> 'chiave_bozza') AS componente INTO manca
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(NEW.snapshot -> 'documenti_preassociati') = 'array'
+                                     THEN NEW.snapshot -> 'documenti_preassociati' ELSE '[]'::jsonb END) d
+      JOIN jsonb_array_elements(NEW.snapshot -> 'nodi') n ON n ->> 'chiave_bozza' = d ->> 'chiave_bozza'
+     WHERE COALESCE(n ->> 'tipo', '') <> 'commerciale'
+       AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione r
+                        WHERE r.thread_id = NEW.thread_id AND r.allegato_id::text = d ->> 'allegato_id'
+                          AND r.componente_id::text = NEW.mappa ->> (d ->> 'chiave_bozza') AND r.stato = 'attiva')
+     LIMIT 1;
+    IF FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('conferma %s: la preassociazione dell''allegato %s sul componente %s non ha la sua associazione registrata',
+                             NEW.conferma_id, manca.allegato, COALESCE(manca.componente, '-'));
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER trg_conferma_associazioni AFTER INSERT ON conferma_strutturale
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION conferma_strutturale_associazioni();
+
+-- La copia non diventa una seconda fonte (direttiva 35 §3 [U]): al COMMIT un cambio di documento_proposta.componente_id
+-- vuole, nella stessa transazione, un evento di associazione per quell'allegato. ACCESO dalla variante 20261019d: dopo
+-- C-6b gli scrittori legacy della copia («Assegna» e «Togli» del Fascicolo e della pagina del Motore A, «Usa come STEP»,
+-- il vecchio «Scarta il file», «Documentazione generale») passano dal servizio delle associazioni (D-AR03 D [U]), come
+-- R5, Scollega e la conversione delle pre-assegnazioni alla presa in carico. Guarda solo i cambi (UPDATE): le due
+-- INSERT di documento_proposta prendono la copia dalla AR attiva; le pre-assegnazioni gia' scritte restano.
+CREATE FUNCTION documento_proposta_copia_derivata() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.componente_id IS DISTINCT FROM OLD.componente_id AND NOT EXISTS (SELECT 1 FROM associazione_evento e
+            WHERE e.allegato_id = NEW.allegato_id AND e.tx = pg_current_xact_id()) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X10',
+            MESSAGE = format('documento_proposta %s: componente_id e'' una copia derivata; la scrive solo il servizio delle associazioni', NEW.proposta_id);
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER trg_proposta_copia_derivata AFTER UPDATE OF componente_id ON documento_proposta
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION documento_proposta_copia_derivata();
+
+-- associazione_evento e' il giornale delle AR (direttiva 35 §2.4: riuso verificato, nessun secondo registro). Ci sono
+-- gia' componente_prima e componente_dopo, conferma_id, autore_id, quando, chiave_idempotenza e motivo; si aggiungono
+-- l'allegato, la riga della AR, la riga sostituita e la transazione. Le colonne nuove sono NULL sulle righe di prima
+-- (tx senza DEFAULT all'ADD: il DEFAULT si mette dopo). Direttiva 39 (D-AR04 [U], D-AR14 A [T-39]): l'origine
+-- conversione_legacy, la conversione di una pre-assegnazione aperta (P1) alla presa in carico del prodotto, e' l'unica
+-- con autore_id nullo (ck_associazione_autore): nessun autore inventato. Le righe di prima hanno tutte l'autore.
+ALTER TABLE associazione_evento
+    ADD COLUMN allegato_id uuid REFERENCES allegato,
+    ADD COLUMN associazione_id uuid,
+    ADD COLUMN associazione_precedente_id uuid,
+    ADD COLUMN tx xid8;
+ALTER TABLE associazione_evento ALTER COLUMN tx SET DEFAULT pg_current_xact_id();
+ALTER TABLE associazione_evento
+    ADD CONSTRAINT fk_associazione_ar FOREIGN KEY (thread_id, associazione_id)
+        REFERENCES file_rfq_associazione (thread_id, associazione_id),
+    ADD CONSTRAINT fk_associazione_ar_precedente FOREIGN KEY (thread_id, associazione_precedente_id)
+        REFERENCES file_rfq_associazione (thread_id, associazione_id);
+-- Quattro CHECK della 0022 si tolgono e si rimettono con lo stesso nome (ck_associazione_origine con
+-- conversione_legacy; nessuna origine backfill, D-AR04 [U]; nessuna sorgente_step: S8 non scrive la copia dello STEP
+-- sorgente). Il ramo di prima dice esattamente quello di prima: le righe esistenti li passano tutti, quindi nessun NOT
+-- VALID. Le condizioni nuove sulle righe scritte dopo la 0023 guardano tx, che le righe di prima non hanno.
+ALTER TABLE associazione_evento ALTER COLUMN autore_id DROP NOT NULL;
+ALTER TABLE associazione_evento
+    DROP CONSTRAINT ck_associazione_oggetto,
+    DROP CONSTRAINT ck_associazione_azione,
+    DROP CONSTRAINT ck_associazione_origine,
+    DROP CONSTRAINT ck_associazione_coerente;
+ALTER TABLE associazione_evento
+    ADD CONSTRAINT ck_associazione_oggetto CHECK (proposta_id IS NOT NULL OR documento_id IS NOT NULL
+        OR allegato_id IS NOT NULL),                                                                   -- (0023)
+    ADD CONSTRAINT ck_associazione_azione CHECK (azione IN ('assegna', 'sgancia', 'scarta', 'riapri', 'preassociazione', 'caricamento', 'sposta_documento',
+        'sostituisci')),                                                                               -- (0023)
+    ADD CONSTRAINT ck_associazione_origine CHECK (origine IN ('ponte', 'legacy', 'conferma_bom', 'inbox',
+        'conversione_legacy')),                                                                        -- (0023, direttiva 39)
+    -- (0023, direttiva 39) l'autore manca solo nella conversione di una pre-assegnazione legacy
+    ADD CONSTRAINT ck_associazione_autore CHECK (autore_id IS NOT NULL OR origine = 'conversione_legacy'),
+    ADD CONSTRAINT ck_associazione_coerente CHECK (
+        (azione NOT IN ('assegna', 'preassociazione', 'sposta_documento') OR componente_dopo IS NOT NULL)
+        AND (azione <> 'sgancia' OR (componente_prima IS NOT NULL AND componente_dopo IS NULL))
+        AND (azione <> 'preassociazione' OR (conferma_id IS NOT NULL AND origine = 'conferma_bom'))
+        -- (0023) sostituisci: da un componente a un altro, con la riga nuova e quella chiusa
+        AND (azione <> 'sostituisci' OR (componente_prima IS NOT NULL AND componente_dopo IS NOT NULL
+                                         AND componente_prima <> componente_dopo
+                                         AND associazione_id IS NOT NULL AND associazione_precedente_id IS NOT NULL))
+        -- (0023) l'evento di una riga della tabella dice l'allegato, ed e' una nascita (preassociazione di R5, assegna di
+        -- un gesto legacy), una sostituzione o una chiusura
+        AND (associazione_id IS NULL OR (allegato_id IS NOT NULL AND azione IN ('preassociazione', 'assegna', 'sostituisci', 'sgancia')))
+        AND (associazione_precedente_id IS NULL OR azione = 'sostituisci')
+        -- (0023) dopo la 0023 una preassociazione applicata da R5 e' la nascita di una AR
+        AND (tx IS NULL OR azione <> 'preassociazione' OR associazione_id IS NOT NULL)
+        -- (0023, direttiva 39) la conversione di una pre-assegnazione aperta toglie la copia: uno sgancio senza AR e
+        -- senza conferma (la PB legacy nasce nella bozza, D-AR14 A)
+        AND (origine <> 'conversione_legacy' OR (azione = 'sgancia' AND associazione_id IS NULL AND conferma_id IS NULL)));
+-- §2.4: lo stesso atto ripetuto con la stessa chiave non scrive un secondo evento per lo stesso allegato, la stessa
+-- azione e lo stesso componente (l'azione nella chiave perche' lo scarto V1 scrive sgancia e scarta con la stessa
+-- chiave; il componente perche' il limite di cardinalita' resti solo in ux_fra_attiva_allegato). NULLS NOT DISTINCT:
+-- un evento senza componente (scarta, riapri) ripetuto con la stessa chiave e' lo stesso evento
+CREATE UNIQUE INDEX ux_associazione_evento_chiave
+    ON associazione_evento (chiave_idempotenza, allegato_id, azione, COALESCE(componente_dopo, componente_prima)) NULLS NOT DISTINCT
+    WHERE chiave_idempotenza IS NOT NULL AND allegato_id IS NOT NULL;
+CREATE INDEX ix_associazione_evento_allegato ON associazione_evento (allegato_id, quando) WHERE allegato_id IS NOT NULL;
+CREATE INDEX ix_associazione_evento_ar ON associazione_evento (associazione_id) WHERE associazione_id IS NOT NULL;
+-- Ogni evento nuovo dice l'allegato (dalla proposta, se lo scrittore non lo passa) e la sua transazione; l'evento di
+-- una riga della tabella ne ripete allegato, componente e conferma, e una sostituzione chiude una riga dello stesso
+-- allegato sul componente di prima.
+CREATE FUNCTION associazione_evento_della_riga() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    r record;
+BEGIN
+    IF NEW.allegato_id IS NULL AND NEW.proposta_id IS NOT NULL THEN
+        SELECT p.allegato_id INTO NEW.allegato_id FROM documento_proposta p WHERE p.proposta_id = NEW.proposta_id;
+    END IF;
+    NEW.tx := pg_current_xact_id();
+    IF NEW.associazione_id IS NOT NULL THEN
+        SELECT x.allegato_id, x.componente_id, x.conferma_id, x.origine INTO r FROM file_rfq_associazione x
+         WHERE x.associazione_id = NEW.associazione_id AND x.thread_id = NEW.thread_id;
+        IF FOUND AND (r.allegato_id IS DISTINCT FROM NEW.allegato_id
+                      OR (NEW.azione IN ('preassociazione', 'assegna', 'sostituisci') AND r.componente_id IS DISTINCT FROM NEW.componente_dopo)
+                      OR (NEW.azione = 'sgancia' AND r.componente_id IS DISTINCT FROM NEW.componente_prima)
+                      OR (NEW.azione = 'preassociazione' AND r.conferma_id IS DISTINCT FROM NEW.conferma_id)) THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('associazione_evento: l''evento non ripete allegato, componente o conferma della riga %s', NEW.associazione_id);
+        END IF;
+        -- la nascita dice il suo atto: preassociazione per R5 (conferma_bom), assegna per un gesto legacy (gesto_legacy)
+        IF FOUND AND ((NEW.azione = 'preassociazione' AND r.origine <> 'conferma_bom')
+                      OR (NEW.azione = 'assegna' AND r.origine <> 'gesto_legacy')) THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('associazione_evento: la nascita %s della riga %s (origine %s) non e'' quella del suo atto', NEW.azione, NEW.associazione_id, r.origine);
+        END IF;
+    END IF;
+    IF NEW.associazione_precedente_id IS NOT NULL THEN
+        SELECT x.allegato_id, x.componente_id INTO r FROM file_rfq_associazione x
+         WHERE x.associazione_id = NEW.associazione_precedente_id AND x.thread_id = NEW.thread_id;
+        IF FOUND AND (r.allegato_id IS DISTINCT FROM NEW.allegato_id OR r.componente_id IS DISTINCT FROM NEW.componente_prima) THEN
+            RAISE EXCEPTION USING ERRCODE = 'P4X10',
+                MESSAGE = format('associazione_evento: la sostituzione non ripete allegato e componente della riga chiusa %s', NEW.associazione_precedente_id);
+        END IF;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER trg_associazione_della_riga BEFORE INSERT ON associazione_evento
+    FOR EACH ROW EXECUTE FUNCTION associazione_evento_della_riga();
+-- trg_associazione_solo_aggiunte e trg_associazione_non_si_svuota (0022) restano: il giornale e' in sola aggiunta.
+
+-- La revoca della sorgente confermata da S8 (direttiva 39 §2 «Revoca» [U + T-39]; R39-10, R39-11 decisi
+-- dall'orchestratore [T-39]): un'azione propria della storia della fonte, revoca_sorgente, distinta da revoca, che i
+-- lettori di autorizzata_il leggono come la revoca dell'autorizzazione legacy della struttura. Ruolo prodotto, con il
+-- documento della conferma S8, il motivo e la chiave dell'intento. ck_fonte_azione si toglie e si rimette con lo stesso
+-- nome (il ramo di prima e' lo stesso); le righe di prima lo passano.
+ALTER TABLE fonte_step_evento DROP CONSTRAINT ck_fonte_azione;
+ALTER TABLE fonte_step_evento
+    ADD CONSTRAINT ck_fonte_azione CHECK (azione IN ('scelta', 'rifiuto', 'sostituzione', 'caricamento',
+                                                 'conferma_documento', 'autorizzazione', 'revoca', 'risoluzione',
+                                                 'revoca_sorgente')),                                 -- (0023, direttiva 39)
+    ADD CONSTRAINT ck_fonte_revoca_sorgente CHECK (azione <> 'revoca_sorgente'
+        OR (ruolo = 'prodotto' AND documento_id IS NOT NULL AND chiave_idempotenza IS NOT NULL
+            AND nullif(btrim(motivo), '') IS NOT NULL));
+
+-- correzione_documento: allegato_id e' gia' NOT NULL (0022), quindi «l'oggetto e' anche l'allegato» renderebbe il CHECK
+-- sempre vero. La ricodifica di una AR senza proposta cita la riga della AR: colonna nuova associazione_id e
+-- ck_correzione_oggetto tolto e rimesso con lo stesso nome (il ramo di prima e' lo stesso).
+ALTER TABLE correzione_documento ADD COLUMN associazione_id uuid;
+ALTER TABLE correzione_documento
+    ADD CONSTRAINT fk_correzione_associazione FOREIGN KEY (thread_id, associazione_id)
+        REFERENCES file_rfq_associazione (thread_id, associazione_id);
+ALTER TABLE correzione_documento DROP CONSTRAINT ck_correzione_oggetto;
+ALTER TABLE correzione_documento ADD CONSTRAINT ck_correzione_oggetto CHECK (proposta_id IS NOT NULL OR documento_id IS NOT NULL
+    OR associazione_id IS NOT NULL);                                                                   -- (0023)
+CREATE INDEX ix_correzione_associazione ON correzione_documento (associazione_id) WHERE associazione_id IS NOT NULL;
+
+-- La diagnostica del backfill (direttiva 35 §3, «compatibilita' dei dati storici»; piano §5.3), in sola lettura.
+-- NESSUN backfill: la tabella nasce vuota e nessuna riga nasce da documento_proposta.componente_id o da documento per
+-- deduzione (D-AR04 [U]: nessun backfill di AR; con D-AR14 A [T-39] le P1 si convertono alla presa in carico). Le classi:
+--   C1  documento confermato con componente e proposta con lo stesso componente («Assegna» legacy, poi conferma);
+--   D1  documento confermato con componente, proposta senza componente o senza proposta (componente scelto alla
+--       conferma): e' un documento, non una AR (direttiva 35 §2.2);
+--   X   documento e copia su componenti diversi;
+--   P1  proposta aperta con componente e occorrenza attiva (pre-assegnazione del vecchio «Assegna»: autore e ora non
+--       registrati quando deciso_da e' NULL);
+--   P2  proposta aperta con componente e occorrenza non attiva (Altri file, scartata);
+--   P3  proposta chiusa (scartata, confermata senza documento, duplicato) con componente.
+-- Il suffisso «s» marca uno STEP su un componente finito (legame della sorgente o AR? D-AR02, D-AR04 (iii)).
+CREATE VIEW v_ar_backfill_diagnostica AS
+SELECT COALESCE(p.thread_id, d.thread_id) AS thread_id, a.allegato_id, p.proposta_id, p.stato::text AS stato_proposta,
+       p.componente_id AS componente_proposta, d.documento_id, d.componente_id AS componente_documento,
+       (p.deciso_da IS NOT NULL)::boolean AS autore_registrato,
+       (file_rfq_attivo(COALESCE(p.thread_id, d.thread_id), a.allegato_id)
+        AND NOT file_rfq_scartato_legacy(COALESCE(p.thread_id, d.thread_id), a.allegato_id)) AS occorrenza_attiva,
+       (lower(COALESCE(a.estensione, '')) IN ('stp', 'step') AND c.tipo = 'finito') AS step_su_finito,
+       EXISTS (SELECT 1 FROM fonte_step_evento f WHERE f.allegato_id = a.allegato_id) AS ha_storia_fonte,
+       EXISTS (SELECT 1 FROM file_rfq_associazione r WHERE r.allegato_id = a.allegato_id AND r.stato = 'attiva') AS ha_ar_attiva,
+       CASE WHEN d.componente_id IS NOT NULL AND p.componente_id IS NOT NULL AND p.componente_id <> d.componente_id THEN 'X'
+            ELSE CASE WHEN d.componente_id IS NOT NULL AND p.componente_id IS NOT NULL THEN 'C1'
+                      WHEN d.componente_id IS NOT NULL THEN 'D1'
+                      WHEN p.stato = 'aperta' AND file_rfq_attivo(p.thread_id, a.allegato_id)
+                           AND NOT file_rfq_scartato_legacy(p.thread_id, a.allegato_id) THEN 'P1'
+                      WHEN p.stato = 'aperta' THEN 'P2'
+                      ELSE 'P3' END
+                 || CASE WHEN lower(COALESCE(a.estensione, '')) IN ('stp', 'step') AND c.tipo = 'finito' THEN 's' ELSE '' END
+       END::text AS classe
+  FROM allegato a
+  LEFT JOIN documento_proposta p ON p.allegato_id = a.allegato_id
+  LEFT JOIN LATERAL (SELECT x.documento_id, x.thread_id, x.componente_id
+                       FROM documento_provenienza dp JOIN documento x ON x.documento_id = dp.documento_id
+                      WHERE dp.allegato_id = a.allegato_id
+                      ORDER BY x.confermato_il, x.documento_id LIMIT 1) d ON true
+  LEFT JOIN componente c ON c.componente_id = COALESCE(p.componente_id, d.componente_id)
+ WHERE (p.componente_id IS NOT NULL AND p.thread_id IS NOT NULL) OR d.componente_id IS NOT NULL;
 
 -- ============================================================ 10. LE CINQUE VISTE (deroga dichiarata)
 -- Testo di oggi (0022 per v_fascicolo, 0020 per v_step_prodotto e v_thread_da_riesaminare, 0018 per v_cruscotto e
@@ -1447,16 +2435,110 @@ COMMENT ON TABLE file_rfq_rimozione IS
 eseguita/rimosso. Un errore non ritentabile si chiude solo con eseguita/bonificato, quando il file di percorso_trovato
 non esiste piu''.';
 COMMENT ON TABLE file_rfq_conservazione IS
-'Copia verificata nel deposito di conservazione degli «Altri file» (fuori dallo staging e dal NAS): un file per riga,
-<thread_id>\<allegato_id>.<conservazione_id>.<ext>, calcolato dal database.';
+'Copia di un «Altro file» nella cartella ALTRO della RFQ sul NAS (la stessa dei documenti confermati di tipo «altro»:
+che cosa e'' confermato e che cosa e'' solo conservato lo dice il database). percorso_relativo = ALTRO\<nome>, scelto e
+riservato dal server in fase A, controllato e mai calcolato dal database, immutabile. creato_dal_cockpit e'' la prova
+che il file l''ha creato il cockpit: senza, il file non si toglie mai. trattenuta = copia del cockpit non piu'' in Altri
+file (il file resta); ceduta = il file e'' passato alla riga erede.';
 COMMENT ON FUNCTION file_rfq_attivo(uuid, uuid) IS
 'Vero se l''occorrenza (RFQ, allegato) e'' attiva: nessuna riga in file_rfq, o la riga in stato attivo. RFQ nulla:
 vera. Lo usano le cinque viste ridefinite dalla 0023 e le query delle proposte.';
+COMMENT ON FUNCTION file_rfq_scartato_legacy(uuid, uuid) IS
+'Vero se l''occorrenza e'' stata scartata col vecchio «Scarta il file» e il ciclo dei file non l''ha toccata dopo: per
+la Sorgente, il Motore A, F8 e la bozza vale scartata. L''unica definizione (DEC-B §5.1).';
+COMMENT ON TABLE proposta_aggiornata_rifiuto IS
+'Il rifiuto della proposta aggiornata di un prodotto confermato (R15): la proposta (gruppo, impronta del contenuto)
+che l''ingegnere non recepisce rispetto a quella conferma, con le differenze mostrate, il motivo e l''autore. Non
+cambia la BOM, la fonte ne'' la verifica. In sola aggiunta.';
+COMMENT ON COLUMN analisi_fatti.digest IS
+'sha256 della forma testuale di fatti, scritto dal trigger a ogni scrittura: impronta-ingressi-1 lo legge senza leggere
+i fatti interi.';
+COMMENT ON COLUMN conferma_strutturale.verifica IS
+'Formati 1 e 2: la verifica del Motore A calcolata al COMMIT (al_momento_della_conferma). Formato 3: solo la regola con
+cui la verifica si deriva ({"regola": "prima-istanza-1"}, CHECK), mai un esito: la verifica di V1 la calcola il server
+a ogni lettura. Non e'' BOM.Verificata.';
+
+-- 9d: le associazioni registrate (direttiva 35)
+COMMENT ON TABLE file_rfq_associazione IS
+'Le associazioni registrate (AR) fra un allegato della RFQ e un componente della working (direttiva 35 §2): solo quelle
+applicate da un atto autorizzato (R5 con la conferma formato 3; un gesto legacy solo in una RFQ interamente legacy).
+Mai le proposte del Motore A (PA), mai le
+preassociazioni delle bozze (PB), mai il legame dello STEP sorgente, mai un documento confermato (documento). Una riga
+per nascita, con una PK propria: lo stato dice solo se la relazione registrata e'' corrente (attiva) o no (chiusa);
+chiudere e'' una volta sola e la riga resta; riassociare e'' una riga nuova; sostituire chiude e crea nella stessa
+transazione (sostituisce_id). Una sola AR attiva per allegato (ux_fra_attiva_allegato): D-ASS-04 A, scelta tecnica della
+direttiva 39. La scrive solo il servizio del core delle associazioni, che nella stessa transazione scrive
+associazione_evento (il giornale) e la copia documento_proposta.componente_id.';
+COMMENT ON COLUMN file_rfq_associazione.stato IS
+'attiva: la relazione registrata corrente; chiusa: non lo e'' piu'' (chiusa_il, chiusa_da, motivo_chiusura). Non dice
+niente dello stato del file (file_rfq), delle bozze, del fascicolo, del NAS ne'' della revisione ufficiale del documento.';
+COMMENT ON COLUMN file_rfq_associazione.origine IS
+'conferma_bom: R5 applica una PB con la conferma formato 3 (conferma_id, chiave_bozza, provenienza_pb, chiave della
+conferma). gesto_legacy: un gesto atomico di una RFQ interamente legacy, dal servizio unico (D-AR03 D), mai in una RFQ
+formato 3. Nessuna origine di backfill (D-AR04).';
+COMMENT ON COLUMN file_rfq_associazione.provenienza_pb IS
+'La provenienza della PB applicata da R5 (motore, corretta, manuale, legacy: D-PB03 A), copia verificata dallo snapshot
+confermato; obbligatoria con conferma_bom, NULL con gesto_legacy. Immutabile.';
+COMMENT ON COLUMN file_rfq_associazione.importazione_id IS
+'Il registro d''importazione d''origine della PB (motore o corretta), risolto dall''impronta che la PB cita nello snapshot
+confermato e verificato al COMMIT; NULL se la PB non ne cita. La AR non e'' un''autorita'' sul contesto: si risale AR →
+conferma → snapshot → registro.';
+COMMENT ON COLUMN file_rfq_associazione.motivo_chiusura IS
+'svincolo_conferma: decisione scollega_documento applicata da R5; sostituita: rimpiazzata dalla riga che la cita in
+sostituisce_id; scollega_file: Scollega e scarta o Scollega e metti in Altri file (V1-Q22, V1-Q42); file_generale:
+«Documentazione generale» del Fascicolo; scarto_legacy: vecchio «Scarta il file»; sgancio_legacy: «Togli» di una RFQ
+interamente legacy (D-AR03 D).';
+COMMENT ON TABLE rfq_formato3_segno IS
+'Le RFQ formato 3 (direttiva 39 §6): una riga per RFQ, scritta dal database alla nascita della prima bozza formato 3 su
+un suo prodotto, mai cambiata ne'' cancellata. Resta anche quando la conservazione cancella la bozza abbandonata: una RFQ
+formato 3 non torna legacy. La legge rfq_e_formato3.';
+COMMENT ON FUNCTION rfq_e_formato3(uuid) IS
+'Vero se la RFQ ha avuto, in qualunque momento, una bozza (o una conferma) formato 3 su un suo prodotto: l''unica
+definizione di «RFQ formato 3» (gesto_legacy, sgancio_legacy, associazioni.RFQFormato3).';
+COMMENT ON FUNCTION allegato_sorgente_del_finito(uuid, uuid) IS
+'Vero se l''allegato e'' lo STEP legato come sorgente strutturale di un prodotto finito della RFQ (direttiva 39 §5,
+D-2 (c)): conferma della sorgente non revocata ne'' rifiutata con il documento non sostituito, legame storico senza S8,
+step_strutturale_id della working, sorgente di una bozza aperta. Solo lui non diventa AR (trg_fra_nasce, R2).';
+COMMENT ON VIEW v_ar_backfill_diagnostica IS
+'Diagnostica del backfill delle AR (direttiva 35 §3), in sola lettura: gli allegati con un componente nella copia di
+documento_proposta o in un documento confermato, per classe (C1, D1, X, P1, P2, P3; «s» = STEP su un finito). Nessuna
+riga di file_rfq_associazione nasce da qui senza la decisione D-AR04.';
+COMMENT ON TABLE associazione_evento IS
+'Il giornale delle associazioni (direttiva 35 §2.4): chi e quando di ogni associazione di proposte, documenti e
+allegati (assegna, sgancia, scarta, riapri, preassociazione, caricamento, spostamento, sostituzione), da tutte le
+strade, e di ogni nascita e chiusura delle AR di file_rfq_associazione (associazione_id, associazione_precedente_id,
+tx). Solo aggiunte.';
+COMMENT ON COLUMN associazione_evento.associazione_id IS
+'La riga di file_rfq_associazione che l''evento fa nascere (preassociazione, sostituisci) o chiude (sgancia). NULL per gli
+eventi di prima della 0023 e per quelli delle proposte senza AR.';
+COMMENT ON COLUMN associazione_evento.tx IS
+'La transazione dell''evento (la scrive il database): lega l''evento alla nascita o alla chiusura della AR al COMMIT.
+NULL per le righe di prima della 0023.';
+COMMENT ON COLUMN documento_proposta.componente_id IS
+'Copia derivata di compatibilita'' (direttiva 35 §3): il componente della AR attiva in file_rfq_associazione, scritto solo
+dal servizio delle associazioni nella stessa transazione. Non e'' una fonte autorevole; si toglie dopo la migrazione dei
+lettori e degli scrittori legacy.';
 
 -- ============================================================ 12. VARIANTE E VERSIONE
 -- La variante lega il testo di questo file al database (platform/migrazioni, ControllaVarianti): ogni cambio del testo
 -- prima della spinta cambia anche la variante (la prova L1 lega variante e impronta del file). 20261018a: il testo del
 -- primo passaggio della corsia; 20261018b: dopo la revisione (CHECK del formato 3, identita' certificata, controllo (i));
--- 20261018c: i bianchi di ck_csc_identita tutti come sequenze di escape, U+2028 e U+2029 compresi.
-INSERT INTO schema_variante (versione, variante) VALUES (23, '0023-v1-formato3-file-20261018c');
+-- 20261018c: i bianchi di ck_csc_identita tutti come sequenze di escape, U+2028 e U+2029 compresi; 20261018d: il delta
+-- di U2 §3.14 e di DEC-B (righe 11 e 12) dell'ondata C: la cartella ALTRO, gli stati della rimozione dal NAS, le
+-- esclusioni con l'origine, i gesti di S8 e R15, la verifica senza esito, il rifiuto della proposta aggiornata, il
+-- digest dei fatti, «lo stesso nodo» della fonte secondaria, lo scarto legacy in una funzione; 20261019a: la direttiva
+-- 35 (blocco C-1b): file_rfq_associazione con i suoi trigger, l'adeguamento di associazione_evento e di
+-- correzione_documento, il controllo delle associazioni al COMMIT della conferma formato 3, la copia derivata scritta
+-- e spenta, la vista diagnostica del backfill; le parti provvisorie (D-2, D-4, D-5, D-AR01, D-AR07, D-AR08,
+-- D-ASS-04) sono marcate nella sezione 9d; 20261019b: l'indice d'idempotenza del giornale con NULLS NOT DISTINCT (un
+-- evento senza componente ripetuto con la stessa chiave non si scrive due volte); 20261019c: la direttiva 39 (PM23
+-- §4.16): provenienza_pb e importazione_id sulla AR con l'invariante (b) estesa e la provenienza delle PB nello
+-- snapshot formato 3 (ck_dbv_preassociazioni, ck_conferma_preassociazioni); l'origine gesto_legacy con la guardia della
+-- RFQ formato 3 (rfq_formato3_segno, rfq_e_formato3) e lo sgancio_legacy; conversione_legacy nel giornale, l'unica con
+-- l'autore nullo; il punto 1 di trg_fra_nasce sullo STEP legato come sorgente del finito (allegato_sorgente_del_finito)
+-- invece che sull'estensione (D-2 (c)); l'azione revoca_sorgente della storia della fonte e il gesto revoca_sorgente;
+-- nessuna origine di backfill; trg_proposta_copia_derivata sempre scritto e spento; 20261019d: dopo C-6b (direttiva 39,
+-- chiusura del legacy) trg_proposta_copia_derivata acceso, perche' tutti gli scrittori della copia passano dal servizio
+-- unico delle associazioni; nessun altro cambio.
+INSERT INTO schema_variante (versione, variante) VALUES (23, '0023-v1-formato3-file-20261019d');
 INSERT INTO schema_versione (versione) VALUES (23);

@@ -39,9 +39,9 @@ func TestV1T10IlGiornaleDelFormato3SiRifa(t *testing.T) {
 	passi = append(passi, struct {
 		snap   map[string]any
 		azioni []Azione
-	}{senzaPre, []Azione{azione3(t, AzFileSvincolato, "k-0007", map[string]any{"proposta_id": sc.proposta.String(), "chiave_bozza": "k-0007"},
-		map[string]any{"proposta_id": sc.proposta.String(), "motivo": SvincoloNodoEscluso}),
-		azione3(t, AzFileLasciato, "", nil, map[string]any{"proposta_id": sc.proposta.String(), "motivo": "non serve"})}})
+	}{senzaPre, []Azione{azione3(t, AzFileSvincolato, "k-0007", map[string]any{"allegato_id": sc.id.pdf.String(), "chiave_bozza": "k-0007"},
+		map[string]any{"allegato_id": sc.id.pdf.String(), "motivo": SvincoloNodoEscluso}),
+		azione3(t, AzFileLasciato, "", nil, map[string]any{"allegato_id": sc.id.pdf.String(), "motivo": "non serve"})}})
 	for i, p := range passi {
 		if _, err := sc.salva3(t, i+1, uuid.New(), p.snap, p.azioni); err != nil {
 			t.Fatalf("passo %d: %v", i+1, err)

@@ -562,8 +562,20 @@ func cambiaTipoVisto(ctx context.Context, q *db.Queries, thread, comp uuid.UUID,
 // le regole li ha gia' visti chi chiama.
 func cambiaTipo(ctx context.Context, q *db.Queries, thread uuid.UUID, e EffettoTipo, utente uuid.UUID) ([]string, error) {
 	c := e.Componente
+	// direttiva 39 §2 [U + T-39]: rimettere lo STEP strutturale sospeso e' la scrittura di «Autorizza»; nelle RFQ formato 3
+	// la fa solo R5 (formato3_legacy.go)
+	if e.stepDoc.Valid {
+		if err := rifiutoStepNelFormato3(ctx, q, thread); err != nil {
+			return nil, err
+		}
+	}
 	var parti []string
 	if e.SvuotaStep != "" {
+		// direttiva 39 §2 [U + T-39]: svuotare lo STEP strutturale di un finito e' una scrittura di step_strutturale_id;
+		// nelle RFQ formato 3 la fa solo R5 (formato3_legacy.go)
+		if err := rifiutoTestoNelFormato3(ctx, q, thread, fmt.Sprintf(TestoTipoNelFormato3, c.Codice)); err != nil {
+			return nil, err
+		}
 		// il CHECK di step_strutturale_id lo vuole solo per un finito: prima il riferimento, poi il tipo. Si
 		// svuota come alla revoca (revocaDichiarazione); la marcatura resta, con la sospensione, e il ritorno a
 		// prodotto finito dopo «Riattiva» lo rimette (e.stepDoc)

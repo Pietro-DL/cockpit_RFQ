@@ -444,6 +444,10 @@ func fraseStoria(x db.ListComponentiConStoriaRow) []string {
 	if x.Coperture {
 		out = append(out, "è coperto da un documento condiviso")
 	}
+	// la 0023 (direttiva 35, INC-G26): le associazioni registrate dei file, anche chiuse
+	if x.Associazioni {
+		out = append(out, FraseAssociazioniRegistrate)
+	}
 	return out
 }
 

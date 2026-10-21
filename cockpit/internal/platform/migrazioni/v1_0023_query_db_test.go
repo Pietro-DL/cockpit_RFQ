@@ -118,7 +118,7 @@ func TestV1LeQueryDella0023(t *testing.T) {
 		Contatore: cont.Struttura, ContatoreDati: cont.Dati, BozzaID: nullUUID23("{B3}"), BozzaVersione: pgtype.Int4{Int32: 1, Valid: true},
 		FonteAllegatoID: uuid.NullUUID{UUID: A, Valid: true}, FonteSha256: testo23(sha("b")), FonteGruppo: testo23("bom"),
 		Origine: json.RawMessage(`{"rotta":"motore-a/bom/conferma"}`), Snapshot: snap, ImprontaSnapshot: sha("5"), Delta: json.RawMessage(`{"formato":3}`),
-		Mappa: mappa, Decisioni: json.RawMessage(`[]`), CriterioVerifica: "nessuno", Verifica: json.RawMessage(`{}`),
+		Mappa: mappa, Decisioni: json.RawMessage(`[]`), CriterioVerifica: "nessuno", Verifica: json.RawMessage(`{"regola": "prima-istanza-1"}`),
 		ChiaveIdempotenza: nullUUID23("{K3}"), ConfermatoDa: U, ImportazioneID: nullUUID23("{R1}"), ImportazioniCitate: []uuid.UUID{uuid23("{R1}")}})
 	if err != nil {
 		t.Fatalf("InsertConfermaStrutturale: %v", err)
@@ -141,7 +141,8 @@ func TestV1LeQueryDella0023(t *testing.T) {
 	}
 	segnale := json.RawMessage(`{"codice": "ancoraggio.possibile_elemento_cad", "regola": "elemento_cad_nome_foglia_v1", "versione_servizio": "ancoraggio-3"}`)
 	if err := qt.InsertConfermaNonIncluso(ctx, db.InsertConfermaNonInclusoParams{ConfermaID: conf.ConfermaID, ThreadID: T, Sha256: sha("b"), Chiave: "#31",
-		AllegatoID: A, Gruppo: "bom", DecisioneID: "ni-1", AzioneID: uuid23("{AZ}"), MotivoCodice: "elemento_cad", Motivo: "cordone di saldatura",
+		AllegatoID: A, Gruppo: "bom", Origine: "non_includere", DecisioneID: testo23("ni-1"), AzioneID: nullUUID23("{AZ}"),
+		MotivoCodice: testo23("elemento_cad"), Motivo: testo23("cordone di saldatura"),
 		Segnale: &segnale, RigheChiuse: []uuid.UUID{}, ArchiChiusi: json.RawMessage(`[]`)}); err != nil {
 		t.Fatalf("InsertConfermaNonIncluso: %v", err)
 	}
@@ -183,7 +184,7 @@ func TestV1LeQueryDella0023(t *testing.T) {
 		t.Errorf("ListConfermaStrutturaleComponenti: %+v %v", comp, err)
 	}
 	ni, err := q.ListNonInclusiConferma(ctx, db.ListNonInclusiConfermaParams{ConfermaID: conf.ConfermaID, ThreadID: T})
-	if err != nil || len(ni) != 1 || ni[0].DecisioneID != "ni-1" || ni[0].Numero != 2 {
+	if err != nil || len(ni) != 1 || ni[0].DecisioneID.String != "ni-1" || ni[0].Origine != "non_includere" || ni[0].Numero != 2 {
 		t.Errorf("ListNonInclusiConferma: %+v %v", ni, err)
 	}
 	// senza conferma di base (NULL); la base e il ripristino con piu' conferme sono in TestV1OT06IlRipristinoDiUnNodoNonIncluso
@@ -237,8 +238,10 @@ func TestV1LeQueryDella0023(t *testing.T) {
 	if att, err := q.ListAttestazioniProdotto(ctx, db.ListAttestazioniProdottoParams{ThreadID: T, ProdottoID: P}); err != nil || len(att) != 1 {
 		t.Errorf("ListAttestazioniProdotto: %d %v", len(att), err)
 	}
+	// direttiva 35, C-1c: la ricerca e' ristretta al gesto associa_step («assegna», origine ponte, senza riga della AR):
+	// lo «scarta» scritto con {K4} non e' di quel gesto
 	if as, err := q.GetAssociazioneEventoPerChiave(ctx, db.GetAssociazioneEventoPerChiaveParams{ChiaveIdempotenza: nullUUID23("{K4}"), ThreadID: T}); err != nil ||
-		len(as) != 1 || as[0].Azione != "scarta" {
+		len(as) != 0 {
 		t.Errorf("GetAssociazioneEventoPerChiave: %+v %v", as, err)
 	}
 	if _, err := q.InsertComponenteSenzaFusione(ctx, db.InsertComponenteSenzaFusioneParams{ThreadID: T, Codice: "ACM-5000", Qta: 1,
@@ -257,8 +260,8 @@ func TestV1LeQueryDella0023(t *testing.T) {
 		t.Fatal(err)
 	}
 	qt = db.New(tx)
-	cons, err := qt.InsertConservazione(ctx, db.InsertConservazioneParams{ThreadID: T, AllegatoID: A3, Sha256: sha("3"), DepositoID: uuid.New()})
-	if err != nil || !strings.HasPrefix(cons.PercorsoRelativo, u23("{T}")+`\`+u23("{A3}")+".") {
+	cons, err := qt.InsertConservazione(ctx, db.InsertConservazioneParams{ThreadID: T, AllegatoID: A3, Sha256: sha("3"), RadiceID: uuid.New()})
+	if err != nil || !strings.HasPrefix(cons.PercorsoRelativo, `ALTRO\`+u23("{A3}")+".") {
 		t.Fatalf("InsertConservazione: %+v %v", cons, err)
 	}
 	if n, err := qt.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "copiata", Tentativi: 1, SorgenteByte: testo23("staging"),
@@ -434,7 +437,7 @@ func TestV1OT06IlRipristinoDiUnNodoNonIncluso(t *testing.T) {
 	}
 	for nome, base := range map[string]uuid.NullUUID{"base n. 2": nullUUID23("{C3}"), "senza base": {}} {
 		r := ripristino(base)
-		if len(r) != 1 || r[0].ConfermaID != uuid23("{C3}") || r[0].Numero != 2 || r[0].Chiave != "#31" || r[0].DecisioneID != "ni-1" {
+		if len(r) != 1 || r[0].ConfermaID != uuid23("{C3}") || r[0].Numero != 2 || r[0].Chiave != "#31" || r[0].DecisioneID.String != "ni-1" {
 			t.Errorf("%s: atteso il ripristino di #31 non incluso nella n. 2, righe %+v", nome, r)
 		}
 	}

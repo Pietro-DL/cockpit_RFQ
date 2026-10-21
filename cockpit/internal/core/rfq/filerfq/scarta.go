@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 )
 
 // Scarta e' S2, «Scarta» (EM §10.4; base di lavoro della domanda V1-Q05 A per il nome): terminale in V1 (V1-Q20 A),
@@ -117,7 +118,7 @@ func (s *Servizio) tempo1(ctx context.Context, q *db.Queries, g gesto, pr *prepa
 			return nil, err
 		}
 		for _, c := range vive {
-			if _, err := q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "da_rilasciare", Causa: testo("scartato"),
+			if _, err := q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: "da_rilasciare", Causa: testo("scartato"),
 				Tentativi: c.Tentativi, ConservazioneID: c.ConservazioneID, StatoAtteso: c.Stato}); err != nil {
 				return nil, err
 			}
@@ -147,15 +148,36 @@ func testoScarto(rim []StatoRimozione, allegato uuid.UUID, daAltriFile bool, con
 	if daAltriFile {
 		for _, c := range cons {
 			if c.AllegatoID == allegato {
-				if c.Stato == "rilasciata" {
-					t += " La copia di conservazione è stata eliminata."
-				} else {
-					t += " La copia di conservazione si elimina appena possibile."
-				}
+				t += " " + testoCopiaScartata(c)
 			}
 		}
 	}
 	return t
+}
+
+// testoCopiaScartata: la frase sulla copia nella cartella ALTRO di un file scartato (U2 §3.7, la tabella), dallo stato
+// e dall'esito della rimozione dal NAS. «Eliminato» solo con rimosso.
+func testoCopiaScartata(c StatoConservazione) string {
+	switch {
+	case c.Stato == "rilasciata" && c.Motivo == nas.MotivoRimosso:
+		return "File eliminato anche dalla cartella ALTRO della RFQ."
+	case c.Stato == "rilasciata" && c.Motivo != "":
+		return maiuscola(TestoRimozioneNAS("", c.Motivo)) + "."
+	case c.Stato == "rilasciata":
+		return "La copia in ALTRO non c'è più."
+	case c.Motivo != "":
+		return maiuscola(TestoRimozioneNAS(nas.RimozioneInAttesa, c.Motivo)) + "."
+	}
+	return "La copia in ALTRO si toglie appena possibile."
+}
+
+// maiuscola: la prima lettera maiuscola (i testi della tabella sono frasi da mettere in coda a un'altra).
+func maiuscola(t string) string {
+	r := []rune(t)
+	if len(r) > 0 && r[0] >= 'a' && r[0] <= 'z' {
+		r[0] = r[0] - 'a' + 'A'
+	}
+	return string(r)
 }
 
 // dopoIlGesto: subito dopo il COMMIT (o al reinvio), un tentativo del tempo 2 e del rilascio delle copie delle

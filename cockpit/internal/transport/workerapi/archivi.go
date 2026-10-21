@@ -56,6 +56,15 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	if err != nil {
 		return 0, fmt.Errorf("allegato %s: %w", allegatoID, err)
 	}
+	if (!a.PathStaging.Valid || !(staging.FileStaging{}).Presente(a.PathStaging.String)) && s.ArchiviInAltriFile != nil {
+		// V1 (U2-P45): un archivio in Altri file si riestrae leggendolo dalla sua copia nella cartella ALTRO, in sola
+		// lettura; il servizio del ciclo dei file lo rimette nello staging (per un archivio attivo o scartato non fa niente)
+		if p, err := s.ArchiviInAltriFile.ArchivioNelloStaging(ctx, allegatoID); err == nil {
+			a.PathStaging = txt(p)
+		} else if !errors.Is(err, filerfq.ErrArchivioNonInAltriFile) {
+			s.Log.Warn("archivio in Altri file: la copia in ALTRO non torna nello staging", "allegato", allegatoID, "err", err)
+		}
+	}
 	if !a.PathStaging.Valid || !(staging.FileStaging{}).Presente(a.PathStaging.String) {
 		// Il file non c'è più: qualcuno ha svuotato lo staging fra il download e adesso. Non è un
 		// guasto da ritentare, è un allegato da riscaricare.
@@ -66,11 +75,12 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	if err != nil {
 		return 0, err
 	}
-	// V1 (EM §10.7, G-7): un archivio in Altri file o scartato nella Sorgente non scrive voci (si ricontrolla sotto il
-	// lucchetto della RFQ, qui sotto: questo evita solo l'estrazione inutile)
+	// V1 (EM §10.7, G-7; U2-P45): un archivio scartato nella Sorgente non scrive voci; uno in Altri file rimette solo i
+	// byte delle voci attive che ci sono gia', senza voci nuove (si ricontrolla sotto il lucchetto della RFQ, qui sotto:
+	// questo evita solo l'estrazione inutile)
 	if stato, err := statoOccorrenza(ctx, q, a.AllegatoID); err != nil {
 		return 0, err
-	} else if stato != "attivo" {
+	} else if stato != "attivo" && stato != "altri_file" {
 		s.Log.Info("estrazione di un archivio non attivo nella Sorgente: nessuna voce scritta", "allegato", allegatoID, "stato", stato)
 		return 0, nil
 	}
@@ -104,8 +114,11 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 			return 0, err
 		}
 	}
+	soloEsistenti := false
 	if stato, err := statoOccorrenza(ctx, qt, a.AllegatoID); err != nil {
 		return 0, err
+	} else if stato == "altri_file" {
+		soloEsistenti = true
 	} else if stato != "attivo" {
 		s.Log.Info("estrazione di un archivio non attivo nella Sorgente: nessuna voce scritta", "allegato", allegatoID, "stato", stato)
 		return 0, nil
@@ -116,7 +129,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	}
 	shaDaBloccare := map[string]bool{}
 	for i, v := range voci {
-		if ex, c := esistenti[int16(i+1)]; c && ex.stato != "attivo" {
+		if ex, c := esistenti[int16(i+1)]; (c && ex.stato != "attivo") || (soloEsistenti && !c) {
 			continue
 		}
 		shaDaBloccare[strings.ToLower(v.Sha256)] = true
@@ -141,7 +154,21 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 		fascicolo.SegnaRismistamento(ctx, m.ThreadID.UUID)
 	}
 	for i, v := range voci {
-		if ex, c := esistenti[int16(i+1)]; c && ex.stato != "attivo" {
+		ex, c := esistenti[int16(i+1)]
+		if soloEsistenti && !c {
+			// un archivio in Altri file non scrive voci nuove (U2-P45)
+			continue
+		}
+		if soloEsistenti && (ex.nomeFoto != v.NomeFile || !strings.EqualFold(ex.shaFoto, v.Sha256)) {
+			// la voce attiva gia' scritta non e' quella che la riestrazione trova a quell'indice: anomalia, niente cambia
+			if err := filerfq.SegnaAnomaliaRiestrazione(ctx, qt, m.ThreadID.UUID, ex.allegatoID, map[string]any{
+				"indice": i + 1, "nome_trovato": v.NomeFile, "sha256_trovato": strings.ToLower(v.Sha256),
+				"nome_fotografia": ex.nomeFoto, "sha256_fotografia": ex.shaFoto}); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		if c && ex.stato != "attivo" {
 			// una voce scartata non si riscrive; una in Altri file non riceve la lettura e non cambia (la sua copia di
 			// conservazione e' di quei byte). Se la riestrazione mette un altro file allo stesso indice, lo si dice.
 			if ex.nomeFoto != v.NomeFile || !strings.EqualFold(ex.shaFoto, v.Sha256) {

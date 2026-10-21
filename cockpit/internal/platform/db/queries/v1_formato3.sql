@@ -124,12 +124,14 @@ INSERT INTO conferma_strutturale_arco (conferma_id, padre_id, figlio_id, qta, po
 VALUES (sqlc.arg(conferma_id), sqlc.arg(padre_id), sqlc.arg(figlio_id), sqlc.arg(qta), sqlc.narg(posizione), sqlc.narg(origine));
 
 -- name: InsertConfermaNonIncluso :exec
--- La traccia per nodo di una decisione non_includere applicata (LS-02, EM §7.5): solo formato 3, nella transazione
--- della conferma e prima del controllo finale (trigger).
-INSERT INTO conferma_strutturale_non_incluso (conferma_id, thread_id, sha256, chiave, allegato_id, gruppo, decisione_id, azione_id,
+-- La traccia per nodo di un'esclusione applicata (LS-02, EM §7.5; U2 §6.1): una decisione non_includere (origine
+-- non_includere, con decisione, azione e motivo) o un'esclusione senza decisione propria (assenza, legacy, ereditata,
+-- escludi: decisione, azione e motivo facoltativi). Solo formato 3, nella transazione della conferma e prima del
+-- controllo finale (trigger).
+INSERT INTO conferma_strutturale_non_incluso (conferma_id, thread_id, sha256, chiave, allegato_id, gruppo, origine, decisione_id, azione_id,
                                               motivo_codice, motivo, segnale, righe_chiuse, archi_chiusi)
 VALUES (sqlc.arg(conferma_id), sqlc.arg(thread_id), sqlc.arg(sha256), sqlc.arg(chiave), sqlc.arg(allegato_id), sqlc.arg(gruppo),
-        sqlc.arg(decisione_id), sqlc.arg(azione_id), sqlc.arg(motivo_codice), sqlc.arg(motivo), sqlc.narg(segnale),
+        sqlc.arg(origine), sqlc.narg(decisione_id), sqlc.narg(azione_id), sqlc.narg(motivo_codice), sqlc.narg(motivo), sqlc.narg(segnale),
         sqlc.arg(righe_chiuse)::uuid[], sqlc.arg(archi_chiusi));
 
 -- name: InsertAssociazioneEvento :one
@@ -139,7 +141,7 @@ INSERT INTO associazione_evento (thread_id, proposta_id, documento_id, azione, c
                                  origine, chiave_idempotenza, autore_id)
 VALUES (sqlc.arg(thread_id), sqlc.narg(proposta_id), sqlc.narg(documento_id), sqlc.arg(azione), sqlc.narg(componente_prima),
         sqlc.narg(componente_dopo), sqlc.narg(conferma_id), sqlc.narg(motivo), sqlc.arg(origine), sqlc.narg(chiave_idempotenza),
-        sqlc.arg(autore_id))
+        sqlc.arg(autore_id)::uuid)
 RETURNING evento_id, quando;
 
 -- name: InsertF8StatoConferma :one
@@ -263,19 +265,23 @@ SELECT conferma_id, prodotto_id, numero, formato, bozza_id, bozza_versione, impr
  WHERE chiave_idempotenza = sqlc.arg(chiave_idempotenza) AND thread_id = sqlc.arg(thread_id);
 
 -- name: GetAssociazioneEventoPerChiave :many
--- Gli eventi di associazione scritti con una chiave d'intento della RFQ (R6 dei gesti delle proposte).
+-- Gli eventi del gesto associa_step (S7: «assegna» della pagina nuova, origine ponte, senza riga di file_rfq_associazione)
+-- scritti con una chiave d'intento della RFQ (R6). Direttiva 35, blocco C-1c (PD35 §3.5): ristretta al gesto, perche' con la
+-- stessa chiave scrivono eventi anche R5 (preassociazione, sostituisci, sgancia con la riga della AR) e gli altri gesti
+-- delle proposte; quelli non sono associa_step.
 SELECT evento_id, proposta_id, documento_id, azione, componente_prima, componente_dopo, conferma_id, motivo, origine, autore_id, quando
   FROM associazione_evento
  WHERE chiave_idempotenza = sqlc.arg(chiave_idempotenza) AND thread_id = sqlc.arg(thread_id)
+   AND azione = 'assegna' AND origine = 'ponte' AND associazione_id IS NULL
  ORDER BY evento_id;
 
 -- name: ListNonInclusiConferma :many
 -- I nodi non inclusi da una conferma della RFQ (R7 e l'elenco della pagina; PM23 §6).
-SELECT n.decisione_id, n.sha256, n.chiave, n.allegato_id, n.gruppo, n.azione_id, n.motivo_codice, n.motivo, n.segnale, n.righe_chiuse,
-       n.archi_chiusi, c.firma_anteprima, c.numero
+SELECT n.decisione_id, n.sha256, n.chiave, n.allegato_id, n.gruppo, n.origine, n.azione_id, n.motivo_codice, n.motivo, n.segnale,
+       n.righe_chiuse, n.archi_chiusi, c.firma_anteprima, c.numero
   FROM conferma_strutturale_non_incluso n JOIN conferma_strutturale c ON c.conferma_id = n.conferma_id
  WHERE n.conferma_id = sqlc.arg(conferma_id) AND n.thread_id = sqlc.arg(thread_id)
- ORDER BY n.decisione_id;
+ ORDER BY n.origine, n.decisione_id, n.sha256, n.chiave;
 
 -- name: ListAttestazioniProdotto :many
 -- Le attestazioni del fascicolo di un prodotto della RFQ, dalla prima (R7).
@@ -381,12 +387,25 @@ SELECT rimozione_id, thread_id, allegato_id, percorso_trovato
    FOR UPDATE SKIP LOCKED;
 
 -- name: InsertConservazione :one
--- Una copia nuova nel deposito degli «Altri file», in copia: il percorso relativo lo calcola il trigger (un file per
--- riga: <thread_id>\<allegato_id>.<conservazione_id>.<ext>); il chiamante lo legge da qui.
-INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, chiave_idempotenza)
-VALUES (sqlc.arg(thread_id), sqlc.arg(allegato_id), sqlc.arg(sha256), sqlc.narg(bytes), 'calcolato dal database', sqlc.arg(deposito_id),
-        sqlc.narg(chiave_idempotenza))
-RETURNING conservazione_id, percorso_relativo, iniziata_il;
+-- Una copia nuova di un «Altro file» nella cartella ALTRO, in copia (U2 §3.3, fase A). Il nome lo sceglie e lo riserva il
+-- chiamante (percorso_relativo = ALTRO\<nome>, sotto BloccaCartella); il database lo controlla e non lo calcola.
+-- percorso_relativo NULL vale il nome provvisorio ALTRO\<allegato_id>.<conservazione_id>.<ext>, unico per riga: e'
+-- l'aggancio minimo per il deposito di prova dell'ondata B finche' la corsia file non sceglie il nome in fase A
+-- (Prenota). token NULL = un token nuovo. eredita_da: la riga trattenuta di cui si riusa il file e la prova (il trigger
+-- la cede nella stessa istruzione, U2 §3.8).
+WITH n AS (SELECT nextval(pg_get_serial_sequence('file_rfq_conservazione', 'conservazione_id')) AS id)
+INSERT INTO file_rfq_conservazione (conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread,
+                                    token, eredita_da, creato_dal_cockpit, chiave_idempotenza)
+OVERRIDING SYSTEM VALUE
+SELECT n.id, sqlc.arg(thread_id)::uuid, sqlc.arg(allegato_id)::uuid, sqlc.arg(sha256)::char(64), sqlc.narg(bytes)::bigint,
+       COALESCE(sqlc.narg(percorso_relativo)::text,
+                'ALTRO\' || sqlc.arg(allegato_id)::uuid::text || '.' || n.id::text || '.'
+                || COALESCE((SELECT CASE WHEN lower(a.estensione) ~ '^[a-z0-9]{1,10}$' THEN lower(a.estensione) END
+                               FROM allegato a WHERE a.allegato_id = sqlc.arg(allegato_id)::uuid), 'bin')),
+       sqlc.arg(radice_id)::uuid, sqlc.narg(cartella_thread)::text, COALESCE(sqlc.narg(token)::uuid, gen_random_uuid()),
+       sqlc.narg(eredita_da)::bigint, sqlc.arg(creato_dal_cockpit)::bool, sqlc.narg(chiave_idempotenza)::uuid
+  FROM n
+RETURNING conservazione_id, percorso_relativo, iniziata_il, token;
 
 -- name: UpdateConservazione :execrows
 -- Un passo della copia dallo stato atteso (confronta e scambia; in_copia → in_copia e' il battito). Le transizioni le
@@ -399,14 +418,14 @@ UPDATE file_rfq_conservazione
 
 -- name: GetConservazioneCopiata :one
 -- La copia verificata di un'occorrenza in Altri file (per aprirla e per il pin dello staging).
-SELECT conservazione_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, verificato_il
+SELECT conservazione_id, sha256, bytes, percorso_relativo, radice_id, sorgente_byte, verificato_il
   FROM file_rfq_conservazione
  WHERE thread_id = sqlc.arg(thread_id) AND allegato_id = sqlc.arg(allegato_id) AND stato = 'copiata';
 
 -- name: ListConservazioniDaRiprendere :many
 -- Le copie da riprendere (il custode): da rilasciare, o in copia con il battito fermo da piu' di 15 minuti (da quel
 -- momento vanno a da_rilasciare con la causa tempo_scaduto, mai a errore_copia: il loro file puo' esistere).
-SELECT conservazione_id, thread_id, allegato_id, sha256, percorso_relativo, deposito_id, stato, causa, tentativi
+SELECT conservazione_id, thread_id, allegato_id, sha256, percorso_relativo, radice_id, stato, causa, tentativi
   FROM file_rfq_conservazione
  WHERE (stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= now()))
     OR (stato = 'in_copia' AND aggiornato_il < now() - interval '15 minutes')
@@ -417,9 +436,12 @@ SELECT conservazione_id, thread_id, allegato_id, sha256, percorso_relativo, depo
 -- name: ListDipendenzeBozzaPerFile :many
 -- La dipendenza D-6 (PM23 §6; EM §10.3): le occorrenze citate dalle bozze aperte della RFQ, in una passata. Nel gesto
 -- (S2, S3) gira sotto BloccaThread per ogni occorrenza del gesto; nel dettaglio di S1 senza lucchetto. tipo «registro»
--- e' D-6b (si mostra), gli altri tipi bloccano.
+-- e' D-6b (si mostra), gli altri tipi bloccano. Preassociazioni e svincoli su due rami (direttiva 35, blocco C-2): nel
+-- formato 3 citano l'occorrenza ({allegato_id, chiave_bozza}, scollega_documento {allegato_id, componente_id}); nel
+-- formato 2 la PB cita la proposta di documento, risolta con il join di prima (il formato 2 si rilegge come era, e non ha
+-- svincoli).
 WITH aperte AS (
-    SELECT b.bozza_id, b.prodotto_id, b.fonte_allegato_id, v.snapshot, v.importazione_id
+    SELECT b.bozza_id, b.prodotto_id, b.formato, b.fonte_allegato_id, v.snapshot, v.importazione_id
       FROM distinta_bozza b
       JOIN distinta_bozza_versione v ON v.bozza_id = b.bozza_id AND v.versione = b.versione
      WHERE b.thread_id = sqlc.arg(thread_id) AND b.stato = 'aperta'),
@@ -435,15 +457,21 @@ citati AS (
       FROM aperte a
       CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.decisioni[*] ? (@.tipo == "non_includere").casella.allegato_id') AS c
     UNION ALL
+    SELECT a.bozza_id, a.prodotto_id, q #>> '{}', 'preassociazione'
+      FROM aperte a
+      CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.documenti_preassociati[*].allegato_id') AS q
+     WHERE a.formato = 3
+    UNION ALL
     SELECT a.bozza_id, a.prodotto_id, p.allegato_id::text, 'preassociazione'
       FROM aperte a
       CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.documenti_preassociati[*].proposta_id') AS q
       JOIN documento_proposta p ON p.proposta_id = (q #>> '{}')::uuid
+     WHERE a.formato = 2
     UNION ALL
-    SELECT a.bozza_id, a.prodotto_id, p.allegato_id::text, 'svincolo'
+    SELECT a.bozza_id, a.prodotto_id, q #>> '{}', 'svincolo'
       FROM aperte a
-      CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.decisioni[*] ? (@.tipo == "scollega_documento").proposta_id') AS q
-      JOIN documento_proposta p ON p.proposta_id = (q #>> '{}')::uuid
+      CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.decisioni[*] ? (@.tipo == "scollega_documento").allegato_id') AS q
+     WHERE a.formato = 3
     UNION ALL
     SELECT a.bozza_id, a.prodotto_id, split_part(c #>> '{}', '/', 1), 'prova_identita'
       FROM aperte a

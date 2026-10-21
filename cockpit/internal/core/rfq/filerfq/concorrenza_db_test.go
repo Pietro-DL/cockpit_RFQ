@@ -473,7 +473,7 @@ func TestCO15CacheConUnaRiattivaInMezzo(t *testing.T) {
 	if e.ByteRipristinati == nil || *e.ByteRipristinati {
 		t.Errorf("i byte erano nello staging: %+v", e)
 	}
-	if got := b.copie(b.thread, a); !uguali(got, "rilasciata/riattivato") {
+	if got := b.copie(b.thread, a); !uguali(got, "trattenuta/riattivato") {
 		t.Errorf("conservazione %v", got)
 	}
 }
@@ -509,7 +509,9 @@ func TestCO16RipresaDopoIlBattitoFermo(t *testing.T) {
 	if _, err := (&Custode{S: b.s}).Giro(b.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := b.copie(b.thread, a); !uguali(got, "rilasciata/tempo_scaduto", "copiata/-") {
+	// la copia del tentativo scaduto ha la prova (il suo file l'ha creato il cockpit): con la base B di U2-Q01
+	// (provvisoria [T]) resta, trattenuta
+	if got := b.copie(b.thread, a); !uguali(got, "trattenuta/tempo_scaduto", "copiata/-") {
 		t.Errorf("dopo il custode: %v", got)
 	}
 	if _, h := b.copiaVerificata(b.thread, a); h != sha {
@@ -521,9 +523,10 @@ func TestCO16RipresaDopoIlBattitoFermo(t *testing.T) {
 	a2, _ := b.pdf("ACME-C16b.pdf")
 	var chiusa bool
 	b.s.Agganci = &Agganci{DopoLaCopia: func(uuid.UUID) {
-		// la copia e' iniziata 20 minuti fa (si sposta l'inizio, che il trigger non lascia cambiare), il battito e' di adesso
+		// la copia e' iniziata 20 minuti fa (si sposta l'inizio, che il trigger non lascia cambiare), il battito (la
+		// colonna ultimo_battito, U2 §3.3 passo 2) e' di adesso
 		b.esegui(`ALTER TABLE file_rfq_conservazione DISABLE TRIGGER trg_cons_cambia`)
-		b.esegui(`UPDATE file_rfq_conservazione SET iniziata_il = now() - interval '20 minutes', aggiornato_il = now()
+		b.esegui(`UPDATE file_rfq_conservazione SET iniziata_il = now() - interval '20 minutes', ultimo_battito = now()
 			WHERE allegato_id = $1 AND stato = 'in_copia'`, a2)
 		b.esegui(`ALTER TABLE file_rfq_conservazione ENABLE TRIGGER trg_cons_cambia`)
 		e, err := (&Custode{S: b.s}).Giro(b.ctx)
@@ -549,7 +552,7 @@ func TestCO17MessaggioSpostatoConIlFileInAltriFile(t *testing.T) {
 	}
 	rfqB := b.rfq("RFQ-B")
 	b.esegui(`UPDATE messaggio SET thread_id = $2 WHERE messaggio_id = (SELECT messaggio_id FROM allegato WHERE allegato_id = $1)`, a, rfqB)
-	f, _, err := b.s.ApriCopia(b.ctx, rfqB, a, false)
+	f, _, _, err := b.s.ApriCopia(b.ctx, rfqB, a, false)
 	if err != nil || f == nil {
 		t.Fatalf("S5 nella RFQ nuova non trova i byte: %v", err)
 	}

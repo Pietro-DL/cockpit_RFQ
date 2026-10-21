@@ -139,9 +139,11 @@ var pacchettiMotoreA = []regolePacchetto{
 	// la chiave dei gruppi, il gruppo corrente della sorgente, l'adattatore del registro d'importazione (con la foglia del
 	// registro, P-10), il confronto e il contenuto dell'anteprima dello STEP. Puro, con le dipendenze di ancoraggio e
 	// valutazione (A3 §1.2): l'esito già calcolato, le letture, le foglie. Di core/rfq solo la foglia del registro (la
-	// bozza importa questo pacchetto, mai il contrario); mai il DB, transport.
+	// bozza importa questo pacchetto, mai il contrario); mai il DB, transport. Dall'ondata C la fotografia (pura): le righe
+	// legacy del thread danno la traccia dei nodi fuori per decisione (U2 §4.4).
 	{percorso: "internal/core/propostabom", puro: true,
 		progetto: []string{"internal/core/valutazione", "internal/core/ancoraggio", "internal/core/inbox/classificazione/motorea",
+			"internal/core/fotorfq",
 			"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze", "internal/platform/jsoncanonico",
 			"internal/core/rfq/distintabozza/importazione"},
 		esterni: []string{"github.com/google/uuid"}},
@@ -173,7 +175,14 @@ var pacchettiMotoreA = []regolePacchetto{
 	{percorso: "internal/transport/web/motore_a",
 		progetto: []string{"internal/core/inbox/classificazione/motorea", "internal/core/valutazione",
 			"internal/core/confronto", "internal/core/fotorfq", "internal/core/fotorfq/caricatore", "internal/core/ancoraggio",
-			"internal/core/rfq/fascicolo", "internal/platform/db", "internal/core/propostabom"},
+			"internal/core/rfq/fascicolo", "internal/platform/db", "internal/core/propostabom",
+			// V1, ondata C: lo stato della RFQ e la validità dell'ultima conferma (confermabom.LeggiStatoRFQ, sola lettura) e
+			// la foglia del registro (i registri delle conferme riletti con le loro colonne) per conferma_corrente
+			"internal/core/rfq/confermabom", "internal/core/rfq/distintabozza/importazione",
+			// V1, direttiva 35 (blocco C-4): la lettura delle bozze di tutti i prodotti e delle AR attive per S9 e per la fonte
+			// «manuale» del Motore A (distintabozza.LeggiBozzeDellaRfq, solo SELECT, sulla transazione dello snapshot; con uno
+			// snapshot di bozza che non si rilegge, le AR attive da associazioni.AttiveDellaRfq)
+			"internal/core/rfq/distintabozza", "internal/core/rfq/associazioni"},
 		esterni: []string{"github.com/google/uuid", "github.com/jackc/pgx/v5", "github.com/jackc/pgx/v5/pgconn"}},
 }
 
@@ -919,8 +928,9 @@ var fascicoloDellaDistintaNuova = []string{"EffettoAutorizzazione", "LeggiDichia
 // RFQ e la fase; da V1, il modello della Distinta unica: le occorrenze non attive, le bozze aperte formato 3 con le
 // colonne del registro, lo stato di F8, l'identità certificata dei componenti). Solo letture (Get*, List*), e tutte
 // usate: una lettura che non serve più si toglie da qui.
-var queriesDellaDistintaNuova = []string{"GetThread", "GetFaseCorrente", "ListFaseCatalogo", "ListFileRfqNonAttivi",
-	"ListSorgentiBozzeAperte", "GetStatoF8DelThread", "ListIdentitaRegistrate"}
+var queriesDellaDistintaNuova = []string{"GetThread", "GetFaseCorrente", "ListFaseCatalogo", "ListOccorrenzeNonAttiveRfq",
+	"ListSorgentiBozzeAperte", "GetStatoF8DelThread", "ListIdentitaRegistrate", "ListEventiFonteDelThread", "ListNomiUtenti",
+	"ListUltimeConfermeDelThread", "ListImportazioniPerID"}
 
 // chiamateCheScrivono: i metodi di una transazione pgx che la Distinta nuova non chiama mai da sé: le letture passano
 // dalle query generate (db.Queries), dal caricatore e dal Fascicolo; la transazione si chiude solo con Rollback.

@@ -914,7 +914,7 @@ func TestLaRadiceDiFamigliaAggiornaLaPropostaDelDocumento(t *testing.T) {
 			b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte, stato) VALUES ($1, $2, 'cad_3d', $3, 40, $4, $5)`,
 				a.AllegatoID, b.thread, c.codice, c.fonte, c.stato)
 			if c.assegnata {
-				b.esegui(`UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, a.AllegatoID, comp)
+				testutil.CopiaLegacy(b.t, b.p, `UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, a.AllegatoID, comp)
 			}
 			b.applica(a, f.json())
 			const lettura = `SELECT codice || ':' || coalesce(rev, '-') || ':' || fonte || ':' || confidenza || ':' ||
@@ -981,7 +981,7 @@ func TestLaRadiceDiFamigliaDiversaDalNomeEDiscorde(t *testing.T) {
 		b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte) VALUES ($1, $2, 'cad_3d', $3, 45, $4)`,
 			x.AllegatoID, b.thread, codice, c.fonte)
 		if c.componente != "" {
-			b.esegui(`UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, x.AllegatoID, comp)
+			testutil.CopiaLegacy(b.t, b.p, `UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, x.AllegatoID, comp)
 		}
 		prima := uno[string](b, `SELECT xmin::text FROM documento_proposta WHERE allegato_id = $1`, x.AllegatoID)
 		b.applica(x, f.json())

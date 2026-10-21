@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/ancoraggio"
+	"promatec/cockpit/internal/core/fotorfq"
 	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
 	"promatec/cockpit/internal/core/valutazione"
@@ -38,7 +39,8 @@ func CompatibilitaDellaRadice(c motorea.Compatibilita) string {
 }
 
 // IngressoModello: l'esito già calcolato, le regole di lettura, il prodotto, le occorrenze non attive e, per l'identità
-// registrata dei componenti decisi, la working e le certificazioni (letture del database di chi chiama).
+// registrata dei componenti decisi, la working e le certificazioni (letture del database di chi chiama); la fotografia
+// del calcolo (Ingresso.Foto); l'insieme delle regole caricate, per l'identificativo verso il cliente.
 type IngressoModello struct {
 	Esito          *valutazione.Esito
 	Thread         *valutazione.EsitoThread
@@ -47,6 +49,8 @@ type IngressoModello struct {
 	NonAttivi      NonAttivi
 	Componenti     map[uuid.UUID]ComponenteDellaWorking
 	Certificazioni map[uuid.UUID]Certificazione
+	Foto           *fotorfq.Fotografia
+	Insieme        *motorea.InsiemeRegole
 }
 
 // ComponenteDellaWorking: il componente della working com'è nel database (codice e rev, archiviato o no).
@@ -140,12 +144,16 @@ type ErroreImportazione struct {
 // decisione esistente con l'identità registrata del componente. I confermati senza STEP del gruppo «bom» (P-6) non sono
 // voci del registro e non hanno un nodo qui: la loro completezza la pagina la legge nell'esito
 // (prodotti_valutati[].documenti, per componente_id).
+//
+// IdentificativoCliente (U2 §4.2 punto 4): l'identificativo verso il cliente dell'identità proposta della voce
+// (codice_proposto e rev_proposta, con l'emittente e il namespace della lettura scelta); assente senza codice_proposto.
 type NodoDelModello struct {
-	Rif                string                        `json:"rif"`
-	Voce               string                        `json:"voce"`
-	Completezza        *CompletezzaDelNodo           `json:"completezza,omitempty"`
-	Diagnostiche       json.RawMessage               `json:"diagnostiche,omitempty"`
-	DecisioneEsistente *DecisioneEsistenteDelModello `json:"decisione_esistente,omitempty"`
+	Rif                   string                        `json:"rif"`
+	Voce                  string                        `json:"voce"`
+	Completezza           *CompletezzaDelNodo           `json:"completezza,omitempty"`
+	Diagnostiche          json.RawMessage               `json:"diagnostiche,omitempty"`
+	DecisioneEsistente    *DecisioneEsistenteDelModello `json:"decisione_esistente,omitempty"`
+	IdentificativoCliente *IdentificativoCliente        `json:"identificativo_cliente,omitempty"`
 }
 
 // CompletezzaDelNodo: la completezza del 2D del nodo come la calcola la valutazione adesso (PE-28; EM §9.9; MAT PN-06:
@@ -168,10 +176,13 @@ const (
 
 // DecisioneEsistenteDelModello: il componente della riga legacy decisa del nodo con la sua identità registrata (PE-10):
 // la pagina costruisce il nodo «registrato» copiandola, e R2 la verifica sulla working (V-1).
+//
+// IdentificativoCliente: l'identificativo verso il cliente dell'identità registrata (U2 §4.2 punto 4).
 type DecisioneEsistenteDelModello struct {
-	ComponenteID           uuid.UUID          `json:"componente_id"`
-	IdentitaRegistrata     IdentitaRegistrata `json:"identita_registrata"`
-	CertificazioneSuperata bool               `json:"certificazione_superata,omitempty"`
+	ComponenteID           uuid.UUID             `json:"componente_id"`
+	IdentitaRegistrata     IdentitaRegistrata    `json:"identita_registrata"`
+	CertificazioneSuperata bool                  `json:"certificazione_superata,omitempty"`
+	IdentificativoCliente  IdentificativoCliente `json:"identificativo_cliente"`
 }
 
 // StepSecondario: lo STEP secondario del prodotto (PE-15; D-SHOCK-S4 A): uno STEP attivo, diverso da quello della
@@ -189,20 +200,31 @@ type StepSecondario struct {
 const MotivoStepSecondarioEsatto = "corrispondenza esatta e univoca"
 
 // MotivoSenzaGruppi: perché il prodotto non ha gruppi con uno STEP (PE-16; MAT SG-13), con il codice e il testo; con il
-// codice step_non_attivo anche gli allegati degli STEP non attivi, che la pagina offre di riattivare.
+// codice step_non_attivo anche gli allegati degli STEP non attivi con lo stato di ognuno (DEC-B B-3): «Riattiva» per
+// uno in «Altri file», «ricaricalo» per uno scartato (lo scarto non si presenta come reversibile, Q20 [U]).
 type MotivoSenzaGruppi struct {
-	Codice   string      `json:"codice"`
-	Testo    string      `json:"testo"`
-	Allegati []uuid.UUID `json:"allegati,omitempty"`
+	Codice   string              `json:"codice"`
+	Testo    string              `json:"testo"`
+	Allegati []AllegatoNonAttivo `json:"allegati,omitempty"`
+}
+
+// AllegatoNonAttivo: un'occorrenza non attiva con lo stato del ciclo dei file (altri_file | scartato; lo scarto fatto
+// con il vecchio «Scarta il file» vale scartato, DEC-B §5.1).
+type AllegatoNonAttivo struct {
+	AllegatoID uuid.UUID `json:"allegato_id"`
+	Stato      string    `json:"stato"`
 }
 
 // ModelloDelProdotto: le aggiunte di V1 per il prodotto. StepNonAttivi (fuori dal JSON): gli allegati dei gruppi con uno
-// STEP che il modello lascia fuori perché l'occorrenza è in «Altri file» o scartata, per il motivo della fonte.
+// STEP che il modello lascia fuori perché l'occorrenza è in «Altri file» o scartata, per il motivo della fonte. Registri
+// (fuori dal JSON): il registro di adesso di ogni gruppo importato, per chiave, per chi confronta con la conferma (la
+// proposta aggiornata, U2 §5.3) senza importare due volte.
 type ModelloDelProdotto struct {
-	Gruppi            []GruppoDelModello `json:"gruppi"`
-	MotivoSenzaGruppi *MotivoSenzaGruppi `json:"motivo_senza_gruppi,omitempty"`
-	StepSecondario    *StepSecondario    `json:"step_secondario,omitempty"`
-	StepNonAttivi     []uuid.UUID        `json:"-"`
+	Gruppi            []GruppoDelModello                `json:"gruppi"`
+	MotivoSenzaGruppi *MotivoSenzaGruppi                `json:"motivo_senza_gruppi,omitempty"`
+	StepSecondario    *StepSecondario                   `json:"step_secondario,omitempty"`
+	StepNonAttivi     []uuid.UUID                       `json:"-"`
+	Registri          map[string]importazione.Contenuto `json:"-"`
 }
 
 // Modello: le aggiunte di V1 per il prodotto (nil per un prodotto che non c'è). I gruppi sono quelli di
@@ -226,7 +248,7 @@ func Modello(in IngressoModello) *ModelloDelProdotto {
 	if pv == nil {
 		return nil
 	}
-	out := &ModelloDelProdotto{Gruppi: []GruppoDelModello{}}
+	out := &ModelloDelProdotto{Gruppi: []GruppoDelModello{}, Registri: map[string]importazione.Contenuto{}}
 	file := map[uuid.UUID]*valutazione.FileInterpretato{}
 	for i := range et.File {
 		file[et.File[i].AllegatoID] = &et.File[i]
@@ -257,10 +279,12 @@ func Modello(in IngressoModello) *ModelloDelProdotto {
 				}
 				gm.Struttura.Completa, gm.Struttura.Motivo = st.GrafoCompleto, st.MotivoGrafo
 			}
-			reg, err := importaProtetto(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave, NonAttivi: in.NonAttivi})
+			reg, err := importaProtetto(Ingresso{Esito: in.Esito, Thread: et, Regole: in.Regole, Prodotto: in.Prodotto, Gruppo: g.Chiave,
+				NonAttivi: in.NonAttivi, Foto: in.Foto})
 			if err != nil {
 				gm.Importazione = erroreDiImportazione(err)
 			} else {
+				out.Registri[g.Chiave] = reg.Contenuto
 				gm.ImprontaContenuto = reg.Contenuto.ImprontaContenuto
 				gm.RadiceLetterale = letteraleDellaRadice(reg.Contenuto)
 				gm.Diagnostiche = reg.Contenuto.Proposta.Diagnostiche
@@ -272,8 +296,14 @@ func Modello(in IngressoModello) *ModelloDelProdotto {
 	sort.Slice(out.StepNonAttivi, func(i, j int) bool { return out.StepNonAttivi[i].String() < out.StepNonAttivi[j].String() })
 	switch {
 	case conSTEP == 0 && len(out.StepNonAttivi) > 0:
-		out.MotivoSenzaGruppi = &MotivoSenzaGruppi{Codice: MotivoSenzaGruppiStepNonAttivo, Testo: TestoStepNonAttivo,
-			Allegati: append([]uuid.UUID(nil), out.StepNonAttivi...)}
+		m := &MotivoSenzaGruppi{Codice: MotivoSenzaGruppiStepNonAttivo}
+		var stati []string
+		for _, a := range out.StepNonAttivi {
+			m.Allegati = append(m.Allegati, AllegatoNonAttivo{AllegatoID: a, Stato: in.NonAttivi[a]})
+			stati = append(stati, in.NonAttivi[a])
+		}
+		m.Testo = TestoStepNonAttivo(stati...)
+		out.MotivoSenzaGruppi = m
 	case conSTEP == 0:
 		out.MotivoSenzaGruppi = motivoSenzaGruppi(*pv, et)
 	}
@@ -345,6 +375,12 @@ func nodiDelGruppo(in IngressoModello, pv valutazione.ProdottoValutato, g Gruppo
 			segnalati++
 		}
 		n := NodoDelModello{Rif: v.Origine.Rif, Voce: v.Voce, Diagnostiche: v.Diagnostiche}
+		if v.CodiceProposto != "" {
+			var l struct{ Emittente, Namespace string }
+			_ = json.Unmarshal(v.IdentitaProposta, &l)
+			id := IdentificativoDelCliente(in.Insieme, l.Emittente, l.Namespace, v.CodiceProposto, v.RevProposta)
+			n.IdentificativoCliente = &id
+		}
 		var k *uuid.UUID
 		if len(v.DecisioneEsistente) > 0 {
 			var de struct {
@@ -359,7 +395,8 @@ func nodiDelGruppo(in IngressoModello, pv valutazione.ProdottoValutato, g Gruppo
 						cert = &x
 					}
 					reg, sup := IdentitaDelRegistrato(in.Thread.ClienteID, w, cert)
-					n.DecisioneEsistente = &DecisioneEsistenteDelModello{ComponenteID: id, IdentitaRegistrata: reg, CertificazioneSuperata: sup}
+					n.DecisioneEsistente = &DecisioneEsistenteDelModello{ComponenteID: id, IdentitaRegistrata: reg, CertificazioneSuperata: sup,
+						IdentificativoCliente: IdentificativoDelCliente(in.Insieme, reg.Emittente, reg.Namespace, reg.Codice, reg.Rev)}
 				}
 			}
 		}
@@ -413,9 +450,36 @@ const (
 	MotivoSenzaGruppiStepNonAttivo        = "step_non_attivo"
 )
 
-// TestoStepNonAttivo: il testo di motivo_senza_gruppi con il codice step_non_attivo (e del motivo della fonte nello stesso
-// caso).
-const TestoStepNonAttivo = "lo STEP del prodotto è in «Altri file» o scartato: riattivalo dalla Sorgente"
+// I testi di motivo_senza_gruppi con il codice step_non_attivo, e del motivo della fonte nello stesso caso, divisi per
+// stato (DEC-B B-3): per uno STEP in «Altri file» il rimedio è «Riattiva»; per uno scartato «ricaricalo», perché lo
+// scarto non si presenta come reversibile (Q20 [U]) e «Riattiva» non c'è.
+const (
+	TestoStepInAltriFile = "lo STEP del prodotto è in «Altri file»: riattivalo dalla Sorgente"
+	TestoStepScartato    = "lo STEP del prodotto è stato scartato: per usarlo ricaricalo"
+	TestoStepNonAttivi   = "gli STEP del prodotto sono in «Altri file» (riattivali dalla Sorgente) o scartati (per usarli ricaricali)"
+	StatoNonAttivoAltri  = "altri_file"
+	StatoNonAttivoScarto = "scartato"
+)
+
+// TestoStepNonAttivo: il testo per gli stati degli STEP non attivi del prodotto: tutti in «Altri file», tutti scartati, o
+// misti (uno stato sconosciuto vale scartato: niente «Riattiva» per un file che forse non si riattiva).
+func TestoStepNonAttivo(stati ...string) string {
+	altri, scartati := false, false
+	for _, x := range stati {
+		if x == StatoNonAttivoAltri {
+			altri = true
+		} else {
+			scartati = true
+		}
+	}
+	switch {
+	case altri && scartati:
+		return TestoStepNonAttivi
+	case altri:
+		return TestoStepInAltriFile
+	}
+	return TestoStepScartato
+}
 
 // motivoSenzaGruppi: perché il prodotto non ha gruppi con uno STEP, con un testo per la pagina: il motivo della fonte del
 // prodotto quando dice che uno STEP non c'è o non è letto (nessuna fonte, STEP non analizzato, analisi in corso,

@@ -57,7 +57,7 @@ func TestT13LaCandidataELaBOMDopoAutorizza(t *testing.T) {
 	if bom.ImprontaContenuto != cand.ImprontaContenuto || x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() {
 		t.Errorf("candidata e BOM dopo «Autorizza»: %s %+v", x.Esito, x.Differenze)
 	}
-	if bom.ImprontaEvidenze == cand.ImprontaEvidenze || !x.EvidenzeCambiate {
+	if bom.ImprontaEvidenze == cand.ImprontaEvidenze || len(x.Differenze.Evidenze) == 0 {
 		t.Error("candidata e BOM: le evidenze devono cambiare (la chiave, lo stato della struttura, la riga della radice)")
 	}
 }
@@ -77,7 +77,7 @@ func TestT13LaRadiceDiRiserva(t *testing.T) {
 		t.Fatalf("i campi del gruppo della scena: candidata %+v, BOM %+v", cand.Gruppo, bom.Gruppo)
 	}
 	x := propostabom.Confronta(cand, bom)
-	if cand.ImprontaContenuto != bom.ImprontaContenuto || x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() || !x.EvidenzeCambiate {
+	if cand.ImprontaContenuto != bom.ImprontaContenuto || x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() || len(x.Differenze.Evidenze) == 0 {
 		t.Errorf("la radice di riserva, candidata e BOM: %s %+v", x.Esito, x.Differenze)
 	}
 }
@@ -142,8 +142,8 @@ func TestT13LeRigheLegacy(t *testing.T) {
 	th2 := scenaBOM(t, nodi, archi)
 	rigaDi(t, &th2, "#3").ID = uid(0x7aa)
 	riscritta := calcolaPerIlRegistro(t, th2, insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
-	if y := propostabom.Confronta(base, riscritta); y.Esito != propostabom.EsitoUguale || !y.EvidenzeCambiate || !y.Differenze.Vuote() {
-		t.Errorf("la riga riscritta e aperta: %s, evidenze cambiate %v, %+v", y.Esito, y.EvidenzeCambiate, y.Differenze)
+	if y := propostabom.Confronta(base, riscritta); y.Esito != propostabom.EsitoUguale || len(y.Differenze.Evidenze) == 0 || !y.Differenze.Vuote() {
+		t.Errorf("la riga riscritta e aperta: %s, evidenze cambiate %v, %+v", y.Esito, len(y.Differenze.Evidenze) > 0, y.Differenze)
 	}
 }
 

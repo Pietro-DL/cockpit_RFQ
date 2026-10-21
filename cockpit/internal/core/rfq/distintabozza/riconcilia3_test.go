@@ -123,7 +123,7 @@ func TestV1Riconcilia3IVerbiDelServerNonVengonoDalBrowser(t *testing.T) {
 			t.Errorf("%s: %+v", verbo, e)
 		}
 	}
-	a := azione3(t, AzFileLasciato, "", nil, map[string]any{"proposta_id": "00000000-0000-4000-8000-0000000d0001"})
+	a := azione3(t, AzFileLasciato, "", nil, map[string]any{"allegato_id": id.pdf.String()})
 	a.Origine = "server"
 	_, err := Riconcilia3(s, s, []Azione{a}, Contesto3{N0: 4})
 	if e := errore3(t, err); e.Campo != "azioni[0].origine" {
@@ -224,17 +224,26 @@ func TestV1Riconcilia3LaPilaSiFermaAllaVersioneDelServer(t *testing.T) {
 	}
 }
 
-// PE-22: lo svincolo di una preassociazione con il motivo nodo_escluso; un motivo fuori dall'elenco chiuso e' 422.
+// PE-22: lo svincolo di una preassociazione con il motivo nodo_escluso; un motivo fuori dall'elenco chiuso e' 422. Direttiva
+// 35, C-2: gli eventi dei file citano l'allegato; la forma di prima, con proposta_id, e' rifiutata.
 func TestV1Riconcilia3LoSvincoloPerNodoEscluso(t *testing.T) {
 	id := idSintetici3()
 	imp := componiProva3(t, id).Impronta
 	base := snapshotProva3(id, imp)
 	d := copiaProfonda(t, base)
 	d["documenti_preassociati"] = []any{}
-	p := "00000000-0000-4000-8000-0000000d0001"
-	prima := map[string]any{"proposta_id": p, "chiave_bozza": "k-0007"}
+	p := id.pdf.String()
+	prima := map[string]any{"allegato_id": p, "chiave_bozza": "k-0007"}
+	// la forma del vocabolario 2 prima della direttiva 35 non si legge piu' (D-5: emendato sul posto)
+	_, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{
+		azione3(t, AzFileSvincolato, "k-0007", map[string]any{"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-0007"},
+			map[string]any{"proposta_id": "00000000-0000-4000-8000-0000000d0001", "motivo": SvincoloNodoEscluso}),
+	}, Contesto3{N0: 4})
+	if e := errore3(t, err); e.Codice != CodiceCorpoNonValido || e.Campo != "azioni[0].prima" {
+		t.Fatalf("svincolo con proposta_id: %+v", e)
+	}
 	r, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{
-		azione3(t, AzFileSvincolato, "k-0007", prima, map[string]any{"proposta_id": p, "motivo": SvincoloNodoEscluso}),
+		azione3(t, AzFileSvincolato, "k-0007", prima, map[string]any{"allegato_id": p, "motivo": SvincoloNodoEscluso}),
 	}, Contesto3{N0: 4})
 	if err != nil {
 		t.Fatal(err)
@@ -243,18 +252,28 @@ func TestV1Riconcilia3LoSvincoloPerNodoEscluso(t *testing.T) {
 	if err := json.Unmarshal(r.Eventi[0].Dopo, &dopo); err != nil || dopo.Motivo != SvincoloNodoEscluso || r.Eventi[0].ChiaveBozza != "k-0007" {
 		t.Fatalf("evento: %+v", r.Eventi[0])
 	}
-	if len(r.ProposteCitate) != 1 || r.ProposteCitate[0] != uuid.MustParse(p) {
-		t.Fatalf("proposte citate: %v", r.ProposteCitate)
+	if len(r.AllegatiDeiFile) != 1 || r.AllegatiDeiFile[0] != uuid.MustParse(p) {
+		t.Fatalf("allegati citati: %v", r.AllegatiDeiFile)
+	}
+	if r.Riferimenti.Allegati[uuid.MustParse(p)] == "" {
+		t.Fatalf("l'allegato dello svincolo non e' fra i riferimenti: %+v", r.Riferimenti.Allegati)
+	}
+	// prima e dopo nominano lo stesso allegato
+	_, err = Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{
+		azione3(t, AzFileSvincolato, "k-0007", prima, map[string]any{"allegato_id": allegatoSvincolo3, "motivo": SvincoloNodoEscluso}),
+	}, Contesto3{N0: 4})
+	if e := errore3(t, err); e.Campo != "azioni[0].dopo.allegato_id" {
+		t.Fatalf("svincolo con due allegati: %+v", e)
 	}
 	_, err = Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{
-		azione3(t, AzFileSvincolato, "k-0007", prima, map[string]any{"proposta_id": p, "motivo": "escluso"}),
+		azione3(t, AzFileSvincolato, "k-0007", prima, map[string]any{"allegato_id": p, "motivo": "escluso"}),
 	}, Contesto3{N0: 4})
 	if e := errore3(t, err); e.Campo != "azioni[0].dopo.motivo" {
 		t.Fatalf("motivo fuori elenco: %+v", e)
 	}
 	// «Lascia senza associazione» non cambia lo snapshot e non conta fra le azioni strutturali
 	r, err = Riconcilia3(leggiProva3(t, d), leggiProva3(t, d), []Azione{
-		azione3(t, AzFileLasciato, "", nil, map[string]any{"proposta_id": p}),
+		azione3(t, AzFileLasciato, "", nil, map[string]any{"allegato_id": p}),
 	}, Contesto3{N0: 5})
 	if err != nil || r.Strutturali != 0 || len(r.Eventi) != 1 {
 		t.Fatalf("file_lasciato: %v %+v", err, r)
@@ -533,18 +552,32 @@ func TestV1Riconcilia3IRiferimentiDelleAzioni(t *testing.T) {
 	}
 }
 
-// arco_spostato: l'arco spostato ha origine utente e niente step (EM §6.6).
+// arco_spostato: l'arco spostato ha origine utente, niente step e niente posizione (EM §6.6; DEC-B PD-09 (c), prova
+// OB-05: la posizione era il numero del cartiglio del padre di prima).
 func TestV1Riconcilia3LArcoSpostatoEDellIngegnere(t *testing.T) {
 	id := idSintetici3()
 	imp := componiProva3(t, id).Impronta
 	base := snapshotProva3(id, imp)
 	vecchio := map[string]any{"padre": "k-root", "figlio": "k-man", "qta": 4, "origine": "utente", "posizione": "Pos." + eAccento}
-	nuovo := map[string]any{"padre": "k-0007", "figlio": "k-man", "qta": 4, "origine": "utente", "posizione": "Pos." + eAccento}
+	nuovo := map[string]any{"padre": "k-0007", "figlio": "k-man", "qta": 4, "origine": "utente"}
 	d := copiaProfonda(t, base)
 	for _, a := range d["archi"].([]any) {
 		if m := a.(map[string]any); m["figlio"] == "k-man" {
 			m["padre"] = "k-0007"
+			delete(m, "posizione")
 		}
+	}
+	// OB-05: con la posizione nel dopo, 422 sul campo
+	conPos := conCampo(t, nuovo, "posizione", "Pos.1")
+	dPos := copiaProfonda(t, d)
+	for _, a := range dPos["archi"].([]any) {
+		if m := a.(map[string]any); m["figlio"] == "k-man" {
+			m["posizione"] = "Pos.1"
+		}
+	}
+	_, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, dPos), []Azione{azione3(t, AzArcoSpostato, "k-man", vecchio, conPos)}, Contesto3{N0: 4})
+	if e := errore3(t, err); e.Codice != CodiceCorpoNonValido || e.Campo != "azioni[0].dopo.posizione" {
+		t.Fatalf("arco spostato con la posizione: %+v", e)
 	}
 	r, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{azione3(t, AzArcoSpostato, "k-man", vecchio, nuovo)}, Contesto3{N0: 4})
 	if err != nil {
@@ -572,7 +605,7 @@ func TestV1T16NodoEsclusoEAnnullaConAzione(t *testing.T) {
 		}
 		return e
 	}
-	svincolo := ev(1, AzFileSvincolato, `{"proposta_id":"p-e","chiave_bozza":"k-r"}`, `{"proposta_id":"p-e","motivo":"nodo_escluso","azione_id":"`+azioneA+`"}`)
+	svincolo := ev(1, AzFileSvincolato, `{"allegato_id":"a-e","chiave_bozza":"k-r"}`, `{"allegato_id":"a-e","motivo":"nodo_escluso","azione_id":"`+azioneA+`"}`)
 	got := VassoioDa([]EventoGiornale{svincolo})
 	if len(got) != 1 || got[0].Motivo != SvincoloNodoEscluso || got[0].ChiaveBozza != "k-r" {
 		t.Fatalf("nodo_escluso: %+v", got)

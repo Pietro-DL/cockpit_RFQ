@@ -824,6 +824,13 @@ func DichiaraStrutturale(ctx context.Context, q *db.Queries, thread, utente uuid
 	case e.PresaDAtto != "" && !r.PresaDAtto:
 		return "", Rifiuto("serve la presa d'atto: " + e.PresaDAtto)
 	}
+	// direttiva 39 §2, D-TAB-02 B rivista [T-39]: nelle RFQ formato 3 lo STEP strutturale di un finito lo scrive solo R5
+	// (formato3_legacy.go); prima di ogni scrittura, nella transazione che tiene la RFQ
+	if e.Componente.Tipo == db.TipoComponenteFinito && !e.Delega {
+		if err := rifiutoStepNelFormato3(ctx, q, thread); err != nil {
+			return "", err
+		}
+	}
 	scelti := map[string]bool{}
 	for _, k := range r.Raggruppamenti {
 		if !raggruppamentoFra(e.Raggruppamenti, k) {
@@ -1042,6 +1049,13 @@ func RevocaStrutturale(ctx context.Context, q *db.Queries, thread, utente, comp 
 	if err != nil {
 		return "", err
 	}
+	// direttiva 39 §2 [U + T-39]: nelle RFQ formato 3 lo STEP strutturale di un finito non si revoca da qui (svuoterebbe
+	// step_strutturale_id fuori da R5); la revoca della direttiva e' «Revoca come sorgente» della Sorgente (formato3_legacy.go)
+	if c.Tipo == db.TipoComponenteFinito {
+		if err := rifiutoTestoNelFormato3(ctx, q, thread, fmt.Sprintf(TestoRevocaNelFormato3, c.Codice)); err != nil {
+			return "", err
+		}
+	}
 	motivo = strings.TrimSpace(motivo)
 	if motivo == "" {
 		motivo = "revocato lo STEP autorizzato"
@@ -1129,6 +1143,10 @@ func revocaDichiarazione(ctx context.Context, q *db.Queries, thread, utente uuid
 		return err
 	}
 	if !d.Delega() && d.Documento.Valid && c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == d.Documento.UUID {
+		// per prudenza, a ogni chiamante: nelle RFQ formato 3 step_strutturale_id lo scrive solo R5 (formato3_legacy.go)
+		if err := rifiutoTestoNelFormato3(ctx, q, thread, fmt.Sprintf(TestoRevocaNelFormato3, c.Codice)); err != nil {
+			return err
+		}
 		if _, err := q.SetStepStrutturale(ctx, db.SetStepStrutturaleParams{ComponenteID: c.ComponenteID}); err != nil {
 			return err
 		}

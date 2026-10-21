@@ -24,7 +24,7 @@ func modelloDi(t *testing.T, c calcoloPerIlRegistro, componenti map[uuid.UUID]pr
 	cert map[uuid.UUID]propostabom.Certificazione) *propostabom.ModelloDelProdotto {
 	t.Helper()
 	e, et := c.e, c.et
-	m := propostabom.Modello(propostabom.IngressoModello{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, Componenti: componenti,
+	m := propostabom.Modello(propostabom.IngressoModello{Foto: &c.f, Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, Componenti: componenti,
 		Certificazioni: cert})
 	if m == nil {
 		t.Fatal("il modello del prodotto non c'è")
@@ -112,18 +112,29 @@ func TestA28IlProdottoSenzaGruppi(t *testing.T) {
 //   - Con la fonte confermata (la BOM di lavoro su quello STEP): nemmeno il gruppo «bom» sta fra i gruppi del modello, e il
 //     motivo è lo stesso; una bozza sulla BOM ha il gruppo corrente assente / occorrenza_non_attiva (P-4 a).
 func TestA28LoSTEPNonAttivo(t *testing.T) {
+	t.Run("scartato: ricaricalo, mai riattivalo (DEC-B B-3, OB-10)", func(t *testing.T) {
+		c := calcolaPerIlRegistro(t, scenaCollegamento(t), insiemeACME(t))
+		e, et := c.e, c.et
+		m := propostabom.Modello(propostabom.IngressoModello{Foto: &c.f, Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB,
+			NonAttivi: propostabom.NonAttivi{aStepB: "scartato"}})
+		if m.MotivoSenzaGruppi == nil || m.MotivoSenzaGruppi.Testo != propostabom.TestoStepScartato || len(m.MotivoSenzaGruppi.Allegati) != 1 ||
+			m.MotivoSenzaGruppi.Allegati[0].Stato != "scartato" || strings.Contains(m.MotivoSenzaGruppi.Testo, "riattiv") {
+			t.Errorf("lo STEP scartato: %+v", m.MotivoSenzaGruppi)
+		}
+	})
 	na := propostabom.NonAttivi{aStepB: "altri_file"}
 	controlla := func(t *testing.T, c calcoloPerIlRegistro, gruppoBozza string) {
 		t.Helper()
 		e, et := c.e, c.et
-		m := propostabom.Modello(propostabom.IngressoModello{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, NonAttivi: na})
+		m := propostabom.Modello(propostabom.IngressoModello{Foto: &c.f, Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, NonAttivi: na})
 		for _, g := range m.Gruppi {
 			if g.AllegatoID != nil {
 				t.Errorf("un gruppo sullo STEP non attivo: %+v", g)
 			}
 		}
 		if m.MotivoSenzaGruppi == nil || m.MotivoSenzaGruppi.Codice != propostabom.MotivoSenzaGruppiStepNonAttivo || len(m.MotivoSenzaGruppi.Allegati) != 1 ||
-			m.MotivoSenzaGruppi.Allegati[0] != aStepB || m.MotivoSenzaGruppi.Testo != propostabom.TestoStepNonAttivo {
+			m.MotivoSenzaGruppi.Allegati[0] != (propostabom.AllegatoNonAttivo{AllegatoID: aStepB, Stato: "altri_file"}) ||
+			m.MotivoSenzaGruppi.Testo != propostabom.TestoStepInAltriFile {
 			t.Errorf("il motivo senza gruppi: %+v", m.MotivoSenzaGruppi)
 		}
 		if len(m.StepNonAttivi) != 1 || m.StepNonAttivi[0] != aStepB {
@@ -315,7 +326,7 @@ func TestS6LAnteprimaDelloSTEP(t *testing.T) {
 	senzaFonte(&th)
 	c := calcolaPerIlRegistro(t, th, insiemeACME(t))
 	e, et := c.e, c.et
-	a := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: "7120100A",
+	a := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Foto: &c.f, Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: "7120100A",
 		Allegato: aStepB})
 	if a.Stato != propostabom.StatoAnteprimaPronta || a.NomeFile != "7120100A_1.stp" || a.Sha256 != shaStepB || a.CodiceProdotto != "7120100A" ||
 		len(a.Gruppi) != 1 || !a.Gruppi[0].InVista || a.Gruppi[0].Compatibilita != propostabom.CompatibilitaCompatibile {
@@ -336,7 +347,7 @@ func TestS6LAnteprimaDelloSTEP(t *testing.T) {
 		t.Error("con il codice che coincide il motivo della scelta della fonte non serve")
 	}
 	for _, cp := range []struct{ codice, confronto string }{{"7120100B", propostabom.ConfrontoCodiceDiverso}, {"", propostabom.ConfrontoCodiceNonDeterminabile}} {
-		x := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: cp.codice,
+		x := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Foto: &c.f, Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: cp.codice,
 			Allegato: aStepB})
 		if x.Confronto != cp.confronto || x.CodiceProdotto != cp.codice || !propostabom.MotivoFonteObbligatorio(reg.Contenuto, cp.codice) ||
 			propostabom.ConfrontoDelCodice(reg.Contenuto, cp.codice) != x.Confronto {
@@ -347,7 +358,7 @@ func TestS6LAnteprimaDelloSTEP(t *testing.T) {
 	vb := propostabom.VistaBozza{Sorgente: propostabom.SorgenteBozza{AllegatoID: aStepB, Sha256: shaStepB, Radice: nodoB("#1"), Gruppo: a.Gruppi[0].Gruppo},
 		NodoProdotto: "k1"}
 	k := reg.Contenuto
-	b := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: "7120100A",
+	b := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Foto: &c.f, Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, CodiceProdotto: "7120100A",
 		Allegato: aStepB, Bozza: &vb, RegistroBozza: &k})
 	if b.EffettoSullaBozza == nil || !b.EffettoSullaBozza.StessaSorgente {
 		t.Errorf("l'effetto sulla bozza della stessa struttura: %+v", b.EffettoSullaBozza)
@@ -358,7 +369,7 @@ func TestS6LAnteprimaDelloSTEP(t *testing.T) {
 	th.Fatti[shaStepB] = f
 	c3 := calcolaPerIlRegistro(t, th, insiemeACME(t))
 	e3, et3 := c3.e, c3.et
-	x := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Esito: &e3, Thread: &et3, Regole: c3.reg, Prodotto: rifProdB, Allegato: aStepB})
+	x := propostabom.AnteprimaDelloSTEP(propostabom.IngressoAnteprima{Foto: &c3.f, Esito: &e3, Thread: &et3, Regole: c3.reg, Prodotto: rifProdB, Allegato: aStepB})
 	if x.Stato != propostabom.StatoAnteprimaStrutturaNonDeterminabile || x.Proposta != nil || len(x.Avvisi) != 1 ||
 		x.Avvisi[0].Codice != propostabom.CodiceImportazioneGrafoDaRileggere {
 		t.Errorf("la struttura da rileggere: %+v", x)

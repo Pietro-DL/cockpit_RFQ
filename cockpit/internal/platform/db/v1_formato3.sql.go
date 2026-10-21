@@ -79,6 +79,7 @@ const getAssociazioneEventoPerChiave = `-- name: GetAssociazioneEventoPerChiave 
 SELECT evento_id, proposta_id, documento_id, azione, componente_prima, componente_dopo, conferma_id, motivo, origine, autore_id, quando
   FROM associazione_evento
  WHERE chiave_idempotenza = $1 AND thread_id = $2
+   AND azione = 'assegna' AND origine = 'ponte' AND associazione_id IS NULL
  ORDER BY evento_id
 `
 
@@ -97,11 +98,14 @@ type GetAssociazioneEventoPerChiaveRow struct {
 	ConfermaID      uuid.NullUUID `json:"conferma_id"`
 	Motivo          pgtype.Text   `json:"motivo"`
 	Origine         string        `json:"origine"`
-	AutoreID        uuid.UUID     `json:"autore_id"`
+	AutoreID        uuid.NullUUID `json:"autore_id"`
 	Quando          time.Time     `json:"quando"`
 }
 
-// Gli eventi di associazione scritti con una chiave d'intento della RFQ (R6 dei gesti delle proposte).
+// Gli eventi del gesto associa_step (S7: «assegna» della pagina nuova, origine ponte, senza riga di file_rfq_associazione)
+// scritti con una chiave d'intento della RFQ (R6). Direttiva 35, blocco C-1c (PD35 §3.5): ristretta al gesto, perche' con la
+// stessa chiave scrivono eventi anche R5 (preassociazione, sostituisci, sgancia con la riga della AR) e gli altri gesti
+// delle proposte; quelli non sono associa_step.
 func (q *Queries) GetAssociazioneEventoPerChiave(ctx context.Context, arg GetAssociazioneEventoPerChiaveParams) ([]GetAssociazioneEventoPerChiaveRow, error) {
 	rows, err := q.db.Query(ctx, getAssociazioneEventoPerChiave, arg.ChiaveIdempotenza, arg.ThreadID)
 	if err != nil {
@@ -183,7 +187,7 @@ func (q *Queries) GetConfermaPerChiave(ctx context.Context, arg GetConfermaPerCh
 }
 
 const getConservazioneCopiata = `-- name: GetConservazioneCopiata :one
-SELECT conservazione_id, sha256, bytes, percorso_relativo, deposito_id, sorgente_byte, verificato_il
+SELECT conservazione_id, sha256, bytes, percorso_relativo, radice_id, sorgente_byte, verificato_il
   FROM file_rfq_conservazione
  WHERE thread_id = $1 AND allegato_id = $2 AND stato = 'copiata'
 `
@@ -198,7 +202,7 @@ type GetConservazioneCopiataRow struct {
 	Sha256           string      `json:"sha256"`
 	Bytes            pgtype.Int8 `json:"bytes"`
 	PercorsoRelativo string      `json:"percorso_relativo"`
-	DepositoID       uuid.UUID   `json:"deposito_id"`
+	RadiceID         uuid.UUID   `json:"radice_id"`
 	SorgenteByte     pgtype.Text `json:"sorgente_byte"`
 	VerificatoIl     *time.Time  `json:"verificato_il"`
 }
@@ -212,7 +216,7 @@ func (q *Queries) GetConservazioneCopiata(ctx context.Context, arg GetConservazi
 		&i.Sha256,
 		&i.Bytes,
 		&i.PercorsoRelativo,
-		&i.DepositoID,
+		&i.RadiceID,
 		&i.SorgenteByte,
 		&i.VerificatoIl,
 	)
@@ -556,7 +560,7 @@ INSERT INTO associazione_evento (thread_id, proposta_id, documento_id, azione, c
                                  origine, chiave_idempotenza, autore_id)
 VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10,
-        $11)
+        $11::uuid)
 RETURNING evento_id, quando
 `
 
@@ -639,11 +643,11 @@ func (q *Queries) InsertComponenteSenzaFusione(ctx context.Context, arg InsertCo
 }
 
 const insertConfermaNonIncluso = `-- name: InsertConfermaNonIncluso :exec
-INSERT INTO conferma_strutturale_non_incluso (conferma_id, thread_id, sha256, chiave, allegato_id, gruppo, decisione_id, azione_id,
+INSERT INTO conferma_strutturale_non_incluso (conferma_id, thread_id, sha256, chiave, allegato_id, gruppo, origine, decisione_id, azione_id,
                                               motivo_codice, motivo, segnale, righe_chiuse, archi_chiusi)
 VALUES ($1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11,
-        $12::uuid[], $13)
+        $7, $8, $9, $10, $11, $12,
+        $13::uuid[], $14)
 `
 
 type InsertConfermaNonInclusoParams struct {
@@ -653,17 +657,20 @@ type InsertConfermaNonInclusoParams struct {
 	Chiave       string           `json:"chiave"`
 	AllegatoID   uuid.UUID        `json:"allegato_id"`
 	Gruppo       string           `json:"gruppo"`
-	DecisioneID  string           `json:"decisione_id"`
-	AzioneID     uuid.UUID        `json:"azione_id"`
-	MotivoCodice string           `json:"motivo_codice"`
-	Motivo       string           `json:"motivo"`
+	Origine      string           `json:"origine"`
+	DecisioneID  pgtype.Text      `json:"decisione_id"`
+	AzioneID     uuid.NullUUID    `json:"azione_id"`
+	MotivoCodice pgtype.Text      `json:"motivo_codice"`
+	Motivo       pgtype.Text      `json:"motivo"`
 	Segnale      *json.RawMessage `json:"segnale"`
 	RigheChiuse  []uuid.UUID      `json:"righe_chiuse"`
 	ArchiChiusi  json.RawMessage  `json:"archi_chiusi"`
 }
 
-// La traccia per nodo di una decisione non_includere applicata (LS-02, EM §7.5): solo formato 3, nella transazione
-// della conferma e prima del controllo finale (trigger).
+// La traccia per nodo di un'esclusione applicata (LS-02, EM §7.5; U2 §6.1): una decisione non_includere (origine
+// non_includere, con decisione, azione e motivo) o un'esclusione senza decisione propria (assenza, legacy, ereditata,
+// escludi: decisione, azione e motivo facoltativi). Solo formato 3, nella transazione della conferma e prima del
+// controllo finale (trigger).
 func (q *Queries) InsertConfermaNonIncluso(ctx context.Context, arg InsertConfermaNonInclusoParams) error {
 	_, err := q.db.Exec(ctx, insertConfermaNonIncluso,
 		arg.ConfermaID,
@@ -672,6 +679,7 @@ func (q *Queries) InsertConfermaNonIncluso(ctx context.Context, arg InsertConfer
 		arg.Chiave,
 		arg.AllegatoID,
 		arg.Gruppo,
+		arg.Origine,
 		arg.DecisioneID,
 		arg.AzioneID,
 		arg.MotivoCodice,
@@ -857,10 +865,19 @@ func (q *Queries) InsertConfermaStrutturaleComponente(ctx context.Context, arg I
 }
 
 const insertConservazione = `-- name: InsertConservazione :one
-INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id, chiave_idempotenza)
-VALUES ($1, $2, $3, $4, 'calcolato dal database', $5,
-        $6)
-RETURNING conservazione_id, percorso_relativo, iniziata_il
+WITH n AS (SELECT nextval(pg_get_serial_sequence('file_rfq_conservazione', 'conservazione_id')) AS id)
+INSERT INTO file_rfq_conservazione (conservazione_id, thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id, cartella_thread,
+                                    token, eredita_da, creato_dal_cockpit, chiave_idempotenza)
+OVERRIDING SYSTEM VALUE
+SELECT n.id, $1::uuid, $2::uuid, $3::char(64), $4::bigint,
+       COALESCE($5::text,
+                'ALTRO\' || $2::uuid::text || '.' || n.id::text || '.'
+                || COALESCE((SELECT CASE WHEN lower(a.estensione) ~ '^[a-z0-9]{1,10}$' THEN lower(a.estensione) END
+                               FROM allegato a WHERE a.allegato_id = $2::uuid), 'bin')),
+       $6::uuid, $7::text, COALESCE($8::uuid, gen_random_uuid()),
+       $9::bigint, $10::bool, $11::uuid
+  FROM n
+RETURNING conservazione_id, percorso_relativo, iniziata_il, token
 `
 
 type InsertConservazioneParams struct {
@@ -868,7 +885,12 @@ type InsertConservazioneParams struct {
 	AllegatoID        uuid.UUID     `json:"allegato_id"`
 	Sha256            string        `json:"sha256"`
 	Bytes             pgtype.Int8   `json:"bytes"`
-	DepositoID        uuid.UUID     `json:"deposito_id"`
+	PercorsoRelativo  pgtype.Text   `json:"percorso_relativo"`
+	RadiceID          uuid.UUID     `json:"radice_id"`
+	CartellaThread    pgtype.Text   `json:"cartella_thread"`
+	Token             uuid.NullUUID `json:"token"`
+	EreditaDa         pgtype.Int8   `json:"eredita_da"`
+	CreatoDalCockpit  bool          `json:"creato_dal_cockpit"`
 	ChiaveIdempotenza uuid.NullUUID `json:"chiave_idempotenza"`
 }
 
@@ -876,21 +898,36 @@ type InsertConservazioneRow struct {
 	ConservazioneID  int64     `json:"conservazione_id"`
 	PercorsoRelativo string    `json:"percorso_relativo"`
 	IniziataIl       time.Time `json:"iniziata_il"`
+	Token            uuid.UUID `json:"token"`
 }
 
-// Una copia nuova nel deposito degli «Altri file», in copia: il percorso relativo lo calcola il trigger (un file per
-// riga: <thread_id>\<allegato_id>.<conservazione_id>.<ext>); il chiamante lo legge da qui.
+// Una copia nuova di un «Altro file» nella cartella ALTRO, in copia (U2 §3.3, fase A). Il nome lo sceglie e lo riserva il
+// chiamante (percorso_relativo = ALTRO\<nome>, sotto BloccaCartella); il database lo controlla e non lo calcola.
+// percorso_relativo NULL vale il nome provvisorio ALTRO\<allegato_id>.<conservazione_id>.<ext>, unico per riga: e'
+// l'aggancio minimo per il deposito di prova dell'ondata B finche' la corsia file non sceglie il nome in fase A
+// (Prenota). token NULL = un token nuovo. eredita_da: la riga trattenuta di cui si riusa il file e la prova (il trigger
+// la cede nella stessa istruzione, U2 §3.8).
 func (q *Queries) InsertConservazione(ctx context.Context, arg InsertConservazioneParams) (InsertConservazioneRow, error) {
 	row := q.db.QueryRow(ctx, insertConservazione,
 		arg.ThreadID,
 		arg.AllegatoID,
 		arg.Sha256,
 		arg.Bytes,
-		arg.DepositoID,
+		arg.PercorsoRelativo,
+		arg.RadiceID,
+		arg.CartellaThread,
+		arg.Token,
+		arg.EreditaDa,
+		arg.CreatoDalCockpit,
 		arg.ChiaveIdempotenza,
 	)
 	var i InsertConservazioneRow
-	err := row.Scan(&i.ConservazioneID, &i.PercorsoRelativo, &i.IniziataIl)
+	err := row.Scan(
+		&i.ConservazioneID,
+		&i.PercorsoRelativo,
+		&i.IniziataIl,
+		&i.Token,
+	)
 	return i, err
 }
 
@@ -1280,7 +1317,7 @@ func (q *Queries) ListAttestazioniProdotto(ctx context.Context, arg ListAttestaz
 }
 
 const listConservazioniDaRiprendere = `-- name: ListConservazioniDaRiprendere :many
-SELECT conservazione_id, thread_id, allegato_id, sha256, percorso_relativo, deposito_id, stato, causa, tentativi
+SELECT conservazione_id, thread_id, allegato_id, sha256, percorso_relativo, radice_id, stato, causa, tentativi
   FROM file_rfq_conservazione
  WHERE (stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= now()))
     OR (stato = 'in_copia' AND aggiornato_il < now() - interval '15 minutes')
@@ -1295,7 +1332,7 @@ type ListConservazioniDaRiprendereRow struct {
 	AllegatoID       uuid.UUID   `json:"allegato_id"`
 	Sha256           string      `json:"sha256"`
 	PercorsoRelativo string      `json:"percorso_relativo"`
-	DepositoID       uuid.UUID   `json:"deposito_id"`
+	RadiceID         uuid.UUID   `json:"radice_id"`
 	Stato            string      `json:"stato"`
 	Causa            pgtype.Text `json:"causa"`
 	Tentativi        int32       `json:"tentativi"`
@@ -1318,7 +1355,7 @@ func (q *Queries) ListConservazioniDaRiprendere(ctx context.Context, limite int3
 			&i.AllegatoID,
 			&i.Sha256,
 			&i.PercorsoRelativo,
-			&i.DepositoID,
+			&i.RadiceID,
 			&i.Stato,
 			&i.Causa,
 			&i.Tentativi,
@@ -1335,7 +1372,7 @@ func (q *Queries) ListConservazioniDaRiprendere(ctx context.Context, limite int3
 
 const listDipendenzeBozzaPerFile = `-- name: ListDipendenzeBozzaPerFile :many
 WITH aperte AS (
-    SELECT b.bozza_id, b.prodotto_id, b.fonte_allegato_id, v.snapshot, v.importazione_id
+    SELECT b.bozza_id, b.prodotto_id, b.formato, b.fonte_allegato_id, v.snapshot, v.importazione_id
       FROM distinta_bozza b
       JOIN distinta_bozza_versione v ON v.bozza_id = b.bozza_id AND v.versione = b.versione
      WHERE b.thread_id = $1 AND b.stato = 'aperta'),
@@ -1351,15 +1388,21 @@ citati AS (
       FROM aperte a
       CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.decisioni[*] ? (@.tipo == "non_includere").casella.allegato_id') AS c
     UNION ALL
+    SELECT a.bozza_id, a.prodotto_id, q #>> '{}', 'preassociazione'
+      FROM aperte a
+      CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.documenti_preassociati[*].allegato_id') AS q
+     WHERE a.formato = 3
+    UNION ALL
     SELECT a.bozza_id, a.prodotto_id, p.allegato_id::text, 'preassociazione'
       FROM aperte a
       CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.documenti_preassociati[*].proposta_id') AS q
       JOIN documento_proposta p ON p.proposta_id = (q #>> '{}')::uuid
+     WHERE a.formato = 2
     UNION ALL
-    SELECT a.bozza_id, a.prodotto_id, p.allegato_id::text, 'svincolo'
+    SELECT a.bozza_id, a.prodotto_id, q #>> '{}', 'svincolo'
       FROM aperte a
-      CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.decisioni[*] ? (@.tipo == "scollega_documento").proposta_id') AS q
-      JOIN documento_proposta p ON p.proposta_id = (q #>> '{}')::uuid
+      CROSS JOIN LATERAL jsonb_path_query(a.snapshot, '$.decisioni[*] ? (@.tipo == "scollega_documento").allegato_id') AS q
+     WHERE a.formato = 3
     UNION ALL
     SELECT a.bozza_id, a.prodotto_id, split_part(c #>> '{}', '/', 1), 'prova_identita'
       FROM aperte a
@@ -1389,7 +1432,10 @@ type ListDipendenzeBozzaPerFileRow struct {
 
 // La dipendenza D-6 (PM23 §6; EM §10.3): le occorrenze citate dalle bozze aperte della RFQ, in una passata. Nel gesto
 // (S2, S3) gira sotto BloccaThread per ogni occorrenza del gesto; nel dettaglio di S1 senza lucchetto. tipo «registro»
-// e' D-6b (si mostra), gli altri tipi bloccano.
+// e' D-6b (si mostra), gli altri tipi bloccano. Preassociazioni e svincoli su due rami (direttiva 35, blocco C-2): nel
+// formato 3 citano l'occorrenza ({allegato_id, chiave_bozza}, scollega_documento {allegato_id, componente_id}); nel
+// formato 2 la PB cita la proposta di documento, risolta con il join di prima (il formato 2 si rilegge come era, e non ha
+// svincoli).
 func (q *Queries) ListDipendenzeBozzaPerFile(ctx context.Context, threadID uuid.UUID) ([]ListDipendenzeBozzaPerFileRow, error) {
 	rows, err := q.db.Query(ctx, listDipendenzeBozzaPerFile, threadID)
 	if err != nil {
@@ -1806,11 +1852,11 @@ func (q *Queries) ListImportazioniProdotto(ctx context.Context, arg ListImportaz
 }
 
 const listNonInclusiConferma = `-- name: ListNonInclusiConferma :many
-SELECT n.decisione_id, n.sha256, n.chiave, n.allegato_id, n.gruppo, n.azione_id, n.motivo_codice, n.motivo, n.segnale, n.righe_chiuse,
-       n.archi_chiusi, c.firma_anteprima, c.numero
+SELECT n.decisione_id, n.sha256, n.chiave, n.allegato_id, n.gruppo, n.origine, n.azione_id, n.motivo_codice, n.motivo, n.segnale,
+       n.righe_chiuse, n.archi_chiusi, c.firma_anteprima, c.numero
   FROM conferma_strutturale_non_incluso n JOIN conferma_strutturale c ON c.conferma_id = n.conferma_id
  WHERE n.conferma_id = $1 AND n.thread_id = $2
- ORDER BY n.decisione_id
+ ORDER BY n.origine, n.decisione_id, n.sha256, n.chiave
 `
 
 type ListNonInclusiConfermaParams struct {
@@ -1819,14 +1865,15 @@ type ListNonInclusiConfermaParams struct {
 }
 
 type ListNonInclusiConfermaRow struct {
-	DecisioneID    string           `json:"decisione_id"`
+	DecisioneID    pgtype.Text      `json:"decisione_id"`
 	Sha256         string           `json:"sha256"`
 	Chiave         string           `json:"chiave"`
 	AllegatoID     uuid.UUID        `json:"allegato_id"`
 	Gruppo         string           `json:"gruppo"`
-	AzioneID       uuid.UUID        `json:"azione_id"`
-	MotivoCodice   string           `json:"motivo_codice"`
-	Motivo         string           `json:"motivo"`
+	Origine        string           `json:"origine"`
+	AzioneID       uuid.NullUUID    `json:"azione_id"`
+	MotivoCodice   pgtype.Text      `json:"motivo_codice"`
+	Motivo         pgtype.Text      `json:"motivo"`
 	Segnale        *json.RawMessage `json:"segnale"`
 	RigheChiuse    []uuid.UUID      `json:"righe_chiuse"`
 	ArchiChiusi    json.RawMessage  `json:"archi_chiusi"`
@@ -1850,6 +1897,7 @@ func (q *Queries) ListNonInclusiConferma(ctx context.Context, arg ListNonInclusi
 			&i.Chiave,
 			&i.AllegatoID,
 			&i.Gruppo,
+			&i.Origine,
 			&i.AzioneID,
 			&i.MotivoCodice,
 			&i.Motivo,
@@ -1894,7 +1942,7 @@ type ListNonInclusiPerRifRow struct {
 	Sha256         string          `json:"sha256"`
 	Chiave         string          `json:"chiave"`
 	ConfermaID     uuid.UUID       `json:"conferma_id"`
-	DecisioneID    string          `json:"decisione_id"`
+	DecisioneID    pgtype.Text     `json:"decisione_id"`
 	AllegatoID     uuid.UUID       `json:"allegato_id"`
 	Gruppo         string          `json:"gruppo"`
 	RigheChiuse    []uuid.UUID     `json:"righe_chiuse"`

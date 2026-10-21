@@ -17,8 +17,10 @@ markmap:
 - Gli stessi file sono lo schema che sqlc legge per generare `internal/platform/db`: una migrazione nuova è anche
   codice Go nuovo.
 - **Stato alla 0023 (l'ultima, V1 del giro 5: nei soli rami locali finché non è spinta e applicata solo ai database
-  di prova):** 94 tabelle, 11 viste, 47 enum, 52 funzioni proprie (14 + 26 della 0022 + 12 della 0023), 115 trigger
-  (21 + 67 della 0022 + 27 della 0023; contati sul catalogo di `cockpit_test`).
+  di prova):** 97 tabelle, 12 viste, 47 enum, 133 trigger (contati sul catalogo di `cockpit_test_c` il 20/10, variante
+  `20261019c`, che rispetto alla `20261019b` aggiunge 1 tabella, 4 funzioni e 3 trigger; la `20261019d` cambia solo lo
+  stato di `trg_proposta_copia_derivata`, ora acceso, senza oggetti nuovi; la `20261019b` rispetto alla
+  `20261018d` aggiungeva 1 tabella, 1 vista, 8 funzioni e 11 trigger).
   - La 0022 ridefinisce la vista `v_fascicolo` (deroga dichiarata, direttiva 11) e dichiara la sua variante
     (`schema_variante`).
   - La 0023 estende la 0022 per il formato 3 senza riscriverla (la ratifica 05 §1 la ammette per l'impossibilità
@@ -194,9 +196,27 @@ markmap:
       `file_rfq_evento`, `file_rfq_rimozione`, `file_rfq_conservazione` (`P4X09`), il predicato `file_rfq_attivo`
     - `v_fascicolo`, `v_step_prodotto`, `v_thread_da_riesaminare`, `v_cruscotto`, `v_codici_candidati_thread` ridefinite
       con lo stesso testo più il predicato `file_rfq_attivo` (deroga dichiarata: senza righe in `file_rfq` le stesse righe)
+    - direttiva 35 (blocco C-1b, sezione 9d): `file_rfq_associazione`, le associazioni registrate file → componente
+      (PK propria, stato `attiva` | `chiusa`, righe chiuse che restano, una sola AR attiva per allegato in un indice
+      parziale; FK verso `allegato`, il componente della stessa RFQ, la conferma e il componente certificato; le sei
+      verifiche della direttiva §2.1 nei trigger; `P4X10`); `associazione_evento` come giornale (allegato, riga della AR,
+      riga sostituita, transazione; tre CHECK tolti e rimessi con lo stesso nome) e `correzione_documento` con la riga
+      della AR; il controllo delle associazioni al COMMIT della conferma formato 3 (`trg_conferma_associazioni`); la copia
+      derivata `trg_proposta_copia_derivata` scritta ma spenta; la vista diagnostica del backfill
+      `v_ar_backfill_diagnostica`, senza alcun backfill. Con la direttiva 39 (variante `20261019c`): `provenienza_pb` e
+      `importazione_id` sulla AR (copia verificata della PB confermata), la provenienza delle PB nello snapshot
+      formato 3, l'origine `gesto_legacy` con la guardia della RFQ formato 3 (`rfq_formato3_segno`, `rfq_e_formato3`) e
+      `sgancio_legacy`, `conversione_legacy` nel giornale (l'unica con l'autore nullo), lo STEP legato come sorgente
+      del finito al posto dell'esclusione per estensione (`allegato_sorgente_del_finito`), `revoca_sorgente`. Con la
+      variante `20261019d` (dopo C-6b) `trg_proposta_copia_derivata` e' acceso: tutti gli scrittori della copia passano
+      dal servizio unico delle associazioni. Le
+      decisioni (D-2 (c), D-AR03 D, D-AR04, D-PB03 A, D-4, D-5, D-AR01, D-AR07, D-AR08, D-ASS-04) sono marcate nel
+      commento della sezione
     - nessuna riga esistente riscritta, nessun riempimento, nessun valore di enum nuovo; `SET LOCAL lock_timeout = '30s'`;
-      variante `0023-v1-formato3-file-20261018c` (la `20261018a` era il testo prima della revisione della corsia, la
-      `20261018b` quello del primo commit delle correzioni)
+      variante `0023-v1-formato3-file-20261019d` (la `20261018a` era il testo prima della revisione della corsia, la
+      `20261018b` quello del primo commit delle correzioni, la `20261018c` con i bianchi di `ck_csc_identita`, la
+      `20261018d` con il delta dell'ondata C, la `20261019a` il primo commit della direttiva 35, la `20261019b` con
+      l'indice d'idempotenza del giornale, la `20261019c` con la direttiva 39 e la copia derivata ancora spenta)
   - Ritorno manuale: `scripts/0023_indietro.sql` (sotto, «Tornare indietro»).
 
 ## Lo schema per dominio

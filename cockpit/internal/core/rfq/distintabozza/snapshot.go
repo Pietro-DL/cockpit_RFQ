@@ -103,15 +103,15 @@ var tipiDecisione = map[string]bool{
 // descrizione, caselle, righe_proposta, posizione). I quattro elenchi di testa (nodi, archi, decisioni,
 // documenti_preassociati) si scrivono sempre, anche vuoti: sono la forma del documento [T].
 type Snapshot struct {
-	Formato               int               `json:"formato"`
-	ProdottoID            uuid.UUID         `json:"prodotto_id"`
-	Sorgente              *Sorgente         `json:"sorgente,omitempty"`
-	VersioneBomBase       *VersioneBomBase  `json:"versione_bom_base,omitempty"`
-	FirmaBase             string            `json:"firma_base,omitempty"`
-	Nodi                  []Nodo            `json:"nodi"`
-	Archi                 []Arco            `json:"archi"`
-	Decisioni             []json.RawMessage `json:"decisioni"`
-	DocumentiPreassociati []Preassociazione `json:"documenti_preassociati"`
+	Formato               int                `json:"formato"`
+	ProdottoID            uuid.UUID          `json:"prodotto_id"`
+	Sorgente              *Sorgente          `json:"sorgente,omitempty"`
+	VersioneBomBase       *VersioneBomBase   `json:"versione_bom_base,omitempty"`
+	FirmaBase             string             `json:"firma_base,omitempty"`
+	Nodi                  []Nodo             `json:"nodi"`
+	Archi                 []Arco             `json:"archi"`
+	Decisioni             []json.RawMessage  `json:"decisioni"`
+	DocumentiPreassociati []Preassociazione2 `json:"documenti_preassociati"`
 }
 
 // Sorgente e' la fonte STEP a cui la bozza e' ancorata (contratto rev. 3 §3.2): allegato e sha256 insieme o nessuno
@@ -160,8 +160,11 @@ type Arco struct {
 	Posizione string `json:"posizione,omitempty"`
 }
 
-// Preassociazione lega una proposta di documento a un nodo della bozza (contratto rev. 3 §12.3).
-type Preassociazione struct {
+// Preassociazione2 lega una proposta di documento a un nodo della bozza formato 2 (contratto rev. 3 §12.3): e' la forma
+// del formato 2 e del vocabolario 1, che si rilegge com'era (direttiva 35, blocco C-2; PD35 §6.3, INC-G1). Il formato 3
+// ha la sua, Preassociazione3 {allegato_id, chiave_bozza}; l'unica traduzione dall'una all'altra sta nella conversione
+// (conversione.go, traduciPreassociazioni).
+type Preassociazione2 struct {
 	PropostaID  uuid.UUID `json:"proposta_id"`
 	ChiaveBozza string    `json:"chiave_bozza"`
 }
@@ -182,7 +185,7 @@ type snapshotIn struct {
 	Nodi                  []nodoIn           `json:"nodi"`
 	Archi                 []arcoIn           `json:"archi"`
 	Decisioni             []json.RawMessage  `json:"decisioni"`
-	DocumentiPreassociati []Preassociazione  `json:"documenti_preassociati"`
+	DocumentiPreassociati []Preassociazione2 `json:"documenti_preassociati"`
 }
 
 type versioneBomBaseIn struct {
@@ -799,7 +802,7 @@ func (s *Snapshot) normalizza() {
 		s.Decisioni = []json.RawMessage{}
 	}
 	if s.DocumentiPreassociati == nil {
-		s.DocumentiPreassociati = []Preassociazione{}
+		s.DocumentiPreassociati = []Preassociazione2{}
 	}
 	for i := range s.Nodi {
 		normalizzaNodo(&s.Nodi[i])
@@ -862,7 +865,7 @@ func (s Snapshot) copia() Snapshot {
 	}
 	c.Archi = append([]Arco(nil), s.Archi...)
 	c.Decisioni = append([]json.RawMessage(nil), s.Decisioni...)
-	c.DocumentiPreassociati = append([]Preassociazione(nil), s.DocumentiPreassociati...)
+	c.DocumentiPreassociati = append([]Preassociazione2(nil), s.DocumentiPreassociati...)
 	if s.Sorgente != nil {
 		sc := *s.Sorgente
 		c.Sorgente = &sc

@@ -121,7 +121,10 @@ func (s *Server) paginaMotoreA(w http.ResponseWriter, r *http.Request, svc motor
 	}
 	vista, prodotto := vistaEProdottoMotoreA(r)
 	scrive := almeno(utenteDa(r.Context()), db.RuoloUtenteOperatore)
-	p, err := svc.Pagina(r.Context(), motorea_web.RichiestaPagina{Thread: thread, Vista: vista, Prodotto: prodotto, Scrive: scrive})
+	// SenzaV1: la pagina HTML (e il suo frammento) non legge le aggiunte di V1 del modello (gruppi, fonte, bozza del
+	// prodotto, …), che costano un'importazione per gruppo con uno STEP; le legge solo /dati (motore_a.go), con il valore
+	// zero (richiesta RQ-W1 della corsia motore, ondata B; DEC-B §6.3; prova OB-19)
+	p, err := svc.Pagina(r.Context(), motorea_web.RichiestaPagina{Thread: thread, Vista: vista, Prodotto: prodotto, Scrive: scrive, SenzaV1: true})
 	if err != nil {
 		// regole non pronte e troppi calcoli si dicono prima di leggere: una RFQ che non c'è resta un 404
 		if errors.Is(err, motorea_web.ErrRegole) || errors.Is(err, motorea_web.ErrOccupato) {

@@ -1,6 +1,6 @@
 // Package filerfq e' il servizio del ciclo dei file della Sorgente (V1, EM §10; PM23 §14 passo 5): lo stato di
 // un'occorrenza (RFQ, allegato) — attivo, in Altri file, scartato —, i suoi eventi, la rimozione dallo staging in due
-// tempi, la copia di conservazione nel deposito degli «Altri file», il ritorno ai file attivi, le dipendenze da
+// tempi, la copia di conservazione degli «Altri file» (dietro l'interfaccia Conservatore), il ritorno ai file attivi, le dipendenze da
 // controllare prima dei gesti, il custode che riprende quello che un gesto non ha finito, e la registrazione dei file
 // caricati (E1′ e il ramo HTML di «carica»).
 //
@@ -13,7 +13,8 @@
 //   - ordine dei lucchetti: la RFQ (BloccaThread), poi le righe (proposte, allegati, rimozioni, copie), per ultimo il
 //     contenuto (BloccaContenuto), con piu' sha in ordine crescente (EM §10.6);
 //   - nessun percorso esce verso il browser: chi chiama riceve stati e identificativi (EM §10.9, SIC-15);
-//   - i byte si leggono e si scrivono solo dentro lo staging e dentro il deposito, con il contenimento controllato.
+//   - i byte si leggono e si scrivono solo dentro lo staging, con il contenimento controllato, e attraverso il
+//     Conservatore per le copie degli Altri file (l'unico scrittore del NAS e' storage/nas).
 package filerfq
 
 import (
@@ -76,8 +77,9 @@ type Servizio struct {
 	// Staging: la radice dello staging ([nas].staging, assoluta). Vuota = niente si legge ne' si cancella dallo
 	// staging (il tempo 2 resta in attesa).
 	Staging string
-	// Deposito: il deposito degli «Altri file» ([conservazione]); nil = non configurato (S3 risponde 503).
-	Deposito *Deposito
+	// Conservatore: il posto delle copie degli «Altri file» (conservatore.go); nil = nessun posto su questo server (S3
+	// risponde 503 NON_CONFIGURATO, i rilasci aspettano).
+	Conservatore Conservatore
 	// NASRadice: la radice del NAS, solo in lettura (una sorgente dei byte per la copia di conservazione e per S5).
 	NASRadice string
 	// Pipeline: la strada d'ingresso, per la «Riattiva». Nil = la «Riattiva» non rimette il file in analisi (solo nelle
@@ -111,6 +113,9 @@ type Agganci struct {
 	PrimaDiCopiare func(allegato uuid.UUID)
 	// PrimaDellaFaseC: «Riattiva», fra il controllo dello staging (passo 2) e la fase C.
 	PrimaDellaFaseC func(allegato uuid.UUID)
+	// PrimaDellaRimozioneNAS: il rilascio di una copia degli Altri file, fra il passo 1 (la riga in_rimozione, COMMIT) e
+	// la rimozione dal NAS (U2 §3.7): una prova vi controlla che nessuna transazione tenga la riga.
+	PrimaDellaRimozioneNAS func(conservazioneID int64)
 	// SaltaTentativi: dopo il COMMIT di un gesto non si fa il tentativo del tempo 2 ne' quello del rilascio: li fa il
 	// custode. Le prove lo chiedono per guardare gli stati intermedi.
 	SaltaTentativi bool
@@ -144,8 +149,8 @@ func (s *Servizio) log() *slog.Logger {
 	return slog.Default()
 }
 
-// ConservazioneConfigurata: c'e' un deposito degli «Altri file».
-func (s *Servizio) ConservazioneConfigurata() bool { return s.Deposito != nil }
+// ConservazioneConfigurata: c'e' un posto per le copie degli «Altri file».
+func (s *Servizio) ConservazioneConfigurata() bool { return s.Conservatore != nil }
 
 // Attivo e' la gemella Go del predicato SQL file_rfq_attivo (EM §10.7): un'occorrenza e' attiva senza riga di stato o
 // con lo stato attivo. Uno scarto col vecchio «Scarta il file» vale attivo per il predicato (le viste escludono gia' le

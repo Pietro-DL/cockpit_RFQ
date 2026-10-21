@@ -217,6 +217,11 @@ func Sposta(ctx context.Context, q *db.Queries, thread, figlio uuid.UUID, da, a 
 	if da == a {
 		return "", Rifiuto("il padre di partenza e quello di arrivo sono lo stesso")
 	}
+	// direttiva 39 §6, D-TAB-01 [T-39]: lo spostamento diretto fra prodotti e' vietato su tutte le RFQ
+	// (spostamento_prodotti.go)
+	if err := spostamentoNelloStessoProdotto(ctx, q, thread, da, a); err != nil {
+		return "", err
+	}
 	var parti []string
 	if da.Valid {
 		m, err := scollega(ctx, q, thread, da.UUID, figlio)
@@ -357,8 +362,17 @@ func NotaPortale(ctx context.Context, q *db.Queries, thread uuid.UUID, u db.Uten
 		"File del cliente caricati dalla pagina della RFQ (per esempio l'archivio scaricato dal portale del cliente). Ognuno fa la strada degli allegati della mail (staging, estrazione degli archivi, analisi, proposta) e diventa un documento solo con una decisione.")
 }
 
+// notaDellaRFQ prende per prima la riga della RFQ FOR UPDATE (BloccaThread), poi la conversazione e il messaggio della
+// nota (giro G39-bis, corsia file). E' l'ordine unico dei lucchetti di chi scrive file in una RFQ: la RFQ, poi il
+// messaggio, poi il contenuto (BloccaContenuto), poi le righe; lo seguono R5, i gesti legacy
+// (transport/web/lucchetti_legacy.go), l'estrazione di un archivio e i risultati del worker (transport/workerapi,
+// lucchetti.go). Prima la RFQ si leggeva soltanto: il caricamento teneva il messaggio della nota e chiedeva la RFQ dopo,
+// con la chiave esterna del messaggio riscritto dal trigger aggiorna_n_allegati (la riga della nota e' riscritta in
+// questa transazione da UpsertNotaInterna, quindi il controllo della chiave esterna scatta anche se thread_id non
+// cambia), mentre l'estrazione di un archivio della stessa nota teneva la RFQ e chiedeva il messaggio: 40P01 (d1, F2
+// «+ Aggiungi file»). Tutti i chiamanti la chiamano come primo passo della loro transazione.
 func notaDellaRFQ(ctx context.Context, q *db.Queries, thread uuid.UUID, u db.Utente, chiave, oggetto, corpo string) (db.Messaggio, error) {
-	if _, err := q.GetThread(ctx, thread); errors.Is(err, pgx.ErrNoRows) {
+	if _, err := q.BloccaThread(ctx, thread); errors.Is(err, pgx.ErrNoRows) {
 		return db.Messaggio{}, Rifiuto("RFQ non trovata")
 	} else if err != nil {
 		return db.Messaggio{}, err

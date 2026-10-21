@@ -96,6 +96,9 @@ func (s *Server) registraMotoreA(mux *http.ServeMux) {
 	// (distinta_unica_pagina.go). Resta su /thread/{id}/distinta-unica finché la pagina di A1d-P4 tiene
 	// /thread/{id}/motore-a: lo scambio è del passo 9 (decisioni dell'ondata A, PE-12)
 	s.registraPaginaDistintaUnica(mux)
+	// V1, ondata C (DEC-B RQ-1, aggancio minimo della corsia persistenza): le rotte della bozza (R1, R2, R3, R6, R7, R11;
+	// motore_a_bozza_v1.go), con la stessa catena
+	s.registraBozzaMotoreA(mux)
 }
 
 // conMotoreA è la porta: a flag spento il 404 standard del router (http.NotFound) a tutti, anonimi compresi, PRIMA della
@@ -164,6 +167,17 @@ func (s *Server) datiMotoreA(w http.ResponseWriter, r *http.Request, svc motorea
 		return
 	}
 	q := r.URL.Query()
+	// V1, ondata C (U2 §2.3, S9): ?sorgente=1 è lo smistamento della Sorgente per tutti i prodotti, nella stessa
+	// fotografia in sola lettura e con gli stessi errori di /dati (aggancio minimo della corsia motore)
+	if q.Get("sorgente") == "1" {
+		so, err := svc.Sorgente(r.Context(), thread)
+		if err != nil {
+			s.erroreMotoreA(w, r, thread, svc, err)
+			return
+		}
+		s.scriviJSONMotoreA(w, r, http.StatusOK, so)
+		return
+	}
 	p, err := svc.Pagina(r.Context(), motorea_web.RichiestaPagina{Thread: thread, Vista: q.Get("vista"),
 		Prodotto: q.Get("prodotto"), Scrive: almeno(utenteDa(r.Context()), db.RuoloUtenteOperatore)})
 	if err != nil {

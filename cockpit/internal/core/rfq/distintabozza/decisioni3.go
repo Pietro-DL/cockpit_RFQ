@@ -43,6 +43,8 @@ const (
 	DecisioneIdentita            = "identita"
 	DecisioneNonIncludere        = "non_includere"
 	DecisioneScollegaDocumento   = "scollega_documento"
+	// DecisioneConfermaCategoria: il diciassettesimo tipo (U2 §6.4.2; evidenze3.go)
+	DecisioneConfermaCategoria = "conferma_categoria"
 )
 
 // I modi della decisione identita e il riferimento al codice corretto a mano nella pagina vecchia (EM §3.6.1).
@@ -74,11 +76,19 @@ var formeDecisione = map[string]formaDecisione{
 	DecisioneArcoCondiviso:       {[]string{"padre_id", "figlio_id", "qta", "prodotti"}, nil},
 	DecisioneDaValutare:          {[]string{"chiave_bozza"}, nil},
 	DecisioneCambiaTipo:          {[]string{"componente_id", "tipo_nuovo", "firma_effetto"}, nil},
-	DecisioneIdentita:            {[]string{"chiave_bozza", "modo", "identita"}, []string{"importazione", "chiave_lettura", "riferimento", "lettura", "motivo"}},
-	DecisioneNonIncludere:        {[]string{"casella", "motivo_codice", "motivo", "azione_id"}, []string{"importazione", "segnale_visto"}},
+	// evidenza_documentale: solo nella correzione (U2 §7.7, U2-P20)
+	DecisioneIdentita: {[]string{"chiave_bozza", "modo", "identita"}, []string{"importazione", "chiave_lettura", "riferimento", "lettura", "motivo",
+		"evidenza_documentale"}},
+	DecisioneNonIncludere: {[]string{"casella", "motivo_codice", "motivo", "azione_id"}, []string{"importazione", "segnale_visto"}},
 	// da_decisione: l'id della decisione escludi da cui nasce lo svincolo (PE-27 dell'ondata A, decisione [T]
 	// dell'integratore, 18/10): «↺ Ripristina» toglie l'esclusione e gli svincoli che la citano nello stesso gesto
-	DecisioneScollegaDocumento: {[]string{"proposta_id", "componente_id"}, []string{"motivo", "da_decisione"}},
+	// scollega_documento {allegato_id, componente_id}: lo svincolo di una AR attiva cita l'occorrenza e il componente,
+	// stabili anche dopo una riconferma (direttiva 35 §1.1; provvisorio, base [T] D-4 A; blocco C-2). Con la risposta B
+	// citerebbe l'associazione_id della riga di file_rfq_associazione
+	DecisioneScollegaDocumento: {[]string{"allegato_id", "componente_id"}, []string{"motivo", "da_decisione"}},
+	// conferma_categoria (U2 §6.4.2): ingresso e' un campo della decisione (strada (a) della revisione tecnica di U2)
+	DecisioneConfermaCategoria: {[]string{"soggetto", "categoria", "esito", "origine_categoria", "ingresso"},
+		[]string{"classe_proposta", "importazione", "da_conferma", "motivo"}},
 }
 
 var (
@@ -112,9 +122,19 @@ type Decisione3 struct {
 	MotivoCodice  string                        `json:"motivo_codice,omitempty"`
 	AzioneID      *uuid.UUID                    `json:"azione_id,omitempty"`
 	SegnaleVisto  *importazione.SegnaleVisto    `json:"segnale_visto,omitempty"`
-	PropostaID    *uuid.UUID                    `json:"proposta_id,omitempty"`
+	AllegatoID    *uuid.UUID                    `json:"allegato_id,omitempty"`
 	DaDecisione   string                        `json:"da_decisione,omitempty"`
 	Motivo        string                        `json:"motivo,omitempty"`
+	// U2 §7.7: l'evidenza scelta a mano nella correzione
+	EvidenzaDocumentale *EvidenzaDocumentale `json:"evidenza_documentale,omitempty"`
+	// conferma_categoria (U2 §6.4.2)
+	Soggetto         *SoggettoCategoria `json:"soggetto,omitempty"`
+	Categoria        string             `json:"categoria,omitempty"`
+	Esito            string             `json:"esito,omitempty"`
+	OrigineCategoria string             `json:"origine_categoria,omitempty"`
+	ClasseProposta   *ClasseProposta    `json:"classe_proposta,omitempty"`
+	Ingresso         string             `json:"ingresso,omitempty"`
+	DaConferma       *DaConferma        `json:"da_conferma,omitempty"`
 }
 
 // IdentitaScelta e' l'identita' fissata da una decisione identita (EM §3.6.1): byte per byte, mai NFC.
@@ -153,9 +173,18 @@ type decisione3In struct {
 	MotivoCodice  *string                       `json:"motivo_codice"`
 	AzioneID      *uuid.UUID                    `json:"azione_id"`
 	SegnaleVisto  *importazione.SegnaleVisto    `json:"segnale_visto"`
-	PropostaID    *uuid.UUID                    `json:"proposta_id"`
+	AllegatoID    *uuid.UUID                    `json:"allegato_id"`
 	DaDecisione   *string                       `json:"da_decisione"`
 	Motivo        *string                       `json:"motivo"`
+
+	EvidenzaDocumentale *evidenzaIn       `json:"evidenza_documentale"`
+	Soggetto            *soggettoIn       `json:"soggetto"`
+	Categoria           *string           `json:"categoria"`
+	Esito               *string           `json:"esito"`
+	OrigineCategoria    *string           `json:"origine_categoria"`
+	ClasseProposta      *classePropostaIn `json:"classe_proposta"`
+	Ingresso            *string           `json:"ingresso"`
+	DaConferma          *daConfermaIn     `json:"da_conferma"`
 }
 
 type identitaSceltaIn struct {
@@ -192,7 +221,7 @@ func LeggiDecisione3(campo string, raw json.RawMessage) (Decisione3, *Errore) {
 	}
 	f, ok := formeDecisione[valore(testa.Tipo)]
 	if !ok {
-		return d, corpo(campo+".tipo", "tipo di decisione sconosciuto %q (i 16 del formato 3)", valore(testa.Tipo))
+		return d, corpo(campo+".tipo", "tipo di decisione sconosciuto %q (i 17 del formato 3)", valore(testa.Tipo))
 	}
 	ammessi := map[string]bool{"id": true, "tipo": true}
 	for _, k := range append(append([]string{}, f.obbligatori...), f.facoltativi...) {
@@ -239,7 +268,27 @@ func (in decisione3In) converti() Decisione3 {
 		TipoNuovo: valore(in.TipoNuovo), FirmaEffetto: valore(in.FirmaEffetto), Modo: valore(in.Modo),
 		Importazione: valore(in.Importazione), ChiaveLettura: valore(in.ChiaveLettura), Riferimento: valore(in.Riferimento),
 		Lettura: in.Lettura, MotivoCodice: valore(in.MotivoCodice), AzioneID: in.AzioneID, SegnaleVisto: in.SegnaleVisto,
-		PropostaID: in.PropostaID, DaDecisione: valore(in.DaDecisione)}
+		AllegatoID: in.AllegatoID, DaDecisione: valore(in.DaDecisione), Categoria: valore(in.Categoria), Esito: valore(in.Esito),
+		OrigineCategoria: valore(in.OrigineCategoria), Ingresso: valore(in.Ingresso)}
+	if e := in.EvidenzaDocumentale; e != nil {
+		x := e.converti()
+		d.EvidenzaDocumentale = &x
+	}
+	if s := in.Soggetto; s != nil {
+		d.Soggetto = &SoggettoCategoria{ChiaveBozza: valore(s.ChiaveBozza)}
+	}
+	if c := in.ClasseProposta; c != nil {
+		d.ClasseProposta = &ClasseProposta{Categoria: valore(c.Categoria), Fonte: valore(c.Fonte), Valore: valore(c.Valore)}
+	}
+	if x := in.DaConferma; x != nil {
+		d.DaConferma = &DaConferma{DecisioneID: valore(x.DecisioneID)}
+		if x.ConfermaID != nil {
+			d.DaConferma.ConfermaID = *x.ConfermaID
+		}
+		if x.Numero != nil {
+			d.DaConferma.Numero = *x.Numero
+		}
+	}
 	if in.Qta != nil {
 		d.Qta = *in.Qta
 	}
@@ -273,7 +322,7 @@ func (d *Decisione3) valida(campo string) *Errore {
 		nome string
 		u    *uuid.UUID
 	}{{"componente_id", d.ComponenteID}, {"padre_id", d.PadreID}, {"figlio_id", d.FiglioID}, {"azione_id", d.AzioneID},
-		{"proposta_id", d.PropostaID}} {
+		{"allegato_id", d.AllegatoID}} {
 		if e := uuidValido(x.nome, x.u); e != nil {
 			return e
 		}
@@ -333,6 +382,8 @@ func (d *Decisione3) valida(campo string) *Errore {
 		}
 	case DecisioneIdentita:
 		return d.validaIdentita(campo)
+	case DecisioneConfermaCategoria:
+		return d.validaCategoria(campo)
 	case DecisioneNonIncludere:
 		if !motiviNonIncludere[d.MotivoCodice] {
 			return corpo(campo+".motivo_codice", "motivo_codice %q: elemento_cad, duplicato_cad, non_articolo o altro", d.MotivoCodice)
@@ -383,6 +434,9 @@ func (d *Decisione3) validaIdentita(campo string) *Errore {
 	if d.ChiaveLettura != "" && (!reChiaveLettura.MatchString(d.ChiaveLettura) || runeOltre(d.ChiaveLettura, MaxChiaveLettura) || haControlli(d.ChiaveLettura)) {
 		return corpo(campo+".chiave_lettura", "la chiave di lettura e' <allegato_id>/<id della lettura>, al piu' %d caratteri", MaxChiaveLettura)
 	}
+	if d.EvidenzaDocumentale != nil && d.Modo != ModoCorrezione {
+		return corpo(campo+".evidenza_documentale", "l'evidenza documentale sta solo in una correzione (U2 §7.7)")
+	}
 	switch d.Modo {
 	case ModoAlternativa:
 		if d.Importazione == "" {
@@ -423,6 +477,11 @@ func (d *Decisione3) validaIdentita(campo string) *Errore {
 	case ModoCorrezione:
 		if d.ChiaveLettura != "" || d.Riferimento != "" || d.Lettura != nil {
 			return corpo(campo, "una correzione non e' un'evidenza del registro: niente chiave_lettura, riferimento o lettura")
+		}
+		if d.EvidenzaDocumentale != nil {
+			if e := validaEvidenza(campo+".evidenza_documentale", *d.EvidenzaDocumentale); e != nil {
+				return e
+			}
 		}
 		if d.Motivo == "" {
 			return corpo(campo+".motivo", "una correzione dell'identita' vuole un motivo")

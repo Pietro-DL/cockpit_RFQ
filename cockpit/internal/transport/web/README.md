@@ -200,7 +200,14 @@ markmap:
 | Lo snapshot unico REPEATABLE READ READ ONLY (esistenza, fase, fotografia con un savepoint per il caricatore, dichiarazioni STEP) | `motore_a/snapshot.go` |
 | Il calcolo: `caricatore.Carica` → `valutazione.Calcola` → passaggio → `confronto.Confronta(…, nil)` | `motore_a/calcolo.go` |
 | La pagina e il JSON di `/dati` (contratto §2.2, §2.4) | `motore_a/modelli.go` |
-| Le aggiunte di V1 a `/dati` (EM §9.9; PE-01, PE-10, PE-15, PE-16, PE-28): le letture nello stesso snapshot (occorrenze non attive, bozze aperte formato 3 con le colonne del registro, F8, identità certificate; `queries/v1_motore.sql`) e la composizione con `propostabom.Modello` (gruppi con l'impronta_contenuto di adesso e i nodi, fonte, F8, bozza del prodotto con il gruppo corrente) | `motore_a/dati_v1.go`; prove `modelli_test.go` (A-28 sui nomi) e `dati_v1_db_test.go` (L4) |
+| Le aggiunte di V1 a `/dati` (EM §9.9; PE-01, PE-10, PE-15, PE-16, PE-28): le letture nello stesso snapshot (occorrenze non attive, bozze aperte formato 3 con le colonne del registro, F8, identità certificate; `queries/v1_motore.sql`) e la composizione con `propostabom.Modello` (gruppi con l'impronta_contenuto di adesso e i nodi, fonte, F8, bozza del prodotto con il gruppo corrente). Direttiva 35, blocco C-4: la lettura delle bozze di tutti i prodotti e delle AR attive (`distintabozza.LeggiBozzeDellaRfq`; con uno snapshot di bozza che non si rilegge le AR da `associazioni.AttiveDellaRfq` e S9 in errore) e le AR come fonte «manuale» del Motore A (`registrateDelThread` → `valutazione.Ingressi.Registrate`) | `motore_a/dati_v1.go`; prove `modelli_test.go` (A-28 sui nomi), `dati_v1_db_test.go` e `registrate_db_test.go` (L4) |
+| S9, `GET /thread/{id}/motore-a/dati?sorgente=1` (U2 §2.3; EM §10.9; direttiva 35, blocco C-4): le righe per prodotto da fonti distinte (proposte del motore; PB salvate per `(allegato_id, chiave_bozza)`; AR attive dal servizio unico; documento confermato senza AR), gli svincoli pendenti (`da_scollegare`), i file da ricollocare (`da_ricollocare`, con `uscita`), i conflitti con il motivo (`file_conteso_fra_prodotti`, `gia_associata_altrove`, `documento_confermato_altrove`), `condivisione[]` (`stesso_componente` / `file_pertinente`), i conti per stato; mai `documento_proposta.componente_id` come fonte delle AR | `motore_a/sorgente.go`; prove `sorgente_test.go`, `sorgente_c4_test.go` (L1), `sorgente_db_test.go`, `sorgente_c4_db_test.go` (L4) e, sulla rotta, `motore_a_sorgente_c4_db_test.go` (L4, R-36…R-40) |
+| Direttiva 39, la fonte di `/dati` con S8: «Conferma la fonte» è S8 (`gesto: conferma_sorgente`) e non dipende dal legame della proposta dello STEP; `sorgente_confermata` e `sorgente_s8` da `confermabom.SorgenteValida` (letta in `leggiV1`, `DatiV1.SorgentiS8`); `legame_storico` (D-AR04 (iii)) solo senza conferme di S8; `struttura_step` (`propostabom.StrutturaSTEP`); la revoca di S8 (con la chiave) non toglie l'autorizzazione della working | `motore_a/dati_v1.go`, `motore_a/dati_v1_conferma.go`; prove `dati_v1_d39_test.go` (L1), `dati_v1_d39_db_test.go` (L4) |
+| Direttiva 39, S9: senza la sorgente confermata da S8 nessuna proposta del motore (chip `in_attesa_sorgente` con `sorgente_non_confermata`); lo STEP sorgente `legato_come_sorgente` / `legame_storico` in sola lettura; `preassociazioni_proposte[]` per i suggerimenti dopo l'apertura (mai in `da_rivedere`), dal rilievo della revisione gli stessi di R1 (`distintabozza.SuggerimentiDellaBozzaAperta` letta dal caricatore: una sola sorgente e una sola forma, con `chiave_bozza` e `importazione` sempre; tolta `ProposteIniziali`, le PB iniziali le scrive il registro); `proposta_ambigua`; `provenienza` (motore per le proposte, quella dello snapshot per le PB) e `priorita_anteprima` (l'ordine delle anteprime della direttiva 35 §7) | `motore_a/sorgente.go`; prove `sorgente_d39_test.go` (L1), `sorgente_d39_db_test.go` (L4, con `TestL4V1D39S9ELeProposteDiR1`: S9 e R1 uguali sulla stessa scena) e, sulla rotta, `motore_a_sorgente_d39_db_test.go` (L4) |
+| Giro G39 (G39-02 [U]; aperto (b) del verificatore), S9 e `/dati`: lo STEP candidato del prodotto finito letto con il Motore A (`propostabom.CandidatureSorgenteDelFinito`, chiamata da `Risultato.CandidatureSorgente` sugli STEP attivi della fotografia) non è mai una riga `proposto` o `in_conflitto` del motore, né la chip «attende la sorgente», in nessuna sezione; una PB su di lui è `in_conflitto` con `step_candidato_del_finito` se la candidatura è univoca o se la PB va verso un prodotto finito (giro G39-ter, G39-06 [U]: la PB su una candidatura non univoca verso una parte o un sottoassieme è la scelta dell'utente, come in R2 e R4, `distintabozza.StepCandidati.BloccaPB`); se univoco non è in `da_associare` ed è nella fonte del prodotto come proposta di sorgente, `fonte.proposte_sorgente[]` (`allegato_id`, `nome_file`, `codice_prodotto`, `evidenze[]` della lettura, `sorgente_di` se è la sorgente valida di S8 di un altro prodotto, `testo`), anche in `/dati.fonte` | `motore_a/proposta_sorgente.go`, `motore_a/sorgente.go`, `motore_a/dati_v1.go`; prove `motore_a/proposta_sorgente_test.go` (L1; per G39-01 solo la forma) e `motore_a_proposta_sorgente_db_test.go` (L4, calcolo vero, scena `motore_a_g39_scena_db_test.go`); `motore_a_g39_esclusione_db_test.go` (L4, calcolo vero: lo STEP candidato che non è un gruppo del prodotto mai nella chip né riga del motore, prima e dopo S8; la PB rimasta su di lui `in_conflitto` `step_candidato_del_finito`; falliscono senza le esclusioni) |
+| Giro G39 (G39-01 [U]; rilievo della revisione), S9: `preassociazioni_proposte[]` di ogni bozza aperta formato 3 sono quelli di R1 con `?suggerimenti_motore=1` (`distintabozza.SuggerimentiDellaBozzaApertaCon` con il calcolo di adesso, `CalcoloAdessoDa` sull'ingresso `Risultato.IngressoMotoreV1`, lo stesso di R1, R2, R4): anche il file arrivato dopo l'apertura con una destinazione univoca del motore, motivo `dopo_apertura`, importazione = il registro del calcolo di adesso; letti in una transazione di sola lettura dopo il calcolo (`Servizio.suggerimentiDiAdesso`), non più dal caricatore; `ingressoMotoreV1` dell'adattatore chiama `Risultato.IngressoMotoreV1` | `motore_a/suggerimenti_adesso.go`, `motore_a/sorgente.go`, `motore_a/dati_v1.go`, `motore_a_bozza_v1_motore.go`; prova `motore_a_g39_dopo_apertura_db_test.go` (L4, calcolo vero, S9 = R1, R2 «motore», «corretta», «manuale»; fallisce sul codice di prima) |
+| Direttiva 39, S6 `GET /thread/{id}/sorgente/step/{allegato}/anteprima?prodotto=…[&gruppo=…][&bozza=…]` (EM §10.9): l'anteprima dello STEP prima di S8, con `struttura_step` nei quattro casi, `in_analisi` e `non_scaricato`; con `?bozza=` l'effetto del cambio di fonte sulla vista di `distintabozza.VistaDellaBozza`, e per una bozza senza struttura (vuota, manuale, `solo_prodotto`) l'effetto di cambio-fonte-2 come R2 e S8 (`distintabozza.RiconciliaEffetto` dopo `EffettoDelCambioFonte`: `algoritmo`, `abbinati`, `abbinamenti_proposti[]`, caselle acquisite con `allegato_prima` null; rilievo della revisione); nella revisione con un secondo STEP (versione da-conferma-1) la vista si prepara con `distintabozza.PreparaRevisione`, come Cambia, e i nodi registrati della fonte di prima si riconciliano per identità (`ricollegati[]`, caselle acquisite con l'occorrenza di prima; giro G39, aperto (a) del verificatore); giro G39-ter: con una bozza nata da un'altra sorgente S8 prima di R5 `effetto_sulla_bozza.sostituzione` (`sorgente.SostituzioneDellaBozza`, la stessa regola di S8: la bozza sarà annullata e ricreata dalla proposta, con `modifiche_utente` per la presa d'atto) e il dialogo di S8 lo dice invece degli elenchi del cambio; montata da `registraPropostaV1`; aggancio dichiarato: `statoAnalisiS8` chiama `propostabom.StatoAnalisiDelFile` | `motore_a_anteprima_s6.go`; prove `motore_a_anteprima_s6_test.go` (L1), `motore_a_anteprima_s6_db_test.go` e `motore_a_anteprima_s6_riconcilia_db_test.go` (L4, S6 contro la versione scritta da S8 sulla stessa bozza), `motore_a_anteprima_s6_revisione_db_test.go` (L4, S6 contro S8 sulla stessa revisione; scena `motore_a_g39_scena_db_test.go`); righe di S6 in `TestNessunaGetScrive` |
+| R15: la proposta di adesso con la fotografia del calcolo (`Ingresso.Foto`; prima sempre «non disponibile») | `motore_a_proposta_v1.go`; prova `motore_a_proposta_v1_db_test.go` (L4) |
 | La copia di `app/bancoa/passaggio.go` | `motore_a/passaggio.go` |
 | L'indice delle ricerche (contratto §2.3) | `motore_a/indice.go` |
 | La voce della tabella delle classi del cliente (14/10): sotto il codice della casella «categoria · descrizione · fonte» (`ma_classe_breve`), la riga «Normativa» dell'anteprima, il segno «minuteria ?» per il commerciale proposto con la minuteria proposta, l'etichetta di `proposto_dalla_grammatica` | `web/templates/motore_a.html`, `motore_a/etichette.go`; prova `motore_a_classi_test.go` |
@@ -217,19 +224,97 @@ markmap:
   `soloAdmin`, righe gemelle 405/404), JSON senza l'escape HTML, corpo al piu' 2 MiB + 4 KiB (413).
 - R1 `GET /thread/{id}/motore-a/bozza?prodotto=` (`&eventi=1`, `&importazione=1`, `&registro=`, `&confronto=1` = 200
   con `confronto.errore` finche' l'adattatore non c'e'; `?effetto_cambio_tipo=<componente>&tipo_nuovo=` = l'effetto
-  del cambio di tipo con la firma, PE-09); R2 `POST …/bozza` (forma salvataggio; le altre forme 422
-  `forma_non_disponibile` fino all'ondata C); R3 `POST …/bozza/{bozza}/abbandona`; R6 `GET …/intento/{chiave}`; R7
+  del cambio di tipo con la firma, PE-09); R2 `POST …/bozza` (le cinque forme: salvataggio; dalla direttiva 35, blocco
+  C-3, converti_da con `Converti`, crea con `CreaFormato3`, riallinea_proposta con `RiallineaFormato3`, cambia_sorgente con `CambiaSorgenteFormato3`; per la partenza step, cambia_sorgente e riallinea_proposta il
+  file `motore_a_bozza_v1_forme.go` fa prima della transazione la chiave in sola lettura, il calcolo del motore
+  (`Servizio.Calcola`, i gruppi del prodotto, `propostabom.ImportaGruppo` con la fotografia) e V-7; gli errori del
+  calcolo sono 503/504); R3 `POST …/bozza/{bozza}/abbandona`; R6 `GET …/intento/{chiave}`; R7
   `GET …/conferme?prodotto=` (`&conferma=`, `&importazione=1`); R11 `POST …/riallinea`.
+- S8 e la revoca della sorgente (direttiva 39 §2, §3; corsia persistenza): `motore_a_sorgente_v1.go`, montato da
+  `registraBozzaMotoreA`, stessa catena. S8 `POST /thread/{id}/sorgente/step/{allegato}/conferma-sorgente`: corpo
+  stretto (`core/rfq/sorgente.LeggiRichiestaS8`), l'intento gia' scritto prima di tutto (riproposto senza calcolare),
+  il passo 0 senza motore, poi il calcolo del Motore A (`preparaS8`: il registro del gruppo dichiarato con V-7, oppure
+  per `solo_prodotto` lo stato dell'analisi dello STEP e se una struttura importabile c'e'), poi `sorgente.ConfermaS8`
+  (200 completata o parziale; un guasto dopo il passo 0 e' 500 `{esito: da_verificare, chiave_idempotenza}`). La
+  revoca `POST …/sorgente/step/{allegato}/revoca-sorgente` con `sorgente.Revoca`. Codici propri in `CodiciServerS8`
+  (`STEP_SORGENTE_DI_ALTRO_PRODOTTO`, `GIA_DOCUMENTO`, `NON_STEP` 422; `RICONCILIAZIONE_NON_DISPONIBILE` 409, non piu'
+  per la bozza manuale, che si riconcilia: direttiva 39 §3). Giro G39 (G39-03 [U], forma [T-39], `core/rfq/sorgente/sposta.go`):
+  il corpo di S8 accetta `sposta_da` («Sposta la sorgente su questo prodotto») e `correzione_sorgente`, la risposta
+  `spostamento`; i rifiuti dello STEP di un altro prodotto portano `altro_prodotto` (in `rifiutoBozzaV1`, da
+  `distintabozza.Errore.AltroProdotto`) e i motivi `sorgente_spostabile`, `bom_confermata`, `riassociazione`; la revoca
+  accetta `sorgente_errata` e `bozza`, e risponde `bozza_abbandonata` (prima di R5 la bozza nata da quella sorgente si
+  annulla) e `usata_da_conferma`. Giro G39-ter (G39-03 [U] prima di R5, messaggio 43 caso 1 [U]; forma [T-39],
+  `core/rfq/sorgente/sostituzione.go`): S8 su una bozza nata da un'altra sorgente S8 prima di R5 la sostituisce (revoca,
+  bozza abbandonata, bozza nuova dalla proposta, evento `riassegnazione_sorgente`), con la risposta `sostituzione`; con
+  modifiche dell'utente vuole `sostituisci` (422 `CORPO_NON_VALIDO` `presa_d_atto_mancante`). Le prove
+  sostituiscono il calcolo con `preparaS8Prova` (il banco non ha le regole del motore). Le due rotte sono «dedicate» nel
+  mondo chiuso del ponte (`motore_a_sorgente_v1_test.go`). S8 non passa dal rismistamento dopo il gesto [T-39].
+- R4 formato 3 (direttiva 39 §1, §4, §5, §6; EM §9.4; corsia persistenza): `motore_a_bozza_v1_r4.go`, montato da
+  `registraBozzaMotoreA`, stessa catena. `POST /thread/{id}/motore-a/bom/riepilogo[?avvisi_motore=1]`, una POST di sola
+  lettura (nessuna GET: il contratto ha la sola POST; la riga gemella risponde 405 con `Allow: POST`): corpo con
+  `distintabozza.LeggiRichiestaR4` (un corpo formato 2 e' 422 `formato_da_convertire`), un solo parametro
+  (`avvisi_motore=1`; altri 422 sul campo), poi `distintabozza.Riepilogo3` in una transazione REPEATABLE READ READ ONLY
+  chiusa con ROLLBACK. 200 anche con i blocchi (`confermabile: false`), compreso il blocco firmato
+  `STEP_SORGENTE_NON_CONFERMATA` di una bozza senza STEP; con `?avvisi_motore=1` R4 calcola il Motore A
+  (`motore_a_bozza_v1_motore.go`: `Servizio.Calcola` con il semaforo dei calcoli, nella sua fotografia, prima della
+  transazione) e il core ne compone gli avvisi e i conflitti, firmati; il motore che non risponde da' 200 con
+  `avvisi_motore_calcolati: false` e `avvisi_motore_errore` (`CALCOLO_OCCUPATO` anche per le regole non pronte,
+  `CALCOLO_SCADUTO`, `ERRORE_CALCOLO`); senza il parametro il riepilogo leggero non e' confermabile. La risposta porta
+  `ingressi` (fuori firma). R5 calcola il motore dentro la connessione S (`motoreR5`, un `iniziatoreInS` che apre un
+  savepoint della transazione S): 503 `CALCOLO_OCCUPATO`, 504 `CALCOLO_SCADUTO`, 500 `ERRORE_CALCOLO`, non registrati
+  (`CodiciServerR5Altri`). Prove del motore: `motore_a_bozza_v1_motore_test.go` (L1) e, con le regole ACME pronte
+  (`accendiMotoreV1`), le L4 di R4, R5 e `v1_d39_chiusura_legacy_db_test.go`. Codici in
+  `CodiciServerBozzaV1` (R4 ↔ `riepilogoBom` del ponte in T-05); nel mondo chiuso del ponte R4 sta fra le escluse
+  (`motore_a_ponte_test.go`, aggancio minimo come R15). Prove: `motore_a_bozza_v1_test.go` (L1: rotta montata, flag,
+  sessione, ruolo, 405) e `motore_a_bozza_v1_r4_db_test.go` (L4 via HTTP: gate, avvisi del motore, rifiuti, S8,
+  nessuna scrittura).
+- G39-01 e G39-02 [U] (20/10 sera; corsia persistenza parte A): il calcolo del motore di adesso per la bozza
+  (`calcoloAdessoV1` in `motore_a_bozza_v1_motore.go`: la sorgente della bozza in sola lettura, poi `Servizio.Calcola` con
+  il semaforo, poi `distintabozza.CalcoloAdessoDa`), prima di ogni transazione. R1 con `?suggerimenti_motore=1` (solo 1;
+  altro valore 422 sul campo) aggiunge i suggerimenti del calcolo di adesso (`dopo_apertura`, con il registro di adesso)
+  e `step_candidati[]` del prodotto; il motore che non calcola da' 200 con `suggerimenti_motore.errore`
+  (`CALCOLO_OCCUPATO`, `CALCOLO_SCADUTO`, `ERRORE_CALCOLO`, come gli avvisi di R4). R2 salvataggio chiede a
+  `distintabozza.MotoreDelSalvataggio` se serve il calcolo (una PB nuova o spostata con un registro che il database non
+  ha, o su uno STEP): il motore occupato, scaduto o in errore e' 503/504 (niente scritto, si riprova), anche per i soli
+  STEP (`stepCandidatiV1`: gli STEP candidati senza importare); solo senza le regole del motore (non configurate) si
+  prosegue con il ripiego [T-39]. Le forme che importano e S8 passano gli STEP candidati del calcolo alle PB iniziali
+  (`calcoloR2.proposta`); la partenza conferma (da-conferma-1) li calcola con `stepCandidatiV1` dopo la chiave, con le
+  stesse risposte; R4/R5 li hanno in `IngressoMotoreR4.StepCandidati`. Il codice nuovo
+  `STEP_CANDIDATO_DEL_FINITO` (422) sta in `CodiciServerR2Forme` finche' il ponte non l'ha fra i `RIFIUTI_R2`. Prove:
+  `motore_a_bozza_v1_g39_db_test.go` (L4, il motore vero con le regole ACME: lo STEP «9123456-001.stp» del prodotto
+  9123456A riconosciuto candidato, R2 422, R1 `step_candidati`, il motore non pronto; R2 e da-conferma-1 con il motore
+  scaduto 504), `motore_a_bozza_v1_g39_d2c_db_test.go` (D-2 (c): gli STEP di sottoassieme e parte restano PB).
+- R5 formato 3 (direttiva 39 §1, §2, §7; EM §9.5; corsia persistenza): `motore_a_bozza_v1_r5.go`, montato da
+  `registraBozzaMotoreA`, stessa catena. `POST /thread/{id}/motore-a/bom/conferma` con `{firma_anteprima, bozza,
+  presa_d_atto_in_analisi?}` (riga gemella 405 `Allow: POST`; nessun parametro): `distintabozza.LeggiRichiestaR5`, poi
+  `distintabozza.Conferma3` (la transazione e la connessione S le apre il core; l'ordine dei lucchetti e' nel README di
+  `distintabozza`). Dopo il COMMIT, F8 sull'intera RFQ nella stessa richiesta, con l'esito in `f8_stato`
+  (`SegnaF8DellaConfermaEseguito`, `risolto_da = stessa_richiesta`, o `SegnaF8DellaConfermaErrore`): un errore di F8 non
+  revoca la conferma. Le risposte: 200 la conferma (anche riproposta); 409 `BASE_SUPERATA`, `ANTEPRIMA_SUPERATA` (con il
+  riepilogo nuovo, o `riprova`, `ingressi_in_movimento`, `documenti_in_analisi_cambiati`), `CHIAVE_RIUSATA`,
+  `BOZZA_VERSIONE`; 422 `BLOCCHI` con `blocchi[]` (anche `STEP_SORGENTE_NON_CONFERMATA`), `NESSUNA_MODIFICA`,
+  `CORPO_NON_VALIDO`, `FUORI_RFQ`; 500 `CONTROLLO_FINALE` e 503 `CALCOLO_OCCUPATO` con `esito: non_registrato` e la
+  chiave (`CodiciServerR5Altri`, fuori da T-05); un altro 5xx `da_verificare` con la chiave. Codici 409/422 in
+  `CodiciServerBozzaV1` (R5 ↔ `confermaBom` del ponte in T-05); nel mondo chiuso del ponte R5 sta fra le escluse
+  (`motore_a_ponte_test.go`, aggancio minimo come R4). Prove: `motore_a_bozza_v1_r5_test.go` (L1: traduzione dei
+  rifiuti), `motore_a_bozza_v1_test.go` (L1: rotta montata, flag, sessione, ruolo, 405) e
+  `motore_a_bozza_v1_r5_db_test.go` (L4 via HTTP: bozza senza STEP 422 senza scritture, rifiuti di forma, S8 e
+  conferma 200 con la promozione e F8, reinvio senza scritture, R6, bozza chiusa).
+- La conferma del documento (`conferma`, `confermaProposta` di `allegati.go`) chiama `core/rfq/confermadoc.Conferma`
+  (direttiva 35, C-3, INC-G9); le regole della scelta della revisione di `fascicolo.go` sono quelle del core.
 - L'ordine dei controlli (EM §9, REV RS-11): gli id del percorso (400), l'esistenza della RFQ (404, `rfqEsisteV1`), il
   corpo (413) e la forma (422).
 - I codici: `statoDelCodiceV1` e l'elenco unico `CodiciServerBozzaV1` (T-05, provato contro i cataloghi del ponte; R11
-  appena il ponte ha il catalogo di `riallineaDocumenti`); un errore non previsto e' 500 con un testo generico (il
+  appena il ponte ha il catalogo di `riallineaDocumenti`); `CodiciServerR2Forme` per i codici che il ponte non ha ancora
+  (`FONTE_NON_CONFERMATA`); il 409 `ANTEPRIMA_SUPERATA` delle forme che importano porta `anteprima`,
+  `impronta_contenuto` e `gruppo_corrente`; un errore non previsto e' 500 con un testo generico (il
   dettaglio nel log). Il 500 di R11 (F8 non riuscito) sta nella busta unica `{esito, codice, testo, f8_stato,
   aggiornati}`; R11 legge l'inizio dall'orologio del database (`OraDelDatabase`), lo stesso di `f8_stato.creato_il`.
 - Prove: `motore_a_bozza_v1_test.go` (L1: flag, ruoli, rotte montate, codici, T-05, T-12 e T-12b con il valore delle
   costanti calcolato e il mutante della revisione come caso negativo, la busta di R11),
   `motore_a_bozza_v1_db_test.go` (L4: T-04 con il guscio della pagina, R2/R3/R11 via HTTP, T-12 meta' L4, T-15,
-  «Conferma la fonte» di R-24, prima l'esistenza poi la forma, R-26).
+  «Conferma la fonte» di R-24, prima l'esistenza poi la forma, R-26), `motore_a_bozza_v1_c3_test.go` e
+  `motore_a_bozza_v1_c3_db_test.go` (direttiva 35, C-3: le forme del server via HTTP, i loro rifiuti).
 
 ### Le rotte (A1d-P2)
 
@@ -2414,6 +2499,43 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   - Lanciato da: `fascicolo_v3_browser_test.go`
   - Prove: J–N: vista Documenti con pdf.js, note, editor, associazione dal pannello, editor senza STEP; fallisce anche su
     un errore JavaScript o su una risposta ≥ 400
+- **`distinta_unica.py`** (V1, la pagina della Distinta unica)
+  - Lanciato da: `distinta_unica_browser_test.go` (`TestDistintaUnicaNelBrowser`), contro il banco finto di
+    `distinta_unica_banco*_test.go`: nessun database, risposte finte con le forme delle rotte vere
+  - Prove: DU-Bnn, in sequenza sulla stessa RFQ del banco; `COCKPIT_DU_PROVE` ne sceglie un sottoinsieme. Dal giro G39
+    (20/10) DU-B68: lo STEP proposto come sorgente del finito (G39-02) nella forma del server, `fonte.proposte_sorgente[]`
+    di S9 e `/dati` con il 422 `STEP_CANDIDATO_DEL_FINITO` di R2, con l'interruttore della sonda «step-proposto»; DU-B62
+    con la revoca che porta `sorgente_errata` e la bozza e annulla la bozza nata dallo STEP (G39-03)
+  - DU-B69 (G39-03: «Sposta la sorgente su ‹P›…» con `sposta_da`, i rimedi di `sorgente_spostabile` e `bom_confermata`,
+    la correzione della sorgente dichiarata in S8 e il suo segno nel riepilogo, la revoca che annulla la bozza) gira solo
+    se scelta, su un banco suo: `distinta_unica_g39_browser_test.go` (`TestDistintaUnicaG39NelBrowser`), interruttori
+    «step-proposto» e «bom-confermata-altro», sonda `sorgente-s8` con `allegato` e `bozza`
+  - DU-B70 (G39-01 e G39-02, parte 2: l'avviso della bozza manuale con gli `step_candidati[]` di R1
+    `?suggerimenti_motore=1`, anche con R1 lento: «f-ok» spento durante la lettura, al più 12 s; il 422
+    `proposta_non_corrispondente` che rilegge i suggerimenti e tiene da parte tutte le modifiche senza i registri, che
+    «Riapplica» ricalcola; «Accetta la proposta» dell'Elenco salvata «motore»; un file proposto associato a un altro
+    nodo salvato «corretta», con i gruppi del riepilogo; una PB legacy spostata sul nodo proposto salvata «manuale»)
+    gira solo se scelta, su un banco suo: `TestDistintaUnicaG39ProvenienzaNelBrowser`, interruttore
+    «step-candidati», modalità `r2-superato`. Il banco decide la provenienza dal registro dichiarato come il server
+    (`provenienzaDelRegistro`)
+- **`distinta_unica_server.py`**
+  - Lanciato da: `distinta_unica_server_browser_test.go` (`TestDistintaUnicaServerVeroNelBrowser`), contro il banco web
+    vero del pacchetto con `COCKPIT_TEST_DSN`
+  - Prove: le quattro fasi della sorgente, della conferma e della revisione con un secondo STEP; dal giro G39 la fase 1
+    controlla la proposta dello STEP del finito data dal server (`fonte.proposte_sorgente[]`, con le evidenze) e l'avviso
+    con la presa d'atto sulla bozza manuale (G39-02)
+  - Fasi `g39`, `g39b`, `g39d`, `g39c`, lanciate da `distinta_unica_g39_server_browser_test.go`
+    (`TestDistintaUnicaG39ServerVeroNelBrowser`, scena con due prodotti finiti): lo STEP confermato per errore sul
+    prodotto sbagliato e spostato su quello giusto (G39-03), il PDF arrivato dopo l'apertura suggerito dal motore e
+    accettato come PB «motore» (G39-01), la stessa PB spostata dall'ingegnere su un altro nodo, «corretta» con il
+    registro di prima (G39-01), la revoca che annulla la bozza nata dalla sorgente; il test controlla il database
+- **`v1_distinta.py`** (la prova d1 del piano di migrazione, PM23 §12.2)
+  - Lanciato da: `distinta_unica_persistito_browser_test.go` (`TestV1DistintaUnicaPercorsoPersistito`), contro
+    `cockpit.exe` compilato e avviato come processo, con il worker di analisi vero, su `COCKPIT_TEST_DSN` (lo schema lo
+    migra il server)
+  - Prove: F0–F12, una fase per lancio, con due riavvii veri del server (Kill e nuovo processo sullo stesso database) e i
+    controlli sul database fra una fase e l'altra; le fasi o parti che il banco non può fare escono «NON ESEGUITA» con il
+    motivo nel log del test
 - Si lanciano con `go test -tags "integrazione browser" -count=1 -run TestL7 ./internal/transport/web/`, con
   `COCKPIT_TEST_DSN`.
 - Serve Playwright per Python con Edge; senza Python o Playwright il test è SKIP.

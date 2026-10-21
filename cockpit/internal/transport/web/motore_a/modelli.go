@@ -57,6 +57,10 @@ type Pagina struct {
 	Fonte             *FonteDelProdotto              `json:"fonte,omitempty"`
 	F8Stato           string                         `json:"f8_stato,omitempty"`
 	BozzaDelProdotto  *BozzaDelProdotto              `json:"bozza_del_prodotto,omitempty"`
+	ConfermaCorrente  *ConfermaCorrente              `json:"conferma_corrente,omitempty"`
+	// Modello (fuori dal JSON): il modello del prodotto da cui vengono gruppi e fonte, per S9 (sorgente.go), che legge i
+	// registri dei gruppi senza importare due volte.
+	Modello *propostabom.ModelloDelProdotto `json:"-"`
 }
 
 // Testa: la testa della pagina (contratto §2.2).
@@ -100,7 +104,7 @@ func (s Servizio) Pagina(ctx context.Context, rp RichiestaPagina) (*Pagina, erro
 		componi = ComponiPagina
 	}
 	var p *Pagina // scritta nella goroutine, letta qui dopo la consegna sul canale (happens-before)
-	if _, err := s.calcolaProtetto(ctx, rp.Thread, func(r *Risultato) { p = componi(r, rp) }); err != nil {
+	if _, err := s.calcolaProtetto(ctx, rp.Thread, func(_ context.Context, r *Risultato) { p = componi(r, rp) }); err != nil {
 		return nil, err
 	}
 	return p, nil

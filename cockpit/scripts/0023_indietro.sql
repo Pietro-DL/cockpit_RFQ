@@ -13,20 +13,25 @@
 -- Si rifiuta, senza cambiare niente, se:
 --   - lo schema non e' alla 23;
 --   - c'e' una riga formato 3 (bozza, versione o conferma);
---   - c'e' una riga in una delle sei tabelle nuove (distinta_importazione, conferma_strutturale_non_incluso,
---     file_rfq, file_rfq_evento, file_rfq_rimozione, file_rfq_conservazione);
---   - c'e' un valore in una delle otto colonne nuove delle tabelle della 22;
---   - c'e' un esito d'intento con un gesto che la 22 non conosce.
+--   - c'e' una riga in una delle nove tabelle nuove (distinta_importazione, conferma_strutturale_non_incluso,
+--     file_rfq, file_rfq_evento, file_rfq_rimozione, file_rfq_conservazione, proposta_aggiornata_rifiuto,
+--     file_rfq_associazione, rfq_formato3_segno);
+--   - c'e' un valore in una delle otto colonne nuove delle tabelle della 22 di formato 3 e identita';
+--   - c'e' un esito d'intento con un gesto che la 22 non conosce;
+--   - un evento di associazione o una correzione porta un valore nelle cinque colonne della 23 della direttiva 35
+--     (allegato, riga della AR, riga sostituita, transazione dell'evento; riga della AR della correzione), o un evento
+--     di associazione e' senza autore (conversione_legacy, direttiva 39);
+--   - la storia della fonte ha una revoca della sorgente (azione revoca_sorgente, direttiva 39).
 -- Tornare indietro in quei casi perderebbe dati della 23: si ferma.
 --
--- Fine riga. Le quattro funzioni e i tre commenti si rimettono con il testo della 22 e con i fine riga di questo file
+-- Fine riga. Le cinque funzioni e i cinque commenti si rimettono con il testo della 22 e con i fine riga di questo file
 -- com'e' sul disco. Il binario che ha applicato la 0022 puo' averla incorporata con altri fine riga (un checkout con
 -- core.autocrlf scrive CRLF nei file presi dal repository, LF in quelli nati sul posto): allora il catalogo torna quello
--- della 22 a meno dei CR nei corpi delle quattro funzioni e nei tre commenti, con lo stesso comportamento. La prova U-09
+-- della 22 a meno dei CR nei corpi delle cinque funzioni e nei cinque commenti, con lo stesso comportamento. La prova U-09
 -- esegue il file com'e' sul disco e confronta il catalogo con quello della 22 a meno dei CR.
 --
--- Poi toglie colonne, tabelle, funzioni e trigger della 0023, rimette i vincoli, le quattro funzioni, le cinque viste
--- e i tre commenti com'erano alla 22 (testi copiati dalla 0018, dalla 0020 e dalla 0022), e toglie le righe 23 di
+-- Poi toglie colonne, tabelle, funzioni e trigger della 0023 (il digest dei fatti si ricalcola: non e' un dato), rimette
+-- i vincoli, le cinque funzioni, le cinque viste e i cinque commenti com'erano alla 22 (testi copiati dalla 0018, dalla 0020 e dalla 0022), e toglie le righe 23 di
 -- schema_versione e schema_variante. La prova U-09 (platform/migrazioni) lo esegue su 22 → 23 → 22 e confronta il
 -- catalogo con quello della 22.
 
@@ -50,9 +55,11 @@ BEGIN
     END IF;
     SELECT (SELECT count(*) FROM distinta_importazione) + (SELECT count(*) FROM conferma_strutturale_non_incluso)
          + (SELECT count(*) FROM file_rfq) + (SELECT count(*) FROM file_rfq_evento)
-         + (SELECT count(*) FROM file_rfq_rimozione) + (SELECT count(*) FROM file_rfq_conservazione) INTO n;
+         + (SELECT count(*) FROM file_rfq_rimozione) + (SELECT count(*) FROM file_rfq_conservazione)
+         + (SELECT count(*) FROM proposta_aggiornata_rifiuto) + (SELECT count(*) FROM file_rfq_associazione)
+         + (SELECT count(*) FROM rfq_formato3_segno) INTO n;
     IF n > 0 THEN
-        RAISE EXCEPTION '0023 indietro: le tabelle della 23 hanno % righe (registri d''importazione, nodi non inclusi o ciclo dei file), e tornando alla 22 si perdono', n;
+        RAISE EXCEPTION '0023 indietro: le tabelle della 23 hanno % righe (registri d''importazione, nodi non inclusi, ciclo dei file o rifiuti delle proposte aggiornate), e tornando alla 22 si perdono', n;
     END IF;
     SELECT (SELECT count(*) FROM distinta_bozza_versione
              WHERE importazione_id IS NOT NULL OR chiave_salvataggio IS NOT NULL OR impronta_richiesta IS NOT NULL)
@@ -66,6 +73,17 @@ BEGIN
      WHERE gesto NOT IN ('conferma_bom_v2', 'lotto_fascicolo', 'correggi_documento', 'fonte_step', 'riprova_copia');
     IF n > 0 THEN
         RAISE EXCEPTION '0023 indietro: % esiti d''intento hanno un gesto della 23, e la 22 non li ammette', n;
+    END IF;
+    SELECT (SELECT count(*) FROM associazione_evento
+             WHERE allegato_id IS NOT NULL OR associazione_id IS NOT NULL OR associazione_precedente_id IS NOT NULL OR tx IS NOT NULL
+                OR autore_id IS NULL OR origine = 'conversione_legacy')
+         + (SELECT count(*) FROM correzione_documento WHERE associazione_id IS NOT NULL) INTO n;
+    IF n > 0 THEN
+        RAISE EXCEPTION '0023 indietro: % eventi di associazione o correzioni hanno un valore nelle colonne della 23 (direttiva 35), e tornando alla 22 si perdono', n;
+    END IF;
+    SELECT count(*) INTO n FROM fonte_step_evento WHERE azione = 'revoca_sorgente';
+    IF n > 0 THEN
+        RAISE EXCEPTION '0023 indietro: % eventi della fonte sono revoche della sorgente (azione della 23), e la 22 non li ammette', n;
     END IF;
 END $$;
 
@@ -302,7 +320,7 @@ SELECT cp.thread_id, cp.codice::text, COALESCE(cp.rev, '')::text,
   JOIN allegato a ON a.allegato_id = cp.allegato_id
  WHERE cp.stato <> 'scartata' AND nullif(btrim(cp.codice), '') IS NOT NULL;
 
--- ------------------------------------------------------------ le quattro funzioni della 0022, byte per byte
+-- ------------------------------------------------------------ le cinque funzioni della 0022, byte per byte
 CREATE OR REPLACE FUNCTION distinta_bozza_versione_nasce() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     numero_base int;
@@ -525,6 +543,99 @@ BEGIN
     RETURN NULL;
 END $$;
 
+CREATE OR REPLACE FUNCTION fonte_step_risolvi() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    h       record;
+    riusata bigint;
+BEGIN
+    IF NEW.chiave_bozza IS NULL THEN
+        RETURN NULL;
+    END IF;
+    SELECT x.bozza_id, x.numero, x.confermato_da INTO h FROM conferma_strutturale x WHERE x.conferma_id = NEW.conferma_id;
+    IF NOT FOUND OR h.bozza_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    SELECT e.evento_id INTO riusata
+      FROM fonte_step_evento e
+     WHERE e.bozza_id = h.bozza_id AND e.chiave_bozza = NEW.chiave_bozza AND e.ruolo = 'sottoassieme'
+       AND e.componente_id IS NULL AND e.azione <> 'risoluzione'
+       AND NOT EXISTS (SELECT 1 FROM fonte_step_evento r WHERE r.risolve_evento_id = e.evento_id)
+       AND EXISTS (SELECT 1 FROM distinta_bozza_evento g
+                    WHERE g.bozza_id = h.bozza_id AND g.chiave_bozza = NEW.chiave_bozza AND g.azione = 'nodo_aggiunto'
+                      AND g.versione > (e.destinazione ->> 'versione')::int
+                      AND g.dopo IS DISTINCT FROM e.destinazione -> 'nodo')
+     LIMIT 1;
+    IF FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'P4X07',
+            MESSAGE = format('conferma n. %s: la destinazione temporanea %s dell''evento %s della fonte e'' stata riusata per un nodo diverso dopo l''evento; non si risolve sul nodo certificato',
+                             h.numero, NEW.chiave_bozza, riusata),
+            HINT = 'una chiave della bozza tolta non torna per un nodo diverso (regola di R2)';
+    END IF;
+    INSERT INTO fonte_step_evento (thread_id, prodotto_id, ruolo, componente_id, chiave_bozza, destinazione, risolve_evento_id, azione,
+                                   allegato_id, sha256, gruppo, proposta_id, documento_id, bozza_id, motivo, autore_id)
+    SELECT e.thread_id, e.prodotto_id, 'sottoassieme', NEW.componente_id, e.chiave_bozza, e.destinazione, e.evento_id, 'risoluzione',
+           e.allegato_id, e.sha256, e.gruppo, e.proposta_id, e.documento_id, e.bozza_id,
+           format('destinazione %s della bozza %s risolta dalla conferma n. %s', e.chiave_bozza, e.bozza_id, h.numero),
+           h.confermato_da
+      FROM fonte_step_evento e
+     WHERE e.bozza_id = h.bozza_id AND e.chiave_bozza = NEW.chiave_bozza AND e.ruolo = 'sottoassieme'
+       AND e.componente_id IS NULL AND e.azione <> 'risoluzione'
+       AND NOT EXISTS (SELECT 1 FROM fonte_step_evento r WHERE r.risolve_evento_id = e.evento_id)
+     ORDER BY e.evento_id;
+    RETURN NULL;
+END $$;
+
+-- ------------------------------------------------------------ le associazioni registrate (direttiva 35 e 39, sezione 9d)
+DROP VIEW v_ar_backfill_diagnostica;
+ALTER TABLE fonte_step_evento DROP CONSTRAINT ck_fonte_revoca_sorgente, DROP CONSTRAINT ck_fonte_azione;
+ALTER TABLE fonte_step_evento
+    ADD CONSTRAINT ck_fonte_azione CHECK (azione IN ('scelta', 'rifiuto', 'sostituzione', 'caricamento',
+                                                 'conferma_documento', 'autorizzazione', 'revoca', 'risoluzione'));
+DROP TRIGGER trg_conferma_associazioni ON conferma_strutturale;
+DROP FUNCTION conferma_strutturale_associazioni();
+DROP TRIGGER trg_proposta_copia_derivata ON documento_proposta;
+DROP FUNCTION documento_proposta_copia_derivata();
+DROP TRIGGER trg_file_rfq_senza_ar ON file_rfq;
+DROP FUNCTION file_rfq_senza_ar_attive();
+DROP TRIGGER trg_associazione_della_riga ON associazione_evento;
+DROP FUNCTION associazione_evento_della_riga();
+DROP INDEX ux_associazione_evento_chiave;
+DROP INDEX ix_associazione_evento_allegato;
+DROP INDEX ix_associazione_evento_ar;
+ALTER TABLE associazione_evento
+    DROP CONSTRAINT fk_associazione_ar,
+    DROP CONSTRAINT fk_associazione_ar_precedente,
+    DROP CONSTRAINT ck_associazione_oggetto,
+    DROP CONSTRAINT ck_associazione_azione,
+    DROP CONSTRAINT ck_associazione_origine,
+    DROP CONSTRAINT ck_associazione_autore,
+    DROP CONSTRAINT ck_associazione_coerente;
+ALTER TABLE associazione_evento DROP COLUMN allegato_id, DROP COLUMN associazione_id, DROP COLUMN associazione_precedente_id,
+    DROP COLUMN tx;
+ALTER TABLE associazione_evento ALTER COLUMN autore_id SET NOT NULL;
+ALTER TABLE associazione_evento
+    ADD CONSTRAINT ck_associazione_oggetto CHECK (proposta_id IS NOT NULL OR documento_id IS NOT NULL),
+    ADD CONSTRAINT ck_associazione_azione CHECK (azione IN ('assegna', 'sgancia', 'scarta', 'riapri', 'preassociazione', 'caricamento', 'sposta_documento')),
+    ADD CONSTRAINT ck_associazione_origine CHECK (origine IN ('ponte', 'legacy', 'conferma_bom', 'inbox')),
+    ADD CONSTRAINT ck_associazione_coerente CHECK (
+        (azione NOT IN ('assegna', 'preassociazione', 'sposta_documento') OR componente_dopo IS NOT NULL)
+        AND (azione <> 'sgancia' OR (componente_prima IS NOT NULL AND componente_dopo IS NULL))
+        AND (azione <> 'preassociazione' OR (conferma_id IS NOT NULL AND origine = 'conferma_bom')));
+DROP INDEX ix_correzione_associazione;
+ALTER TABLE correzione_documento DROP CONSTRAINT fk_correzione_associazione, DROP CONSTRAINT ck_correzione_oggetto;
+ALTER TABLE correzione_documento DROP COLUMN associazione_id;
+ALTER TABLE correzione_documento ADD CONSTRAINT ck_correzione_oggetto CHECK (proposta_id IS NOT NULL OR documento_id IS NOT NULL);
+DROP TABLE file_rfq_associazione;
+DROP FUNCTION file_rfq_associazione_invarianti();
+DROP FUNCTION file_rfq_associazione_cambia();
+DROP FUNCTION file_rfq_associazione_bom();
+DROP FUNCTION file_rfq_associazione_nasce();
+DROP FUNCTION allegato_sorgente_del_finito(uuid, uuid);
+DROP FUNCTION rfq_e_formato3(uuid);
+DROP TRIGGER trg_distinta_bozza_formato3 ON distinta_bozza;
+DROP TABLE rfq_formato3_segno;
+DROP FUNCTION rfq_formato3_segna();
+
 -- ------------------------------------------------------------ esito degli intenti
 DROP TRIGGER trg_esito_intento_formato ON esito_intento;
 DROP FUNCTION esito_intento_formato();
@@ -532,6 +643,13 @@ ALTER TABLE esito_intento DROP CONSTRAINT ck_esito_intento_gesto, DROP CONSTRAIN
 ALTER TABLE esito_intento
     ADD CONSTRAINT ck_esito_intento_gesto CHECK (gesto IN ('conferma_bom_v2', 'lotto_fascicolo', 'correggi_documento', 'fonte_step', 'riprova_copia')),
     ADD CONSTRAINT ck_esito_intento_conferma CHECK ((gesto = 'conferma_bom_v2') = (conferma_id IS NOT NULL));
+
+-- ------------------------------------------------------------ il rifiuto della proposta aggiornata e il digest dei fatti
+DROP TABLE proposta_aggiornata_rifiuto;
+DROP TRIGGER trg_analisi_fatti_digest ON analisi_fatti;
+DROP FUNCTION analisi_fatti_digest();
+ALTER TABLE analisi_fatti DROP CONSTRAINT ck_analisi_fatti_digest;
+ALTER TABLE analisi_fatti DROP COLUMN digest;
 
 -- ------------------------------------------------------------ i nodi non inclusi e il ciclo dei file
 DROP TABLE conferma_strutturale_non_incluso;
@@ -562,6 +680,7 @@ ALTER TABLE conferma_strutturale
     DROP CONSTRAINT ck_conferma_importazione,
     DROP CONSTRAINT fk_conferma_importazione;
 ALTER TABLE conferma_strutturale DROP COLUMN importazione_id, DROP COLUMN importazioni_citate;
+ALTER TABLE conferma_strutturale DROP CONSTRAINT ck_conferma_verifica, DROP CONSTRAINT ck_conferma_preassociazioni;
 ALTER TABLE conferma_strutturale
     DROP CONSTRAINT ck_conferma_formato,
     DROP CONSTRAINT ck_conferma_bozza,
@@ -580,6 +699,7 @@ DROP INDEX ux_dbv_chiave_salvataggio;
 DROP INDEX ix_dbv_importazione;
 ALTER TABLE distinta_bozza_versione
     DROP CONSTRAINT ck_dbv_chiave_salvataggio,
+    DROP CONSTRAINT ck_dbv_preassociazioni,
     DROP CONSTRAINT ck_dbv_snapshot_formato,
     DROP CONSTRAINT fk_dbv_importazione;
 ALTER TABLE distinta_bozza_versione DROP COLUMN importazione_id, DROP COLUMN chiave_salvataggio, DROP COLUMN impronta_richiesta;
@@ -587,6 +707,7 @@ ALTER TABLE distinta_bozza_versione DROP COLUMN importazione_id, DROP COLUMN chi
 -- ------------------------------------------------------------ registro d'importazione
 DROP TABLE distinta_importazione;
 DROP FUNCTION distinta_importazione_nasce();
+DROP FUNCTION file_rfq_scartato_legacy(uuid, uuid);
 DROP FUNCTION file_rfq_attivo(uuid, uuid);
 
 -- ------------------------------------------------------------ testata della bozza
@@ -608,6 +729,14 @@ COMMENT ON COLUMN conferma_strutturale_arco.origine IS
 registrato (gia'' nella conferma precedente o nella working). Obbligatoria in formato 2 (trigger). La ricalcola il
 server in R4/R5 confrontando con la fonte dichiarata, mai copiata da quello che dice la pagina: un arco
 disegnato a mano non diventa «estratto dallo STEP» (D-SHOCK-S1 B, E2.1; origine_gerarchia si calcola da qui).';
+COMMENT ON COLUMN conferma_strutturale.verifica IS
+'La verifica del Motore A calcolata al COMMIT (al_momento_della_conferma). Non e'' BOM.Verificata, che si
+ricalcola a ogni lettura.';
+COMMENT ON TABLE associazione_evento IS
+'Chi e quando di ogni associazione di proposte e documenti (assegna, sgancia, scarta, riapri,
+preassociazione, caricamento, spostamento), da tutte le strade quando le scriveranno: gli scrittori sono di B4, e
+la storia comincia dal primo evento scritto da B4. Solo aggiunte.';
+COMMENT ON COLUMN documento_proposta.componente_id IS NULL;
 
 DELETE FROM schema_variante WHERE versione = 23;
 DELETE FROM schema_versione WHERE versione = 23;

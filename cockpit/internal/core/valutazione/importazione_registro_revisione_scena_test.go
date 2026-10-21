@@ -177,7 +177,7 @@ func TestRevisioneIFileNonAttiviNonEntrano(t *testing.T) {
 		r := c.importa(t, rifProdB, propostabom.GruppoBOM, na)
 		soloNellaNota(t, r, aDisegno)
 		e, et := c.e, c.et
-		m := propostabom.Modello(propostabom.IngressoModello{Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, NonAttivi: na})
+		m := propostabom.Modello(propostabom.IngressoModello{Foto: &c.f, Esito: &e, Thread: &et, Regole: c.reg, Prodotto: rifProdB, NonAttivi: na})
 		for _, g := range m.Gruppi {
 			for _, n := range g.Nodi {
 				if strings.Contains(string(n.Diagnostiche), aDisegno.String()) {

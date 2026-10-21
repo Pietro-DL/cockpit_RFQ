@@ -485,8 +485,20 @@ func (q *Queries) InsertDocumento(ctx context.Context, arg InsertDocumentoParams
 }
 
 const insertPropostaSeAssente = `-- name: InsertPropostaSeAssente :exec
-INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte, dettagli)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, dettagli)
+SELECT $1::uuid, COALESCE($2::uuid, ar.thread_id), $3::tipo_documento,
+       COALESCE(ar.codice, $4::varchar), $5::varchar, ar.componente_id, $6::smallint,
+       $7::fonte_proposta,
+       CASE WHEN ar.componente_id IS NULL THEN $8::jsonb
+            ELSE $8::jsonb || jsonb_build_object('codice_letto', $4::varchar) END
+  FROM (SELECT 1) AS uno
+  LEFT JOIN LATERAL (SELECT r.thread_id, r.componente_id, c.codice
+                       FROM file_rfq_associazione r
+                       JOIN componente c ON c.componente_id = r.componente_id AND c.thread_id = r.thread_id
+                      WHERE r.allegato_id = $1::uuid AND r.stato = 'attiva'
+                        AND ($2::uuid IS NULL OR r.thread_id = $2::uuid)
+                      ORDER BY r.creata_il, r.associazione_id
+                      LIMIT 1) AS ar ON true
 ON CONFLICT (allegato_id) DO NOTHING
 `
 
@@ -501,7 +513,9 @@ type InsertPropostaSeAssenteParams struct {
 	Dettagli     json.RawMessage `json:"dettagli"`
 }
 
-// prima proposta a ingest (solo nome file): non tocca mai una proposta esistente, che può essere già raffinata
+// prima proposta a ingest (solo nome file): non tocca mai una proposta esistente, che può essere già raffinata.
+// Direttiva 35, blocco C-1c (INC-G5): se l'allegato ha gia' una AR attiva, la proposta nasce con la copia (il
+// componente e il codice della AR, la lettura in dettagli.codice_letto), come la scrive il servizio delle associazioni.
 func (q *Queries) InsertPropostaSeAssente(ctx context.Context, arg InsertPropostaSeAssenteParams) error {
 	_, err := q.db.Exec(ctx, insertPropostaSeAssente,
 		arg.AllegatoID,
@@ -962,7 +976,10 @@ SELECT EXISTS (SELECT 1 FROM documento d
                   AND j.payload ->> 'thread_id' = $1::uuid::text
                   AND (lower(j.payload ->> 'da') = lower($2::text) OR lower(j.payload ->> 'a') = lower($2::text)))
     OR EXISTS (SELECT 1 FROM nas_orfano o
-                WHERE o.thread_id = $1 AND o.risolto_il IS NULL AND lower(o.percorso) = lower($2::text)) AS occupato
+                WHERE o.thread_id = $1 AND o.risolto_il IS NULL AND lower(o.percorso) = lower($2::text))
+    OR EXISTS (SELECT 1 FROM file_rfq_conservazione c
+                WHERE c.thread_id = $1 AND lower(c.percorso_relativo) = lower($2::text)
+                  AND c.stato IN ('in_copia', 'copiata', 'da_rilasciare', 'in_rimozione', 'trattenuta')) AS occupato
 `
 
 type PercorsoOccupatoParams struct {
@@ -971,8 +988,10 @@ type PercorsoOccupatoParams struct {
 }
 
 // Un percorso e' occupato se lo dichiara un documento del thread, se e' il `da` o l'`a` di uno
-// spostamento pendente, o se c'e' una riga aperta di nas_orfano (A4.3, R2.1). Sempre in minuscolo:
-// la condivisione e' Windows.
+// spostamento pendente, se c'e' una riga aperta di nas_orfano (A4.3, R2.1), o se lo nomina una copia viva
+// degli Altri file nella cartella ALTRO (V1, U2 §3.2 e §3.6 regola 1: documenti e copie si riservano i nomi
+// con la stessa query e lo stesso lucchetto; percorso_relativo ha la stessa base di path_relativo). Sempre in
+// minuscolo: la condivisione e' Windows.
 func (q *Queries) PercorsoOccupato(ctx context.Context, arg PercorsoOccupatoParams) (pgtype.Bool, error) {
 	row := q.db.QueryRow(ctx, percorsoOccupato, arg.ThreadID, arg.Percorso)
 	var occupato pgtype.Bool
@@ -1142,13 +1161,25 @@ func (q *Queries) SetSostituitoDa(ctx context.Context, arg SetSostituitoDaParams
 
 const upsertProposta = `-- name: UpsertProposta :one
 INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, regola_id, dettagli)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+SELECT $1::uuid, COALESCE($2::uuid, ar.thread_id), $3::tipo_documento,
+       COALESCE(ar.codice, $4::varchar), $5::varchar, ar.componente_id, $6::smallint,
+       $7::fonte_proposta, $8::text,
+       CASE WHEN ar.componente_id IS NULL THEN $9::jsonb
+            ELSE $9::jsonb || jsonb_build_object('codice_letto', $4::varchar) END
+  FROM (SELECT 1) AS uno
+  LEFT JOIN LATERAL (SELECT r.thread_id, r.componente_id, c.codice
+                       FROM file_rfq_associazione r
+                       JOIN componente c ON c.componente_id = r.componente_id AND c.thread_id = r.thread_id
+                      WHERE r.allegato_id = $1::uuid AND r.stato = 'attiva'
+                        AND ($2::uuid IS NULL OR r.thread_id = $2::uuid)
+                      ORDER BY r.creata_il, r.associazione_id
+                      LIMIT 1) AS ar ON true
 ON CONFLICT (allegato_id) DO UPDATE SET
     thread_id = COALESCE(EXCLUDED.thread_id, documento_proposta.thread_id),
     tipo_proposto = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.tipo_proposto
                          ELSE documento_proposta.tipo_proposto END,
     codice = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.componente_id IS NULL AND documento_proposta.fonte <> 'operatore'
-                  THEN EXCLUDED.codice ELSE documento_proposta.codice END,
+                  THEN $4::varchar ELSE documento_proposta.codice END,
     rev = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.rev ELSE documento_proposta.rev END,
     confidenza = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.confidenza
                       ELSE documento_proposta.confidenza END,
@@ -1156,17 +1187,17 @@ ON CONFLICT (allegato_id) DO UPDATE SET
     dettagli = CASE WHEN documento_proposta.stato <> 'aperta' THEN documento_proposta.dettagli
                     WHEN documento_proposta.fonte = 'operatore'
                     THEN documento_proposta.dettagli || jsonb_build_object('lettura_dopo', jsonb_build_object(
-                             'tipo', EXCLUDED.tipo_proposto, 'codice', EXCLUDED.codice, 'rev', EXCLUDED.rev, 'fonte', EXCLUDED.fonte))
-                         || CASE WHEN EXCLUDED.dettagli ? 'valutazione'
-                                 THEN jsonb_build_object('valutazione', EXCLUDED.dettagli -> 'valutazione') ELSE '{}'::jsonb END
-                    WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim(EXCLUDED.codice), '') IS NOT NULL
-                         AND upper(EXCLUDED.codice) IS DISTINCT FROM upper(documento_proposta.codice)
-                    THEN EXCLUDED.dettagli || jsonb_build_object('codice_letto', EXCLUDED.codice)
+                             'tipo', EXCLUDED.tipo_proposto, 'codice', $4::varchar, 'rev', EXCLUDED.rev, 'fonte', EXCLUDED.fonte))
+                         || CASE WHEN $9::jsonb ? 'valutazione'
+                                 THEN jsonb_build_object('valutazione', $9::jsonb -> 'valutazione') ELSE '{}'::jsonb END
+                    WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim($4::varchar), '') IS NOT NULL
+                         AND upper($4::varchar) IS DISTINCT FROM upper(documento_proposta.codice)
+                    THEN $9::jsonb || jsonb_build_object('codice_letto', $4::varchar)
                          || CASE WHEN documento_proposta.dettagli ? 'destinazione'
                                  THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
                          || CASE WHEN documento_proposta.dettagli ? 'storia'
                                  THEN jsonb_build_object('storia', documento_proposta.dettagli -> 'storia') ELSE '{}'::jsonb END
-                    ELSE EXCLUDED.dettagli
+                    ELSE $9::jsonb
                          || CASE WHEN documento_proposta.dettagli ? 'destinazione'
                                  THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
                          || CASE WHEN documento_proposta.dettagli ? 'storia'
@@ -1180,7 +1211,6 @@ type UpsertPropostaParams struct {
 	TipoProposto TipoDocumento   `json:"tipo_proposto"`
 	Codice       pgtype.Text     `json:"codice"`
 	Rev          pgtype.Text     `json:"rev"`
-	ComponenteID uuid.NullUUID   `json:"componente_id"`
 	Confidenza   int16           `json:"confidenza"`
 	Fonte        FonteProposta   `json:"fonte"`
 	RegolaID     pgtype.Text     `json:"regola_id"`
@@ -1200,6 +1230,12 @@ type UpsertPropostaParams struct {
 // Una proposta aperta prende i dettagli della lettura nuova, ma conserva le chiavi che non sono una lettura:
 // la destinazione calcolata dal flusso e la storia delle decisioni revocate (Smistamento F4, prove 190 e
 // 231). Le colonne sono il riepilogo della valutazione (classificazione.ConValutazione).
+//
+// Direttiva 35, blocco C-1c (INC-G5): il componente non si passa piu' (componente_id e' la copia derivata
+// delle AR, che scrive solo il servizio delle associazioni). Una proposta che NASCE per un allegato che ha
+// gia' una AR attiva (l'allegato caricato o estratto prima della proposta, Prova 2) nasce con la copia: il
+// componente e il codice della AR, e la lettura del codice in dettagli.codice_letto, come la scrive il
+// servizio. Il ramo ON CONFLICT legge la lettura dai parametri, come prima.
 func (q *Queries) UpsertProposta(ctx context.Context, arg UpsertPropostaParams) (DocumentoProposta, error) {
 	row := q.db.QueryRow(ctx, upsertProposta,
 		arg.AllegatoID,
@@ -1207,7 +1243,6 @@ func (q *Queries) UpsertProposta(ctx context.Context, arg UpsertPropostaParams) 
 		arg.TipoProposto,
 		arg.Codice,
 		arg.Rev,
-		arg.ComponenteID,
 		arg.Confidenza,
 		arg.Fonte,
 		arg.RegolaID,

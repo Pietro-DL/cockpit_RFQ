@@ -44,6 +44,44 @@ type casiCondivisi struct {
 	} `json:"applica"`
 }
 
+// casiPerAllegato: i casi condivisi nella forma del formato 3 dopo la direttiva 35 (blocco C-2): la PB, gli eventi dei
+// file, lo svincolo e il vassoio citano allegato_id, non proposta_id. Il file dei casi e' della corsia interfaccia, che lo
+// aggiorna insieme alla pagina (richiesta del resoconto della corsia persistenza, C-2); finche' porta proposta_id, la
+// meta' server lo legge con la chiave rinominata, valore per valore (nel formato 3 nessun altro campo si chiama
+// proposta_id). Quando il file e' aggiornato la rinomina non trova niente e non cambia niente.
+func casiPerAllegato(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	var rinomina func(x any) any
+	rinomina = func(x any) any {
+		switch y := x.(type) {
+		case map[string]any:
+			out := make(map[string]any, len(y))
+			for k, z := range y {
+				if k == "proposta_id" {
+					k = "allegato_id"
+				}
+				out[k] = rinomina(z)
+			}
+			return out
+		case []any:
+			for i := range y {
+				y[i] = rinomina(y[i])
+			}
+			return y
+		}
+		return x
+	}
+	b, err := json.Marshal(rinomina(v))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 func leggiCasiCondivisi(t *testing.T) casiCondivisi {
 	t.Helper()
 	p := filepath.Join("..", "..", "..", "transport", "web", "e2e", "distinta_unica_casi.json")
@@ -51,6 +89,7 @@ func leggiCasiCondivisi(t *testing.T) casiCondivisi {
 	if err != nil {
 		t.Fatalf("i casi condivisi della pagina non si leggono (%s): %v", p, err)
 	}
+	raw = casiPerAllegato(t, raw)
 	var c casiCondivisi
 	if err := json.Unmarshal(raw, &c); err != nil {
 		t.Fatal(err)

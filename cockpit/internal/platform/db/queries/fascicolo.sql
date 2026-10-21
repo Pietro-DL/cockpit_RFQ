@@ -18,14 +18,32 @@ SELECT * FROM v_thread_bloccanti WHERE thread_id = $1;
 -- Una proposta aperta prende i dettagli della lettura nuova, ma conserva le chiavi che non sono una lettura:
 -- la destinazione calcolata dal flusso e la storia delle decisioni revocate (Smistamento F4, prove 190 e
 -- 231). Le colonne sono il riepilogo della valutazione (classificazione.ConValutazione).
+--
+-- Direttiva 35, blocco C-1c (INC-G5): il componente non si passa piu' (componente_id e' la copia derivata
+-- delle AR, che scrive solo il servizio delle associazioni). Una proposta che NASCE per un allegato che ha
+-- gia' una AR attiva (l'allegato caricato o estratto prima della proposta, Prova 2) nasce con la copia: il
+-- componente e il codice della AR, e la lettura del codice in dettagli.codice_letto, come la scrive il
+-- servizio. Il ramo ON CONFLICT legge la lettura dai parametri, come prima.
 INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, regola_id, dettagli)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+SELECT sqlc.arg(allegato_id)::uuid, COALESCE(sqlc.narg(thread_id)::uuid, ar.thread_id), sqlc.arg(tipo_proposto)::tipo_documento,
+       COALESCE(ar.codice, sqlc.narg(codice)::varchar), sqlc.narg(rev)::varchar, ar.componente_id, sqlc.arg(confidenza)::smallint,
+       sqlc.arg(fonte)::fonte_proposta, sqlc.narg(regola_id)::text,
+       CASE WHEN ar.componente_id IS NULL THEN sqlc.arg(dettagli)::jsonb
+            ELSE sqlc.arg(dettagli)::jsonb || jsonb_build_object('codice_letto', sqlc.narg(codice)::varchar) END
+  FROM (SELECT 1) AS uno
+  LEFT JOIN LATERAL (SELECT r.thread_id, r.componente_id, c.codice
+                       FROM file_rfq_associazione r
+                       JOIN componente c ON c.componente_id = r.componente_id AND c.thread_id = r.thread_id
+                      WHERE r.allegato_id = sqlc.arg(allegato_id)::uuid AND r.stato = 'attiva'
+                        AND (sqlc.narg(thread_id)::uuid IS NULL OR r.thread_id = sqlc.narg(thread_id)::uuid)
+                      ORDER BY r.creata_il, r.associazione_id
+                      LIMIT 1) AS ar ON true
 ON CONFLICT (allegato_id) DO UPDATE SET
     thread_id = COALESCE(EXCLUDED.thread_id, documento_proposta.thread_id),
     tipo_proposto = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.tipo_proposto
                          ELSE documento_proposta.tipo_proposto END,
     codice = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.componente_id IS NULL AND documento_proposta.fonte <> 'operatore'
-                  THEN EXCLUDED.codice ELSE documento_proposta.codice END,
+                  THEN sqlc.narg(codice)::varchar ELSE documento_proposta.codice END,
     rev = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.rev ELSE documento_proposta.rev END,
     confidenza = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.confidenza
                       ELSE documento_proposta.confidenza END,
@@ -33,17 +51,17 @@ ON CONFLICT (allegato_id) DO UPDATE SET
     dettagli = CASE WHEN documento_proposta.stato <> 'aperta' THEN documento_proposta.dettagli
                     WHEN documento_proposta.fonte = 'operatore'
                     THEN documento_proposta.dettagli || jsonb_build_object('lettura_dopo', jsonb_build_object(
-                             'tipo', EXCLUDED.tipo_proposto, 'codice', EXCLUDED.codice, 'rev', EXCLUDED.rev, 'fonte', EXCLUDED.fonte))
-                         || CASE WHEN EXCLUDED.dettagli ? 'valutazione'
-                                 THEN jsonb_build_object('valutazione', EXCLUDED.dettagli -> 'valutazione') ELSE '{}'::jsonb END
-                    WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim(EXCLUDED.codice), '') IS NOT NULL
-                         AND upper(EXCLUDED.codice) IS DISTINCT FROM upper(documento_proposta.codice)
-                    THEN EXCLUDED.dettagli || jsonb_build_object('codice_letto', EXCLUDED.codice)
+                             'tipo', EXCLUDED.tipo_proposto, 'codice', sqlc.narg(codice)::varchar, 'rev', EXCLUDED.rev, 'fonte', EXCLUDED.fonte))
+                         || CASE WHEN sqlc.arg(dettagli)::jsonb ? 'valutazione'
+                                 THEN jsonb_build_object('valutazione', sqlc.arg(dettagli)::jsonb -> 'valutazione') ELSE '{}'::jsonb END
+                    WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim(sqlc.narg(codice)::varchar), '') IS NOT NULL
+                         AND upper(sqlc.narg(codice)::varchar) IS DISTINCT FROM upper(documento_proposta.codice)
+                    THEN sqlc.arg(dettagli)::jsonb || jsonb_build_object('codice_letto', sqlc.narg(codice)::varchar)
                          || CASE WHEN documento_proposta.dettagli ? 'destinazione'
                                  THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
                          || CASE WHEN documento_proposta.dettagli ? 'storia'
                                  THEN jsonb_build_object('storia', documento_proposta.dettagli -> 'storia') ELSE '{}'::jsonb END
-                    ELSE EXCLUDED.dettagli
+                    ELSE sqlc.arg(dettagli)::jsonb
                          || CASE WHEN documento_proposta.dettagli ? 'destinazione'
                                  THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
                          || CASE WHEN documento_proposta.dettagli ? 'storia'
@@ -51,9 +69,23 @@ ON CONFLICT (allegato_id) DO UPDATE SET
 RETURNING *;
 
 -- name: InsertPropostaSeAssente :exec
--- prima proposta a ingest (solo nome file): non tocca mai una proposta esistente, che può essere già raffinata
-INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte, dettagli)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+-- prima proposta a ingest (solo nome file): non tocca mai una proposta esistente, che può essere già raffinata.
+-- Direttiva 35, blocco C-1c (INC-G5): se l'allegato ha gia' una AR attiva, la proposta nasce con la copia (il
+-- componente e il codice della AR, la lettura in dettagli.codice_letto), come la scrive il servizio delle associazioni.
+INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, dettagli)
+SELECT sqlc.arg(allegato_id)::uuid, COALESCE(sqlc.narg(thread_id)::uuid, ar.thread_id), sqlc.arg(tipo_proposto)::tipo_documento,
+       COALESCE(ar.codice, sqlc.narg(codice)::varchar), sqlc.narg(rev)::varchar, ar.componente_id, sqlc.arg(confidenza)::smallint,
+       sqlc.arg(fonte)::fonte_proposta,
+       CASE WHEN ar.componente_id IS NULL THEN sqlc.arg(dettagli)::jsonb
+            ELSE sqlc.arg(dettagli)::jsonb || jsonb_build_object('codice_letto', sqlc.narg(codice)::varchar) END
+  FROM (SELECT 1) AS uno
+  LEFT JOIN LATERAL (SELECT r.thread_id, r.componente_id, c.codice
+                       FROM file_rfq_associazione r
+                       JOIN componente c ON c.componente_id = r.componente_id AND c.thread_id = r.thread_id
+                      WHERE r.allegato_id = sqlc.arg(allegato_id)::uuid AND r.stato = 'attiva'
+                        AND (sqlc.narg(thread_id)::uuid IS NULL OR r.thread_id = sqlc.narg(thread_id)::uuid)
+                      ORDER BY r.creata_il, r.associazione_id
+                      LIMIT 1) AS ar ON true
 ON CONFLICT (allegato_id) DO NOTHING;
 
 -- name: GetProposta :one
@@ -198,8 +230,10 @@ SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(thread_id)::uuid::text ||
 
 -- name: PercorsoOccupato :one
 -- Un percorso e' occupato se lo dichiara un documento del thread, se e' il `da` o l'`a` di uno
--- spostamento pendente, o se c'e' una riga aperta di nas_orfano (A4.3, R2.1). Sempre in minuscolo:
--- la condivisione e' Windows.
+-- spostamento pendente, se c'e' una riga aperta di nas_orfano (A4.3, R2.1), o se lo nomina una copia viva
+-- degli Altri file nella cartella ALTRO (V1, U2 §3.2 e §3.6 regola 1: documenti e copie si riservano i nomi
+-- con la stessa query e lo stesso lucchetto; percorso_relativo ha la stessa base di path_relativo). Sempre in
+-- minuscolo: la condivisione e' Windows.
 SELECT EXISTS (SELECT 1 FROM documento d
                 WHERE d.thread_id = sqlc.arg(thread_id) AND lower(d.path_relativo) = lower(sqlc.arg(percorso)::text))
     OR EXISTS (SELECT 1 FROM job j
@@ -207,7 +241,10 @@ SELECT EXISTS (SELECT 1 FROM documento d
                   AND j.payload ->> 'thread_id' = sqlc.arg(thread_id)::uuid::text
                   AND (lower(j.payload ->> 'da') = lower(sqlc.arg(percorso)::text) OR lower(j.payload ->> 'a') = lower(sqlc.arg(percorso)::text)))
     OR EXISTS (SELECT 1 FROM nas_orfano o
-                WHERE o.thread_id = sqlc.arg(thread_id) AND o.risolto_il IS NULL AND lower(o.percorso) = lower(sqlc.arg(percorso)::text)) AS occupato;
+                WHERE o.thread_id = sqlc.arg(thread_id) AND o.risolto_il IS NULL AND lower(o.percorso) = lower(sqlc.arg(percorso)::text))
+    OR EXISTS (SELECT 1 FROM file_rfq_conservazione c
+                WHERE c.thread_id = sqlc.arg(thread_id) AND lower(c.percorso_relativo) = lower(sqlc.arg(percorso)::text)
+                  AND c.stato IN ('in_copia', 'copiata', 'da_rilasciare', 'in_rimozione', 'trattenuta')) AS occupato;
 
 -- name: CartellaReferenziata :one
 -- Una cartella si toglie solo se niente la nomina: documenti, spostamenti pendenti, orfani aperti.

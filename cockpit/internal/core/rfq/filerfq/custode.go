@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -18,7 +19,7 @@ import (
 // Custode e' il custode del ciclo dei file (EM §10.4, «Chi esegue il tempo 2»; §10.5): accanto a quello della cache,
 // prima passata 2 minuti dopo l'avvio, poi ogni 15 minuti. Riprende le rimozioni e i rilasci rimasti a meta' (con le
 // attese crescenti scritte nelle righe), porta in rilascio le copie in corso con il battito fermo da oltre 15 minuti
-// (mai una copia viva), toglie i parziali del deposito piu' vecchi di 24 ore la cui riga non e' in copia e i parziali
+// (mai una copia viva), toglie i parziali delle copie piu' vecchi di 24 ore (non sono di nessuna copia viva) e i parziali
 // dello staging del ciclo dei file rimasti da un processo morto, e una volta al giorno fa il controllo della bonifica
 // degli errori non ritentabili. Riparte dopo un riavvio: lo stato sta nel database.
 //
@@ -43,11 +44,11 @@ type EsitoCustode struct {
 	Rilasci             int
 	TempiScaduti        int
 	Bonificate          int
-	PartiRimosse        int // parziali del deposito
+	PartiRimosse        int // parziali delle copie degli Altri file
 	PartiStagingRimosse int // parziali dello staging del ciclo dei file (PrefissoParteCiclo)
 	BonificaFatta       bool
 	ErroriRighe         int
-	ConservazioneX      bool // il deposito non e' configurato: niente rilasci ne' parziali
+	ConservazioneX      bool // nessun conservatore: niente parziali (i rilasci aspettano)
 }
 
 func (c *Custode) limite() int32 {
@@ -67,7 +68,7 @@ func (c *Custode) Avvia(ctx context.Context) {
 	if prima <= 0 {
 		prima = 2 * time.Minute
 	}
-	c.S.log().Info("ciclo dei file: custode avviato", "ogni", ogni, "deposito", c.S.Deposito != nil)
+	c.S.log().Info("ciclo dei file: custode avviato", "ogni", ogni, "conservatore", c.S.Conservatore != nil)
 	go func() {
 		t0 := time.NewTimer(prima)
 		defer t0.Stop()
@@ -185,13 +186,37 @@ func (c *Custode) Giro(ctx context.Context) (EsitoCustode, error) {
 		}
 		e.Bonificate, e.BonificaFatta = n, true
 	}
-	// i parziali del deposito piu' vecchi di 24 ore la cui riga non e' in copia
-	if s.Deposito == nil {
+	// i parziali delle copie piu' vecchi di 24 ore
+	if s.Conservatore == nil {
 		e.ConservazioneX = true
 		return e, nil
 	}
 	e.PartiRimosse = c.pulisciParti(ctx, q, adesso)
 	return e, nil
+}
+
+// TokenViviAltro: i token dei tentativi vivi che scrivono nella cartella ALTRO di una RFQ (U2 §3.9): il lease dei job
+// in corso (i lavori di copia dei documenti, documenti.PulisciPartiScadute) e il token delle copie degli Altri file
+// in_copia. Chi pulisce i parziali di quella cartella non tocca un parziale con uno di questi token.
+func TokenViviAltro(ctx context.Context, q *db.Queries) (map[uuid.UUID]bool, error) {
+	vivi := map[uuid.UUID]bool{}
+	lavori, err := q.ListLeaseTokenInCorso(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range lavori {
+		if t.Valid {
+			vivi[t.UUID] = true
+		}
+	}
+	copie, err := q.ListTokenConservazioniInCopia(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range copie {
+		vivi[t] = true
+	}
+	return vivi, nil
 }
 
 // chiudiTempoScaduto porta a da_rilasciare (causa tempo_scaduto) una riga in_copia con il battito fermo da oltre 15
@@ -207,7 +232,7 @@ func (c *Custode) chiudiTempoScaduto(ctx context.Context, id int64) (bool, error
 		if err != nil {
 			return err
 		}
-		if r.Stato != "in_copia" || s.adesso().Sub(r.AggiornatoIl) < battitoFermo {
+		if r.Stato != "in_copia" || s.adesso().Sub(battitoDi(r)) < battitoFermo {
 			return nil
 		}
 		chiusa = true
@@ -279,36 +304,37 @@ func (c *Custode) bonificaUna(ctx context.Context, id int64) (bool, error) {
 	return fatta, err
 }
 
-// pulisciParti toglie i parziali di <radice>\_parti\ piu' vecchi di 24 ore la cui riga non e' in copia (EM §10.5).
+// pulisciParti toglie i parziali <nome>.parte.<token> piu' vecchi di 24 ore e non vivi (U2 §3.9), nelle cartelle ALTRO
+// delle righe di conservazione toccate negli ultimi 7 giorni. I vivi sono l'unione dei token dei lavori di copia dei
+// documenti e di quelli delle copie in_copia (TokenViviAltro): nella cartella ALTRO scrivono tutti e due.
 func (c *Custode) pulisciParti(ctx context.Context, q *db.Queries, adesso time.Time) int {
-	d := c.S.Deposito
-	voci, err := os.ReadDir(filepath.Join(d.Radice, CartellaPartiDeposito))
+	righe, err := q.ListConservazioniRecenti(ctx, adesso.Add(-7*24*time.Hour))
 	if err != nil {
+		c.S.log().Warn("ciclo dei file: le cartelle delle copie non si leggono", "err", err)
 		return 0
 	}
+	// i token vivi della cartella ALTRO: l'unione dei tentativi dei lavori di copia dei documenti (il lease dei job in
+	// corso) e delle copie degli Altri file in_copia (U2 §3.6 regola 6, §3.9; prova AF-33)
+	vivi, err := TokenViviAltro(ctx, q)
+	if err != nil {
+		c.S.log().Warn("ciclo dei file: i token vivi dei parziali non si leggono", "err", err)
+		return 0
+	}
+	viste := map[string]bool{}
 	n := 0
-	for _, v := range voci {
-		if v.IsDir() {
+	for _, r := range righe {
+		p := postoDi(r.RadiceID, r.CartellaThread.String, r.PercorsoRelativo, r.Sha256, -1)
+		cartella := strings.ToLower(r.CartellaThread.String + `\` + filepath.Dir(strings.ReplaceAll(r.PercorsoRelativo, "/", `\`)))
+		k := r.RadiceID.String() + "|" + cartella
+		if viste[k] || r.RadiceID != c.S.Conservatore.RadiceID() {
 			continue
 		}
-		id, ok := idDelParziale(v.Name())
-		if !ok {
+		viste[k] = true
+		tolti, err := c.S.Conservatore.PulisciPartiCopie(p, vivi, adesso.Add(-24*time.Hour))
+		if err != nil {
 			continue
 		}
-		info, err := v.Info()
-		if err != nil || adesso.Sub(info.ModTime()) < 24*time.Hour {
-			continue
-		}
-		r, err := q.GetConservazione(ctx, id)
-		if err == nil && r.Stato == "in_copia" {
-			continue
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if togliFile(filepath.Join(d.Radice, CartellaPartiDeposito, v.Name())) == nil {
-			n++
-		}
+		n += tolti
 	}
 	return n
 }

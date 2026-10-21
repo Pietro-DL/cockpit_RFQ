@@ -316,13 +316,32 @@ type SorgenteRelazione struct {
 	Voce json.RawMessage `json:"voce,omitempty"`
 }
 
-// FuoriPerDecisione: un nodo tolto da una persona o non raggiunto per archi tolti, con la traccia.
+// FuoriPerDecisione: un nodo tolto da una persona o non raggiunto per archi tolti, con la traccia (EM §3.8; U2 §4.4, Q13
+// [U] e [UR]: autore, data o motivo che lo storico non ha si dichiarano mancanti, mai ricostruiti).
+//   - Voce, Segno: la voce e tolto | non_raggiunto (nel confronto).
+//   - Chi, Quando, Motivo: per un nodo tolto chi ha deciso la riga legacy, quando e la sua nota; OrigineLegacy dice da
+//     quale gesto viene (scarta_nodo | conferma_albero | arco_tolto) e SegnoAlbero porta il segno di «Conferma
+//     l'albero» per un nodo tolto con quel gesto; per un nodo non raggiunto ArchiTolti sono gli archi tolti da una
+//     persona che lo staccano, ognuno con chi, quando, motivo; Mancanti i campi che lo storico non ha.
+//   - IdentitaProposta, CodiceProposto, MotivoProposto, RevProposta, MotivoRev: l'identità proposta del nodo e le due
+//     proiezioni (U2-P22), con le regole della voce, cosi' un nodo ripristinato puo' nascere «proposta».
+//
+// Tutto fra le evidenze, salvo voce e segno (EM §3.8.1).
 type FuoriPerDecisione struct {
-	Voce   string          `json:"voce"`
-	Segno  string          `json:"segno"`
-	Chi    json.RawMessage `json:"chi,omitempty"`
-	Quando json.RawMessage `json:"quando,omitempty"`
-	Motivo json.RawMessage `json:"motivo,omitempty"`
+	Voce             string          `json:"voce"`
+	Segno            string          `json:"segno"`
+	Chi              json.RawMessage `json:"chi,omitempty"`
+	Quando           json.RawMessage `json:"quando,omitempty"`
+	Motivo           json.RawMessage `json:"motivo,omitempty"`
+	OrigineLegacy    json.RawMessage `json:"origine_legacy,omitempty"`
+	SegnoAlbero      json.RawMessage `json:"segno_albero,omitempty"`
+	ArchiTolti       json.RawMessage `json:"archi_tolti,omitempty"`
+	Mancanti         json.RawMessage `json:"mancanti,omitempty"`
+	IdentitaProposta json.RawMessage `json:"identita_proposta,omitempty"`
+	CodiceProposto   string          `json:"codice_proposto,omitempty"`
+	MotivoProposto   json.RawMessage `json:"motivo_proposto,omitempty"`
+	RevProposta      string          `json:"rev_proposta,omitempty"`
+	MotivoRev        json.RawMessage `json:"motivo_rev,omitempty"`
 }
 
 // I segni di fuori_per_decisione[].
@@ -904,12 +923,18 @@ func (c *Contenuto) valida(can []byte) *Errore {
 		if voci[x.Voce] {
 			return forma(campo+".voce", "la voce %s e' anche fra i nodi della proposta", x.Voce)
 		}
+		if x.CodiceProposto != "" && !CodiceAmmissibile(x.CodiceProposto) {
+			return forma(campo+".codice_proposto", "il codice proposto e' senza spazi, controlli o caratteri di formato, al piu' %d byte", MaxCodiceProposto)
+		}
+		if x.RevProposta != "" && (!RevAmmissibile(x.RevProposta) || conMinuscoleASCII(x.RevProposta)) {
+			return forma(campo+".rev_proposta", "la rev proposta e' in maiuscole ASCII, senza spazi o controlli, al piu' %d byte", MaxRevProposta)
+		}
 	}
 	return nil
 }
 
 // validaLetture: ogni lettura del registro (identita_proposta, alternative[] e riferimenti[].lettura delle voci,
-// letture[] dei file) ha la sua chiave_lettura <allegato_id>/<id>, unica dentro il registro (EM §3.8, «Una lettura»):
+// identita_proposta dei nodi fuori per decisione, letture[] dei file) ha la sua chiave_lettura <allegato_id>/<id>, unica dentro il registro (EM §3.8, «Una lettura»):
 // la stessa chiave in due punti porta la stessa lettura, byte per byte, altrimenti V-1 (la copia della decisione) e
 // TrovaLettura sarebbero ambigui. L'allegato della chiave e' quello dell'unita' letta: della voce per l'identita'
 // proposta e le alternative, del file per le sue letture, un allegato citato per un riferimento. I due campi facoltativi
@@ -987,6 +1012,14 @@ func (c *Contenuto) validaLetture(citati map[string]bool) *Errore {
 				if e := una(fmt.Sprintf("%s.riferimenti[%d].lettura", campo, j), x.Lettura, ""); e != nil {
 					return e
 				}
+			}
+		}
+	}
+	for i, x := range c.Proposta.FuoriPerDecisione {
+		if len(x.IdentitaProposta) > 0 {
+			allegato, _, _ := PartiDellaVoce(x.Voce)
+			if e := una(fmt.Sprintf("proposta.fuori_per_decisione[%d].identita_proposta", i), x.IdentitaProposta, allegato); e != nil {
+				return e
 			}
 		}
 	}

@@ -65,6 +65,12 @@ type Server struct {
 	// estratto). Nil = quello di sempre, con il pool e l'analizzatore di qui; le prove ne mettono uno che
 	// fallisce per vedere che l'evento resta (P31).
 	Smistatore fascicolo.Smistatore
+	// ArchiviInAltriFile rimette nello staging, dalla sua copia nella cartella ALTRO, un archivio in Altri file da
+	// riestrarre (V1, U2-P45; il servizio del ciclo dei file). Nil = senza i byte nello staging un archivio in Altri file
+	// non si riestrae.
+	ArchiviInAltriFile interface {
+		ArchivioNelloStaging(ctx context.Context, allegato uuid.UUID) (string, error)
+	}
 }
 
 // smistatore e' il giro del flusso di questo server.
@@ -522,13 +528,92 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// L'ordine dei lucchetti (lucchetti.go): le RFQ che il risultato tocca, lette qui fuori, poi il job, poi il resto. Un
+	// 40P01 o un 40001 rifanno la transazione da capo (al piu' maxTentativiRisultato volte) invece di diventare un
+	// risultato non applicabile.
+	var rfq []uuid.UUID
+	if req.Esito == "ok" {
+		if rfq, err = s.rfqDelRisultato(ctx, db.New(s.Pool), &j, prep); err != nil {
+			errore(w, 500, err)
+			return
+		}
+	}
+	es, raccolta, err := s.scriviRisultatoConRitento(ctx, &j, t, req, prep, rfq)
+	switch es {
+	case scritturaNonValida:
+		s.nonValido(w, ctx, id)
+	case scritturaNonApplicabile:
+		s.risultatoNonApplicabile(w, ctx, &j, t, err, false)
+	case scritturaTemporanea:
+		s.Log.Warn("result: errore temporaneo del database anche all'ultimo tentativo: il job resta in corso", "job", id,
+			"tipo", j.Tipo, "tentativi", maxTentativiRisultato, "err", err)
+		errore(w, http.StatusServiceUnavailable, err)
+	case scritturaErrore:
+		errore(w, 500, err)
+	case scritturaFallita:
+		msg := req.Errore
+		if msg == "" {
+			msg = "errore non specificato"
+		}
+		s.Log.Warn("job fallito", "job", id, "tipo", j.Tipo, "tentativi", j.Tentativi, "definitivo", req.Definitivo, "err", msg)
+		w.WriteHeader(http.StatusNoContent)
+	case scritturaFatta:
+		s.Log.Info("job fatto", "job", id, "tipo", j.Tipo)
+		// il risultato e' salvato: il flusso gira adesso, e un worker che se ne va non lo interrompe
+		raccolta.Esegui(context.WithoutCancel(ctx), s.smistatore(), s.Log)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// scriviRisultatoConRitento rifa' scriviRisultato da capo finche' l'esito e' scritturaTemporanea (40P01, 40001), al piu'
+// maxTentativiRisultato volte (lucchetti.go).
+func (s *Server) scriviRisultatoConRitento(ctx context.Context, j *db.Job, t coda.Tentativo, req worker.RisultatoRichiesta,
+	prep *stagePronto, rfq []uuid.UUID) (esitoScrittura, *fascicolo.Rismistamenti, error) {
+	for tentativo := 1; ; tentativo++ {
+		es, raccolta, err := s.scriviRisultato(ctx, j, t, req, prep, rfq)
+		if es != scritturaTemporanea || tentativo >= maxTentativiRisultato {
+			return es, raccolta, err
+		}
+		s.Log.Warn("result: errore temporaneo del database, la transazione si rifa' da capo",
+			"job", j.JobID, "tipo", j.Tipo, "tentativo", tentativo, "err", err)
+		if !attendiRitento(ctx, tentativo) {
+			return es, raccolta, err
+		}
+	}
+}
+
+// esitoScrittura: come e' finita la transazione del risultato di un job (scriviRisultato).
+type esitoScrittura int
+
+const (
+	scritturaFatta          esitoScrittura = iota // il successo e' scritto e il job e' chiuso
+	scritturaFallita                              // l'errore riportato dal worker e' scritto
+	scritturaNonValida                            // il tentativo non vale piu': 409
+	scritturaNonApplicabile                       // il contenuto del risultato e' sbagliato: 422, fallimento definitivo
+	scritturaTemporanea                           // 40P01 o 40001: si rifa' da capo
+	scritturaErrore                               // un altro errore: 500
+)
+
+// scriviRisultato e' la transazione del risultato di un job, nell'ordine dei lucchetti di lucchetti.go: le RFQ rfq, poi
+// il tentativo, poi gli effetti. Non scrive la risposta: la sceglie chi chiama dall'esito, e con scritturaTemporanea
+// rifa' la transazione. La raccolta dei rismistamenti e' quella del tentativo riuscito.
+func (s *Server) scriviRisultato(ctx context.Context, j *db.Job, t coda.Tentativo, req worker.RisultatoRichiesta, prep *stagePronto,
+	rfq []uuid.UUID) (esitoScrittura, *fascicolo.Rismistamenti, error) {
+	falliti := func(err error) (esitoScrittura, *fascicolo.Rismistamenti, error) {
+		if temporaneo(err) {
+			return scritturaTemporanea, nil, err
+		}
+		return scritturaErrore, nil, err
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
-		errore(w, 500, err)
-		return
+		return falliti(err)
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
+	if err := bloccaRfq(ctx, q, rfq); err != nil {
+		return falliti(err)
+	}
 	// Il tentativo si verifica e si blocca QUI, prima di ogni scrittura, non solo alla fine con
 	// Completa: la promozione di un file da .parte a definitivo è una rinomina sul disco, che il
 	// rollback non annulla. Con la riga bloccata nessun altro tentativo può diventare valido fra
@@ -538,11 +623,9 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 			if prep != nil {
 				staging.RimuoviParte(prep.parte)
 			}
-			s.nonValido(w, ctx, id)
-			return
+			return scritturaNonValida, nil, err
 		}
-		errore(w, 500, err)
-		return
+		return falliti(err)
 	}
 
 	// --------------------------------------------------- il worker riporta un errore
@@ -556,32 +639,28 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		// scaricando bene (Q19).
 		if _, err := coda.Fallisci(ctx, q, t, msg, req.Definitivo); err != nil {
 			if errors.Is(err, coda.ErrTentativoNonValido) {
-				s.nonValido(w, ctx, id)
-				return
+				return scritturaNonValida, nil, err
 			}
-			errore(w, 500, err)
-			return
+			return falliti(err)
 		}
 		if req.Definitivo {
-			s.fallimentoDefinitivo(ctx, q, &j, msg)
+			s.fallimentoDefinitivo(ctx, q, j, msg)
 		}
 		if err := tx.Commit(ctx); err != nil {
-			errore(w, 500, err)
-			return
+			return falliti(err)
 		}
-		s.Log.Warn("job fallito", "job", id, "tipo", j.Tipo, "tentativi", j.Tentativi, "definitivo", req.Definitivo, "err", msg)
-		w.WriteHeader(http.StatusNoContent)
-		return
+		return scritturaFallita, nil, nil
 	}
 
 	// --------------------------------------------------- il worker riporta un successo
 	// I file e le RFQ che il risultato tocca si raccolgono qui, e il flusso ancorato al prodotto li rifa' DOPO il
 	// commit, in una transazione sua: un suo errore non fa fallire l'analisi (Smistamento F8, FP6, P31).
 	ctxEv, raccolta := fascicolo.ConRismistamenti(ctx)
-	if err := s.applicaRisultato(ctxEv, q, &j, req.Dati, prep); err != nil {
-		_ = tx.Rollback(ctx)
-		s.risultatoNonApplicabile(w, ctx, &j, t, err, false)
-		return
+	if err := s.applicaRisultato(ctxEv, q, j, req.Dati, prep); err != nil {
+		if temporaneo(err) {
+			return scritturaTemporanea, nil, err
+		}
+		return scritturaNonApplicabile, nil, err
 	}
 	dati := req.Dati
 	if len(dati) == 0 {
@@ -591,20 +670,14 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, coda.ErrTentativoNonValido) {
 			// tutto ciò che applicaRisultato ha scritto sparisce con il rollback: «nulla applicato»
 			// non è una promessa, è la transazione (Q15, Q20)
-			s.nonValido(w, ctx, id)
-			return
+			return scritturaNonValida, nil, err
 		}
-		errore(w, 500, err)
-		return
+		return falliti(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		errore(w, 500, err)
-		return
+		return falliti(err)
 	}
-	s.Log.Info("job fatto", "job", id, "tipo", j.Tipo)
-	// il risultato e' salvato: il flusso gira adesso, e un worker che se ne va non lo interrompe
-	raccolta.Esegui(context.WithoutCancel(ctx), s.smistatore(), s.Log)
-	w.WriteHeader(http.StatusNoContent)
+	return scritturaFatta, raccolta, nil
 }
 
 // allegatoDi legge il solo allegato_id da un RisultatoStage grezzo; uuid zero se non c'è.

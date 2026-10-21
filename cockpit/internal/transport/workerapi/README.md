@@ -75,6 +75,10 @@ markmap:
     sotto `BloccaContenuto` nella transazione che scrive `path_staging` (`adottaVoce`); sotto `BloccaThread` un archivio
     non attivo non scrive voci, una voce scartata non si riscrive, una voce in Altri file non riceve la lettura, e un file
     diverso allo stesso indice di una voce non attiva e' l'evento `anomalia_riestrazione` (lo scrive `core/rfq/filerfq`)
+- **`lucchetti.go`** (giro G39-bis, corsia file)
+  - Responsabilità: l'ordine dei lucchetti del result (`rfqDelRisultato`, `bloccaRfq`): le RFQ che il risultato tocca
+    `FOR KEY SHARE` per `thread_id` crescente, poi il job, poi proposte, contenuto e righe; `temporaneo` (40P01, 40001),
+    `attendiRitento`, `maxTentativiRisultato`
 - **`sorgente_guardie.go`** (V1)
   - Responsabilità: `statoOccorrenza`, lo stato dell'occorrenza di un allegato per le guardie del worker (EM §10.7): il
     result di un download (G-1: la proposta, poi `BloccaContenuto`, poi lo stato; uno scartato non riceve i byte, uno in
@@ -209,9 +213,17 @@ markmap:
 - **`result`:**
   - la riga del job si legge fuori;
   - per uno stage riuscito anche `coda.Verifica` e `preparaStage` (sha256 del file, `MkdirAll`) stanno fuori.
-  - Poi una transazione sola: `coda.Blocca` (il predicato del tentativo con `FOR UPDATE`) **prima di ogni
-    scrittura**, gli effetti, `coda.Completa` o `coda.Fallisci`, il commit.
-  - Un errore di `applicaRisultato` è rollback, poi `risultatoNonApplicabile` chiude il job in una transazione
+  - per un risultato `ok` di uno stage o di un'analisi, le RFQ che toccherà (`rfqDelRisultato`) si leggono fuori.
+  - Poi una transazione sola (`scriviRisultato`): le RFQ `FOR KEY SHARE` per `thread_id` crescente (`bloccaRfq`),
+    `coda.Blocca` (il predicato del tentativo con `FOR UPDATE`) **prima di ogni scrittura**, gli effetti,
+    `coda.Completa` o `coda.Fallisci`, il commit. È l'ordine unico di chi scrive file in una RFQ (la RFQ per prima,
+    come R5, i gesti legacy, i caricamenti e `EstraiArchivio`; `lucchetti.go`).
+  - Un 40P01 o un 40001 rifanno la transazione da capo, al più `maxTentativiRisultato` volte
+    (`scriviRisultatoConRitento`); finiti i tentativi, 503 e il job resta in corso con lo stesso tentativo. Il worker
+    non ripete un 5xx (`riporta_risultato` in `workers/cockpit_client.py` ripete solo quando cade la rete): il lavoro lo
+    rifà da capo la scadenza del lease. Prima del giro G39-bis un 40P01 era un risultato non applicabile, con il
+    fallimento definitivo del job. Le RFQ si prendono senza `lock_timeout` (il perché è sopra `bloccaRfq`).
+  - Un altro errore di `applicaRisultato` è rollback, poi `risultatoNonApplicabile` chiude il job in una transazione
     nuova.
 - **`ingest`:** la transazione è quella di `Ingerisci` (un lotto, un savepoint per elemento, il tentativo bloccato
   e confrontato con il lotto).
@@ -276,7 +288,8 @@ markmap:
    - `Verifica` (non valido → il `.parte` di quel token si toglie, 409),
    - `preparaStage` (il `.parte` deve esistere; sha256 e byte devono coincidere, altrimenti 422 **ritentabile**;
      destinazione per hash; `riusato` se quel contenuto c'è già).
-4. Poi `Blocca`.
+4. Poi le RFQ del risultato (`FOR KEY SHARE`, crescenti) e `Blocca`; un 40P01 o un 40001 rifanno la transazione
+   (al più 3 volte, poi 503).
    - Esito `errore`: `Fallisci` (con `definitivo`) e, se definitivo, lo stato d'errore sull'entità del job.
    - Esito `ok`: `applicaRisultato` per tipo, `Completa`, commit, 204.
 

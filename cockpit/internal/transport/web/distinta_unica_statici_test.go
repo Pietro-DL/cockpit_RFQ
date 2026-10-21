@@ -15,6 +15,8 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,28 +49,34 @@ func duBlocco(t *testing.T, src, nome string) string {
 func TestPonteDistintaUnicaRotte(t *testing.T) {
 	src := duFile(t, duPonte)
 	attese := map[string]string{
-		"leggiModello":            "GET /thread/{id}/motore-a/dati",                       // modello della pagina (EM §9.9)
-		"anteprimaAutorizzazione": "GET /thread/{id}/motore-a/anteprima/step-strutturale", // MAT SG-09
-		"leggiBozza":              "GET /thread/{id}/motore-a/bozza",                      // R1
-		"salvaBozza":              "POST /thread/{id}/motore-a/bozza",                     // R2, salvataggio
-		"creaBozza":               "POST /thread/{id}/motore-a/bozza",                     // R2, creazione
-		"cambiaSorgente":          "POST /thread/{id}/motore-a/bozza",                     // R2, cambia_sorgente
-		"riallineaProposta":       "POST /thread/{id}/motore-a/bozza",                     // R2, riallinea_proposta
-		"convertiBozza":           "POST /thread/{id}/motore-a/bozza",                     // R2, converti_da
-		"abbandonaBozza":          "POST /thread/{id}/motore-a/bozza/{u}/abbandona",       // R3
-		"riepilogoBom":            "POST /thread/{id}/motore-a/bom/riepilogo",             // R4
-		"confermaBom":             "POST /thread/{id}/motore-a/bom/conferma",              // R5
-		"esitoIntento":            "GET /thread/{id}/motore-a/intento/{u}",                // R6
-		"storicoConferme":         "GET /thread/{id}/motore-a/conferme",                   // R7
-		"riallineaDocumenti":      "POST /thread/{id}/motore-a/riallinea",                 // R11
-		"carica":                  "POST /thread/{id}/carica",                             // E1′
-		"leggiSorgente":           "GET /thread/{id}/sorgente",                            // S1
-		"scartaFile":              "POST /thread/{id}/sorgente/file/{u}/scarta",           // S2
-		"altriFile":               "POST /thread/{id}/sorgente/file/{u}/altri-file",       // S3
-		"riattivaFile":            "POST /thread/{id}/sorgente/file/{u}/riattiva",         // S4
-		"urlContenuto":            "GET /thread/{id}/sorgente/file/{u}/contenuto",         // S5
-		"anteprimaStep":           "GET /thread/{id}/sorgente/step/{u}/anteprima",         // S6
-		"associaStep":             "POST /thread/{id}/sorgente/step/{u}/associa",          // S7
+		// direttiva 39 §2 (D-TAB-02 B rivista [T-39]): l'anteprima dell'autorizzazione esce con «Autorizza»
+		"leggiModello":       "GET /thread/{id}/motore-a/dati",                 // modello della pagina (EM §9.9)
+		"leggiBozza":         "GET /thread/{id}/motore-a/bozza",                // R1
+		"salvaBozza":         "POST /thread/{id}/motore-a/bozza",               // R2, salvataggio
+		"creaBozza":          "POST /thread/{id}/motore-a/bozza",               // R2, creazione
+		"cambiaSorgente":     "POST /thread/{id}/motore-a/bozza",               // R2, cambia_sorgente
+		"riallineaProposta":  "POST /thread/{id}/motore-a/bozza",               // R2, riallinea_proposta
+		"convertiBozza":      "POST /thread/{id}/motore-a/bozza",               // R2, converti_da
+		"abbandonaBozza":     "POST /thread/{id}/motore-a/bozza/{u}/abbandona", // R3
+		"riepilogoBom":       "POST /thread/{id}/motore-a/bom/riepilogo",       // R4
+		"confermaBom":        "POST /thread/{id}/motore-a/bom/conferma",        // R5
+		"esitoIntento":       "GET /thread/{id}/motore-a/intento/{u}",          // R6
+		"storicoConferme":    "GET /thread/{id}/motore-a/conferme",             // R7
+		"riallineaDocumenti": "POST /thread/{id}/motore-a/riallinea",           // R11
+		"carica":             "POST /thread/{id}/carica",                       // E1′
+		"leggiSorgente":      "GET /thread/{id}/sorgente",                      // S1
+		"scartaFile":         "POST /thread/{id}/sorgente/file/{u}/scarta",     // S2
+		"altriFile":          "POST /thread/{id}/sorgente/file/{u}/altri-file", // S3
+		"riattivaFile":       "POST /thread/{id}/sorgente/file/{u}/riattiva",   // S4
+		"urlContenuto":       "GET /thread/{id}/sorgente/file/{u}/contenuto",   // S5
+		"anteprimaStep":      "GET /thread/{id}/sorgente/step/{u}/anteprima",   // S6
+		// S7 non c'è: il server non registra …/associa (TestPonteDistintaUnicaRotteNelServer); lo STEP non candidato passa da S6 e S8
+		// U2 (EM §9.5-bis, §10.9; MAT §1.3): S8, S9 (la variante ?sorgente=1 di /dati), R15
+		"confermaSorgente": "POST /thread/{id}/sorgente/step/{u}/conferma-sorgente",
+		// direttiva 39 §2: la revoca della sorgente della bozza (motore_a_sorgente_v1.go)
+		"revocaSorgente":   "POST /thread/{id}/sorgente/step/{u}/revoca-sorgente",
+		"leggiSmistamento": "GET /thread/{id}/motore-a/dati",
+		"rifiutaProposta":  "POST /thread/{id}/motore-a/proposta-aggiornata/rifiuta",
 	}
 	trovate := map[string]string{}
 	for _, m := range regexp.MustCompile(`(?m)^\s*(\w+): "([A-Z]+ [^"]+)",`).FindAllStringSubmatch(duBlocco(t, src, "DEDICATE"), -1) {
@@ -95,31 +103,54 @@ func TestPonteDistintaUnicaRotte(t *testing.T) {
 	if regexp.MustCompile(`export (async )?function riallinea\(`).MatchString(src) {
 		t.Error("il ponte esporta «riallinea»: il riallineamento della proposta è riallineaProposta, quello di F8 riallineaDocumenti")
 	}
-	// le scritture con la chiave: R5, S2, S3, S4, S7 (EM §8.4, §10.9)
-	for _, nome := range []string{"confermaBom", "scartaFile", "altriFile", "riattivaFile", "associaStep"} {
+	// le scritture con la chiave: R5, S2, S3, S4 (EM §8.4, §10.9); con U2 anche S8 e R15 (EM §9.6, «Vale per»)
+	for _, nome := range []string{"confermaBom", "scartaFile", "altriFile", "riattivaFile", "confermaSorgente", "revocaSorgente", "rifiutaProposta"} {
 		if !strings.Contains(src, `scriviConChiave("`+nome+`"`) {
 			t.Errorf("%s non passa da scriviConChiave", nome)
 		}
 	}
 }
 
-// La lista chiusa ridotta: i sei atti di EM §9.10, nient'altro (MAT §1.4); due sole fetch nel ponte, nessuna nella pagina.
+// TestPonteDistintaUnicaRotteNelServer: ogni rotta del blocco DEDICATE si risolve sul mux VERO del server (Registra), con
+// il suo metodo, nel pattern della stessa rotta (UUID inventati al posto dei segnaposto). L'elenco scritto a mano di
+// TestPonteDistintaUnicaRotte non basta: una rotta che la pagina chiama e che il server non registra (S7, rilievo del
+// revisore del 20/10) sarebbe verde nel banco finto e in errore sul server vero.
+func TestPonteDistintaUnicaRotteNelServer(t *testing.T) {
+	s := duServer(t, true)
+	mux := http.NewServeMux()
+	s.Registra(mux)
+	id := "00000000-0000-4000-8000-000000000001"
+	u := "00000000-0000-4000-8000-000000000010"
+	n := 0
+	for _, m := range regexp.MustCompile(`(?m)^\s*(\w+): "([A-Z]+) ([^"]+)",`).FindAllStringSubmatch(duBlocco(t, duFile(t, duPonte), "DEDICATE"), -1) {
+		nome, metodo, rotta := m[1], m[2], m[3]
+		n++
+		percorso := strings.NewReplacer("{id}", id, "{u}", u).Replace(rotta)
+		if _, pat := mux.Handler(httptest.NewRequest(metodo, percorso, nil)); normalizza(pat) != metodo+" "+normalizza(rotta) {
+			t.Errorf("%s (%s %s): il server lo manda a %q, non a una rotta %s registrata", nome, metodo, rotta, pat, metodo)
+		}
+	}
+	if n == 0 {
+		t.Fatal("nessuna rotta letta dal blocco DEDICATE")
+	}
+}
+
+// La lista chiusa ridotta: i tre atti di EM §9.10 con la direttiva 39, nient'altro (MAT §1.4); «Conferma la fonte» esce,
+// la fa S8 (U2 §2.2); «Autorizza» e «Revoca l'autorizzazione» escono (direttiva 39 §2; D-TAB-02 B rivista [T-39]); due
+// sole fetch nel ponte, nessuna nella pagina.
 func TestPonteDistintaUnicaListaChiusa(t *testing.T) {
 	src := duFile(t, duPonte)
 	attesi := map[string]string{
-		"autorizza":     "/thread/{id}/fascicolo/componente/{u}/step-strutturale",
-		"revoca":        "/thread/{id}/fascicolo/componente/{u}/step-strutturale/revoca",
-		"confermaFonte": "/thread/{id}/fascicolo/conferma",
-		"prepara":       "/thread/{id}/fascicolo/prepara",
-		"rianalizza":    "/thread/{id}/fascicolo/rianalizza",
-		"riprovaCopie":  "/thread/{id}/riprova-copie",
+		"prepara":      "/thread/{id}/fascicolo/prepara",
+		"rianalizza":   "/thread/{id}/fascicolo/rianalizza",
+		"riprovaCopie": "/thread/{id}/riprova-copie",
 	}
 	trovati := map[string]string{}
 	for _, m := range regexp.MustCompile(`(?m)^\s*(\w+): "(/[^"]+)",`).FindAllStringSubmatch(duBlocco(t, src, "ATTI"), -1) {
 		trovati[m[1]] = m[2]
 	}
 	if len(trovati) != len(attesi) {
-		t.Errorf("atti del ponte: %v, attesi i sei di EM §9.10", trovati)
+		t.Errorf("atti del ponte: %v, attesi i tre di EM §9.10 con U2 §2.2 e la direttiva 39", trovati)
 	}
 	for k, v := range attesi {
 		if trovati[k] != v {
@@ -263,12 +294,21 @@ func TestDistintaUnicaUscitaETestoDellaPaginaVecchia(t *testing.T) {
 }
 
 // «Riprova» dei gesti dei file (EM §10.9, «Reinvio e risposta persa»; MAT §5.5 n. 4): il tentativo in sospeso porta il
-// corpo solo per S2, S3, S4 e S7, piccoli (la conferma della BOM si riprova dal wizard, che rilegge il riepilogo), e
+// corpo solo per S2, S3 e S4, piccoli (la conferma della BOM si riprova dal wizard, che rilegge il riepilogo), e
 // riprovaSospeso rimanda il corpo di allora passando da scriviConChiave, che riusa la chiave per lo stesso corpo.
 func TestPonteDistintaUnicaRiprovaDeiFile(t *testing.T) {
 	src := duFile(t, duPonte)
-	if !strings.Contains(src, `const GESTI_FILE = ["scartaFile", "altriFile", "riattivaFile", "associaStep"];`) {
-		t.Error("l'elenco dei gesti dei file che portano il corpo nel tentativo in sospeso non è quello di S2, S3, S4 e S7")
+	if !strings.Contains(src, `const GESTI_FILE = ["scartaFile", "altriFile", "riattivaFile"];`) {
+		t.Error("l'elenco dei gesti dei file che portano il corpo nel tentativo in sospeso non è quello di S2, S3 e S4")
+	}
+	// U2: anche S8 e R15 portano chiave e corpo nella memoria della scheda (MAT §1.3, §5.5), e il tentativo di S8 «parziale»
+	// ritentabile resta, certo, per il reinvio con la stessa chiave (EM §10.9 «S8»)
+	if !strings.Contains(src, `const GESTI_CON_CORPO = GESTI_FILE.concat(["confermaSorgente", "revocaSorgente", "rifiutaProposta"]);`) ||
+		!strings.Contains(src, `if (GESTI_CON_CORPO.includes(nome)) Object.assign(voce, { u: (u || "").toLowerCase(), corpo });`) {
+		t.Error("S8 e R15 non portano il corpo nel tentativo in sospeso")
+	}
+	if !strings.Contains(duFunzione(t, src, "async function scriviConChiave("), `nome === "confermaSorgente" && r.json.esito === "parziale" && r.json.ritentabile === true`) {
+		t.Error("un 200 «parziale» ritentabile di S8 non tiene il tentativo per il reinvio con la stessa chiave")
 	}
 	if !regexp.MustCompile(`(?m)^export async function riprovaSospeso\(`).MatchString(src) ||
 		!strings.Contains(src, "return scriviConChiave(s.nome, risorsa, s.u, s.corpo, s.etichetta);") {
@@ -287,10 +327,10 @@ func TestPonteDistintaUnicaRiprovaDeiFile(t *testing.T) {
 func TestPonteDistintaUnicaFormaCanonicaETempi(t *testing.T) {
 	src := duFile(t, duPonte)
 	if !regexp.MustCompile(`(?m)^export function formaCanonica\(`).MatchString(src) ||
-		!strings.Contains(src, `return formaCanonica({ firma_anteprima: corpo.firma_anteprima, bozza: b }, "");`) {
+		!strings.Contains(src, `const o = { firma_anteprima: corpo.firma_anteprima, bozza: b };`) || !strings.Contains(src, `return formaCanonica(o, "");`) {
 		t.Error("l'impronta di R5 non si calcola sulla forma canonica di EM §3.10")
 	}
-	for _, c := range []string{"nodi: (x) => [x.chiave_bozza]", "archi: (x) => [x.padre, x.figlio]", "decisioni: (x) => [x.id]", "documenti_preassociati: (x) => [x.proposta_id]",
+	for _, c := range []string{"nodi: (x) => [x.chiave_bozza]", "archi: (x) => [x.padre, x.figlio]", "decisioni: (x) => [x.id]", "documenti_preassociati: (x) => [x.allegato_id]",
 		"caselle: (x) => [x.gruppo, x.rif, x.allegato_id]"} {
 		if !strings.Contains(src, c) {
 			t.Errorf("la forma canonica non ordina come EM §3.10: manca %q", c)
@@ -481,6 +521,11 @@ func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 	if err := json.Unmarshal(raw, &casi); err != nil {
 		t.Fatalf("i casi condivisi non sono JSON: %v", err)
 	}
+	// direttiva 35, C-2: la PB, gli eventi dei file, lo svincolo e il vassoio del formato 3 citano allegato_id; nei casi
+	// condivisi nessun campo si chiama più proposta_id
+	if strings.Contains(string(raw), `"proposta_id"`) {
+		t.Error("i casi condivisi citano ancora proposta_id: la PB del formato 3 è {allegato_id, chiave_bozza}")
+	}
 	if len(casi.Vassoio) < 5 || len(casi.Applica) < 5 {
 		t.Fatalf("casi: %d del vassoio e %d delle azioni, attesi almeno 5 e 5", len(casi.Vassoio), len(casi.Applica))
 	}
@@ -625,6 +670,122 @@ func TestDistintaUnicaCasiCondivisi(t *testing.T) {
 	}
 }
 
+// L1-22 (ondata C): le funzioni del ponte per U2 (MAT §1.3, recepimento di U2). La variante R1 ?ingressi=1 è una lettura a
+// sé, che vuole le quattro parti con la loro impronta (U2 §6.3.3); la presa d'atto dei documenti in analisi va nel corpo
+// di R5 e nella sua impronta (U2 §6.3.7); l'effetto di S6 si legge con gli elenchi assenti come vuoti (DEC-B B-9, OB-11);
+// il motivo di S5 per il visore viene dall'intestazione X-Motivo, con una lettura di un byte che passa da chiama (RF RQ-11
+// (c), DEC-B PF-25): le fetch del ponte restano due.
+func TestPonteDistintaUnicaU2(t *testing.T) {
+	src := duFile(t, duPonte)
+	r1 := duFunzione(t, src, "export async function leggiBozza(")
+	iIng, iEv := strings.Index(r1, "if (o.ingressi) {"), strings.Index(r1, `if (o.eventi) q += "&eventi=1";`)
+	if iIng < 0 || iEv < 0 || iIng > iEv || !strings.Contains(r1, `q + "&ingressi=1"`) ||
+		!strings.Contains(r1, `["bom", "bozza", "proposta", "analisi"].every((k) => oggetto(j.parti[k]) && typeof j.parti[k].impronta === "string")`) {
+		t.Error("R1 ?ingressi=1 non è una variante a sé che controlla le quattro parti con l'impronta")
+	}
+	if s9 := duFunzione(t, src, "export async function leggiSmistamento("); !strings.Contains(s9, `leggi("leggiSmistamento", "", "?sorgente=1"`) {
+		t.Error("S9 non è la variante ?sorgente=1 della lettura del modello")
+	}
+	r5 := duFunzione(t, src, "export async function confermaBom(")
+	if !strings.Contains(r5, "corpo.presa_d_atto_in_analisi = presa.map((x) => x.toLowerCase());") {
+		t.Error("R5 non porta la presa d'atto dei documenti in analisi nel corpo")
+	}
+	if !strings.Contains(duFunzione(t, src, "function impronteCorpo("), "o.presa_d_atto_in_analisi = corpo.presa_d_atto_in_analisi.slice().sort();") ||
+		!strings.Contains(duFunzione(t, src, "function conChiave("), "o.presa_d_atto_in_analisi = corpo.presa_d_atto_in_analisi;") {
+		t.Error("la presa d'atto non entra nell'impronta e nel corpo spedito di R5")
+	}
+	ef := duFunzione(t, src, "export function effettoS6(")
+	if !strings.Contains(ef, "o[k] = Array.isArray(o[k]) ? o[k] : [];") || !strings.Contains(src, `"nodi_che_restano", "nodi_che_entrano", "fuori_per_cambio_fonte"`) {
+		t.Error("effettoS6 non legge gli elenchi assenti come vuoti (B-9, OB-11)")
+	}
+	mc := duFunzione(t, src, "export async function motivoContenuto(")
+	if !strings.Contains(mc, `chiama("urlContenuto", allegato, "?modo=anteprima", undefined, { Range: "bytes=0-0" })`) || !strings.Contains(mc, "r.motivo || codiceDi(r)") {
+		t.Error("motivoContenuto non legge X-Motivo con una lettura di un byte passando da chiama")
+	}
+	if !strings.Contains(duFunzione(t, src, "async function chiama("), `motivo: risp.headers.get("X-Motivo") || ""`) {
+		t.Error("chiama non riporta l'intestazione X-Motivo")
+	}
+	if s8 := duFunzione(t, src, "export async function confermaSorgente("); !strings.Contains(s8, `scriviConChiave("confermaSorgente", "sorgente:" + c.prodotto_id.toLowerCase(), allegato, c,`) {
+		t.Error("S8 non è una scrittura con la chiave sulla risorsa del prodotto")
+	}
+	if r15 := duFunzione(t, src, "export async function rifiutaProposta("); !strings.Contains(r15, `scriviConChiave("rifiutaProposta", "proposta:" + corpo.prodotto_id.toLowerCase(), "", corpo,`) {
+		t.Error("R15 non è una scrittura con la chiave")
+	}
+	if !strings.Contains(duFunzione(t, src, "export async function riallineaDocumenti("), "RIFIUTI.riallineaDocumenti.includes(codiceDi(r))") {
+		t.Error("R11 non legge i suoi rifiuti dal catalogo (RQ-3)")
+	}
+}
+
+// L1-23 (ondata C, OB-18 la metà della pagina; la metà del server è TestDatiIlModelloCheLaPaginaNuovaLegge, motore_a):
+// modelloDa legge l'esito del thread di /dati (j.esito: prodotti_valutati, cliente_id, fascicolo, associazioni,
+// diagnostiche), non thread[0]; il calcolo di oggi viene da bom.verificata (U2 §5.4). OB-19: la pagina HTML del Motore A
+// chiede il modello senza le aggiunte di V1 (SenzaV1), /dati no (RQ-W1).
+func TestDistintaUnicaModelloDaLeggeIlModelloVero(t *testing.T) {
+	src := duFile(t, duPagina)
+	md := duFunzione(t, src, "export function modelloDa(")
+	for _, v := range []string{"const th = j && ogg(j.esito) ? j.esito : {};", "arr(th.prodotti_valutati)", "th.cliente_id", "th.fascicolo && th.fascicolo.congelato",
+		"associazioni: arr(th.associazioni)", "p.bom && p.bom.verificata === true", "confermaCorrente: ogg(j.conferma_corrente)", "motivoSenzaGruppi: ogg(j.motivo_senza_gruppi)"} {
+		if !strings.Contains(md, v) {
+			t.Errorf("modelloDa non ha %s", v)
+		}
+	}
+	if strings.Contains(md, "esito.thread") || strings.Contains(md, "prodotto_verificato") {
+		t.Error("modelloDa legge ancora esito.thread o prodotto_verificato")
+	}
+	rawPagina, err := os.ReadFile("motore_a_pagina.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawDati, err := os.ReadFile("motore_a.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pagina := string(rawPagina)
+	if !strings.Contains(pagina, "RichiestaPagina{Thread: thread, Vista: vista, Prodotto: prodotto, Scrive: scrive, SenzaV1: true}") {
+		t.Error("la pagina HTML del Motore A non chiede il modello con SenzaV1 (RQ-W1, OB-19)")
+	}
+	if strings.Contains(string(rawDati), "SenzaV1") {
+		t.Error("/dati (motore_a.go) chiede il modello senza le aggiunte di V1")
+	}
+}
+
+// L1-24 (ondata C): le decisioni di DEC-B e di U2 nella pagina, oltre al Sorgente. I segni di U2 §5.5 da /dati
+// (conferma_corrente.verifica_adesso, proposta_aggiornata), mai verifica_calcolata di R7 (RQ-8); R15 per il rifiuto della
+// proposta aggiornata, con un nome diverso dallo scarto (Q19 [UR]); il testo dello STEP non attivo diviso per stato
+// (RIC-I7, B-3); le decisioni orfane tolte nello stesso gesto (DEC-B §7, OB-21); il codice manuale adottato solo su un
+// nodo da creare (U2-P35); il contro-indizio con la frase di P-5 (RQ-I2); il visore con il motivo di X-Motivo (RF RQ-11).
+func TestDistintaUnicaDecisioniOndataB(t *testing.T) {
+	src := duFile(t, duPagina)
+	codice := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(src, "")
+	for _, v := range []string{
+		`"Verificata in prima istanza, adesso: sì"`, `"Verificata in prima istanza, adesso: no — "`, `"Verificata in prima istanza: non calcolata adesso"`, `" · poggia sulla conferma n. "`,
+		`"Proposta aggiornata: " + n + " differenze da valutare"`, `"Rifiuta la proposta aggiornata…"`, `P.rifiutaProposta(corpo)`, `inSerie("proposta:" + S.prodotto`,
+		`è stato scartato ("`, `"): la bozza resta valida; per seguirla ricaricalo."`, `"): la bozza resta valida; per seguirla, prima riattiva il file."`,
+		`"il grafo del file non è completo: che il nodo non abbia figli potrebbe non essere un'informazione"`,
+		`v.nodo && v.nodo.op !== "crea" ? "per cambiare il codice di un componente registrato serve una ricodifica`,
+		`P.motivoContenuto(f.allegato_id)`, `COPIA_NAS_MANCANTE:`, `COPIA_NAS_CAMBIATA:`,
+	} {
+		if !strings.Contains(codice, v) {
+			t.Errorf("la pagina non ha %s", v)
+		}
+	}
+	for _, v := range []string{"verifica_calcolata", "Verificata: non ancora calcolata (arriva in V2)", "la foglia potrebbe avere figli non letti"} {
+		if strings.Contains(codice, v) {
+			t.Errorf("la pagina ha ancora %q", v)
+		}
+	}
+	for _, f := range []string{"function togliNodo(", "function apriNonIncludere("} {
+		corpo := duFunzione(t, src, f)
+		i, j := strings.Index(corpo, "toglieDecisioniDelNodo("), strings.Index(corpo, `azione: "nodo_tolto"`)
+		if i < 0 || j < 0 || i > j {
+			t.Errorf("%s non toglie le decisioni del nodo prima del nodo_tolto (OB-21)", f)
+		}
+	}
+	if !strings.Contains(duFunzione(t, src, "function apriNonIncludere("), "toglieDecisioniDelNodo(k, azioneId)") {
+		t.Error("«Non includere» non toglie le decisioni del nodo con l'azione_id del gesto")
+	}
+}
+
 // I cataloghi del ponte contro i codici di EM, rotta per rotta (la parte di T-05 che si fa senza l'elenco unico del
 // server): i 409 che ogni funzione legge come conflitto e i 422 che legge come rifiuto.
 func TestPonteDistintaUnicaCataloghi(t *testing.T) {
@@ -663,7 +824,10 @@ func TestPonteDistintaUnicaCataloghi(t *testing.T) {
 	}
 	conflitti, rifiuti := leggi("CONFLITTI"), leggi("RIFIUTI")
 	r2c := []string{"BOZZA_VERSIONE", "BASE_SUPERATA", "ANTEPRIMA_SUPERATA", "CHIAVE_RIUSATA"}
-	r2r := []string{"CORPO_NON_VALIDO", "FUORI_RFQ", "BOZZA_ALTRO_PRODOTTO", "FILE_NON_ATTIVO", "MOTIVO_OBBLIGATORIO", "PROPOSTA_NON_DISPONIBILE", "IMPORTAZIONE_TROPPO_GRANDE"}
+	// FONTE_NON_CONFERMATA: C-3 (U2 §2.8), la forma step o cambia_sorgente senza il documento cad_3d confermato;
+	// STEP_CANDIDATO_DEL_FINITO: giro G39 (G39-02 [U]), la PB su uno STEP candidato sorgente del finito
+	r2r := []string{"CORPO_NON_VALIDO", "FUORI_RFQ", "BOZZA_ALTRO_PRODOTTO", "FILE_NON_ATTIVO", "MOTIVO_OBBLIGATORIO", "PROPOSTA_NON_DISPONIBILE", "IMPORTAZIONE_TROPPO_GRANDE", "FONTE_NON_CONFERMATA",
+		"STEP_CANDIDATO_DEL_FINITO"}
 	attesiC := map[string][]string{ // EM §9.2, §9.3, §9.5, §10.9
 		"salvaBozza": r2c, "creaBozza": r2c, "cambiaSorgente": r2c, "riallineaProposta": r2c, "convertiBozza": r2c,
 		"abbandonaBozza": {"BOZZA_VERSIONE"},
@@ -671,7 +835,10 @@ func TestPonteDistintaUnicaCataloghi(t *testing.T) {
 		"scartaFile":     {"FILE_VERSIONE", "CHIAVE_RIUSATA", "ANTEPRIMA_SUPERATA"},
 		"altriFile":      {"FILE_VERSIONE", "CHIAVE_RIUSATA", "ANTEPRIMA_SUPERATA", "COPIA_IN_CORSO"},
 		"riattivaFile":   {"FILE_VERSIONE", "CHIAVE_RIUSATA", "ANTEPRIMA_SUPERATA"},
-		"associaStep":    {"ANTEPRIMA_SUPERATA", "CHIAVE_RIUSATA"},
+		// U2: S8 al passo 0 ed R15 (EM §9.5-bis, §10.9 «S8»)
+		"confermaSorgente": {"ANTEPRIMA_SUPERATA", "CHIAVE_RIUSATA", "BOZZA_VERSIONE", "RICONCILIAZIONE_NON_DISPONIBILE"},
+		"revocaSorgente":   {"CHIAVE_RIUSATA", "BOZZA_VERSIONE"},
+		"rifiutaProposta":  {"ANTEPRIMA_SUPERATA", "CHIAVE_RIUSATA"},
 	}
 	file := []string{"CORPO_NON_VALIDO", "FUORI_RFQ", "NON_GESTITO", "RFQ_UNITA", "DIPENDENZE_ATTIVE", "RISOLUZIONE_RICHIESTA"}
 	attesiR := map[string][]string{ // EM §9.1-§9.7, §10.9
@@ -689,7 +856,12 @@ func TestPonteDistintaUnicaCataloghi(t *testing.T) {
 		"altriFile":       append(append([]string{}, file...), "FILE_SENZA_BYTE", "FILE_SCARTATO", "CONSERVAZIONE_NON_RIUSCITA"),
 		"riattivaFile":    {"FILE_SCARTATO", "FUORI_RFQ", "CORPO_NON_VALIDO", "RFQ_UNITA", "CONSERVAZIONE_MANCANTE"},
 		"anteprimaStep":   {"FUORI_RFQ", "NON_STEP", "FILE_NON_ATTIVO", "CORPO_NON_VALIDO"},
-		"associaStep":     {"MOTIVO_OBBLIGATORIO", "NON_STEP", "GIA_DOCUMENTO", "FILE_NON_ATTIVO", "FUORI_RFQ", "RFQ_UNITA", "CORPO_NON_VALIDO"},
+		// R11 (RQ-3 della persistenza, ondata B: il catalogo dei rifiuti di R11 nel ponte); S8 al passo 0, S9, R15 (U2)
+		"riallineaDocumenti": {"FUORI_RFQ", "CORPO_NON_VALIDO"},
+		"confermaSorgente":   {"FUORI_RFQ", "NON_STEP", "FILE_NON_ATTIVO", "RFQ_UNITA", "MOTIVO_OBBLIGATORIO", "CORPO_NON_VALIDO", "STEP_SORGENTE_DI_ALTRO_PRODOTTO", "GIA_DOCUMENTO"},
+		"revocaSorgente":     {"FUORI_RFQ", "MOTIVO_OBBLIGATORIO", "CORPO_NON_VALIDO"},
+		"leggiSmistamento":   {"FUORI_RFQ", "CORPO_NON_VALIDO"},
+		"rifiutaProposta":    {"FUORI_RFQ", "CORPO_NON_VALIDO", "MOTIVO_OBBLIGATORIO"},
 	}
 	ordina := func(x []string) string {
 		y := append([]string{}, x...)
@@ -708,6 +880,36 @@ func TestPonteDistintaUnicaCataloghi(t *testing.T) {
 	}
 	if ordina(costanti["OCCUPATO"]) != ordina([]string{"CALCOLO_OCCUPATO", "NON_CONFIGURATO", "CALCOLO_SCADUTO"}) {
 		t.Errorf("OCCUPATO: %v", costanti["OCCUPATO"])
+	}
+	// in pari con il server (direttiva 39): i codici propri di S8 (CodiciServerS8, motore_a_sorgente_v1.go) e di S6
+	// (CodiciServerS6, motore_a_anteprima_s6.go) sono nei cataloghi del ponte con la classe del loro stato HTTP
+	for _, c := range CodiciServerS8 {
+		var l []string
+		switch c.Stato {
+		case 409:
+			l = conflitti["confermaSorgente"]
+		case 422:
+			l = rifiuti["confermaSorgente"]
+		}
+		if !strings.Contains(","+strings.Join(l, ",")+",", ","+c.Codice+",") {
+			t.Errorf("il codice %s (%d) di S8 non è nel catalogo del ponte di confermaSorgente", c.Codice, c.Stato)
+		}
+	}
+	// e i codici delle forme di R2 che il server dà fuori dall'elenco unico (CodiciServerR2Forme: FONTE_NON_CONFERMATA e,
+	// dal giro G39, STEP_CANDIDATO_DEL_FINITO) sono nei rifiuti di R2 del ponte
+	for _, c := range CodiciServerR2Forme {
+		if c.Stato != 422 || !strings.Contains(","+strings.Join(costanti["RIFIUTI_R2"], ",")+",", ","+c.Codice+",") {
+			t.Errorf("il codice %s (%d) di R2 non è in RIFIUTI_R2 del ponte", c.Codice, c.Stato)
+		}
+	}
+	for _, c := range CodiciServerS6 {
+		l := rifiuti["anteprimaStep"]
+		if c.Stato >= 500 {
+			l = costanti["OCCUPATO"]
+		}
+		if !strings.Contains(","+strings.Join(l, ",")+",", ","+c.Codice+",") {
+			t.Errorf("il codice %s (%d) di S6 non è nel catalogo del ponte di anteprimaStep", c.Codice, c.Stato)
+		}
 	}
 }
 
@@ -804,4 +1006,64 @@ func duSelettori(t *testing.T, css string) []string {
 	}
 	giro(css)
 	return out
+}
+
+// L'ondata C nella pagina (U2; il comportamento lo provano le DU-B nel browser, qui che i pezzi ci siano): il tab Sorgente
+// del mockup v5 (albero e griglia, S9 e S8 dal ponte, niente «Conferma la fonte» legacy), i dialoghi dei file con la
+// cartella ALTRO della RFQ (C-02 B [U]), le notifiche N1-N6 con la lettura di R1 ?ingressi=1 (RV3-25 [U]), la presa d'atto
+// dei documenti in analisi, conferma_categoria dall'editor e dal wizard (RV3-34 [U]) e R15 con il suo nome (Q19 [UR]).
+func TestDistintaUnicaOndataC(t *testing.T) {
+	src := duFile(t, duPagina)
+	for _, v := range []string{
+		`role: "tree"`, `role: "grid"`, `P.leggiSmistamento()`, `P.confermaSorgente(c.allegato_id, corpo)`, `"Conferma questo STEP come sorgente di "`,
+		`"Usa nuovo STEP per "`, `"Ultima mossa"`, `"Annulla la mossa"`, `"Dal sistema"`, `"Associa a un nodo…"`,
+		`perimetro = conVoci ? "contenitore_e_voci" : "contenitore"`, "cartella ALTRO della RFQ sul NAS", `"Metti in Altri file anche i contenuti"`,
+		`P.leggiBozza(w.prodotto, { ingressi: true })`, `P.confermaBom(w.firma, w.corpo, { presa: w.presa })`,
+		"È arrivato un documento nuovo (", "Attenzione: il riepilogo non è più aggiornato. Un nuovo documento ha modificato la proposta del motore.",
+		"Attenzione: la BOM registrata di ", "è stata salvata da ", "è stato analizzato: la proposta non cambia.", "La conferma non è registrata: nel frattempo",
+		`tipo: "conferma_categoria"`, `ingresso: o.ingresso`, `"Conferma la categoria…"`, `"Non è minuteria…"`, `"Conferma il tipo proposto"`, `"Conferma le categorie ("`,
+		`"Rifiuta la proposta aggiornata…"`,
+	} {
+		if !strings.Contains(src, v) {
+			t.Errorf("la pagina non ha %s (ondata C, U2)", v)
+		}
+	}
+	for _, v := range []string{"Non è la cartella ALTRO del NAS", "sul NAS non si scrive niente", `"Conferma la fonte…"`, "il suo 2D non è più richiesto", `P.esegui("confermaFonte"`} {
+		if strings.Contains(src, v) {
+			t.Errorf("la pagina ha ancora %q (superato da U2)", v)
+		}
+	}
+}
+
+// Direttiva 35, blocco C-2 (parte interfaccia): la preassociazione del formato 3 è {allegato_id, chiave_bozza} e gli
+// eventi dei file, lo svincolo e il vassoio citano l'occorrenza. La pagina non costruisce più niente con proposta_id
+// (né chiavi né confronti), non chiede la proposta di documento per preassociare (Prova 2), sposta una PB con svincolo e
+// preassociazione (il server rifiuta un file_preassociato su un allegato già preassociato) e offre solo i file che si
+// preassociano (né STEP né contenitori).
+func TestDistintaUnicaPreassociazioniPerAllegato(t *testing.T) {
+	src := duFile(t, duPagina)
+	for _, v := range []string{"proposta_id:", ".proposta_id", "fileDiProposta", `"data-pid"`} {
+		if strings.Contains(src, v) {
+			t.Errorf("la pagina usa ancora %q: la PB e gli eventi dei file citano allegato_id (direttiva 35, C-2)", v)
+		}
+	}
+	ap := duFunzione(t, src, "export function applica(")
+	if !strings.Contains(ap, `if (!s.documenti_preassociati.some((x) => x.allegato_id === d.allegato_id))`) ||
+		!strings.Contains(ap, `!(x.allegato_id === p.allegato_id && x.chiave_bozza === p.chiave_bozza)`) {
+		t.Error("applica non segue la regola del server per file_preassociato e file_svincolato (applica2.go)")
+	}
+	az := duFunzione(t, src, "function azioniPreassocia(")
+	if !strings.Contains(az, `azione: "file_svincolato"`) || !strings.Contains(az, `azione: "file_preassociato"`) || !strings.Contains(az, `return [];`) {
+		t.Error("azioniPreassocia non manda svincolo e preassociazione per spostare una PB")
+	}
+	pr := duFunzione(t, src, "function preassociabile(")
+	// D-2 (c) [U], direttiva 39 §5: solo lo STEP legato come sorgente del finito non si preassocia
+	for _, v := range []string{"eAttivo(f)", "!f.scartato_legacy", "!(eStep(f) && stepSorgenteDelFinito(f))", "!eArchivio(f)", "rar", "!arr(f.voci).length"} {
+		if !strings.Contains(pr, v) {
+			t.Errorf("preassociabile non controlla %q (natura e stato dei file preassociabili)", v)
+		}
+	}
+	if strings.Count(src, "azioniPreassocia(") < 6 {
+		t.Errorf("i gesti che preassociano non passano tutti da azioniPreassocia: %d chiamate", strings.Count(src, "azioniPreassocia(")-1)
+	}
 }

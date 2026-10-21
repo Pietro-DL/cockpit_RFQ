@@ -54,6 +54,13 @@ markmap:
     (`revoca`, con il motivo, in `RevocaStrutturale`) e «Conferma la fonte» (`conferma_documento`, in
     `transport/web/allegati.go`) scrivono nella transazione dell'atto; senza un allegato del documento la riga non si
     scrive e l'atto va avanti (limite dichiarato)
+- **`formato3_legacy.go`** (V1, direttiva 39, corsia file: C-6b e i rilievi della revisione)
+  - Nelle RFQ formato 3 (`associazioni.RFQFormato3`) i gesti legacy non scrivono `componente.step_strutturale_id` ne'
+    `documento.sostituito_da` su uno STEP del prodotto finito fuori da S8 e R5: «Autorizza» di un finito e il cambio di
+    tipo che rimetterebbe o svuoterebbe lo STEP strutturale, la «Revoca» legacy di un finito, «Sostituisci» e «Annulla
+    sostituzione» quando uno dei due documenti e' uno STEP del finito (`DocumentoStepDelFinito`), «Assegna» di un
+    documento che e' uno STEP del finito o ha una AR attiva su un altro componente (`GuardiaSpostamentoDocumento`,
+    chiamata da `transport/web/fascicolo.go`); i testi `Testo*NelFormato3` rimandano a S8 e alla conferma della BOM
 - **`fascicolo.go`**
   - Commento `// Package`.
   - `Rifiuto` (il «no» per l'operatore: chi chiama annulla la transazione; `transport/web` usa lo stesso tipo come suo `rifiuto`)
@@ -74,7 +81,8 @@ markmap:
   - `RipristinaComponente`
   - `RimuoviComponente` (cancellazione fisica; se la FK la rifiuta, `cheCosaLoTiene` dice quale tabella; dalla 0022
     anche conferma strutturale, bozza della distinta e suo registro, storia della fonte STEP, fascicolo attestato,
-    copertura documentale; il riepilogo dell'albero lo sa prima, da `ListComponentiConStoria`, e dice «si archivia»)
+    copertura documentale, dalla 0023 le associazioni registrate dei file anche chiuse, direttiva 35, INC-G26; il
+    riepilogo dell'albero lo sa prima, da `ListComponentiConStoria`, e dice «si archivia»)
   - `Step`
   - `ScegliStepStrutturale` (rifiutato su un archiviato)
   - `ConcediDerogaStruttura` / `RevocaDerogaStruttura` (solo una deroga della stessa RFQ; dalla 0022 la concessione

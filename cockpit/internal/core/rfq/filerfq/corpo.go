@@ -32,7 +32,17 @@ type CorpoGesto struct {
 	ImprontaVoci       *string    `json:"impronta_voci,omitempty"`
 	Scollega           *bool      `json:"scollega,omitempty"`
 	ConfermaUnicaCopia *bool      `json:"conferma_unica_copia,omitempty"`
+	// Perimetro: per «Metti in Altri file» e «Riattiva» di un archivio (U2 §3.10): contenitore (solo lo ZIP, le voci
+	// restano dove sono) | contenitore_e_voci (lo ZIP e le voci, con n_voci e impronta_voci). Assente: la forma di
+	// prima, con n_voci e impronta_voci per un archivio (lo ZIP e le voci).
+	Perimetro *string `json:"perimetro,omitempty"`
 }
+
+// I perimetri di un gesto su un archivio (U2 §3.10).
+const (
+	PerimetroContenitore      = "contenitore"
+	PerimetroContenitoreEVoci = "contenitore_e_voci"
+)
 
 var reImpronta = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
@@ -103,6 +113,18 @@ func LeggiCorpo(r io.Reader, gesto string) (CorpoGesto, *Rifiuto) {
 	if gesto == GestoRiattiva && c.Scollega != nil {
 		return c, corpoNonValido("scollega", "Niente è cambiato: «Riattiva» non scollega niente.")
 	}
+	if c.Perimetro != nil {
+		switch {
+		case gesto == GestoScarta:
+			return c, corpoNonValido("perimetro", "Niente è cambiato: «Scarta» non ha un perimetro (uno ZIP si scarta solo senza file estratti attivi).")
+		case *c.Perimetro == PerimetroContenitore && (c.NVoci != nil || c.ImprontaVoci != nil):
+			return c, corpoNonValido("n_voci", "Niente è cambiato: con il solo ZIP il perimetro delle voci non c'è.")
+		case *c.Perimetro == PerimetroContenitoreEVoci && c.NVoci == nil:
+			return c, corpoNonValido("n_voci", "Niente è cambiato: lo ZIP con i contenuti vuole n_voci e impronta_voci.")
+		case *c.Perimetro != PerimetroContenitore && *c.Perimetro != PerimetroContenitoreEVoci:
+			return c, corpoNonValido("perimetro", "Niente è cambiato: il perimetro è contenitore oppure contenitore_e_voci.")
+		}
+	}
 	return c, nil
 }
 
@@ -126,6 +148,11 @@ func (c CorpoGesto) motivo() string {
 		return ""
 	}
 	return *c.Motivo
+}
+
+// soloContenitore: il gesto riguarda solo l'archivio, non le sue voci (perimetro contenitore, U2 §3.10).
+func (c CorpoGesto) soloContenitore() bool {
+	return c.Perimetro != nil && *c.Perimetro == PerimetroContenitore
 }
 
 // campoDiErrore: il campo di un errore di json (tipo sbagliato o campo sconosciuto), se si sa.

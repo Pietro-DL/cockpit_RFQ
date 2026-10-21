@@ -136,6 +136,10 @@ func RimuoviComponente(ctx context.Context, q *db.Queries, thread, comp uuid.UUI
 	return c.Codice + " tolto: non aveva storia.", nil
 }
 
+// FraseAssociazioniRegistrate dice che un componente e' tenuto dalle associazioni registrate dei file (direttiva 35,
+// file_rfq_associazione: anche le righe chiuse restano e tengono il componente).
+const FraseAssociazioniRegistrate = "ha delle associazioni registrate di file (anche chiuse)"
+
 func cheCosaLoTiene(tabella string) string {
 	switch tabella {
 	case "documento":
@@ -170,6 +174,9 @@ func cheCosaLoTiene(tabella string) string {
 		return "ha una storia di bozze della distinta"
 	case "copertura_documento":
 		return "è coperto da un documento condiviso"
+	// la 0023 (direttiva 35, INC-G26): le associazioni registrate dei file, anche chiuse, tengono il componente
+	case "file_rfq_associazione":
+		return FraseAssociazioniRegistrate
 	}
 	return "è ancora usato (" + tabella + ")"
 }
@@ -304,6 +311,12 @@ func Sostituisci(ctx context.Context, q *db.Queries, thread, vecchio, nuovo uuid
 	case n.SostituitoDa.Valid:
 		return "", Rifiuto(n.NomeFile + " è a sua volta sostituito: si sceglie un documento corrente")
 	}
+	// direttiva 39 §2, §5 [U + T-39]: nelle RFQ formato 3 uno STEP del prodotto finito non si sostituisce da qui (lo fa R5,
+	// dopo la promozione; formato3_legacy.go), con «sì» come con «no» al riferimento; la conferma legacy e «Assegna» con
+	// «sostituisce» passano da qui (confermadoc.ApplicaScelta)
+	if err := rifiutoDocumentiNelFormato3(ctx, q, thread, TestoSostituzioneNelFormato3, v, n); err != nil {
+		return "", err
+	}
 	if err := SeBloccata(ctx, q, thread, "si sostituisce un documento"); err != nil {
 		return "", err
 	}
@@ -377,24 +390,39 @@ func StepAutorizzatoDi(ctx context.Context, q *db.Queries, thread uuid.UUID, c d
 }
 
 // AnnullaSostituzione annulla l'ultima sostituzione: il successore deve essere ancora corrente. Le
-// proposte chiuse dalla sostituzione restano chiuse.
+// proposte chiuse dalla sostituzione restano chiuse. I due documenti si bloccano per documento_id crescente
+// (bloccaDocumenti), l'ordine di R5 formato 3 sui documenti dello STEP (C-6b, INC-G25): il successore si
+// legge prima senza lucchetto, e dopo i lucchetti si ricontrolla che sia ancora quello.
 func AnnullaSostituzione(ctx context.Context, q *db.Queries, thread, vecchio uuid.UUID) (string, error) {
-	v, err := q.BloccaDocumento(ctx, vecchio)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && v.ThreadID != thread) {
+	letto, err := q.GetDocumento(ctx, vecchio)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && letto.ThreadID != thread) {
 		return "", Rifiuto("il documento non è di questa RFQ")
 	}
 	if err != nil {
 		return "", err
 	}
-	if !v.SostituitoDa.Valid {
-		return "", Rifiuto(v.NomeFile + " non è sostituito")
+	if !letto.SostituitoDa.Valid {
+		return "", Rifiuto(letto.NomeFile + " non è sostituito")
 	}
-	s, err := q.BloccaDocumento(ctx, v.SostituitoDa.UUID)
+	bloccati, err := bloccaDocumenti(ctx, q, thread, vecchio, letto.SostituitoDa.UUID)
 	if err != nil {
 		return "", err
 	}
+	v := bloccati[vecchio]
+	if !v.SostituitoDa.Valid {
+		return "", Rifiuto(v.NomeFile + " non è sostituito")
+	}
+	if v.SostituitoDa.UUID != letto.SostituitoDa.UUID {
+		return "", Rifiuto(v.NomeFile + ": la sostituzione è cambiata nel frattempo")
+	}
+	s := bloccati[v.SostituitoDa.UUID]
 	if s.SostituitoDa.Valid {
 		return "", Rifiuto(fmt.Sprintf("%s è stato a sua volta sostituito: si annulla prima quella sostituzione", s.NomeFile))
+	}
+	// direttiva 39 §2, §5 [U + T-39]: nelle RFQ formato 3 non si disfa da qui la sostituzione di uno STEP del prodotto
+	// finito (quella che R5 scrive dopo la promozione, o una legacy su cui R5 si e' appoggiata; formato3_legacy.go)
+	if err := rifiutoDocumentiNelFormato3(ctx, q, thread, TestoAnnullaNelFormato3, v, s); err != nil {
+		return "", err
 	}
 	if err := SeBloccata(ctx, q, thread, "si annulla una sostituzione"); err != nil {
 		return "", err

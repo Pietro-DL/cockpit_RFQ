@@ -126,8 +126,13 @@ func VerificaGiornale3(ctx context.Context, q *db.Queries, thread, bozza uuid.UU
 			for _, e := range dellaVersione {
 				azioni = append(azioni, Azione{Azione: e.Azione, ChiaveBozza: e.ChiaveBozza, Prima: e.Prima, Dopo: e.Dopo, Origine: e.Origine, Motivo: e.Motivo})
 			}
-			r, err := Riconcilia3(*prima, snap, azioni, Contesto3{N0: n0, Precedente: precedente, LimiteServer: limite})
+			// la provenienza delle PB la decide il server dopo la riconciliazione (direttiva 39 §4, provenienza3.go): le
+			// azioni rifanno occorrenze e nodi; una PB rimasta sullo stesso nodo tiene provenienza e registro di prima
+			r, err := Riconcilia3(*prima, senzaProvenienza(snap), azioni, Contesto3{N0: n0, Precedente: precedente, LimiteServer: limite})
 			if err != nil {
+				return out, fmt.Errorf("%w: la versione %d: %v", ErrGiornaleIncoerente, versione, err)
+			}
+			if err := provenienzaRimasta(*prima, snap); err != nil {
 				return out, fmt.Errorf("%w: la versione %d: %v", ErrGiornaleIncoerente, versione, err)
 			}
 			if len(r.Eventi) != len(dellaVersione) {
@@ -225,4 +230,23 @@ func forma3(raw json.RawMessage) string {
 		return ""
 	}
 	return string(canonico(raw))
+}
+
+// provenienzaRimasta: ogni PB della versione rimasta sullo stesso nodo della versione prima ha la sua provenienza e il
+// suo registro d'origine (una PB di prima senza provenienza, salvata prima del blocco della provenienza, e' manuale).
+func provenienzaRimasta(prima, dopo Snapshot3) error {
+	pp := map[uuid.UUID]Preassociazione3{}
+	for _, p := range prima.DocumentiPreassociati {
+		pp[p.AllegatoID] = p
+	}
+	for _, p := range dopo.DocumentiPreassociati {
+		if !rimasta(pp, p.AllegatoID, p.ChiaveBozza) || (p.Provenienza == "" && pp[p.AllegatoID].Provenienza == "") {
+			continue // spostata o nuova (la decide il server), o due versioni salvate prima del blocco della provenienza
+		}
+		if a := decisa(pp, p.AllegatoID, p.ChiaveBozza); a.Provenienza != p.Provenienza || a.Importazione != p.Importazione {
+			return fmt.Errorf("la PB dell'allegato %s, rimasta sul nodo %s, ha la provenienza %q/%q invece di %q/%q", p.AllegatoID, p.ChiaveBozza,
+				p.Provenienza, p.Importazione, a.Provenienza, a.Importazione)
+		}
+	}
+	return nil
 }

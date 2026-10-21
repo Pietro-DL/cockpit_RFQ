@@ -26,9 +26,23 @@ const VersioneCasi = 1
 // Ingressi: ciò che un caso dichiara e la fotografia non contiene (par.3.3.8; 6.6.3): i segmenti pertinenti dello
 // scenario, la sua autorità, i messaggi fuori RFQ. Vengono dal file dei casi, mai dagli attesi (R2). Il banco lo
 // trova nel manifest, l'anteprima attraverso l'indice delle regole, e i due sono lo stesso file (R29 a A, b C).
+//
+// Categorie (fuori dal file dei casi, V1 ondata C: emendamento U2 §6.4.2; addendum ad A1c su LD-19): le conferme della
+// categoria di ogni thread, lette dall'ultima conferma valida di ogni prodotto accanto al caricatore e nella stessa
+// fotografia (propostabom.ConfermeCategoria). Le passa solo chi legge il database (/dati, S9, la S di R5); il banco e il
+// file dei casi non le hanno, e senza conferme l'esito è quello di prima.
+//
+// Registrate (fuori dal file dei casi, direttiva 35 §8 C-4 [U]; piano delle dipendenze della direttiva 35 §7.2 C-4 [T]):
+// le associazioni registrate (AR) attive di ogni thread, per allegato con il componente, lette dal servizio unico
+// (file_rfq_associazione, righe attive) accanto al caricatore e nella stessa fotografia. Sono la fonte «manuale» del
+// Motore A con il ripiego transitorio [T] «AR attiva, altrimenti copia senza AR» (conLeAssociazioniRegistrate): il
+// caricatore resta quello di A1c. Le passa solo chi legge il database (/dati, S9); il banco e il file dei casi non le
+// hanno, e senza AR l'esito è quello di prima, byte per byte.
 type Ingressi struct {
-	Versione int            `json:"versione_casi"`
-	Casi     []IngressoCaso `json:"casi"`
+	Versione   int                                   `json:"versione_casi"`
+	Casi       []IngressoCaso                        `json:"casi"`
+	Categorie  map[uuid.UUID][]ConfermaCategoria     `json:"-"`
+	Registrate map[uuid.UUID]map[uuid.UUID]uuid.UUID `json:"-"`
 }
 
 // IngressoCaso: un caso del file dei casi.

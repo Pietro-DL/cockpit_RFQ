@@ -205,22 +205,22 @@ func TestV1PE22IlMotivoNodoEscluso(t *testing.T) {
 	}
 	p := "00000000-0000-4000-8000-0000000d0007"
 	for _, m := range MotiviSvincolo {
-		d, e := LeggiDopoSvincolo("azioni[0].dopo", json.RawMessage(`{"proposta_id":"`+p+`","motivo":"`+m+`"}`))
+		d, e := LeggiDopoSvincolo("azioni[0].dopo", json.RawMessage(`{"allegato_id":"`+p+`","motivo":"`+m+`"}`))
 		if e != nil || d.Motivo != m {
 			t.Fatalf("motivo %s rifiutato: %v", m, e)
 		}
 	}
 	for _, raw := range []string{
-		`{"proposta_id":"` + p + `","motivo":"escluso"}`,
-		`{"proposta_id":"` + p + `"}`,
-		`{"proposta_id":"` + p + `","motivo":"nodo_tolto","chiave_bozza":"k-1"}`,
+		`{"allegato_id":"` + p + `","motivo":"escluso"}`,
+		`{"allegato_id":"` + p + `"}`,
+		`{"allegato_id":"` + p + `","motivo":"nodo_tolto","chiave_bozza":"k-1"}`,
 		`null`,
 	} {
 		if _, e := LeggiDopoSvincolo("azioni[0].dopo", json.RawMessage(raw)); e == nil {
 			t.Fatalf("dopo di file_svincolato accettato: %s", raw)
 		}
 	}
-	d, e := LeggiDopoSvincolo("azioni[0].dopo", json.RawMessage(`{"proposta_id":"`+p+`","motivo":"non_incluso","azione_id":"00000000-0000-4000-8000-0000000e0101"}`))
+	d, e := LeggiDopoSvincolo("azioni[0].dopo", json.RawMessage(`{"allegato_id":"`+p+`","motivo":"non_incluso","azione_id":"00000000-0000-4000-8000-0000000e0101"}`))
 	if e != nil || d.AzioneID == nil {
 		t.Fatalf("l'azione_id del gesto cumulativo nel dopo dello svincolo: %v", e)
 	}

@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
+	"promatec/cockpit/internal/core/rfq/associazioni"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -65,7 +67,11 @@ func (s *Servizio) calcolaDipendenze(ctx context.Context, q *db.Queries, thread 
 	if err != nil {
 		return ElencoDipendenze{}, fmt.Errorf("dipendenze dei file: %w", err)
 	}
+	registrata := map[uuid.UUID]int{} // D-7 di una AR attiva: l'indice della voce
 	for _, r := range righe {
+		if r.Codice == "D-7" && r.N == 1 {
+			registrata[r.AllegatoID] = len(voci)
+		}
 		voci = append(voci, dipendenzaDaRiga(r))
 	}
 	// D-6 e D-6b: le bozze aperte della RFQ che citano le occorrenze
@@ -91,17 +97,50 @@ func (s *Servizio) calcolaDipendenze(ctx context.Context, q *db.Queries, thread 
 			codici[c.ComponenteID] = c.Codice
 		}
 	}
+	svincolata := map[uuid.UUID]bool{}
 	for _, b := range bozze {
 		if !nel[b.AllegatoID] {
 			continue
 		}
+		if b.Tipo == "svincolo" {
+			svincolata[b.AllegatoID] = true
+		}
 		voci = append(voci, dipendenzaDaBozza(b.AllegatoID, b.BozzaID, b.Tipo, codici[b.ProdottoID]))
+	}
+	// C-6b, D-ASS-03 [U] (R2 svincolo persistito, poi S2 o S3): in una RFQ formato 3 una AR attiva si chiude dal gesto
+	// composto solo se lo svincolo e' gia' salvato in una bozza aperta; senza, D-7 blocca (il gesto atomico non chiude
+	// una AR fuori dal percorso della conferma, D-AR03 D [U])
+	if len(registrata) > 0 {
+		f3, err := associazioni.RFQFormato3(ctx, q, thread)
+		if err != nil {
+			return ElencoDipendenze{}, err
+		}
+		if f3 {
+			for allegato, i := range registrata {
+				if !svincolata[allegato] {
+					voci[i] = d7Formato3SenzaSvincolo(voci[i])
+				}
+			}
+		}
+	}
+	// D-15b (U2-P04, U2 §4.6): il registro d'importazione di una conferma della RFQ cita l'occorrenza (la prova di
+	// un'identita' confermata): si mostra, non blocca
+	citazioni, err := q.ListCitazioniRegistroConferme(ctx, db.ListCitazioniRegistroConfermeParams{ThreadID: thread, Allegati: ids})
+	if err != nil {
+		return ElencoDipendenze{}, fmt.Errorf("dipendenze dai registri delle conferme: %w", err)
+	}
+	for _, c := range citazioni {
+		voci = append(voci, Dipendenza{AllegatoID: c.AllegatoID, Codice: "D-15b", Esito: EsitoMostra,
+			Rif:   c.ConfermaID.String(),
+			Testo: fmt.Sprintf("Citato dal registro della conferma n. %d di %s: il registro resta com'è.", c.Numero, c.Prodotto)})
 	}
 	// D-10: il perimetro di un archivio
 	for _, o := range occ {
 		if n, ok := nVoci[o.AllegatoID]; ok && n > 0 {
 			voci = append(voci, Dipendenza{AllegatoID: o.AllegatoID, Codice: "D-10", Esito: EsitoMostra,
-				Testo: fmt.Sprintf("L'archivio ha %d voci non scartate: seguono l'archivio nello stesso gesto.", n), Rif: strconv.Itoa(n)})
+				Testo: fmt.Sprintf("L'archivio ha %d voci non scartate: «Metti lo ZIP originale in Altri file» le lascia dove sono, "+
+					"«Metti in Altri file anche i contenuti» le porta con sé; «Scarta» non si fa finché ce n'è una attiva.", n),
+				Rif: strconv.Itoa(n)})
 		}
 	}
 	// D-13: i contesti partner che citano l'occorrenza nel loro perimetro
@@ -179,6 +218,10 @@ func dipendenzaDaRiga(r db.ListDipendenzeFileRow) Dipendenza {
 			quale = "un componente"
 		}
 		d.Testo = "È associato a " + quale + ": scartandolo, l'associazione viene tolta."
+		if r.N == 1 {
+			// la AR attiva (C-6b): con «Scollega» il servizio unico la chiude (scollega_file), con chi e quando
+			d.Testo = "Ha un'associazione registrata con " + quale + ": con «Scollega» l'associazione viene chiusa, e la sua storia resta."
+		}
 	case "D-7b":
 		d.Testo = "Esce dai documenti da confermare."
 	case "D-8":
@@ -207,13 +250,29 @@ func dipendenzaDaRiga(r db.ListDipendenzeFileRow) Dipendenza {
 	return d
 }
 
-// dipendenzaDaBozza: D-6 (blocca) per la fonte, le caselle, le «Non includere», le preassociazioni, gli svincoli e la
-// prova di una decisione identita; D-6b (mostra) per un file citato solo dal registro d'importazione (EM §10.3, K-25).
+// d7Formato3SenzaSvincolo: D-7 di una AR attiva in una RFQ formato 3 senza lo svincolo salvato in una bozza aperta
+// (C-6b, D-ASS-03 [U]): blocca, con il percorso da seguire.
+func d7Formato3SenzaSvincolo(d Dipendenza) Dipendenza {
+	d.Esito, d.Risoluzione = EsitoBlocca, ""
+	d.Testo = "Ha un'associazione registrata e la RFQ è gestita con la Distinta nuova: prima si salva lo svincolo nella bozza " +
+		"del prodotto («Scollega e scarta», «Scollega e metti in Altri file»), poi il gesto chiude l'associazione."
+	return d
+}
+
+// dipendenzaDaBozza: D-6 (blocca) per la fonte, le caselle, le «Non includere», le preassociazioni e la prova di una
+// decisione identita; D-6b (mostra) per un file citato solo dal registro d'importazione (EM §10.3, K-25). Uno svincolo
+// gia' deciso nella bozza (U2-P47; D-ASS-03 / V1-Q42 [U] A: prima R2 salva lo svincolo, poi S2 o S3) non blocca piu':
+// chiede la risoluzione «scollega», come D-7; con scollega vero il gesto va avanti, e R4 lo dira' gia_scollegato.
 func dipendenzaDaBozza(allegato, bozza uuid.UUID, tipo, prodotto string) Dipendenza {
 	if prodotto == "" {
 		prodotto = "un prodotto"
 	}
 	rif := bozza.String() + ":" + tipo
+	if tipo == "svincolo" {
+		return Dipendenza{AllegatoID: allegato, Codice: "D-6", Esito: EsitoRisoluzione, Risoluzione: RisoluzioneScollega, Rif: rif,
+			Testo: "La bozza di " + prodotto + " ha già lo svincolo di questo file: con «Scollega» il gesto va avanti, e la conferma " +
+				"della bozza troverà l'associazione già chiusa."}
+	}
 	if tipo == "registro" {
 		return Dipendenza{AllegatoID: allegato, Codice: "D-6b", Esito: EsitoMostra, Rif: rif,
 			Testo: "La proposta importata nella bozza di " + prodotto + " lo citava: la bozza tiene la proposta di allora, " +
@@ -236,22 +295,18 @@ func dipendenzaDaBozza(allegato, bozza uuid.UUID, tipo, prodotto string) Dipende
 }
 
 // citaOccorrenza: un'occorrenza del perimetro del contesto coincide con il file se coincide l'allegato, oppure lo
-// sha256 E il nome ricevuto (e il contenitore, se scritto).
+// sha256 E il nome ricevuto (o il nome finale del percorso dentro l'archivio), e il contenitore se scritto. La regola è
+// una sola, quella dell'attivazione del contesto nel motore (motorea.OccorrenzaCoincide; DEC-B RF RQ-6, OB-20):
+// l'importazione e D-13 vedono lo stesso perimetro.
 func citaOccorrenza(c Contesto, o Occorrenza) bool {
+	f := motorea.FileDelPerimetro{AllegatoID: o.AllegatoID, Sha256: o.Sha(), Nome: o.NomeFile, Percorso: o.PathInterno.String}
+	if o.ContenitoreID.Valid {
+		f.Contenitore = o.ContenitoreID.UUID.String()
+	}
 	for _, p := range c.Perimetro {
-		if p.AllegatoID != "" {
-			if strings.EqualFold(p.AllegatoID, o.AllegatoID.String()) {
-				return true
-			}
-			continue
+		if motorea.OccorrenzaCoincide(motorea.OccorrenzaContesto{AllegatoID: p.AllegatoID, Sha256: p.Sha256, Nome: p.Nome, Contenitore: p.Contenitore}, f) {
+			return true
 		}
-		if p.Sha256 == "" || p.Nome == "" || !strings.EqualFold(p.Sha256, o.Sha()) || p.Nome != o.NomeFile {
-			continue
-		}
-		if p.Contenitore != "" && (!o.ContenitoreID.Valid || !strings.EqualFold(p.Contenitore, o.ContenitoreID.UUID.String())) {
-			continue
-		}
-		return true
 	}
 	return false
 }
@@ -338,10 +393,11 @@ func (s *Servizio) unicheCopie(ctx context.Context, q *db.Queries, thread uuid.U
 // A): prima i blocchi (422 DIPENDENZE_ATTIVE), poi le risoluzioni che mancano (422 RISOLUZIONE_RICHIESTA), poi
 // l'impronta (409 ANTEPRIMA_SUPERATA, dipendenze_file, con l'elenco nuovo). scarta: la «conferma dell'unica copia»
 // vale solo per «Scarta».
-func controllaDipendenze(el ElencoDipendenze, improntaVista string, scollega, unicaCopia, scarta bool) *Rifiuto {
+func controllaDipendenze(el ElencoDipendenze, improntaVista string, scollega, unicaCopia, scarta bool, scritte map[uuid.UUID]bool) *Rifiuto {
+	conta := func(d Dipendenza) bool { return scritte == nil || scritte[d.AllegatoID] }
 	var blocchi []Dipendenza
 	for _, d := range el.Voci {
-		if d.Esito == EsitoBlocca {
+		if d.Esito == EsitoBlocca && conta(d) {
 			blocchi = append(blocchi, d)
 		}
 	}
@@ -352,7 +408,7 @@ func controllaDipendenze(el ElencoDipendenze, improntaVista string, scollega, un
 	var mancano []Dipendenza
 	campi := map[string]bool{}
 	for _, d := range el.Voci {
-		if d.Esito != EsitoRisoluzione {
+		if d.Esito != EsitoRisoluzione || !conta(d) {
 			continue
 		}
 		switch {

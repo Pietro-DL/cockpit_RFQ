@@ -21,23 +21,26 @@ import (
 
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 )
 
-// battitoOgni: ogni quanto una copia in corso rinfresca aggiornato_il della sua riga (EM §10.5).
+// battitoOgni: ogni quanto una copia in corso rinfresca il battito della sua riga (EM §10.5; U2 §3.3 passo 2: la
+// colonna ultimo_battito, perche' aggiornato_il cambia a ogni passo della riga).
 var battitoOgni = 60 * time.Second
 
 // battitoFermo: dopo quanto senza battito una copia in_copia di un'altra chiave non e' piu' viva (EM §10.5).
 const battitoFermo = 15 * time.Minute
 
-// MettiInAltriFile e' S3, «Metti in Altri file» (EM §10.5; base di lavoro della domanda V1-Q06 A): prima la copia
-// verificata nel deposito, poi lo stato. Fase A in una transazione breve (controlli, sorgenti dei byte, righe in_copia
+// MettiInAltriFile e' S3, «Metti in Altri file» (EM §10.5; U2 §3.3): prima la copia verificata nel posto degli Altri
+// file (il Conservatore: la cartella ALTRO della RFQ sul NAS), poi lo stato. Fase A in una transazione breve (controlli, sorgenti dei byte, righe in_copia
 // sotto BloccaContenuto); la copia fuori transazione, con il battito; fase C in una transazione (la propria riga ancora
 // in_copia e con la propria chiave, i ricontrolli, poi copiata, lo stato altri_file, l'evento, lo scollegamento
 // chiesto, l'esito dell'intento). Ogni esito diverso dal successo porta le righe del gesto a uno stato finale o in
-// rilascio: niente byte orfani nel deposito.
+// rilascio: niente copie orfane. Con la scrittura spenta (capacita' nas_scrittura o DryRun) o senza un posto per gli
+// Altri file la risposta e' 503 NON_CONFIGURATO con il motivo, prima di ogni lettura e di ogni scrittura (U2 §3.5).
 func (s *Servizio) MettiInAltriFile(ctx context.Context, thread, allegato, utente uuid.UUID, c CorpoGesto) (*EsitoGesto, error) {
-	if s.Deposito == nil {
-		return nil, ErrConservazioneNonConfigurata
+	if ok, motivo := s.disponibile(); !ok {
+		return nil, conservazioneNonDisponibile(motivo)
 	}
 	g, err := nuovoGesto(GestoAltriFile, thread, allegato, utente, c)
 	if err != nil {
@@ -97,12 +100,15 @@ func (s *Servizio) MettiInAltriFile(ctx context.Context, thread, allegato, utent
 type rigaCopia struct {
 	conservazioneID int64
 	occ             Occorrenza
-	percorso        string // il definitivo nel deposito, calcolato dal database
-	ripresa         bool   // la stessa chiave: una riga in_copia ripresa
+	posto           nas.Posto // il posto della copia: la cartella della RFQ e ALTRO\<nome>, scelto in fase A
+	token           uuid.UUID // il token del tentativo (la colonna token della riga)
+	ripresa         bool      // la stessa chiave: una riga in_copia ripresa
+	ereditata       bool      // la riga riusa il file di una copia trattenuta ed eredita la prova (U2 §3.8)
 }
 
-// faseA: le sorgenti dei byte per ogni occorrenza (altrimenti 422 FILE_SENZA_BYTE e nessuna riga), poi sotto
-// BloccaContenuto, sha per sha in ordine crescente, la riga viva esistente e la riga nuova (EM §10.5, fase A).
+// faseA: le sorgenti dei byte per ogni occorrenza (altrimenti 422 FILE_SENZA_BYTE e nessuna riga), poi le righe vive
+// FOR UPDATE, la cartella ALTRO della RFQ sotto il suo lucchetto, BloccaContenuto sha per sha in ordine crescente, e per
+// ogni occorrenza la riga nuova con il nome scelto e riservato (EM §10.5, fase A; U2 §3.2, §3.3 passo 1, §3.8).
 func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *preparato) ([]rigaCopia, error) {
 	var daCopiare []Occorrenza
 	for _, o := range pr.tutte {
@@ -124,6 +130,17 @@ func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *prepar
 				"origine", string(o.Origine)))
 		}
 	}
+	// la cartella della RFQ: la copia va in <radice>\<cartella_relativa>\ALTRO\<nome> (U2 §3.2); il percorso non si
+	// ricostruisce mai da altro che cartella_relativa
+	if strings.TrimSpace(pr.cartella) == "" {
+		return nil, rifiuto(http.StatusUnprocessableEntity, "CONSERVAZIONE_NON_RIUSCITA",
+			"Niente è cambiato: la RFQ non ha ancora una cartella sul NAS, e la cartella ALTRO sta lì dentro.",
+			extra("causa", "cartella_rfq", "allegato_id", g.allegato))
+	}
+	sotto, err := cartellaAltro(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	// le righe vive di ogni occorrenza, FOR UPDATE, prima dei lucchetti per contenuto (EM §10.6: la RFQ, le righe, per
 	// ultimo il contenuto), in ordine di allegato; la riga nuova (il pin «conservazione in corso») nasce sotto il
 	// lucchetto per contenuto, come vuole EM §10.5
@@ -134,6 +151,11 @@ func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *prepar
 			return nil, err
 		}
 		vivePer[o.AllegatoID] = vive
+	}
+	// il lucchetto della cartella ALTRO della RFQ: lo stesso dei documenti che vi scelgono un nome (U2 §3.2, §3.6
+	// regola 1), preso dopo le righe e prima del contenuto
+	if err := documenti.BloccaCartella(ctx, q, g.thread, sotto); err != nil {
+		return nil, err
 	}
 	sort.SliceStable(daCopiare, func(i, j int) bool {
 		if daCopiare[i].Sha() != daCopiare[j].Sha() {
@@ -150,6 +172,9 @@ func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *prepar
 			}
 		}
 	}
+	radice := s.Conservatore.RadiceID()
+	presi := map[string]bool{}    // i nomi gia' scelti in questo gesto (minuscolo)
+	ereditate := map[int64]bool{} // le righe trattenute gia' ereditate in questo gesto
 	var righe []rigaCopia
 	for _, o := range daCopiare {
 		vive := vivePer[o.AllegatoID]
@@ -157,27 +182,25 @@ func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *prepar
 		for _, c := range vive {
 			switch {
 			case c.Stato == "in_copia" && c.ChiaveIdempotenza.Valid && c.ChiaveIdempotenza.UUID == g.it.chiave:
-				p, err := s.Deposito.PercorsoCopia(c.PercorsoRelativo)
-				if err != nil {
-					return nil, err
-				}
-				righe = append(righe, rigaCopia{conservazioneID: c.ConservazioneID, occ: o, percorso: p, ripresa: true})
+				righe = append(righe, rigaCopia{conservazioneID: c.ConservazioneID, occ: o, posto: postoDellaRiga(c), token: c.Token,
+					ripresa: true, ereditata: c.EreditaDa.Valid})
+				presi[strings.ToLower(c.PercorsoRelativo)] = true
 				ripresa = true
-			case c.Stato == "in_copia" && s.adesso().Sub(c.AggiornatoIl) < battitoFermo:
+			case c.Stato == "in_copia" && s.adesso().Sub(battitoDi(c)) < battitoFermo:
 				return nil, rifiuto(http.StatusConflict, "COPIA_IN_CORSO",
 					"Un'altra copia di conservazione di questo file è in corso: aspetta che finisca e rileggi la Sorgente.",
 					extra("motivo", "copia_viva", "allegato_id", o.AllegatoID))
 			case c.Stato == "in_copia":
-				// il battito e' fermo da oltre 15 minuti: la riga vecchia va in rilascio (il suo file e i suoi parziali si
-				// tolgono con il rilascio) e se ne apre una nuova
-				if _, err := q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "da_rilasciare",
+				// il battito e' fermo da oltre 15 minuti: la riga vecchia va in rilascio (con la base B di U2-Q01 il suo
+				// file, se c'e' e se e' del cockpit, resta trattenuto) e se ne apre una nuova
+				if _, err := q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: "da_rilasciare",
 					Causa: testo("tempo_scaduto"), Tentativi: c.Tentativi, ConservazioneID: c.ConservazioneID, StatoAtteso: "in_copia"}); err != nil {
 					return nil, err
 				}
 			case c.Stato == "copiata":
-				// un file attivo con una copia ancora copiata: non dovrebbe succedere (la «Riattiva» la porta in rilascio);
-				// la si porta in rilascio, cosi' la riga nuova ha il suo file
-				if _, err := q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "da_rilasciare",
+				// un file attivo con una copia ancora copiata: non dovrebbe succedere (la «Riattiva» la porta a trattenuta);
+				// la si porta a trattenuta (base B di U2-Q01, provvisoria [T]: il file resta), e la riga nuova la puo' ereditare
+				if _, err := q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: "trattenuta",
 					Causa: testo("riattivato"), Tentativi: c.Tentativi, ConservazioneID: c.ConservazioneID, StatoAtteso: "copiata"}); err != nil {
 					return nil, err
 				}
@@ -186,18 +209,108 @@ func (s *Servizio) faseA(ctx context.Context, q *db.Queries, g gesto, pr *prepar
 		if ripresa {
 			continue
 		}
-		nuova, err := q.InsertConservazione(ctx, db.InsertConservazioneParams{ThreadID: g.thread, AllegatoID: o.AllegatoID,
-			Sha256: o.Sha(), Bytes: o.Bytes, DepositoID: s.Deposito.ID, ChiaveIdempotenza: uid(g.it.chiave)})
+		b := int64(-1)
+		if o.Bytes.Valid {
+			b = o.Bytes.Int64
+		}
+		p := db.InsertConservazioneParams{ThreadID: g.thread, AllegatoID: o.AllegatoID, Sha256: o.Sha(), Bytes: o.Bytes,
+			RadiceID: radice, CartellaThread: testo(pr.cartella), ChiaveIdempotenza: uid(g.it.chiave)}
+		// una copia trattenuta del cockpit con lo stesso contenuto nella RFQ: se ne riusa il file e si eredita la prova
+		// (U2 §3.8); il trigger di nascita ricontrolla e cede la riga vecchia nella stessa istruzione
+		trattenute, err := q.ListConservazioniTrattenuteRfq(ctx, db.ListConservazioniTrattenuteRfqParams{ThreadID: g.thread,
+			Sha256: o.Sha(), RadiceID: radice, CartellaThread: pr.cartella})
 		if err != nil {
 			return nil, err
 		}
-		p, err := s.Deposito.PercorsoCopia(nuova.PercorsoRelativo)
+		ereditata := false
+		for _, t := range trattenute {
+			if ereditate[t.ConservazioneID] || presi[strings.ToLower(t.PercorsoRelativo)] {
+				continue
+			}
+			ereditate[t.ConservazioneID] = true
+			p.PercorsoRelativo = testo(t.PercorsoRelativo)
+			p.EreditaDa = pgtype.Int8{Int64: t.ConservazioneID, Valid: true}
+			p.CreatoDalCockpit = true
+			ereditata = true
+			break
+		}
+		if !ereditata {
+			nome, err := s.scegliNome(ctx, q, g.thread, pr.cartella, sotto, o, presi)
+			if err != nil {
+				return nil, err
+			}
+			p.PercorsoRelativo = testo(nome)
+		}
+		presi[strings.ToLower(p.PercorsoRelativo.String)] = true
+		nuova, err := q.InsertConservazione(ctx, p)
 		if err != nil {
 			return nil, err
 		}
-		righe = append(righe, rigaCopia{conservazioneID: nuova.ConservazioneID, occ: o, percorso: p})
+		righe = append(righe, rigaCopia{conservazioneID: nuova.ConservazioneID, occ: o, token: nuova.Token, ereditata: ereditata,
+			posto: postoDi(radice, pr.cartella, nuova.PercorsoRelativo, o.Sha(), b)})
 	}
 	return righe, nil
+}
+
+// cartellaAltro: la sottocartella dei documenti di tipo «altro» (cartella_documento, 0001), la stessa degli Altri file
+// (U2 §3.2: il codice la legge da li', non da una costante). Il database vuole che il percorso cominci da ALTRO\.
+func cartellaAltro(ctx context.Context, q *db.Queries) (string, error) {
+	l, err := q.GetCartellaDocumento(ctx, db.TipoDocumentoAltro)
+	if err != nil {
+		return "", err
+	}
+	sotto := documenti.NomeSicuro(l.Sottocartella, 80)
+	if !strings.EqualFold(sotto, "ALTRO") {
+		return "", fmt.Errorf("la cartella dei documenti di tipo «altro» e' %q, non ALTRO: gli Altri file non hanno un posto", l.Sottocartella)
+	}
+	return sotto, nil
+}
+
+// scegliNome sceglie e riserva il nome di una copia nella cartella ALTRO della RFQ (U2 §3.2), dentro la fase A e sotto
+// BloccaCartella(thread, «ALTRO»): il nome ricevuto pulito con NomeFileSicuro, poi il progressivo _2, _3 finche' il
+// nome e' libero per il database (PercorsoOccupato: documenti, spostamenti pendenti, orfani aperti, copie vive, in
+// minuscolo), per questo gesto e sul disco (un file che c'e' gia', di chiunque, non si sovrascrive mai). Un file che
+// compare sul nome dopo la fase A fa rispondere «conflitto» alla promozione.
+func (s *Servizio) scegliNome(ctx context.Context, q *db.Queries, thread uuid.UUID, cartella, sotto string, o Occorrenza,
+	presi map[string]bool) (string, error) {
+	base := nomeNellaCartellaAltro(o.NomeFile)
+	for n := 1; n <= 999; n++ {
+		p := documenti.NellaCartella(sotto, documenti.ConProgressivo(base, n))
+		if presi[strings.ToLower(p)] {
+			continue
+		}
+		occ, err := q.PercorsoOccupato(ctx, db.PercorsoOccupatoParams{ThreadID: thread, Percorso: p})
+		if err != nil {
+			return "", err
+		}
+		if occ.Bool {
+			continue
+		}
+		st, err := s.Conservatore.Stato(nas.Posto{RadiceID: s.Conservatore.RadiceID(), Cartella: cartella, Percorso: p, Bytes: -1}, false)
+		if err != nil {
+			s.log().Warn("ciclo dei file: la cartella ALTRO della RFQ non si legge", "err", err)
+			return "", rifiuto(http.StatusUnprocessableEntity, "CONSERVAZIONE_NON_RIUSCITA",
+				"Niente è cambiato: la copia di conservazione non è riuscita ("+testoCausa("nas_irraggiungibile")+"). Il file resta fra gli attivi.",
+				extra("causa", "nas_irraggiungibile", "allegato_id", o.AllegatoID))
+		}
+		if st == nas.CopiaNonTrovata {
+			return p, nil
+		}
+	}
+	return "", rifiuto(http.StatusUnprocessableEntity, "CONSERVAZIONE_NON_RIUSCITA",
+		"Niente è cambiato: nella cartella ALTRO non c'è un nome libero per questo file.",
+		extra("causa", "conflitto", "allegato_id", o.AllegatoID))
+}
+
+// nomeNellaCartellaAltro: il nome di una copia nella cartella ALTRO, dal nome ricevuto: NomeFileSicuro (lo stesso dei
+// documenti), senza barre ne' due punti (un nome solo, non un percorso) e senza «..» (il CHECK della 0023 lo vieta
+// anche dentro un nome: ck_cons_percorso).
+func nomeNellaCartellaAltro(ricevuto string) string {
+	n := documenti.NomeFileSicuro(strings.NewReplacer(`\`, "_", "/", "_", ":", "_").Replace(ricevuto))
+	for strings.Contains(n, "..") {
+		n = strings.ReplaceAll(n, "..", ".")
+	}
+	return n
 }
 
 // haSorgenteDeiByte: una sorgente dei byte disponibile per la copia (senza aprire i file grandi: la copia verifica lo
@@ -217,10 +330,23 @@ func (s *Servizio) haSorgenteDeiByte(ctx context.Context, q *db.Queries, o Occor
 	return len(src) > 0, nil
 }
 
-// sorgenteByte: un file da cui leggere i byte di un'occorrenza, con il suo tipo (sorgente_byte della riga).
+// sorgenteByte: da dove leggere i byte di un'occorrenza, con il suo tipo (sorgente_byte della riga): un file dello
+// staging o del NAS in sola lettura (percorso), oppure un'altra copia di conservazione (posto, letta dal Conservatore).
 type sorgenteByte struct {
 	percorso string
+	posto    *nas.Posto
 	tipo     string // staging | conservazione | nas
+}
+
+// apri: la sorgente in sola lettura.
+func (s *Servizio) apri(sb sorgenteByte) (io.ReadCloser, error) {
+	if sb.posto != nil {
+		if s.Conservatore == nil {
+			return nil, errors.New("nessun conservatore")
+		}
+		return s.Conservatore.Leggi(*sb.posto)
+	}
+	return os.Open(sb.percorso)
 }
 
 // sorgentiByte: dove leggere i byte di un'occorrenza, nell'ordine di EM §10.5 (copia): il path_staging se e' il
@@ -241,17 +367,18 @@ func (s *Servizio) sorgentiByte(ctx context.Context, q *db.Queries, o Occorrenza
 			out = append(out, sorgenteByte{percorso: a.PathStaging, tipo: "staging"})
 		}
 	}
-	if s.Deposito != nil {
+	if s.Conservatore != nil {
 		copie, err := q.ListCopieConservazioneAllegato(ctx, o.AllegatoID)
 		if err != nil {
 			return nil, err
 		}
 		for _, c := range copie {
-			if c.Stato != "copiata" || c.DepositoID != s.Deposito.ID {
+			if c.Stato != "copiata" || c.RadiceID != s.Conservatore.RadiceID() {
 				continue
 			}
-			if p, err := s.Deposito.PercorsoCopia(c.PercorsoRelativo); err == nil && esiste(p) {
-				out = append(out, sorgenteByte{percorso: p, tipo: "conservazione"})
+			posto := postoDellaRiga(c)
+			if st, err := s.Conservatore.Stato(posto, false); err == nil && st == nas.CopiaPresente {
+				out = append(out, sorgenteByte{posto: &posto, tipo: "conservazione"})
 			}
 		}
 	}
@@ -314,12 +441,16 @@ func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error 
 		}
 		s.log().Warn("ciclo dei file: copia di conservazione non riuscita", "conservazione", r.conservazioneID,
 			"allegato", r.occ.AllegatoID, "causa", causa, "err", err)
+		if causa == "copia_viva" {
+			// la stessa copia e' gia' in corso con questo token: le righe sono sue, non di questo tentativo, e non si toccano
+			return rifiuto(http.StatusConflict, "COPIA_IN_CORSO",
+				"Un'altra copia di conservazione di questo file è in corso: aspetta che finisca e rileggi la Sorgente.",
+				extra("motivo", "copia_viva", "allegato_id", r.occ.AllegatoID))
+		}
 		if causa == "tentativo_chiuso" {
 			// un'altra scheda ha ripreso la copia, o uno «Scarta» l'ha chiusa: quella riga non e' piu' di questo
-			// tentativo, e la copia toglie solo i suoi parziali (EM §10.5: 409 COPIA_IN_CORSO, tentativo_chiuso)
-			for _, p := range s.Deposito.partiDellaRiga(r.conservazioneID) {
-				_ = togliFile(p)
-			}
+			// tentativo (EM §10.5: 409 COPIA_IN_CORSO, tentativo_chiuso). I parziali li ha gia' tolti la copia; un
+			// definitivo creato da questo tentativo ha la prova registrata nella riga, e il rilascio qui sotto lo toglie
 			fallita = rifiuto(http.StatusConflict, "COPIA_IN_CORSO",
 				"Questo tentativo di copia è stato chiuso (un'altra scheda l'ha ripreso, o il file è stato scartato): rileggi la Sorgente.",
 				extra("motivo", "tentativo_chiuso", "allegato_id", r.occ.AllegatoID))
@@ -348,9 +479,6 @@ func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error 
 				return err
 			}
 			if !conDefinitivo[r.conservazioneID] {
-				for _, p := range s.Deposito.partiDellaRiga(r.conservazioneID) {
-					_ = togliFile(p)
-				}
 				causa := "rifiutata"
 				if r.occ.AllegatoID == fallitaID {
 					causa = causaFallita
@@ -375,30 +503,43 @@ func (s *Servizio) copia(ctx context.Context, g gesto, righe []rigaCopia) error 
 func testoCausa(causa string) string {
 	switch causa {
 	case "spazio":
-		return "spazio esaurito nel deposito"
+		return "spazio esaurito nella cartella degli Altri file"
 	case "permessi":
-		return "permessi insufficienti sul deposito"
+		return "permessi insufficienti sulla cartella degli Altri file"
 	case "sorgente_illeggibile":
 		return "i byte del file non si leggono"
 	case "verifica_sha":
 		return "i byte letti non hanno lo sha256 del file"
 	case "conflitto":
-		return "nel deposito c'è già un file diverso con lo stesso nome"
+		return "nella cartella c'è già un file con lo stesso nome"
+	case "cartella_assente":
+		return "la cartella della RFQ non c'è"
+	case "nas_scrittura":
+		return "la scrittura sul NAS è spenta su questo server"
+	case "radice_cambiata", "fuori_cartella":
+		return "il posto registrato della copia non è valido"
 	}
 	return causa
 }
 
-// copiaUna copia i byte di un'occorrenza nel definitivo della sua riga. Restituisce la causa di un errore (spazio,
-// permessi, sorgente_illeggibile, verifica_sha, conflitto) e se il definitivo della riga esiste (scritto da questa
-// copia: un file gia' presente con un altro contenuto non e' della riga, e non si sovrascrive ne' si rilascia).
+// copiaUna copia i byte di un'occorrenza nel definitivo della sua riga con il Conservatore (U2 §3.3, passi 2-4): il
+// parziale e la promozione senza sostituzione fuori transazione, poi la registrazione della prova (registra).
+// Restituisce la causa di un errore (spazio, permessi, sorgente_illeggibile, verifica_sha, conflitto, tentativo_chiuso)
+// e se il definitivo creato da questa copia esiste (con la prova registrata: si rilascia). Un file gia' presente sul
+// nome non e' della riga: non si sovrascrive ne' si rilascia.
 func (s *Servizio) copiaUna(ctx context.Context, g gesto, r rigaCopia) (string, bool, error) {
 	sha := r.occ.Sha()
-	// una ripresa con il definitivo gia' presente e lo sha giusto si tiene; con un altro sha: conflitto (EM §10.5)
-	if r.ripresa {
-		if h, err := shaDelFile(r.percorso); err == nil {
-			if h == sha {
-				return "", true, s.confermaDefinitivo(ctx, r, "")
-			}
+	// una ripresa, o una riga che eredita il file di una copia trattenuta (U2 §3.8), con il definitivo gia' presente e
+	// lo sha giusto lo tiene; con un altro contenuto: conflitto (EM §10.5). Una riga ereditata il cui file non c'e' piu'
+	// lo riscrive con la copia di sempre
+	if r.ripresa || r.ereditata {
+		st, err := s.Conservatore.Stato(r.posto, true)
+		switch {
+		case err != nil:
+			return "sorgente_illeggibile", false, err
+		case st == nas.CopiaPresente:
+			return "", true, s.confermaDefinitivo(ctx, r, "")
+		case st == nas.CopiaCambiata:
 			return "conflitto", false, fmt.Errorf("definitivo gia' presente con un altro contenuto")
 		}
 	}
@@ -415,7 +556,7 @@ func (s *Servizio) copiaUna(ctx context.Context, g gesto, r rigaCopia) (string, 
 		}
 		var out []sorgenteByte
 		for _, sb := range tutte {
-			if !stessoPercorso(sb.percorso, r.occ.PathStaging.String) {
+			if sb.posto != nil || !stessoPercorso(sb.percorso, r.occ.PathStaging.String) {
 				out = append(out, sb)
 			}
 		}
@@ -435,12 +576,18 @@ func (s *Servizio) copiaUna(ctx context.Context, g gesto, r rigaCopia) (string, 
 	cercate := !propria
 	for i := 0; i < len(src); i++ {
 		sb := src[i]
-		parte := s.Deposito.percorsoParte(r.conservazioneID)
-		causa, err := scriviParziale(sb.percorso, parte, sha)
+		esito, err := s.copiaDa(ctx, sb, r)
 		if err != nil {
-			ultimo, ultimaCausa = err, causa
-			_ = togliFile(parte)
-			if causa == "sorgente_illeggibile" || causa == "verifica_sha" {
+			ultimo, ultimaCausa = err, esito.Causa
+			if ultimaCausa == "" {
+				ultimaCausa = "sorgente_illeggibile"
+			}
+			if ultimaCausa == "parziale_presente" {
+				// un altro tentativo con lo stesso token (lo stesso gesto, reinviato mentre il primo copia) o un parziale
+				// rimasto da un processo morto: questo tentativo non tocca niente (copiaViva)
+				return "copia_viva", false, err
+			}
+			if ultimaCausa == "sorgente_illeggibile" || ultimaCausa == "verifica_sha" {
 				// un'altra sorgente puo' andare meglio: finite quelle note, si cercano le altre (una volta)
 				if i == len(src)-1 && !cercate {
 					cercate = true
@@ -452,30 +599,51 @@ func (s *Servizio) copiaUna(ctx context.Context, g gesto, r rigaCopia) (string, 
 				}
 				continue
 			}
-			return causa, false, err
+			return ultimaCausa, false, err
 		}
-		if err := os.MkdirAll(filepath.Dir(r.percorso), 0o755); err != nil {
-			_ = togliFile(parte)
-			return causaDi(err), false, err
-		}
-		causa, err = s.rinomina(ctx, r, parte, sha, sb.tipo)
-		if err != nil {
-			_ = togliFile(parte)
-			// verifica_sha dopo la rinomina: il definitivo e' della riga (si rilascia); conflitto: non e' suo
-			return causa, causa == "verifica_sha" && esiste(r.percorso), err
-		}
-		return "", true, nil
+		causa, err := s.registra(ctx, r, sb.tipo)
+		return causa, true, err
 	}
 	return ultimaCausa, false, ultimo
 }
 
-// scriviParziale copia src nel parziale con creazione esclusiva, calcolando lo sha mentre scrive, poi Sync e confronto.
-func scriviParziale(src, parte, sha string) (string, error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return "sorgente_illeggibile", err
+// copiaDa: una sorgente aperta in sola lettura e passata al Conservatore con il token della riga. La cartella
+// della RFQ che non c'e' ancora la crea CreaCartellaThread, con la stessa scrittura (U2 §3.2, U2-P07), e la copia si
+// ripete una volta.
+func (s *Servizio) copiaDa(ctx context.Context, sb sorgenteByte, r rigaCopia) (nas.EsitoCopia, error) {
+	copia := func() (nas.EsitoCopia, error) {
+		in, err := s.apri(sb)
+		if err != nil {
+			return nas.EsitoCopia{Causa: "sorgente_illeggibile"}, err
+		}
+		defer in.Close()
+		// il parziale ALTRO\<nome>.parte.<token> porta il token della riga (U2 §3.3 passo 2): e' vivo per la pulizia dei
+		// parziali, dei documenti e del custode, finche' la riga e' in_copia (U2 §3.9)
+		return s.Conservatore.Copia(r.posto, r.token, in)
 	}
-	defer in.Close()
+	e, err := copia()
+	if err == nil || e.Causa != "cartella_assente" {
+		return e, err
+	}
+	if _, errC := documenti.CreaCartellaThread(ctx, db.New(s.Pool), s.Conservatore.Cartelle(), r.occ.Thread()); errC != nil {
+		s.log().Warn("ciclo dei file: la cartella della RFQ non si crea", "err", errC)
+		return nas.EsitoCopia{Causa: causaScritturaDi(errC)}, errC
+	}
+	return copia()
+}
+
+// causaScritturaDi: la causa di un errore di scrittura sul posto delle copie (permessi, spazio).
+func causaScritturaDi(err error) string {
+	if errors.Is(err, os.ErrPermission) {
+		return "permessi"
+	}
+	return causaDi(err)
+}
+
+// scriviParziale copia in (un file dello staging o una copia di conservazione aperta) nel parziale dello staging con
+// creazione esclusiva, calcolando lo sha mentre scrive, poi Sync e confronto.
+func scriviParziale(in *os.File, parte, sha string) (string, error) {
+	src := in.Name()
 	if err := os.MkdirAll(filepath.Dir(parte), 0o755); err != nil {
 		return causaDi(err), err
 	}
@@ -505,46 +673,54 @@ func scriviParziale(src, parte, sha string) (string, error) {
 	return "", nil
 }
 
-// rinomina: il parziale diventa il definitivo della riga con la riga presa FOR UPDATE e ancora in_copia con la propria
-// chiave, e la verifica dello sha del definitivo sta nella stessa transazione (un rilascio della stessa riga non puo'
-// cadere fra le due e lasciare un file orfano). Un definitivo gia' presente con lo stesso sha si tiene; con uno sha
-// diverso: conflitto, niente sovrascritto.
-func (s *Servizio) rinomina(ctx context.Context, r rigaCopia, parte, sha, tipo string) (string, error) {
+// registra: la prova di creazione nella riga (U2 §3.3 passo 4, §3.4), in una transazione breve dopo la promozione: la
+// riga FOR UPDATE; ancora in_copia → creato_dal_cockpit (la prova durevole, con il token del tentativo e lo sha
+// verificato) e la sorgente dei byte. Se uno «Scarta» l'ha gia' portata a da_rilasciare la prova si registra lo
+// stesso, cosi' il rilascio sa che il file e' del cockpit e lo toglie; la copia risponde tentativo_chiuso. Una riga gia'
+// chiusa del tutto (non dovrebbe succedere: il rilascio aspetta la copia in volo) fa togliere subito il file creato
+// adesso da questa stessa esecuzione: nessun altro lo conosce, come un parziale.
+func (s *Servizio) registra(ctx context.Context, r rigaCopia, tipo string) (string, error) {
 	causa := ""
+	chiusa := false
 	err := s.inTx(ctx, func(q *db.Queries) error {
 		c, err := q.GetConservazionePerAggiornare(ctx, r.conservazioneID)
 		if err != nil {
 			return err
 		}
-		if c.Stato != "in_copia" {
-			causa = "tentativo_chiuso"
-			return errors.New("la copia non e' piu' in corso")
-		}
-		if h, err := shaDelFile(r.percorso); err == nil {
-			if h != sha {
-				causa = "conflitto"
-				return errors.New("definitivo gia' presente con un altro contenuto")
+		switch c.Stato {
+		case "in_copia", "da_rilasciare":
+			if _, err := q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: c.Stato, Causa: c.Causa,
+				Errore: c.Errore, Tentativi: c.Tentativi, ProssimoTentativoIl: c.ProssimoTentativoIl, SorgenteByte: testo(tipo),
+				Prova: true, ConservazioneID: c.ConservazioneID, StatoAtteso: c.Stato}); err != nil {
+				return err
 			}
-			_ = togliFile(parte)
-		} else if err := os.Rename(parte, r.percorso); err != nil {
-			causa = causaDi(err)
-			return err
+			if c.Stato == "in_copia" {
+				return nil
+			}
+		default:
+			chiusa = true
 		}
-		if h, err := shaDelFile(r.percorso); err != nil || h != sha {
-			causa = "verifica_sha"
-			return errors.New("il definitivo non ha lo sha256 del file")
-		}
-		_, err = q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "in_copia", Tentativi: c.Tentativi,
-			SorgenteByte: testo(tipo), ConservazioneID: c.ConservazioneID, StatoAtteso: "in_copia"})
-		return err
+		causa = "tentativo_chiuso"
+		return nil
 	})
-	if err != nil && causa == "" {
-		causa = "sorgente_illeggibile"
+	if err != nil {
+		return "sorgente_illeggibile", err
 	}
-	return causa, err
+	if chiusa {
+		// il file l'ha creato questa esecuzione un istante fa, e nessuna riga lo nomina piu': si toglie come un parziale
+		e := s.Conservatore.Rimuovi(r.posto, uuid.New(), false)
+		s.log().Warn("ciclo dei file: copia promossa dopo la chiusura della sua riga", "conservazione", r.conservazioneID,
+			"rimozione", e.Esito, "motivo", e.Motivo)
+	}
+	if causa != "" {
+		return causa, errors.New("la copia non e' piu' in corso")
+	}
+	return "", nil
 }
 
-// confermaDefinitivo: una ripresa che trova il definitivo gia' giusto segna la sorgente (se manca) e va avanti.
+// confermaDefinitivo: una ripresa che trova il definitivo gia' giusto segna la sorgente (se manca) e va avanti. La prova
+// di creazione NON si registra qui: se il tentativo di prima si e' interrotto fra la promozione e la registrazione, che
+// il file l'abbia creato il cockpit non si prova piu', e il file non si togliera' mai da solo (U2 §3.3 passo 7).
 func (s *Servizio) confermaDefinitivo(ctx context.Context, r rigaCopia, tipo string) error {
 	return s.inTx(ctx, func(q *db.Queries) error {
 		c, err := q.GetConservazionePerAggiornare(ctx, r.conservazioneID)
@@ -560,13 +736,13 @@ func (s *Servizio) confermaDefinitivo(ctx context.Context, r rigaCopia, tipo str
 		if tipo == "" {
 			tipo = "conservazione"
 		}
-		_, err = q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "in_copia", Tentativi: c.Tentativi,
+		_, err = q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: "in_copia", Tentativi: c.Tentativi,
 			SorgenteByte: testo(tipo), ConservazioneID: c.ConservazioneID, StatoAtteso: "in_copia"})
 		return err
 	})
 }
 
-// battito: ogni minuto, finche' la copia del gesto e' in corso, aggiornato_il delle righe si rinfresca (in_copia →
+// battito: ogni minuto, finche' la copia del gesto e' in corso, ultimo_battito delle righe si rinfresca (in_copia →
 // in_copia) in una transazione breve con la riga FOR UPDATE; se una riga non e' piu' in_copia, il battito la lascia.
 func (s *Servizio) battito(ctx context.Context, g gesto, righe []rigaCopia) func() {
 	fine := make(chan struct{})
@@ -584,11 +760,14 @@ func (s *Servizio) battito(ctx context.Context, g gesto, righe []rigaCopia) func
 				for _, r := range righe {
 					_ = s.inTx(context.WithoutCancel(ctx), func(q *db.Queries) error {
 						c, err := q.GetConservazionePerAggiornare(ctx, r.conservazioneID)
-						if err != nil || c.Stato != "in_copia" {
+						// una riga chiusa da uno «Scarta» mentre la copia era in volo (da_rilasciare, senza la prova) continua a battere:
+						// il rilascio aspetta finche' la copia registra o il battito e' fermo da 15 minuti (U2 §3.3 passo 6)
+						if err != nil || !(c.Stato == "in_copia" || (c.Stato == "da_rilasciare" && !c.CreatoDalCockpit)) {
 							return err
 						}
-						_, err = q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "in_copia", Tentativi: c.Tentativi,
-							ConservazioneID: c.ConservazioneID, StatoAtteso: "in_copia"})
+						_, err = q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: c.Stato, Causa: c.Causa, Errore: c.Errore,
+							Tentativi: c.Tentativi, ProssimoTentativoIl: c.ProssimoTentativoIl, EsitoRimozione: c.EsitoRimozione,
+							Battito: true, ConservazioneID: c.ConservazioneID, StatoAtteso: c.Stato})
 						return err
 					})
 				}
@@ -649,7 +828,7 @@ func (s *Servizio) faseC(ctx context.Context, q *db.Queries, g gesto, righe []ri
 		if err != nil {
 			return nil, err
 		}
-		if _, err := q.UpdateConservazione(ctx, db.UpdateConservazioneParams{Stato: "copiata", Tentativi: c.Tentativi,
+		if _, err := q.AggiornaConservazione(ctx, db.AggiornaConservazioneParams{Stato: "copiata", Tentativi: c.Tentativi,
 			Bytes: r.occ.Bytes, ConservazioneID: c.ConservazioneID, StatoAtteso: "in_copia"}); err != nil {
 			return nil, err
 		}
@@ -749,6 +928,14 @@ func causaDi(err error) string {
 		return "spazio"
 	}
 	return "permessi"
+}
+
+// battitoDi: l'ultimo battito di una copia (U2 §3.3 passo 2), o il suo inizio se non ha ancora battuto.
+func battitoDi(c db.FileRfqConservazione) time.Time {
+	if c.UltimoBattito != nil {
+		return *c.UltimoBattito
+	}
+	return c.IniziataIl
 }
 
 // shaDelFile: lo sha256 di un file (errore se non c'e').

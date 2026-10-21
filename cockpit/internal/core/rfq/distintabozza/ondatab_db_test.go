@@ -8,7 +8,7 @@
 //     le identita' (proposta, registrato, emittente), il segnale visto (PE-17), lo svincolo che cita l'esclusione (PE-27);
 //   - R1 (LeggiR1): testata, n_eventi ed eventi (PE-02), registro, rif scaduti, base, vassoio, perimetro;
 //   - R6 (LeggiIntento): non_registrato, registrato con F8, FUORI_RFQ, in_corso;
-//   - R7 (LeggiStorico): i formati 1, 2 e 3 (U-06), contenuto_non_leggibile, verifica_calcolata e confermato_da_nome (PE-07);
+//   - R7 (LeggiStorico): i formati 1, 2 e 3 (U-06), contenuto_non_leggibile, i prerequisiti registrati (U2 §5.4) e confermato_da_nome (PE-07);
 //   - la conversione formato 2 → 3 (U-05, conversione-1) e la parte di U-05b che si fa senza R4 (i nodi formato_2 in R2).
 // Solo dati sintetici: la scena del database di persistenza_db_test.go e gli aiuti di formato3_aiuti_test.go.
 
@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/core/rfq/confermabom"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/jsoncanonico"
@@ -217,8 +219,8 @@ func inAltriFile(t *testing.T, p *pgxpool.Pool, allegato, utente uuid.UUID) {
 		sql  string
 		args []any
 	}{
-		{`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id)
-			SELECT m.thread_id, a.allegato_id, a.sha256, 10, 'segnaposto', gen_random_uuid()
+		{`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id)
+			SELECT m.thread_id, a.allegato_id, a.sha256, 10, 'ALTRO\' || a.allegato_id || '.pdf', gen_random_uuid()
 			  FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id WHERE a.allegato_id = $1`, []any{allegato}},
 		{`UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'staging' WHERE allegato_id = $1 AND stato = 'in_copia'`, []any{allegato}},
 		{`INSERT INTO file_rfq (thread_id, allegato_id, stato, versione, messaggio_id, canale, contenitore_id, indice, nome_file, path_interno,
@@ -258,6 +260,53 @@ func nuovaProposta(t *testing.T, p *pgxpool.Pool, allegato, thread uuid.UUID, co
 		VALUES ($1, $2, $3, 'disegno_2d', COALESCE((SELECT c.codice FROM componente c WHERE c.componente_id = $4), 'ACM-9000'), $4, 70, 'nome_file')`,
 		id, allegato, thread, nullUUID(componente))
 	return id
+}
+
+// arAttivaDiProva: una associazione registrata attiva (file_rfq_associazione) allegato → componente, scritta a mano per le
+// prove di R2 (lo svincolo cita una AR attiva, EM §3.6.2; direttiva 35, C-2). La scriverebbe R5 attraverso il servizio
+// unico (C-1c, C-5): qui una conferma formato 1 minima del prodotto, il componente certificato e la AR, con i trigger
+// delle tre tabelle spenti solo nella transazione (le FK restano: fk_fra_conferma e, al COMMIT,
+// fk_fra_conferma_componente). La prova e' su R2, non sulla nascita della AR (quella e' in platform/migrazioni).
+func arAttivaDiProva(t *testing.T, p *pgxpool.Pool, thread, prodotto, allegato, componente, utente uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	conferma, ar := uuid.New(), uuid.New()
+	tx, err := p.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	for _, x := range []struct {
+		sql  string
+		args []any
+	}{
+		{`ALTER TABLE conferma_strutturale DISABLE TRIGGER USER`, nil},
+		{`ALTER TABLE conferma_strutturale_componente DISABLE TRIGGER USER`, nil},
+		{`ALTER TABLE file_rfq_associazione DISABLE TRIGGER USER`, nil},
+		{`INSERT INTO conferma_strutturale (conferma_id, thread_id, prodotto_id, numero, formato, senza_riepilogo_v2, firma_struttura,
+				base_contatore, contatore, contatore_dati, origine, snapshot, impronta_snapshot, delta, mappa, criterio_verifica, confermato_da)
+			VALUES ($1, $2, $3, (SELECT COALESCE(max(numero), 0) + 1 FROM conferma_strutturale WHERE prodotto_id = $3), 1, true,
+				repeat('3', 64), 0, 0, 0, '{"rotta":"prova"}', '{"formato":1}', repeat('9', 64), '{}', '{}', 'nessuno', $4)`,
+			[]any{conferma, thread, prodotto, utente}},
+		{`INSERT INTO conferma_strutturale_componente (conferma_id, thread_id, componente_id, codice, tipo)
+			SELECT $1, c.thread_id, c.componente_id, c.codice, c.tipo FROM componente c WHERE c.componente_id = $2`, []any{conferma, componente}},
+		{`INSERT INTO file_rfq_associazione (associazione_id, thread_id, allegato_id, componente_id, origine, conferma_id, chiave_bozza,
+				provenienza_pb, chiave_idempotenza, creata_da)
+			VALUES ($1, $2, $3, $4, 'conferma_bom', $5, 'k-prova', 'manuale', gen_random_uuid(), $6)`, []any{ar, thread, allegato, componente, conferma, utente}},
+		// le FK differite si controllano qui: con eventi in sospeso la tabella non si riaccende (55006)
+		{`SET CONSTRAINTS ALL IMMEDIATE`, nil},
+		{`ALTER TABLE file_rfq_associazione ENABLE TRIGGER USER`, nil},
+		{`ALTER TABLE conferma_strutturale_componente ENABLE TRIGGER USER`, nil},
+		{`ALTER TABLE conferma_strutturale ENABLE TRIGGER USER`, nil},
+	} {
+		if _, err := tx.Exec(ctx, x.sql, x.args...); err != nil {
+			t.Fatalf("%v\n%s", err, x.sql)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return ar
 }
 
 // eventiDB: gli eventi della bozza dal numero dato in poi, come li ha scritti il database.
@@ -415,30 +464,31 @@ func TestV1SalvaFormato3AnnullaERifaiSulDatabase(t *testing.T) {
 }
 
 // PE-22 sul database e il vassoio di R1: lo svincolo per nodo escluso entra nel vassoio, «Lascia senza associazione» lo
-// toglie (una versione nuova senza cambi dello snapshot); una proposta di un'altra RFQ nominata da «Lascia» e' FUORI_RFQ.
+// toglie (una versione nuova senza cambi dello snapshot); un allegato di un'altra RFQ nominato da «Lascia» e' FUORI_RFQ.
+// Direttiva 35, C-2: gli eventi dei file e il vassoio sono per allegato_id.
 func TestV1SalvaFormato3LoSvincoloEIlVassoio(t *testing.T) {
 	sc := preparaBozza3(t)
 	v2 := copiaProfonda(t, sc.base)
 	v2["documenti_preassociati"] = []any{}
-	prima := map[string]any{"proposta_id": sc.proposta.String(), "chiave_bozza": "k-0007"}
+	pdf := sc.id.pdf.String()
+	prima := map[string]any{"allegato_id": pdf, "chiave_bozza": "k-0007"}
 	if _, err := sc.salva3(t, 1, uuid.New(), v2, []Azione{
-		azione3(t, AzFileSvincolato, "k-0007", prima, map[string]any{"proposta_id": sc.proposta.String(), "motivo": SvincoloNodoEscluso}),
+		azione3(t, AzFileSvincolato, "k-0007", prima, map[string]any{"allegato_id": pdf, "motivo": SvincoloNodoEscluso}),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	l := sc.leggiR1(t, OpzioniR1{})
-	if l.Vassoio == nil || len(*l.Vassoio) != 1 || (*l.Vassoio)[0] != (VoceVassoio{PropostaID: sc.proposta.String(), Motivo: SvincoloNodoEscluso, ChiaveBozza: "k-0007"}) {
+	if l.Vassoio == nil || len(*l.Vassoio) != 1 || (*l.Vassoio)[0] != (VoceVassoio{AllegatoID: pdf, Motivo: SvincoloNodoEscluso, ChiaveBozza: "k-0007"}) {
 		t.Fatalf("vassoio dopo lo svincolo: %+v", l.Vassoio)
 	}
-	r, err := sc.salva3(t, 2, uuid.New(), v2, []Azione{azione3(t, AzFileLasciato, "", nil, map[string]any{"proposta_id": sc.proposta.String()})})
+	r, err := sc.salva3(t, 2, uuid.New(), v2, []Azione{azione3(t, AzFileLasciato, "", nil, map[string]any{"allegato_id": pdf})})
 	if err != nil || r.Versione != 3 || r.Eventi != 1 {
 		t.Fatalf("Lascia: %+v %v", r, err)
 	}
 	if l := sc.leggiR1(t, OpzioniR1{}); l.Vassoio == nil || len(*l.Vassoio) != 0 {
 		t.Fatalf("vassoio dopo Lascia: %+v", l.Vassoio)
 	}
-	altra := nuovaProposta(t, sc.p, sc.allegatoT2, sc.thread2, nil)
-	_, err = sc.salva3(t, 3, uuid.New(), v2, []Azione{azione3(t, AzFileLasciato, "", nil, map[string]any{"proposta_id": altra.String()})})
+	_, err = sc.salva3(t, 3, uuid.New(), v2, []Azione{azione3(t, AzFileLasciato, "", nil, map[string]any{"allegato_id": sc.allegatoT2.String()})})
 	codice3(t, err, CodiceFuoriRFQ, "")
 }
 
@@ -456,24 +506,23 @@ func TestV1SalvaFormato3IRiferimentiELeIdentita(t *testing.T) {
 		}
 		return r, err
 	}
-	conPre := func(proposta uuid.UUID, chiave string) (map[string]any, Azione) {
+	conPre := func(allegato uuid.UUID, chiave string) (map[string]any, Azione) {
 		s := copiaProfonda(t, cur)
-		x := map[string]any{"proposta_id": proposta.String(), "chiave_bozza": chiave}
+		x := map[string]any{"allegato_id": allegato.String(), "chiave_bozza": chiave}
 		s["documenti_preassociati"] = append(s["documenti_preassociati"].([]any), x)
 		return s, azione3(t, AzFilePreassociato, chiave, nil, x)
 	}
 
-	// una proposta di un'altra RFQ
-	altra := nuovaProposta(t, sc.p, sc.allegatoT2, sc.thread2, nil)
-	s, a := conPre(altra, "k-0009")
+	// un allegato di un'altra RFQ
+	s, a := conPre(sc.allegatoT2, "k-0009")
 	_, err := salva(s, a)
 	codice3(t, err, CodiceFuoriRFQ, "")
 
-	// il file della proposta in Altri file
+	// il file in Altri file
 	pdf := nuovoAllegato(t, sc.p, idDi("msg-0"), 3, "ACM-1100_c.pdf", strings.Repeat("d", 64))
-	pPdf := nuovaProposta(t, sc.p, pdf, sc.thread, nil)
+	nuovaProposta(t, sc.p, pdf, sc.thread, nil)
 	inAltriFile(t, sc.p, pdf, sc.utente)
-	s, a = conPre(pPdf, "k-0009")
+	s, a = conPre(pdf, "k-0009")
 	_, err = salva(s, a)
 	codice3(t, err, CodiceFileNonAttivo, "")
 
@@ -547,12 +596,14 @@ func TestV1SalvaFormato3IRiferimentiELeIdentita(t *testing.T) {
 		t.Fatalf("segnale visto con la versione del registro: %v", err)
 	}
 
-	// PE-27: l'esclusione di un componente della RFQ e lo svincolo che la cita, nello stesso salvataggio
+	// PE-27: l'esclusione di un componente della RFQ e lo svincolo che la cita, nello stesso salvataggio. Lo svincolo
+	// {allegato_id, componente_id} cita una AR attiva (direttiva 35, C-2; EM §3.6.2): qui scritta a mano
 	comp := idDi("k-p1-1")
 	pdf2 := nuovoAllegato(t, sc.p, idDi("msg-0"), 4, "ACM-1101.pdf", strings.Repeat("f", 64))
-	pComp := nuovaProposta(t, sc.p, pdf2, sc.thread, &comp)
+	nuovaProposta(t, sc.p, pdf2, sc.thread, &comp)
+	arAttivaDiProva(t, sc.p, sc.thread, sc.prodotto, pdf2, comp, sc.utente)
 	ex := map[string]any{"id": "ex-0001", "tipo": "escludi", "componente_id": comp.String(), "motivo": "non serve piu'"}
-	sv := map[string]any{"id": "sv-0002", "tipo": "scollega_documento", "proposta_id": pComp.String(), "componente_id": comp.String(),
+	sv := map[string]any{"id": "sv-0002", "tipo": "scollega_documento", "allegato_id": pdf2.String(), "componente_id": comp.String(),
 		"da_decisione": "ex-0001"}
 	s = copiaProfonda(t, cur)
 	s["decisioni"] = append(s["decisioni"].([]any), ex, sv)
@@ -720,6 +771,7 @@ func TestV1StoricoR7ITreFormati(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f3 = conProvenienzaPB(t, f3)
 	c1, c2, c3, c4 := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	tx, err := sc.p.Begin(ctx)
 	if err != nil {
@@ -745,9 +797,9 @@ func TestV1StoricoR7ITreFormati(t *testing.T) {
 		{`INSERT INTO conferma_strutturale (conferma_id, thread_id, prodotto_id, numero, precedente_id, formato, senza_riepilogo_v2, firma_struttura,
 				firma_anteprima, base_conferma_id, base_contatore, firma_base, contatore, contatore_dati, bozza_id, bozza_versione, fonte_allegato_id,
 				fonte_sha256, fonte_gruppo, origine, snapshot, impronta_snapshot, delta, mappa, criterio_verifica, chiave_idempotenza, confermato_da,
-				importazione_id, importazioni_citate)
+				importazione_id, importazioni_citate, verifica)
 			VALUES ($1, $2, $3, 3, $4, 3, false, repeat('3', 64), repeat('2', 64), $4, 12, repeat('1', 64), 0, 0, $5, 1, $6, $7, 'bom',
-				'{"rotta":"prova"}', $8, $9, '{}', '{}', 'nessuno', gen_random_uuid(), $10, $11, ARRAY[$11]::uuid[])`,
+				'{"rotta":"prova"}', $8, $9, '{}', '{}', 'nessuno', gen_random_uuid(), $10, $11, ARRAY[$11]::uuid[], '{"regola": "prima-istanza-1"}')`,
 			[]any{c3, sc.thread, sc.prodotto, c2, sc.bozza, sc.id.allegato, sc.id.sha, f3, jsoncanonico.Impronta(f3), sc.utente, sc.importazioneID}},
 		// una conferma con uno snapshot che il lettore del formato 2 non sa leggere (altro prodotto)
 		{`INSERT INTO conferma_strutturale (conferma_id, thread_id, prodotto_id, numero, formato, senza_riepilogo_v2, firma_struttura,
@@ -780,17 +832,23 @@ func TestV1StoricoR7ITreFormati(t *testing.T) {
 	if len(st.Conferme) != 3 {
 		t.Fatalf("conferme: %+v", st.Conferme)
 	}
-	// verifica_calcolata (EM §9.7, MAT §6.2, PM23 R-17, alla lettera del testo recepito): vera per la conferma formato 3
-	// scritta da R5, falsa per le formato 1 (con la colonna verifica al suo valore di partenza, '{}') e 2 (anche con un esito
-	// nella colonna verifica)
+	// U2 §5.4 (R-17 riscritta): verifica_calcolata non c'e' piu'; la conferma formato 3 porta i prerequisiti registrati
+	// (criterio, regola prima-istanza-1, firma; gerarchia e deroga dichiarate mancanti se origine non le porta), le
+	// formato 1 e 2 no; nessun si' o no
 	for i, atteso := range []struct {
-		formato  int
-		verifica bool
+		formato      int
+		prerequisiti bool
 	}{{1, false}, {2, false}, {3, true}} {
 		c := st.Conferme[i]
-		if c.Formato != atteso.formato || c.VerificaCalcolata != atteso.verifica || c.ConfermatoDaNome != "Prova bozza" || c.ConfermatoDaSigla != "DBZ" {
+		if c.Formato != atteso.formato || (c.Prerequisiti != nil) != atteso.prerequisiti || c.ConfermatoDaNome != "Prova bozza" || c.ConfermatoDaSigla != "DBZ" {
 			t.Errorf("conferma %d: %+v", i+1, c)
 		}
+	}
+	if p := st.Conferme[2].Prerequisiti; p == nil || p.Regola != confermabom.RegolaPrimaIstanza || p.FirmaStruttura == "" || len(p.Mancanti) != 2 {
+		t.Errorf("prerequisiti della conferma formato 3: %+v", p)
+	}
+	if b, _ := json.Marshal(st.Conferme[2]); strings.Contains(string(b), "verifica_calcolata") || strings.Contains(string(b), `"verificata"`) {
+		t.Errorf("R7 porta un esito della verifica: %s", b)
 	}
 	if !st.Conferme[2].Ultima || st.Conferme[0].Ultima || st.Conferme[2].ImportazioneID == nil || *st.Conferme[2].ImportazioneID != sc.importazioneID {
 		t.Errorf("ultima e registro: %+v", st.Conferme[2])
@@ -875,7 +933,15 @@ func TestV1ConversioneFormato2(t *testing.T) {
 	riga := uuid.MustParse("00000000-0000-4000-8000-0000000c0007")
 	rigaM := uuid.MustParse("00000000-0000-4000-8000-0000000c0008")
 	rigaS := uuid.MustParse("00000000-0000-4000-8000-0000000c0009")
-	proposta := nuovaProposta(t, p, s.allegato2, s.thread, nil)
+	// due preassociazioni formato 2 {proposta_id}: su un PDF (si traduce) e sullo STEP allegato2 (si traduce e si segnala);
+	// direttiva 35, C-2. Direttiva 39 §5, D-2 (c) [U]: uno STEP si segnala solo se e' legato come sorgente del finito;
+	// qui allegato2 lo e' come documento STEP storico del prodotto (confermato, senza conferme di S8)
+	esegui3(t, p, `INSERT INTO documento (documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, path_relativo, confermato_da)
+		VALUES (gen_random_uuid(), $1, $2, 'cad_3d', 'ACM-1000', 'A', 'ACM-1000_bis.stp', 'stp', repeat('c', 64), 'ACME/ACM-1000_bis.stp', $3)`,
+		s.thread, s.prodotto, s.utente)
+	pdfConv := nuovoAllegato(t, p, idDi("msg-0"), 9, "ACM-1100.pdf", strings.Repeat("a", 64))
+	proposta := nuovaProposta(t, p, pdfConv, s.thread, nil)
+	propostaStep := nuovaProposta(t, p, s.allegato2, s.thread, nil)
 	ricodifica := json.RawMessage(`{"id":"rc-1","tipo":"ricodifica","componente_id":"` + idDi("k-p1-1").String() +
 		`","codice_prima":"ACM-1101","codice_dopo":"ACM-1101X","motivo":"il codice del fornitore"}`)
 	vecchio := Snapshot{Formato: FormatoSnapshot, ProdottoID: s.prodotto, VersioneBomBase: &VersioneBomBase{}, FirmaBase: firmaProva,
@@ -893,7 +959,7 @@ func TestV1ConversioneFormato2(t *testing.T) {
 		Archi: []Arco{{Padre: "k-root", Figlio: "k-7", Qta: 1, Origine: "step"}, {Padre: "k-7", Figlio: "k-9", Qta: 2, Origine: "step"},
 			{Padre: "k-root", Figlio: "k-m", Qta: 1, Origine: "utente", Posizione: "P1"}, {Padre: "k-7", Figlio: "k-s", Qta: 1, Origine: "step"}},
 		Decisioni:             []json.RawMessage{ricodifica, json.RawMessage(`{"id":"mp-1","tipo":"mono_pezzo","motivo":"pezzo unico"}`)},
-		DocumentiPreassociati: []Preassociazione{{PropostaID: proposta, ChiaveBozza: "k-7"}},
+		DocumentiPreassociati: []Preassociazione2{{PropostaID: proposta, ChiaveBozza: "k-7"}, {PropostaID: propostaStep, ChiaveBozza: "k-9"}},
 	}
 	b2 := bozza2DB(t, p, s.thread, s.prodotto, s.utente, vecchio)
 	var primaDB string
@@ -932,6 +998,11 @@ func TestV1ConversioneFormato2(t *testing.T) {
 		c.DecisioniCompletate[0] != (DecisioneCompletata{ID: "rc-1", Campo: "emittente_dopo"}) || len(c.FontiNonRiportate) != 0 {
 		t.Fatalf("tracce: %+v", c)
 	}
+	// direttiva 35, C-2: due preassociazioni tradotte, quella sullo STEP segnalata
+	if c.PreassociazioniTradotte != 2 || len(c.PreassociazioniSegnalate) != 1 || c.PreassociazioniSegnalate[0] != (PreassociazioneSegnalata{
+		PropostaID: propostaStep, AllegatoID: s.allegato2, ChiaveBozza: "k-9", Motivo: PreassociazioneLegatoComeSorgente}) {
+		t.Fatalf("preassociazioni tradotte e segnalate: %d %+v", c.PreassociazioniTradotte, c.PreassociazioniSegnalate)
+	}
 	// la formato 2: abbandonata, con il solo prefisso nel motivo di chiusura; lo snapshot identico
 	var stato, motivoChiusura, dopoDB string
 	if err := p.QueryRow(ctx, `SELECT stato, motivo_chiusura FROM distinta_bozza WHERE bozza_id = $1`, b2).Scan(&stato, &motivoChiusura); err != nil {
@@ -965,8 +1036,16 @@ func TestV1ConversioneFormato2(t *testing.T) {
 		n3.Decisioni[0].ID != "mp-1" || n3.Decisioni[0].Motivo != "pezzo unico" {
 		t.Errorf("decisioni: %+v", n3.Decisioni)
 	}
-	if len(n3.DocumentiPreassociati) != 1 || n3.DocumentiPreassociati[0] != (Preassociazione{PropostaID: proposta, ChiaveBozza: "k-7"}) {
+	// le preassociazioni tradotte 1:1 da proposta_id ad allegato_id, nell'ordine canonico per allegato (direttiva 35, C-2)
+	// con la provenienza manuale (direttiva 39 §4 [T-39]: la PB del formato 2 l'ha messa l'ingegnere, senza un registro)
+	attese := []Preassociazione3{{AllegatoID: pdfConv, ChiaveBozza: "k-7", Provenienza: ProvenienzaManuale},
+		{AllegatoID: s.allegato2, ChiaveBozza: "k-9", Provenienza: ProvenienzaManuale}}
+	sort.Slice(attese, func(i, j int) bool { return attese[i].AllegatoID.String() < attese[j].AllegatoID.String() })
+	if len(n3.DocumentiPreassociati) != 2 || n3.DocumentiPreassociati[0] != attese[0] || n3.DocumentiPreassociati[1] != attese[1] {
 		t.Errorf("preassociazioni: %+v", n3.DocumentiPreassociati)
+	}
+	if strings.Contains(string(c.Snapshot), "proposta_id") {
+		t.Errorf("lo snapshot formato 3 della versione 1 porta ancora proposta_id: %s", c.Snapshot)
 	}
 	// l'arco fra due caselle resta dello STEP; quello dalla radice (senza caselle nel formato 2) resta dell'ingegnere
 	for _, a := range n3.Archi {
@@ -997,7 +1076,8 @@ func TestV1ConversioneFormato2(t *testing.T) {
 		!strings.Contains(daBozza, riga.String()) || !strings.Contains(daBozza, rigaM.String()) || !strings.Contains(daBozza, rigaS.String()) ||
 		!strings.Contains(daBozza, `"archi_senza_step":[{"figlio":"k-s","padre":"k-7"},{"figlio":"k-7","padre":"k-root"}]`) ||
 		!strings.Contains(daBozza, `"nodi_senza_casella":["k-s"]`) || !strings.Contains(daBozza, `"decisioni_completate":[{"campo":"emittente_dopo","id":"rc-1"}]`) ||
-		!strings.Contains(daBozza, `"fonti_non_riportate":[]`) {
+		!strings.Contains(daBozza, `"fonti_non_riportate":[]`) || !strings.Contains(daBozza, `"preassociazioni_tradotte":2`) ||
+		!strings.Contains(daBozza, `"preassociazioni_segnalate":[{"allegato_id":"`+s.allegato2.String()+`","chiave_bozza":"k-9","motivo":"legato_come_sorgente","proposta_id":"`+propostaStep.String()+`"}]`) {
 		t.Fatalf("evento di apertura: %+v\n%s", ee, daBozza)
 	}
 	// la fonte secondaria rifatta sulla bozza nuova, con la stessa chiave
@@ -1009,7 +1089,7 @@ func TestV1ConversioneFormato2(t *testing.T) {
 	c2, err := Converti(ctx, p, Conversione3{ThreadID: s.thread, ProdottoID: s.prodotto, UtenteID: s.utente, BozzaID: b2, VersioneAttesa: 1,
 		Motivo: motivo, ChiaveSalvataggio: chiave, ImprontaRichiesta: strings.Repeat("5", 64)})
 	if err != nil || !c2.Riproposto || c2.BozzaID != c.BozzaID || len(c2.RigheCadute) != 2 || len(c2.ArchiSenzaStep) != 2 ||
-		len(c2.NodiSenzaCasella) != 1 || len(c2.DecisioniCompletate) != 1 {
+		len(c2.NodiSenzaCasella) != 1 || len(c2.DecisioniCompletate) != 1 || c2.PreassociazioniTradotte != 2 || len(c2.PreassociazioniSegnalate) != 1 {
 		t.Fatalf("reinvio della conversione: %+v %v", c2, err)
 	}
 	// U-05b (la parte senza R4): un nodo formato_2 tiene codice e rev della versione 1

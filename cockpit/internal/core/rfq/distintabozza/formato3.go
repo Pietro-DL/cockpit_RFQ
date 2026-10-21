@@ -83,18 +83,41 @@ func corpoMotivo(campo, motivo, formato string, a ...any) *Errore {
 // Snapshot3 e' la bozza formato 3 di un prodotto, come si salva e come si rilegge (EM §3.2): dodici campi di primo
 // livello come nel formato 2, tre dei quali (bozza_id, bozza_versione, chiave_idempotenza) sono della richiesta e non
 // stanno nello snapshot salvato. La forma canonica e' quella di jsoncanonico, senza NFC sull'identita'; gli elenchi in
-// ordine: nodi per chiave, archi per (padre, figlio), decisioni per id, preassociazioni per proposta, caselle per
-// (gruppo, rif, allegato_id). I facoltativi vuoti non si scrivono; i quattro elenchi di testa si scrivono sempre.
+// ordine: nodi per chiave, archi per (padre, figlio), decisioni per id, preassociazioni per allegato (direttiva 35,
+// C-2), caselle per (gruppo, rif, allegato_id). I facoltativi vuoti non si scrivono; i quattro elenchi di testa si
+// scrivono sempre.
 type Snapshot3 struct {
-	Formato               int               `json:"formato"`
-	ProdottoID            uuid.UUID         `json:"prodotto_id"`
-	Sorgente              *Sorgente3        `json:"sorgente,omitempty"`
-	VersioneBomBase       *VersioneBomBase  `json:"versione_bom_base,omitempty"`
-	FirmaBase             string            `json:"firma_base,omitempty"`
-	Nodi                  []Nodo3           `json:"nodi"`
-	Archi                 []Arco3           `json:"archi"`
-	Decisioni             []Decisione3      `json:"decisioni"`
-	DocumentiPreassociati []Preassociazione `json:"documenti_preassociati"`
+	Formato               int                `json:"formato"`
+	ProdottoID            uuid.UUID          `json:"prodotto_id"`
+	Sorgente              *Sorgente3         `json:"sorgente,omitempty"`
+	VersioneBomBase       *VersioneBomBase   `json:"versione_bom_base,omitempty"`
+	FirmaBase             string             `json:"firma_base,omitempty"`
+	Nodi                  []Nodo3            `json:"nodi"`
+	Archi                 []Arco3            `json:"archi"`
+	Decisioni             []Decisione3       `json:"decisioni"`
+	DocumentiPreassociati []Preassociazione3 `json:"documenti_preassociati"`
+}
+
+// Preassociazione3 e' la preassociazione (PB) del formato 3: un'occorrenza della RFQ (allegato_id) sul nodo della bozza
+// (chiave_bozza) a cui l'ingegnere la mette (direttiva 35 §1.1 [U], DIR35-PB; EM §3.7). Non cita la proposta di
+// documento: per preassociare non serve una riga di documento_proposta (Prova 2 della direttiva), e la classificazione,
+// se c'e', serve solo ai controlli di compatibilita' di R4. La RFQ la da' la bozza; che l'allegato sia della RFQ, attivo
+// e di una natura che si preassocia lo verifica R2 (salva3.go). Il formato 2 resta Preassociazione2 {proposta_id}.
+//
+// Direttiva 39 §4 (D-PB03 A [U]; NOMI (c) e R39-02 [T-39]): la PB porta la sua provenienza (motore, corretta, manuale,
+// legacy) e, con motore o corretta, l'impronta del registro d'importazione d'origine (importazione). Le decide il
+// server, mai il browser (R39-24): R2 rifiuta una provenienza nuova o cambiata dalla pagina (provenienzaDelServer). La
+// 0023 (dalla variante 20261019c; vigente la 20261019d) ne controlla il dominio nella versione e l'obbligo nella conferma.
+//
+// R39-15 (decisione [T-39] dell'orchestratore): una PB legacy si riconosce con l'azione esplicita file_riconosciuto di R2;
+// la provenienza resta legacy e la PB passa a verificata (verificata: true, deciso dal server come la provenienza). Finche'
+// non e' verificata (o tolta), R4 la mostra fra le «legacy da verificare» e R5 e' bloccata (legacy_da_verificare).
+type Preassociazione3 struct {
+	AllegatoID   uuid.UUID `json:"allegato_id"`
+	ChiaveBozza  string    `json:"chiave_bozza"`
+	Provenienza  string    `json:"provenienza,omitempty"`
+	Importazione string    `json:"importazione,omitempty"`
+	Verificata   bool      `json:"verificata,omitempty"`
 }
 
 // Sorgente3 e' la fonte STEP della bozza con il registro d'importazione (EM §3.3): allegato e sha256 insieme o nessuno
@@ -117,6 +140,10 @@ type Nodo3 struct {
 	Origine      string     `json:"origine"`
 	Caselle      []Casella3 `json:"caselle,omitempty"`
 	Identita     Identita   `json:"identita"`
+	// U2 §7.7: le evidenze documentali dell'identita' di un nodo manuale
+	EvidenzeIdentita []EvidenzaDocumentale `json:"evidenze_identita,omitempty"`
+	// U2 §6.4.2: «Conferma il tipo proposto» (il tipo stesso e' nel campo tipo)
+	TipoConfermato bool `json:"tipo_confermato,omitempty"`
 }
 
 // Casella3 e' la chiave d'origine di un nodo STEP (EM §3.4.1): l'occorrenza, il gruppo, il rif nodo:<sha256>:<chiave>.
@@ -146,6 +173,8 @@ type Arco3 struct {
 	Origine   string     `json:"origine"`
 	Posizione string     `json:"posizione,omitempty"`
 	Step      *StepArco3 `json:"step,omitempty"`
+	// U2 §7.7: le evidenze documentali di un arco con origine utente
+	EvidenzeArco []EvidenzaDocumentale `json:"evidenze_arco,omitempty"`
 }
 
 // StepArco3 dice da quale occorrenza e gruppo viene un arco STEP accettato (EM §3.5).
@@ -168,7 +197,7 @@ type snapshot3In struct {
 	Nodi                  []nodo3In          `json:"nodi"`
 	Archi                 []arco3In          `json:"archi"`
 	Decisioni             []json.RawMessage  `json:"decisioni"`
-	DocumentiPreassociati []Preassociazione  `json:"documenti_preassociati"`
+	DocumentiPreassociati []Preassociazione3 `json:"documenti_preassociati"`
 }
 
 type sorgente3In struct {
@@ -187,6 +216,9 @@ type nodo3In struct {
 	Origine      *string      `json:"origine"`
 	Caselle      []casella3In `json:"caselle"`
 	Identita     *identitaIn  `json:"identita"`
+
+	EvidenzeIdentita []evidenzaIn `json:"evidenze_identita"`
+	TipoConfermato   *bool        `json:"tipo_confermato"`
 }
 
 type casella3In struct {
@@ -212,6 +244,8 @@ type arco3In struct {
 	Origine   *string      `json:"origine"`
 	Posizione *string      `json:"posizione"`
 	Step      *stepArco3In `json:"step"`
+
+	EvidenzeArco []evidenzaIn `json:"evidenze_arco"`
 }
 
 type stepArco3In struct {
@@ -368,6 +402,10 @@ func (n nodo3In) converti(campo string) (Nodo3, *Errore) {
 	if id.EmittentePresunto != nil {
 		o.Identita.EmittentePresunto = *id.EmittentePresunto
 	}
+	o.EvidenzeIdentita = convertiEvidenze(n.EvidenzeIdentita)
+	if n.TipoConfermato != nil {
+		o.TipoConfermato = *n.TipoConfermato
+	}
 	return o, nil
 }
 
@@ -392,6 +430,7 @@ func (a arco3In) converti(campo string) (Arco3, *Errore) {
 		}
 		o.Step = &StepArco3{AllegatoID: *a.Step.AllegatoID, Gruppo: *a.Step.Gruppo}
 	}
+	o.EvidenzeArco = convertiEvidenze(a.EvidenzeArco)
 	return o, nil
 }
 
@@ -507,12 +546,16 @@ func (s *Sorgente3) valida(campo string) *Errore {
 	if s.Sha256 != "" && !reSha256.MatchString(s.Sha256) {
 		return corpo(campo+".sha256", "lo sha256 e' di 64 cifre esadecimali minuscole")
 	}
+	// il gruppo riservato solo_prodotto (direttiva 39 §3): lo STEP reale, senza registro
+	if s.Gruppo == GruppoSoloProdotto && s.AllegatoID == nil {
+		return corpo(campo+".allegato_id", "la sorgente solo_prodotto e' uno STEP reale: vuole allegato_id e sha256")
+	}
 	if s.Importazione != "" {
 		if !reSha256.MatchString(s.Importazione) {
 			return corpo(campo+".importazione", "l'impronta del registro e' di 64 cifre esadecimali minuscole")
 		}
-		if s.Gruppo == "senza" {
-			return corpo(campo+".gruppo", "il gruppo «senza» non si importa")
+		if s.Gruppo == "senza" || s.Gruppo == GruppoSoloProdotto {
+			return corpo(campo+".gruppo", "il gruppo «%s» non si importa", s.Gruppo)
 		}
 		if s.AllegatoID == nil {
 			return corpo(campo+".allegato_id", "un registro ha la sua fonte: la sorgente vuole allegato_id e sha256")
@@ -641,6 +684,16 @@ func validaNodo3(campo string, n Nodo3, sorgente *Sorgente3) *Errore {
 		}
 		viste[c] = true
 	}
+	// U2 §7.7: le evidenze dell'identita' stanno nei nodi manuali (le altre identita' hanno la loro evidenza: la casella,
+	// la lettura, il componente registrato, la decisione)
+	if len(n.EvidenzeIdentita) > 0 {
+		if n.Identita.Modo != ModoManuale {
+			return corpo(campo+".evidenze_identita", "le evidenze documentali dell'identita' stanno in un nodo manuale (modo %s)", n.Identita.Modo)
+		}
+		if e := validaEvidenze(campo+".evidenze_identita", n.EvidenzeIdentita); e != nil {
+			return e
+		}
+	}
 	return validaIdentita(campo, n)
 }
 
@@ -687,6 +740,15 @@ func validaArco3(campo string, a Arco3, sorgente *Sorgente3) *Errore {
 		}
 		if sorgente == nil || sorgente.AllegatoID == nil || *sorgente.AllegatoID != a.Step.AllegatoID || sorgente.Gruppo != a.Step.Gruppo {
 			return corpoMotivo(campo+".step", MotivoRifFuoriImportazione, "lo step dell'arco non ha l'occorrenza e il gruppo della sorgente")
+		}
+	}
+	// U2 §7.7: le evidenze di un arco stanno negli archi dell'ingegnere (origine utente)
+	if len(a.EvidenzeArco) > 0 {
+		if a.Origine != OrigineUtente {
+			return corpo(campo+".evidenze_arco", "le evidenze documentali stanno in un arco con origine utente (questo e' %s)", a.Origine)
+		}
+		if e := validaEvidenze(campo+".evidenze_arco", a.EvidenzeArco); e != nil {
+			return e
 		}
 	}
 	return nil
@@ -770,22 +832,28 @@ func (s *Snapshot3) valida() *Errore {
 	if e := s.validaDecisioni(nodi, rifDi); e != nil {
 		return e
 	}
-	proposteViste := map[uuid.UUID]bool{}
+	// lo stesso allegato non e' preassociato due volte nella bozza: una sola AR attiva per allegato (provvisorio, base [T]
+	// D-ASS-04 A; con la risposta B la regola cambia)
+	allegatiVisti := map[uuid.UUID]bool{}
 	for i, p := range s.DocumentiPreassociati {
 		campo := fmt.Sprintf("documenti_preassociati[%d]", i)
-		if p.PropostaID == uuid.Nil {
-			return corpo(campo+".proposta_id", "proposta nulla")
+		if p.AllegatoID == uuid.Nil {
+			return corpo(campo+".allegato_id", "allegato nullo")
 		}
-		if proposteViste[p.PropostaID] {
-			return corpo(campo+".proposta_id", "la proposta %s e' preassociata due volte", p.PropostaID)
+		if allegatiVisti[p.AllegatoID] {
+			return corpo(campo+".allegato_id", "l'allegato %s e' preassociato due volte nella bozza (una sola preassociazione per file)", p.AllegatoID)
 		}
-		proposteViste[p.PropostaID] = true
+		allegatiVisti[p.AllegatoID] = true
 		n, ok := nodi[p.ChiaveBozza]
 		if !ok {
 			return corpo(campo+".chiave_bozza", "%q non e' un nodo della bozza", p.ChiaveBozza)
 		}
 		if n.Op == OpEsclude {
 			return corpo(campo+".chiave_bozza", "un documento non si preassocia a un nodo escluso")
+		}
+		// direttiva 39 §4 (D-PB03 A [U]): la forma della provenienza e del registro d'origine (provenienza3.go)
+		if e := validaProvenienza(campo, p); e != nil {
+			return e
 		}
 	}
 	return s.originiConferma()
@@ -797,6 +865,8 @@ func (s *Snapshot3) valida() *Errore {
 func (s *Snapshot3) validaDecisioni(nodi map[string]Nodo3, rifDi map[string]string) *Errore {
 	perID := map[string]Decisione3{}
 	rifNonInclusi := map[string]bool{}
+	cambiTipo := map[uuid.UUID]bool{}
+	categorie := map[[2]string]string{}
 	for i, d := range s.Decisioni {
 		campo := fmt.Sprintf("decisioni[%d]", i)
 		if _, dup := perID[d.ID]; dup {
@@ -826,6 +896,26 @@ func (s *Snapshot3) validaDecisioni(nodi map[string]Nodo3, rifDi map[string]stri
 			if n.Identita.Modo != ModoDecisione || n.Identita.Decisione != d.ID {
 				return corpo(campo+".chiave_bozza", "il nodo %s non ha l'identita' decisa da %s (modo decisione)", d.ChiaveBozza, d.ID)
 			}
+		case DecisioneCambiaTipo:
+			// DEC-B PE-B06: un solo tipo nuovo per componente (R5 e contenuto-atto-1 ne vogliono uno)
+			if cambiTipo[*d.ComponenteID] {
+				return corpo(campo+".componente_id", "il componente %s ha gia' una decisione cambia_tipo in questa bozza: una sola per componente", d.ComponenteID)
+			}
+			cambiTipo[*d.ComponenteID] = true
+		case DecisioneConfermaCategoria:
+			// U2 §6.4.2: il soggetto e' un nodo della bozza, mai il finito; una decisione viva per nodo e categoria
+			k := d.Soggetto.ChiaveBozza
+			n, ok := nodi[k]
+			if !ok {
+				return corpo(campo+".soggetto.chiave_bozza", "%q non e' un nodo della bozza", k)
+			}
+			if n.Tipo == string(db.TipoComponenteFinito) || (n.ComponenteID != nil && *n.ComponenteID == s.ProdottoID) {
+				return corpoMotivo(campo+".soggetto.chiave_bozza", MotivoCategoriaSulFinito, "la categoria non si conferma sul finito (il finito chiede sempre il 2D)")
+			}
+			if altra, dup := categorie[[2]string{k, d.Categoria}]; dup {
+				return corpo(campo+".categoria", "il nodo %s ha gia' la decisione %s sulla categoria %s: una sola per nodo e categoria", k, altra, d.Categoria)
+			}
+			categorie[[2]string{k, d.Categoria}] = d.ID
 		}
 	}
 	// lo svincolo nato da un'esclusione cita la decisione escludi dello stesso snapshot, dello stesso componente: un id
@@ -947,10 +1037,14 @@ func (s *Snapshot3) normalizza() {
 		s.Decisioni = []Decisione3{}
 	}
 	if s.DocumentiPreassociati == nil {
-		s.DocumentiPreassociati = []Preassociazione{}
+		s.DocumentiPreassociati = []Preassociazione3{}
+	}
+	for i := range s.Archi {
+		s.Archi[i].EvidenzeArco = ordinaEvidenze(s.Archi[i].EvidenzeArco)
 	}
 	for i := range s.Nodi {
 		n := &s.Nodi[i]
+		n.EvidenzeIdentita = ordinaEvidenze(n.EvidenzeIdentita)
 		if len(n.Caselle) == 0 {
 			n.Caselle = nil
 		}
@@ -974,7 +1068,7 @@ func (s *Snapshot3) normalizza() {
 	})
 	sort.Slice(s.Decisioni, func(i, j int) bool { return s.Decisioni[i].ID < s.Decisioni[j].ID })
 	sort.Slice(s.DocumentiPreassociati, func(i, j int) bool {
-		return s.DocumentiPreassociati[i].PropostaID.String() < s.DocumentiPreassociati[j].PropostaID.String()
+		return s.DocumentiPreassociati[i].AllegatoID.String() < s.DocumentiPreassociati[j].AllegatoID.String()
 	})
 }
 
@@ -1057,11 +1151,16 @@ func (s Snapshot3) copia() Snapshot3 {
 	c.Nodi = make([]Nodo3, len(s.Nodi))
 	for i, n := range s.Nodi {
 		n.Caselle = append([]Casella3(nil), n.Caselle...)
+		n.EvidenzeIdentita = append([]EvidenzaDocumentale(nil), n.EvidenzeIdentita...)
 		c.Nodi[i] = n
 	}
-	c.Archi = append([]Arco3(nil), s.Archi...)
+	c.Archi = make([]Arco3, len(s.Archi))
+	for i, a := range s.Archi {
+		a.EvidenzeArco = append([]EvidenzaDocumentale(nil), a.EvidenzeArco...)
+		c.Archi[i] = a
+	}
 	c.Decisioni = append([]Decisione3(nil), s.Decisioni...)
-	c.DocumentiPreassociati = append([]Preassociazione(nil), s.DocumentiPreassociati...)
+	c.DocumentiPreassociati = append([]Preassociazione3(nil), s.DocumentiPreassociati...)
 	if s.Sorgente != nil {
 		sc := *s.Sorgente
 		c.Sorgente = &sc

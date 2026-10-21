@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -52,6 +51,8 @@ func (s *Server) registraSorgente(mux *http.ServeMux) {
 	mux.HandleFunc("/thread/{id}/sorgente/file/{allegato}/altri-file", gemella("POST"))
 	mux.HandleFunc("POST /thread/{id}/sorgente/file/{allegato}/riattiva", catena(s.dopoIlGesto(s.sorgenteRiattiva)))
 	mux.HandleFunc("/thread/{id}/sorgente/file/{allegato}/riattiva", gemella("POST"))
+	mux.HandleFunc("POST /thread/{id}/sorgente/file/{allegato}/riprova-rimozione", catena(s.sorgenteRiprovaRimozione))
+	mux.HandleFunc("/thread/{id}/sorgente/file/{allegato}/riprova-rimozione", gemella("POST"))
 	mux.HandleFunc("GET /thread/{id}/sorgente/file/{allegato}/contenuto", catena(s.sorgenteContenuto))
 	mux.HandleFunc("/thread/{id}/sorgente/file/{allegato}/contenuto", gemella("GET, HEAD"))
 }
@@ -240,12 +241,20 @@ func (s *Server) sorgenteRiattiva(w http.ResponseWriter, r *http.Request) {
 	s.gestoSorgente(w, r, filerfq.GestoRiattiva, s.cicloFile().Riattiva)
 }
 
+// sorgenteRiprovaRimozione: POST /thread/{id}/sorgente/file/{allegato}/riprova-rimozione (V1, direttiva 35 C-6a; U2
+// §3.5): «Riprova la rimozione dalla cartella ALTRO» su un file scartato la cui copia in ALTRO e' ancora da togliere.
+// Lo stesso corpo dei gesti (chiave d'intento e versione attesa), lo stesso protocollo della rimozione.
+func (s *Server) sorgenteRiprovaRimozione(w http.ResponseWriter, r *http.Request) {
+	s.gestoSorgente(w, r, filerfq.GestoRiprovaRimozione, s.cicloFile().RiprovaRimozione)
+}
+
 // ---------------------------------------------------------------- S5
 
 // sorgenteContenuto: GET /thread/{id}/sorgente/file/{allegato}/contenuto?modo=anteprima|scarica (EM §10.9, S5): i
 // byte di un file per tutti i formati. Un file attivo dallo staging, poi dal documento scritto sul NAS, poi da una copia
-// di conservazione dello stesso allegato non ancora rilasciata (anche sotto un'altra RFQ); un file in Altri file dal
-// deposito, poi dallo staging, poi dal NAS; uno scartato 410. Un PDF (i byte veri: %PDF-) in anteprima e' inline; tutto
+// di conservazione dello stesso allegato non ancora rilasciata (anche sotto un'altra RFQ); un file in Altri file dalla
+// sua copia (sha verificato dallo stesso handle), poi dallo staging, poi dal NAS, altrimenti 410 BYTE_NON_DISPONIBILI con
+// X-Motivo COPIA_NAS_MANCANTE o COPIA_NAS_CAMBIATA (U2 §3.12: mai un 500, mai byte diversi); uno scartato 410. Un PDF (i byte veri: %PDF-) in anteprima e' inline; tutto
 // il resto e' un allegato da scaricare, application/octet-stream. Sempre nosniff e la CSP sandbox. Range e HEAD li fa
 // http.ServeContent. Gli errori portano X-Motivo (PE-29). Nessun effetto: una riga di log.
 func (s *Server) sorgenteContenuto(w http.ResponseWriter, r *http.Request) {
@@ -296,6 +305,17 @@ func (s *Server) sorgenteContenuto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	src, err := s.sorgenteDelContenuto(ctx, svc, o, thread)
+	var cm copiaNonServita
+	if errors.As(err, &cm) {
+		testo := "La copia in ALTRO non c'è più al percorso registrato (la cartella può essere stata spostata o rinominata), e il server non ha altri byte del file: ricaricalo."
+		if cm.motivo == filerfq.MotivoCopiaCambiata {
+			testo = "La copia in ALTRO è stata cambiata sul NAS: il cockpit non la serve, e non ha altri byte del file. Ricaricalo."
+		}
+		o := map[string]any{"esito": "rifiutato", "codice": "BYTE_NON_DISPONIBILI", "testo": testo, "indicazione": "ricarica"}
+		w.Header().Set("X-Motivo", cm.motivo)
+		s.scriviJSONSorgente(w, r, http.StatusGone, o)
+		return
+	}
 	if err != nil {
 		var eh erroreHTTP
 		if errors.As(err, &eh) && eh.stato < 500 {
@@ -355,9 +375,15 @@ func (s *Server) sorgenteContenuto(w http.ResponseWriter, r *http.Request) {
 		"dimensione", src.dim, "modo", modo, "range", r.Header.Get("Range"))
 }
 
+// copiaNonServita: un file in Altri file la cui copia non si serve (mancante o cambiata) e senza altre sorgenti: 410
+// con X-Motivo (U2 §3.12).
+type copiaNonServita struct{ motivo string }
+
+func (c copiaNonServita) Error() string { return "copia degli Altri file non servita: " + c.motivo }
+
 // sorgenteDelContenuto sceglie da dove arrivano i byte di S5, secondo lo stato del file (EM §10.9). nil, nil = nessuna
 // sorgente (410 BYTE_NON_DISPONIBILI per un file attivo). Un file in Altri file senza la sua copia e senza altre
-// sorgenti e' un'anomalia (500).
+// sorgenti: copiaNonServita con il motivo (410, X-Motivo COPIA_NAS_MANCANTE o COPIA_NAS_CAMBIATA).
 func (s *Server) sorgenteDelContenuto(ctx context.Context, svc *filerfq.Servizio, o *filerfq.Occorrenza, thread uuid.UUID) (*sorgente, error) {
 	q := db.New(s.Pool)
 	// dalloStaging: i byte dello staging. Un path_staging fuori dalla radice e' un errore (500 con la frase generica,
@@ -391,29 +417,34 @@ func (s *Server) sorgenteDelContenuto(ctx context.Context, svc *filerfq.Servizio
 		return &sorgente{f: f, da: "staging", dim: st.Size(), modtime: st.ModTime(), etag: o.Sha(), percorso: p}, nil
 	}
 	dalNAS := func() *sorgente { return s.nasSoloLettura(ctx, q, thread, o) }
-	dalDeposito := func(soloRFQ bool) (*sorgente, error) {
-		f, st, err := svc.ApriCopia(ctx, thread, o.AllegatoID, soloRFQ)
+	motivoCopia := ""
+	dallaCopia := func(soloRFQ bool) (*sorgente, error) {
+		f, st, motivo, err := svc.ApriCopia(ctx, thread, o.AllegatoID, soloRFQ)
+		motivoCopia = motivo
 		if err != nil || f == nil {
 			return nil, err
 		}
 		return &sorgente{f: f, da: "conservazione", dim: st.Size(), modtime: st.ModTime(), etag: o.Sha()}, nil
 	}
 	if o.Stato == filerfq.StatoAltriFile {
-		src, err := dalDeposito(true)
+		src, err := dallaCopia(true)
 		if err != nil {
 			return nil, err
 		}
 		if src != nil {
 			return src, nil
 		}
-		s.Log.Error("sorgente: il file è in Altri file ma la sua copia di conservazione non si apre", "allegato", o.AllegatoID)
+		if motivoCopia == "" {
+			motivoCopia = filerfq.MotivoCopiaMancante
+		}
+		s.Log.Warn("sorgente: il file è in Altri file ma la sua copia non si serve", "allegato", o.AllegatoID, "motivo", motivoCopia)
 		if src, err := dalloStaging(); err != nil || src != nil {
 			return src, err
 		}
 		if src := dalNAS(); src != nil {
 			return src, nil
 		}
-		return nil, fmt.Errorf("allegato %s in Altri file: %w", o.AllegatoID, filerfq.ErrCopiaMancante)
+		return nil, copiaNonServita{motivo: motivoCopia}
 	}
 	if src, err := dalloStaging(); err != nil || src != nil {
 		return src, err
@@ -421,7 +452,7 @@ func (s *Server) sorgenteDelContenuto(ctx context.Context, svc *filerfq.Servizio
 	if src := dalNAS(); src != nil {
 		return src, nil
 	}
-	return dalDeposito(false)
+	return dallaCopia(false)
 }
 
 // nasSoloLettura: i byte del documento della RFQ con lo stesso contenuto scritto sul NAS, in sola lettura. S5 e' una

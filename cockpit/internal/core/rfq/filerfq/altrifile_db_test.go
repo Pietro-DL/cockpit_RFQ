@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/rfq/filerfq/conservatoreprova"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/staging"
 )
@@ -96,11 +97,23 @@ func TestAF01AltriFileSuUnPDFAttivo(t *testing.T) {
 	if e.Esito != "in_altri_file" || e.Stato != StatoAltriFile || e.Versione != 1 || e.Riproposto {
 		t.Errorf("esito %+v", e)
 	}
-	if _, h := b.copiaVerificata(b.thread, a); h != sha {
+	if p, h := b.copiaVerificata(b.thread, a); h != sha {
 		t.Errorf("la copia nel deposito ha lo sha %s, il file %s", h, sha)
+	} else if want := b.cons.Percorso(b.cartellaRFQ(b.thread), `ALTRO\ACME-100.pdf`); !strings.EqualFold(p, want) {
+		// U2 §3.2: <radice>\<cartella della RFQ>\ALTRO\<nome>; la cartella della RFQ, che non c'era, l'ha creata S3
+		// con CreaCartellaThread (U2-P07)
+		t.Errorf("la copia sta in %s, attesa in %s", p, want)
+	}
+	if !valore[bool](b, `SELECT cartella_creata FROM thread_offerta WHERE thread_id = $1`, b.thread) {
+		t.Error("la cartella della RFQ creata da S3 non e' segnata")
 	}
 	if got := b.copie(b.thread, a); !uguali(got, "copiata/-") {
 		t.Errorf("conservazione %v", got)
+	}
+	// la prova di creazione sta nella colonna della 0023 (U2 §3.4), il battito nella sua (§3.3 passo 2)
+	if !valore[bool](b, `SELECT creato_dal_cockpit AND sorgente_byte IS NOT NULL FROM file_rfq_conservazione
+		WHERE thread_id = $1 AND allegato_id = $2 AND stato = 'copiata'`, b.thread, a) {
+		t.Error("la copia verificata non porta la prova di creazione")
 	}
 	if got := b.stato(b.thread, a); got != StatoAltriFile {
 		t.Errorf("stato %q", got)
@@ -126,22 +139,19 @@ func TestAF01AltriFileSuUnPDFAttivo(t *testing.T) {
 	}
 }
 
-// AF-02: riavvio e pulizia dello staging: un servizio nuovo sullo stesso DB e sullo stesso deposito (stesso
-// segnaposto), il custode della cache con l'orologio avanti di 40 giorni toglie lo staging; i byte si leggono dal
-// deposito con lo sha giusto (la rotta S5 la prova transport/web).
+// AF-02: riavvio e pulizia dello staging: un servizio nuovo sullo stesso DB e sulla stessa radice (la stessa impronta),
+// il custode della cache con l'orologio avanti di 40 giorni toglie lo staging; i byte si leggono dalla copia con lo
+// sha giusto (la rotta S5 la prova transport/web).
 func TestAF02RiavvioEPuliziaDelloStaging(t *testing.T) {
 	b := nuovoBancoFile(t)
 	a, sha := b.pdf("ACME-200.pdf")
 	b.deveRiuscire(b.altriFile(b.thread, a))
 	vecchio := b.pathStaging(a)
-	dep, err := PreparaDeposito(b.ctx, b.q, b.deposito)
-	if err != nil {
-		t.Fatalf("il riavvio non riparte con le copie del suo deposito: %v", err)
+	dep := conservatoreprova.Nuovo(b.deposito)
+	if dep.RadiceID() != b.cons.RadiceID() {
+		t.Fatalf("l'impronta della radice e' cambiata al riavvio: %s → %s", b.cons.RadiceID(), dep.RadiceID())
 	}
-	if dep.ID != b.s.Deposito.ID {
-		t.Fatalf("il segnaposto e' cambiato al riavvio: %s → %s", b.s.Deposito.ID, dep.ID)
-	}
-	s2 := &Servizio{Pool: b.p, Staging: b.staging, Deposito: dep, Log: b.s.Log}
+	s2 := &Servizio{Pool: b.p, Staging: b.staging, Conservatore: dep, Log: b.s.Log}
 	giro, err := b.cache(s2, 40).Giro(b.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +159,7 @@ func TestAF02RiavvioEPuliziaDelloStaging(t *testing.T) {
 	if giro.Rimossi != 1 || esiste(vecchio) || b.pathStaging(a) != "" {
 		t.Fatalf("la cache non ha tolto lo staging del file in Altri file: %+v, file %v, path %q", giro, esiste(vecchio), b.pathStaging(a))
 	}
-	f, _, err := s2.ApriCopia(b.ctx, b.thread, a, true)
+	f, _, _, err := s2.ApriCopia(b.ctx, b.thread, a, true)
 	if err != nil || f == nil {
 		t.Fatalf("la copia di conservazione non si apre: %v", err)
 	}
@@ -159,23 +169,23 @@ func TestAF02RiavvioEPuliziaDelloStaging(t *testing.T) {
 		t.Fatal(err)
 	}
 	if shaDi(letti) != sha {
-		t.Error("i byte dal deposito non hanno lo sha del file")
+		t.Error("i byte dalla copia non hanno lo sha del file")
 	}
 }
 
-// AF-03: la copia che fallisce (deposito che non accetta i file, sorgente assente, sha alterato) → 422, stato attivo,
+// AF-03: la copia che fallisce (cartella che non accetta i file, sorgente assente, sha alterato) → 422, stato attivo,
 // nessun parziale; il trigger rifiuta un altri_file scritto a mano senza una copia copiata.
 func TestAF03CopiaCheFallisce(t *testing.T) {
-	t.Run("deposito che non accetta i file", func(t *testing.T) {
+	t.Run("cartella che non accetta i file", func(t *testing.T) {
 		b := nuovoBancoFile(t)
 		a, _ := b.pdf("ACME-301.pdf")
-		// al posto della cartella dei parziali c'e' un file: nel deposito non si scrive (come un deposito in sola
-		// lettura, che su Windows non si simula con i permessi della cartella)
-		parti := filepath.Join(b.deposito, CartellaPartiDeposito)
-		if err := os.RemoveAll(parti); err != nil {
+		// al posto della cartella ALTRO della RFQ c'e' un file: li' non si scrive (come una cartella in sola lettura, che
+		// su Windows non si simula con i permessi). La copia va in <radice>\<cartella della RFQ>\ALTRO\<nome> (U2 §3.2)
+		rfq := b.cons.Percorso(b.cartellaRFQ(b.thread))
+		if err := os.MkdirAll(rfq, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(parti, []byte("non una cartella"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(rfq, "ALTRO"), []byte("non una cartella"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		_, err := b.altriFile(b.thread, a)
@@ -189,8 +199,8 @@ func TestAF03CopiaCheFallisce(t *testing.T) {
 		if got := b.copie(b.thread, a); !uguali(got, "errore_copia/permessi") {
 			t.Errorf("conservazione %v", got)
 		}
-		if got := b.fileDelDeposito(); len(got) != 0 {
-			t.Errorf("file nel deposito: %v", got)
+		if got := b.fileDelDeposito(); len(got) != 1 || got[0] != filepath.Join(b.cartellaRFQ(b.thread), "ALTRO") {
+			t.Errorf("file nel posto delle copie: %v", got)
 		}
 	})
 	t.Run("sorgente assente", func(t *testing.T) {
@@ -257,34 +267,70 @@ func TestAF03CopiaCheFallisce(t *testing.T) {
 	})
 }
 
-// AF-04: il definitivo della riga c'e' gia' con un altro contenuto: errore_copia / conflitto, e il file non si
-// sovrascrive (ne' si rilascia: non e' della riga).
+// AF-04 (U2 §3.2): un file di una persona sul nome nella cartella ALTRO della RFQ.
+//   - C'e' gia' prima della fase A: il nome si riserva con il progressivo (_2) e la copia riesce; il file della persona
+//     non si tocca.
+//   - Compare sul nome riservato dopo la fase A, prima della promozione: errore_copia / conflitto, il file non si
+//     sovrascrive (ne' si rilascia: non e' della riga); un nuovo tentativo sceglie il nome dopo.
 func TestAF04DefinitivoGiaPresenteConUnAltroContenuto(t *testing.T) {
-	b := nuovoBancoFile(t)
-	a, _ := b.pdf("ACME-400.pdf")
-	prossimo := valore[int64](b, `SELECT coalesce(pg_sequence_last_value(pg_get_serial_sequence('file_rfq_conservazione', 'conservazione_id')::regclass), 0) + 1`)
-	estraneo := filepath.Join(b.deposito, b.thread.String(), fmt.Sprintf("%s.%d.pdf", a, prossimo))
-	if err := os.MkdirAll(filepath.Dir(estraneo), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	altro := []byte("un altro contenuto, scritto da chi sa chi")
-	if err := os.WriteFile(estraneo, altro, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := b.altriFile(b.thread, a)
-	rf := rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "CONSERVAZIONE_NON_RIUSCITA")
-	if rf.Extra["causa"] != "conflitto" {
-		t.Errorf("causa %v", rf.Extra["causa"])
-	}
-	if got := b.copie(b.thread, a); !uguali(got, "errore_copia/conflitto") {
-		t.Errorf("conservazione %v", got)
-	}
-	if c, err := os.ReadFile(estraneo); err != nil || string(c) != string(altro) {
-		t.Errorf("il file gia' presente e' stato toccato: %q %v", c, err)
-	}
-	if got := b.stato(b.thread, a); got != "" {
-		t.Errorf("stato %q", got)
-	}
+	t.Run("prima della fase A", func(t *testing.T) {
+		b := nuovoBancoFile(t)
+		a, sha := b.pdf("ACME-400.pdf")
+		estraneo := b.cons.Percorso(b.cartellaRFQ(b.thread), `ALTRO\ACME-400.pdf`)
+		if err := os.MkdirAll(filepath.Dir(estraneo), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(estraneo, altro, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		b.deveRiuscire(b.altriFile(b.thread, a))
+		if got := valore[string](b, `SELECT percorso_relativo FROM file_rfq_conservazione WHERE allegato_id = $1 AND stato = 'copiata'`, a); got != `ALTRO\ACME-400_2.pdf` {
+			t.Errorf("nome riservato %q, atteso ALTRO\\ACME-400_2.pdf", got)
+		}
+		if _, h := b.copiaVerificata(b.thread, a); h != sha {
+			t.Errorf("la copia ha lo sha %s", h)
+		}
+		if c, err := os.ReadFile(estraneo); err != nil || string(c) != string(altro) {
+			t.Errorf("il file gia' presente e' stato toccato: %q %v", c, err)
+		}
+	})
+	t.Run("dopo la fase A", func(t *testing.T) {
+		b := nuovoBancoFile(t)
+		a, _ := b.pdf("ACME-401.pdf")
+		var estraneo string
+		b.s.Agganci = &Agganci{PrimaDiCopiare: func(uuid.UUID) {
+			var cartella, rel string
+			b.rigaCon(`SELECT cartella_thread, percorso_relativo FROM file_rfq_conservazione WHERE allegato_id = $1 AND stato = 'in_copia'`,
+				[]any{a}, &cartella, &rel)
+			estraneo = b.cons.Percorso(cartella, rel)
+			if err := os.MkdirAll(filepath.Dir(estraneo), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(estraneo, altro, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}}
+		_, err := b.altriFile(b.thread, a)
+		rf := rifiutoAtteso(t, err, http.StatusUnprocessableEntity, "CONSERVAZIONE_NON_RIUSCITA")
+		if rf.Extra["causa"] != "conflitto" {
+			t.Errorf("causa %v", rf.Extra["causa"])
+		}
+		if got := b.copie(b.thread, a); !uguali(got, "errore_copia/conflitto") {
+			t.Errorf("conservazione %v", got)
+		}
+		if c, err := os.ReadFile(estraneo); err != nil || string(c) != string(altro) {
+			t.Errorf("il file comparso sul nome e' stato toccato: %q %v", c, err)
+		}
+		if got := b.stato(b.thread, a); got != "" {
+			t.Errorf("stato %q", got)
+		}
+		b.s.Agganci = nil
+		b.deveRiuscire(b.altriFile(b.thread, a))
+		if got := valore[string](b, `SELECT percorso_relativo FROM file_rfq_conservazione WHERE allegato_id = $1 AND stato = 'copiata'`, a); got != `ALTRO\ACME-401_2.pdf` {
+			t.Errorf("il nuovo tentativo ha riservato %q, atteso ALTRO\\ACME-401_2.pdf", got)
+		}
+	})
 }
 
 // AF-05: «Riattiva» dopo che la cache ha tolto i byte: i byte tornano nello staging, verificati; stato attivo; la strada
@@ -323,11 +369,18 @@ func TestAF05RiattivaDopoCheLaCacheHaToltoIByte(t *testing.T) {
 	if b.pipe.quante(a) != 1 {
 		t.Errorf("la strada d'ingresso e' stata rifatta %d volte", b.pipe.quante(a))
 	}
-	if got := b.copie(b.thread, a); !uguali(got, "rilasciata/riattivato") {
+	// base B di U2-Q01 (provvisoria [T]): la «Riattiva» non toglie la copia dal NAS, la trattiene (U2 §3.8, §3.11)
+	if got := b.copie(b.thread, a); !uguali(got, "trattenuta/riattivato") {
 		t.Errorf("conservazione %v", got)
 	}
-	if got := b.fileDelDeposito(); len(got) != 0 {
-		t.Errorf("la copia rilasciata e' ancora nel deposito: %v", got)
+	if got := b.fileDelDeposito(); len(got) != 1 {
+		t.Errorf("la copia trattenuta non e' rimasta nella cartella: %v", got)
+	}
+	// S1 la mostra sul file, con il nome e senza percorso (U2 §3.8: nessun file del cockpit resta invisibile)
+	if f := fileDi(b.modello(b.thread, a), a); f == nil || f.Conservazione == nil || f.Conservazione.Stato != "trattenuta" ||
+		!strings.HasPrefix(f.Conservazione.Motivo, "C'è una copia del cockpit nella cartella ALTRO: ") ||
+		strings.Contains(f.Conservazione.Motivo, `\`) {
+		t.Errorf("S1 della copia trattenuta: %+v", f)
 	}
 	if dopo := conta(); dopo != prima {
 		t.Errorf("documenti/fonte_step_evento/step_strutturale_id/associazioni: %s → %s", prima, dopo)
@@ -335,7 +388,7 @@ func TestAF05RiattivaDopoCheLaCacheHaToltoIByte(t *testing.T) {
 	if got := b.statoProposta(a); got != "aperta/-" {
 		t.Errorf("l'associazione e' stata rimessa: %s", got)
 	}
-	if got := b.azioni(b.thread, a); !uguali(got, "conservazione_copiata", "altri_file", "riattiva", "conservazione_rilasciata") {
+	if got := b.azioni(b.thread, a); !uguali(got, "conservazione_copiata", "altri_file", "riattiva") {
 		t.Errorf("eventi %v", got)
 	}
 }
@@ -394,7 +447,7 @@ func TestAF11RiattivaConLaCacheInMezzo(t *testing.T) {
 	if b.pathStaging(a) != p {
 		t.Errorf("path_staging %q, atteso %q", b.pathStaging(a), p)
 	}
-	if got := b.copie(b.thread, a); !uguali(got, "rilasciata/riattivato") {
+	if got := b.copie(b.thread, a); !uguali(got, "trattenuta/riattivato") {
 		t.Errorf("conservazione %v", got)
 	}
 }
@@ -429,7 +482,8 @@ func TestAF12AllegatoMaiScaricato(t *testing.T) {
 }
 
 // AF-13: esiti diversi dal successo su un archivio: la copia di una voce fallisce → tutte le righe del gesto in uno
-// stato finale (errore_copia o rilasciata), il rilascio toglie i file gia' copiati: nessun file orfano nel deposito.
+// stato finale (errore_copia o trattenuta): con la base B di U2-Q01 (provvisoria [T]) i file gia' copiati restano,
+// trattenuti, e ognuno ha la sua riga: nessun file orfano nel posto delle copie.
 func TestAF13ArchivioConUnaVoceCheFallisce(t *testing.T) {
 	b := nuovoBancoFile(t)
 	zip, voci := b.archivio(b.thread, "ACME.zip", []string{"V1.pdf", "V2.pdf", "V3.pdf", "V4.pdf"}, opzFile{})
@@ -448,8 +502,19 @@ func TestAF13ArchivioConUnaVoceCheFallisce(t *testing.T) {
 	if got := b.copie(b.thread, alterata); !uguali(got, "errore_copia/verifica_sha") {
 		t.Errorf("la voce alterata: %v", got)
 	}
-	if got := b.fileDelDeposito(); len(got) != 0 {
-		t.Errorf("file orfani nel deposito: %v", got)
+	trattenute := valore[[]string](b, `SELECT coalesce(array_agg(lower(percorso_relativo) ORDER BY percorso_relativo), '{}')
+		FROM file_rfq_conservazione WHERE stato = 'trattenuta' AND creato_dal_cockpit`)
+	if len(trattenute) != 3 {
+		t.Errorf("copie trattenute %v, attese 3 (l'archivio e le due voci copiate prima di quella alterata)", trattenute)
+	}
+	for _, f := range b.fileDelDeposito() {
+		dentro := false
+		for _, r := range trattenute {
+			dentro = dentro || strings.HasSuffix(strings.ToLower(f), r)
+		}
+		if !dentro {
+			t.Errorf("file orfano nel posto delle copie: %s", f)
+		}
 	}
 	if p := b.partiDelDeposito(); len(p) != 0 {
 		t.Errorf("parziali rimasti: %v", p)
@@ -461,8 +526,11 @@ func TestAF13ArchivioConUnaVoceCheFallisce(t *testing.T) {
 	}
 }
 
-// AF-14: «Altri file» → «Riattiva» con il rilascio bloccato (file aperto) → di nuovo «Altri file» → custode: la seconda
-// copia ha un altro file, il rilascio della prima non la tocca, il contenuto resta apribile con lo sha giusto.
+// AF-14 e AF-27…AF-29 (U2 §3.8, base B di U2-Q01, provvisoria [T]): «Altri file» → «Riattiva» (con il file della
+// prima copia aperto da un altro programma) → di nuovo «Altri file» → custode → «Scarta». La «Riattiva» trattiene la
+// prima copia: niente prova a toglierla, il file aperto non conta. Il secondo «Altri file» riusa il file trattenuto ed
+// eredita la prova (eredita_da), la riga vecchia passa a ceduta nella stessa transazione: una sola riga viva nomina il
+// file. Il custode non tocca niente; lo «Scarta» toglie il file con la prova ereditata.
 func TestAF14DueCicliDueFile(t *testing.T) {
 	b := nuovoBancoFile(t)
 	a, sha := b.pdf("ACME-1400.pdf")
@@ -479,13 +547,24 @@ func TestAF14DueCicliDueFile(t *testing.T) {
 		}
 	}()
 	b.deveRiuscire(b.riattiva(b.thread, a))
-	if got := b.copie(b.thread, a); !uguali(got, "da_rilasciare/riattivato") {
-		t.Fatalf("il rilascio con il file aperto: %v", got)
+	if got := b.copie(b.thread, a); !uguali(got, "trattenuta/riattivato") {
+		t.Fatalf("la «Riattiva» con il file aperto: %v", got)
 	}
 	b.deveRiuscire(b.altriFile(b.thread, a))
 	secondo, h := b.copiaVerificata(b.thread, a)
-	if strings.EqualFold(primo, secondo) || h != sha {
-		t.Fatalf("la seconda copia: %s (%s), la prima %s", secondo, h, primo)
+	if !strings.EqualFold(primo, secondo) || h != sha {
+		t.Fatalf("la seconda copia non riusa il file trattenuto: %s (%s), la prima %s", secondo, h, primo)
+	}
+	if got := b.copie(b.thread, a); !uguali(got, "ceduta/riattivato", "copiata/-") {
+		t.Errorf("conservazione %v", got)
+	}
+	if !valore[bool](b, `SELECT n.eredita_da = v.conservazione_id AND v.ceduta_a = n.conservazione_id AND n.creato_dal_cockpit
+		FROM file_rfq_conservazione n JOIN file_rfq_conservazione v ON v.allegato_id = n.allegato_id AND v.stato = 'ceduta'
+		WHERE n.allegato_id = $1 AND n.stato = 'copiata'`, a) {
+		t.Error("la riga nuova non eredita la prova dalla riga ceduta")
+	}
+	if got := b.fileDelDeposito(); len(got) != 1 {
+		t.Errorf("file nel posto delle copie: %v", got)
 	}
 	aperto.Close()
 	chiuso = true
@@ -493,31 +572,39 @@ func TestAF14DueCicliDueFile(t *testing.T) {
 	if _, err := (&Custode{S: b.s}).Giro(b.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := b.copie(b.thread, a); !uguali(got, "rilasciata/riattivato", "copiata/-") {
-		t.Errorf("conservazione %v", got)
-	}
-	if esiste(primo) {
-		t.Error("il file della prima copia e' ancora nel deposito")
+	if got := b.copie(b.thread, a); !uguali(got, "ceduta/riattivato", "copiata/-") {
+		t.Errorf("dopo il custode: %v", got)
 	}
 	if h, err := shaDelFile(secondo); err != nil || h != sha {
-		t.Errorf("la seconda copia dopo il rilascio della prima: %s %v", h, err)
+		t.Errorf("la copia dopo il custode: %s %v", h, err)
+	}
+	b.s.Adesso = nil
+	b.deveRiuscire(b.scarta(b.thread, a, conUnicaCopia))
+	if got := b.copie(b.thread, a); !uguali(got, "ceduta/riattivato", "rilasciata/scartato") {
+		t.Errorf("dopo lo scarto: %v", got)
+	}
+	if esiste(secondo) {
+		t.Error("lo scarto non ha tolto il file con la prova ereditata")
 	}
 }
 
-// AF-15: la radice del deposito cambiata senza spostare i file, o il segnaposto sparito: con righe copiate il server
-// non parte e lo dice; la cache non toglie lo staging di un file in Altri file il cui file del deposito manca.
-func TestAF15DepositoCambiatoOSegnapostoSparito(t *testing.T) {
+// AF-15 (U2 §3.4, §3.13): la radice cambiata senza spostare i file: un servizio su un'altra radice non legge le copie
+// della prima (l'impronta e' diversa: S5 non le serve, «Riattiva» dice CONSERVAZIONE_MANCANTE se lo staging non ha i
+// byte) e non le tocca; la cache non toglie lo staging di un file in Altri file la cui copia manca.
+func TestAF15RadiceCambiataOCopiaSparita(t *testing.T) {
 	b := nuovoBancoFile(t)
 	a, _ := b.pdf("ACME-1500.pdf")
 	b.deveRiuscire(b.altriFile(b.thread, a))
-	if _, err := PreparaDeposito(b.ctx, b.q, t.TempDir()); err == nil {
-		t.Error("con una radice nuova e righe copiate il server parte")
+	altrove := &Servizio{Pool: b.p, Staging: b.staging, Conservatore: conservatoreprova.Nuovo(t.TempDir()), Log: b.s.Log}
+	if f, _, motivo, err := altrove.ApriCopia(b.ctx, b.thread, a, true); err != nil || f != nil || motivo != MotivoCopiaMancante {
+		t.Errorf("con un'altra radice la copia si apre: %v %q %v", f != nil, motivo, err)
 	}
-	if err := os.Remove(filepath.Join(b.deposito, NomeSegnaposto)); err != nil {
+	giro, err := b.cache(altrove, 40).Giro(b.ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PreparaDeposito(b.ctx, b.q, b.deposito); err == nil {
-		t.Error("senza il segnaposto e con righe copiate il server parte")
+	if giro.Rimossi != 0 {
+		t.Errorf("con un'altra radice la cache ha tolto lo staging di un file in Altri file: %+v", giro)
 	}
 	// il file della copia sparito: la cache non toglie lo staging
 	p, _ := b.copiaVerificata(b.thread, a)
@@ -525,7 +612,7 @@ func TestAF15DepositoCambiatoOSegnapostoSparito(t *testing.T) {
 		t.Fatal(err)
 	}
 	staging := b.pathStaging(a)
-	giro, err := b.cache(b.s, 40).Giro(b.ctx)
+	giro, err = b.cache(b.s, 40).Giro(b.ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

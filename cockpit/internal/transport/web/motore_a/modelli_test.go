@@ -45,7 +45,9 @@ func TestModelliIcampiEITag(t *testing.T) {
 			"Confronto confronto", "Errore errore", "Scrive -", "Indice -", "Calcolato calcolato",
 			// riscritta per V1 (EM §9.9; A-28)
 			"Gruppi gruppi,omitempty", "MotivoSenzaGruppi motivo_senza_gruppi,omitempty", "Fonte fonte,omitempty", "F8Stato f8_stato,omitempty",
-			"BozzaDelProdotto bozza_del_prodotto,omitempty"}},
+			"BozzaDelProdotto bozza_del_prodotto,omitempty",
+			// ondata C (U2 §5.3)
+			"ConfermaCorrente conferma_corrente,omitempty", "Modello -"}},
 		{Testa{}, []string{"Cliente cliente", "Oggetto oggetto", "RiferimentoCliente riferimento_cliente",
 			"StatoThread stato_thread", "Fase fase"}},
 		{Fase{}, []string{"Nome nome", "Etichetta etichetta", "Inizio inizio", "GgInFase gg_in_fase", "Semaforo semaforo",
@@ -131,7 +133,7 @@ func TestComponiPaginaSenzaV1(t *testing.T) {
 
 // TestFonteDelProdottoIMotivi (revisione della corsia motore, ondata B): il motivo della fonte di un prodotto senza un
 // componente della RFQ è il suo (non «senza STEP»); con lo STEP del prodotto in «Altri file» la conferma della fonte non
-// è ammessa, e il motivo dice di riattivarlo.
+// è ammessa, e il motivo dice di riattivarlo; scartato, di ricaricarlo (DEC-B B-3, OB-10 la parte del motore).
 func TestFonteDelProdottoIMotivi(t *testing.T) {
 	r := maRisultatoACME()
 	p := &Pagina{Prodotto: maP1}
@@ -144,13 +146,23 @@ func TestFonteDelProdottoIMotivi(t *testing.T) {
 	pid := maUUID(12)
 	m = &propostabom.ModelloDelProdotto{StepNonAttivi: []uuid.UUID{a}}
 	r.V1 = DatiV1{NonAttivi: propostabom.NonAttivi{a: "altri_file"}}
-	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != MotivoFonteSTEPNonAttivo || f.ConfermaAmmessa {
+	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != propostabom.TestoStepInAltriFile || f.ConfermaAmmessa {
 		t.Errorf("lo STEP non attivo fuori dai gruppi: %+v", f)
 	}
+	// scartato: «ricaricalo», mai «riattivalo» (DEC-B B-3; Q20 [U])
+	r.V1.NonAttivi[a] = "scartato"
+	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != propostabom.TestoStepScartato || strings.Contains(f.Motivo, "riattiv") {
+		t.Errorf("lo STEP scartato fuori dai gruppi: %+v", f)
+	}
 	// lo STEP della bozza aperta del prodotto, non confermato e in Altri file
+	r.V1.NonAttivi[a] = "altri_file"
 	r.V1.Bozze = map[uuid.UUID]BozzaAperta{pid: {BozzaID: maUUID(70), FonteAllegato: &a, FonteSha256: maSha(9)}}
-	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != MotivoFonteSTEPNonAttivo || f.ConfermaAmmessa || f.Confermata {
+	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != propostabom.TestoStepInAltriFile || f.ConfermaAmmessa || f.Confermata {
 		t.Errorf("lo STEP della bozza non attivo: %+v", f)
+	}
+	r.V1.NonAttivi[a] = "scartato"
+	if f := fonteDelProdotto(r, p, &pid, m); f.Motivo != propostabom.TestoStepScartato || f.ConfermaAmmessa {
+		t.Errorf("lo STEP della bozza scartato: %+v", f)
 	}
 }
 
@@ -224,7 +236,74 @@ type maDatiContratto struct {
 			NomeFile   string `json:"nome_file"`
 			Motivo     string `json:"motivo"`
 		} `json:"step_secondario"`
+		// ondata C (U2 §2.4)
+		ConfermataIl      *time.Time     `json:"confermata_il"`
+		ConfermataDa      *maPersonaJSON `json:"confermata_da"`
+		AutorizzataIl     *time.Time     `json:"autorizzata_il"`
+		AutorizzataDa     *maPersonaJSON `json:"autorizzata_da"`
+		AutorizzataMotivo string         `json:"autorizzata_motivo"`
+		// direttiva 39
+		Gesto              string `json:"gesto"`
+		SorgenteConfermata bool   `json:"sorgente_confermata"`
+		SorgenteS8         *struct {
+			AllegatoID   string     `json:"allegato_id"`
+			Sha256       string     `json:"sha256"`
+			DocumentoID  *string    `json:"documento_id"`
+			Valida       bool       `json:"valida"`
+			Motivo       string     `json:"motivo"`
+			ConfermataIl *time.Time `json:"confermata_il"`
+			ConfermataDa *string    `json:"confermata_da"`
+		} `json:"sorgente_s8"`
+		LegameStorico *struct {
+			DocumentoID string  `json:"documento_id"`
+			Sha256      string  `json:"sha256"`
+			AllegatoID  *string `json:"allegato_id"`
+		} `json:"legame_storico"`
+		StrutturaSTEP *struct {
+			StatoAnalisi        string `json:"stato_analisi"`
+			Struttura           string `json:"struttura"`
+			Gruppo              string `json:"gruppo"`
+			ImprontaContenuto   string `json:"impronta_contenuto"`
+			FigliEstratti       int    `json:"figli_estratti"`
+			Partenza            string `json:"partenza"`
+			PresaDAttoRichiesta bool   `json:"presa_d_atto_richiesta"`
+			Testo               string `json:"testo"`
+		} `json:"struttura_step"`
+		// giro G39 (G39-02 [U]): le proposte di sorgente del Motore A
+		ProposteSorgente []struct {
+			AllegatoID     string `json:"allegato_id"`
+			NomeFile       string `json:"nome_file"`
+			CodiceProdotto string `json:"codice_prodotto"`
+			Evidenze       []struct {
+				Lettura        string `json:"lettura"`
+				Selettore      string `json:"selettore"`
+				CodiceLetto    string `json:"codice_letto"`
+				BaseLetta      string `json:"base_letta"`
+				MarcatoreLetto string `json:"marcatore_letto"`
+				EsitoBase      string `json:"esito_base"`
+				EsitoMarcatore string `json:"esito_marcatore"`
+			} `json:"evidenze"`
+			SorgenteDi *string `json:"sorgente_di"`
+			Testo      string  `json:"testo"`
+		} `json:"proposte_sorgente"`
 	} `json:"fonte"`
+	// ondata C (U2 §5.3)
+	ConfermaCorrente *struct {
+		ConfermaID     string        `json:"conferma_id"`
+		Numero         int           `json:"numero"`
+		Valida         bool          `json:"valida"`
+		ConfermataIl   time.Time     `json:"confermata_il"`
+		ConfermataDa   maPersonaJSON `json:"confermata_da"`
+		VerificaAdesso struct {
+			Stato      string   `json:"stato"`
+			Verificata *bool    `json:"verificata"`
+			Criterio   string   `json:"criterio"`
+			Motivi     []string `json:"motivi"`
+			Variazioni []string `json:"variazioni"`
+		} `json:"verifica_adesso"`
+		PropostaAggiornata     json.RawMessage `json:"proposta_aggiornata"`
+		PropostaNonConfrontata string          `json:"proposta_non_confrontata"`
+	} `json:"conferma_corrente"`
 	F8Stato          string `json:"f8_stato"`
 	BozzaDelProdotto *struct {
 		BozzaID        string `json:"bozza_id"`
@@ -313,13 +392,27 @@ func TestDatiV1INomiDeiCampi(t *testing.T) {
 			"compatibilita", "struttura", "segnalati", "importazione", "diagnostiche", "nodi"}},
 		{propostabom.StrutturaDelGruppo{}, []string{"versione", "completa", "motivo"}},
 		{propostabom.ErroreImportazione{}, []string{"codice", "motivo", "testo"}},
-		{propostabom.NodoDelModello{}, []string{"rif", "voce", "completezza", "diagnostiche", "decisione_esistente"}},
+		{propostabom.NodoDelModello{}, []string{"rif", "voce", "completezza", "diagnostiche", "decisione_esistente", "identificativo_cliente"}},
+		{propostabom.IdentificativoCliente{}, []string{"testo", "motivo"}},
 		{propostabom.CompletezzaDelNodo{}, []string{"requisito", "esito", "deroga"}},
-		{propostabom.DecisioneEsistenteDelModello{}, []string{"componente_id", "identita_registrata", "certificazione_superata"}},
+		{propostabom.DecisioneEsistenteDelModello{}, []string{"componente_id", "identita_registrata", "certificazione_superata", "identificativo_cliente"}},
 		{propostabom.IdentitaRegistrata{}, []string{"emittente", "emittente_presunto", "namespace", "codice", "rev", "modo"}},
 		{propostabom.MotivoSenzaGruppi{}, []string{"codice", "testo", "allegati"}},
 		{propostabom.StepSecondario{}, []string{"allegato_id", "nome_file", "motivo"}},
-		{FonteDelProdotto{}, []string{"voce", "documento_id", "sha256", "conferma_ammessa", "motivo", "confermata", "autorizzata", "sorgente", "step_secondario"}},
+		{FonteDelProdotto{}, []string{"voce", "documento_id", "sha256", "conferma_ammessa", "motivo", "confermata", "autorizzata", "sorgente", "step_secondario",
+			"confermata_il", "confermata_da", "autorizzata_il", "autorizzata_da", "autorizzata_motivo",
+			"gesto", "sorgente_confermata", "sorgente_s8", "legame_storico", "struttura_step",
+			"proposte_sorgente"}},
+		{SorgenteS8DellaFonte{}, []string{"allegato_id", "sha256", "documento_id", "valida", "motivo", "confermata_il", "confermata_da"}},
+		{LegameStorico{}, []string{"documento_id", "sha256", "allegato_id"}},
+		{propostabom.StrutturaSTEP{}, []string{"stato_analisi", "struttura", "gruppo", "impronta_contenuto", "figli_estratti", "partenza",
+			"presa_d_atto_richiesta", "testo"}},
+		{Persona{}, []string{"utente_id", "nome"}},
+		{ConfermaCorrente{}, []string{"conferma_id", "numero", "valida", "confermata_il", "confermata_da", "verifica_adesso", "proposta_aggiornata",
+			"proposta_non_confrontata"}},
+		{VerificaAdesso{}, []string{"stato", "verificata", "criterio", "motivi", "variazioni"}},
+		{propostabom.PropostaAggiornata{}, []string{"impronta_contenuto", "gruppo", "differenze", "per_tipo", "regole_cambiate"}},
+		{propostabom.PerTipo{}, []string{"identita", "revisione", "metadati", "quantita", "relazioni", "gerarchia"}},
 		{BozzaDelProdotto{}, []string{"bozza_id", "versione", "gruppo_corrente"}},
 		{propostabom.GruppoCorrente{}, []string{"chiave", "come", "allegato_id", "motivo"}},
 	} {

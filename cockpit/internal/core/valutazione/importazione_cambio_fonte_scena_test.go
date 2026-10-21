@@ -20,7 +20,9 @@ import (
 var (
 	aStepAltro   = uid(0xe8a3) // un altro STEP del prodotto, con un'altra struttura
 	shaStepAltro = sha("f")
-	pVassoio     = uid(0xe8a4) // la preassociazione di un nodo della bozza
+	aVassoio     = uid(0xe8a4) // l'allegato preassociato a un nodo della bozza (direttiva 35: la PB è per allegato_id)
+	aPrimoPB     = uid(0xe8a5) // un secondo allegato preassociato a un nodo che esce (prova dell'ordine)
+	aDelProdotto = uid(0xe8a6) // l'allegato preassociato al nodo del prodotto, che resta
 )
 
 // scenaCambioFonte: la scena del legame con la copia dello stesso STEP (fuori dal perimetro) e un altro STEP del
@@ -81,7 +83,7 @@ func bozzaSulRegistro(t *testing.T, bom importazione.Contenuto) propostabom.Vist
 		Decisioni: []propostabom.DecisioneBozza{
 			{ID: "d1", Tipo: propostabom.TipoDecisioneIdentita, CitaNodi: []string{"k3"}, ChiaveLettura: l3.ChiaveLettura, Lettura: &cp},
 		},
-		Preassociazioni: []propostabom.PreassociazioneBozza{{PropostaID: pVassoio, ChiaveBozza: "k3"}},
+		Preassociazioni: []propostabom.PreassociazioneBozza{{AllegatoID: aVassoio, ChiaveBozza: "k3"}},
 	}
 }
 
@@ -190,7 +192,7 @@ func TestCambioFonteVersoUnAltroSTEP(t *testing.T) {
 	if len(e.DecisioniCadute) != 1 || e.DecisioniCadute[0] != "d1" {
 		t.Errorf("decisioni cadute: %v", e.DecisioniCadute)
 	}
-	if len(e.PreassociazioniNelVassoio) != 1 || e.PreassociazioniNelVassoio[0] != pVassoio.String() {
+	if len(e.PreassociazioniNelVassoio) != 1 || e.PreassociazioniNelVassoio[0] != aVassoio.String() {
 		t.Errorf("il vassoio: %v", e.PreassociazioniNelVassoio)
 	}
 	if len(e.NodiCheEntrano) != 2 {
@@ -238,5 +240,59 @@ func TestCambioFonteConUnaNonIncludere(t *testing.T) {
 	if len(x.DecisioniCadute) != 1 || x.DecisioniCadute[0] != "d2" || len(x.FuoriPerCambioFonte) != 1 || x.FuoriPerCambioFonte[0] != "k2" ||
 		len(x.NodiCheEntrano) != 2 || !x.Differenze.Vuote() {
 		t.Errorf("verso un altro STEP con il nodo escluso: %+v", x)
+	}
+}
+
+// TestCambioFonteLePreassociazioniPerAllegato (direttiva 35, DIR35-PB, blocco C-2; EM §6.6 passo 4, §10.9 S6
+// preassociazioni_nel_vassoio): le preassociazioni della vista sono {allegato_id, chiave_bozza} e il vassoio
+// dell'anteprima dà gli allegato_id delle PB dei nodi che escono, in ordine di stringa (l'ordine canonico delle PB nello
+// snapshot), qualunque sia l'ordine della vista.
+//   - Verso un altro STEP: k2 e k3 escono, le loro due PB vanno nel vassoio in ordine di allegato; la PB del nodo del
+//     prodotto (k1, che resta) no. Il JSON porta gli allegato_id, mai un proposta_id.
+//   - Fra due occorrenze dello stesso STEP nessun nodo esce: il vassoio è vuoto e il JSON non porta il campo.
+//   - Nella stessa struttura sulla stessa occorrenza l'effetto è solo {stessa_sorgente: true}, con o senza PB.
+func TestCambioFonteLePreassociazioniPerAllegato(t *testing.T) {
+	bom, copia, altro := scenaCambioFonte(t)
+	b := bozzaSulRegistro(t, bom)
+	// la vista fuori ordine: k2 (aPrimoPB, …e8a5), k1 (aDelProdotto, …e8a6), k3 (aVassoio, …e8a4)
+	b.Preassociazioni = []propostabom.PreassociazioneBozza{
+		{AllegatoID: aPrimoPB, ChiaveBozza: "k2"},
+		{AllegatoID: aDelProdotto, ChiaveBozza: "k1"},
+		{AllegatoID: aVassoio, ChiaveBozza: "k3"},
+	}
+	e := propostabom.EffettoDelCambioFonte(b, &bom, altro)
+	atteso := []string{aVassoio.String(), aPrimoPB.String()}
+	if len(e.PreassociazioniNelVassoio) != len(atteso) {
+		t.Fatalf("il vassoio verso un altro STEP: %v", e.PreassociazioniNelVassoio)
+	}
+	for i := range atteso {
+		if e.PreassociazioniNelVassoio[i] != atteso[i] {
+			t.Errorf("il vassoio verso un altro STEP, in ordine di allegato: %v, atteso %v", e.PreassociazioniNelVassoio, atteso)
+		}
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var letto struct {
+		Vassoio []string `json:"preassociazioni_nel_vassoio"`
+	}
+	if err := json.Unmarshal(j, &letto); err != nil || len(letto.Vassoio) != 2 || letto.Vassoio[0] != aVassoio.String() ||
+		letto.Vassoio[1] != aPrimoPB.String() {
+		t.Errorf("il JSON del vassoio: %s (%v)", j, err)
+	}
+	if strings.Contains(string(j), "proposta_id") || strings.Contains(string(j), aDelProdotto.String()) {
+		t.Errorf("il JSON porta un proposta_id o la PB del nodo che resta: %s", j)
+	}
+
+	x := propostabom.EffettoDelCambioFonte(b, &bom, copia)
+	if len(x.PreassociazioniNelVassoio) != 0 {
+		t.Errorf("fra due occorrenze nessuna PB va nel vassoio: %v", x.PreassociazioniNelVassoio)
+	}
+	if jx, _ := json.Marshal(x); strings.Contains(string(jx), "preassociazioni_nel_vassoio") {
+		t.Errorf("un vassoio vuoto è assente dal JSON: %s", jx)
+	}
+	if s := propostabom.EffettoDelCambioFonte(b, &bom, bom); !s.StessaSorgente || len(s.PreassociazioniNelVassoio) != 0 {
+		t.Errorf("la stessa sorgente con le PB: %+v", s)
 	}
 }

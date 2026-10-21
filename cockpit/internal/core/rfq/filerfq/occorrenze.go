@@ -2,6 +2,8 @@ package filerfq
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -153,6 +155,23 @@ func controllaPerimetro(p Perimetro, nVoci *int, impronta *string) *Rifiuto {
 		return perimetroCambiato(p)
 	}
 	return nil
+}
+
+// vociAttive: «Scarta» di un archivio con voci attive e' rifiutato (U2 §3.10; base [T] di V1-Q28: D, il rifiuto): 422
+// VOCI_ATTIVE con l'elenco delle voci attive. Niente si scrive.
+func vociAttive(p Perimetro) *Rifiuto {
+	var voci []map[string]any
+	for _, v := range p.Voci {
+		if Attivo(v.StatoCiclo()) {
+			voci = append(voci, map[string]any{"allegato_id": v.AllegatoID, "nome_file": v.NomeFile})
+		}
+	}
+	if len(voci) == 0 {
+		return nil
+	}
+	return rifiuto(http.StatusUnprocessableEntity, "VOCI_ATTIVE",
+		fmt.Sprintf("Niente è cambiato: lo ZIP ha %d file estratti ancora attivi: scartali o mettili in Altri file prima.", len(voci)),
+		extra("n_voci_attive", len(voci), "voci", voci))
 }
 
 func perimetroCambiato(p Perimetro) *Rifiuto {

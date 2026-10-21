@@ -15,7 +15,7 @@ import (
 )
 
 const getAnalisiFatti = `-- name: GetAnalisiFatti :one
-SELECT sha256, versione_analizzatore, hash_configurazione, fatti, calcolato_il FROM analisi_fatti
+SELECT sha256, versione_analizzatore, hash_configurazione, fatti, calcolato_il, digest FROM analisi_fatti
 WHERE sha256 = $1 AND versione_analizzatore = $2
   AND hash_configurazione = $3
 `
@@ -35,6 +35,7 @@ func (q *Queries) GetAnalisiFatti(ctx context.Context, arg GetAnalisiFattiParams
 		&i.HashConfigurazione,
 		&i.Fatti,
 		&i.CalcolatoIl,
+		&i.Digest,
 	)
 	return i, err
 }
@@ -160,7 +161,7 @@ INSERT INTO analisi_fatti (sha256, versione_analizzatore, hash_configurazione, f
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (sha256, versione_analizzatore, hash_configurazione) DO UPDATE SET
     fatti = EXCLUDED.fatti, calcolato_il = now()
-RETURNING sha256, versione_analizzatore, hash_configurazione, fatti, calcolato_il
+RETURNING sha256, versione_analizzatore, hash_configurazione, fatti, calcolato_il, digest
 `
 
 type UpsertAnalisiFattiParams struct {
@@ -190,6 +191,7 @@ func (q *Queries) UpsertAnalisiFatti(ctx context.Context, arg UpsertAnalisiFatti
 		&i.HashConfigurazione,
 		&i.Fatti,
 		&i.CalcolatoIl,
+		&i.Digest,
 	)
 	return i, err
 }

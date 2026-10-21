@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/ai/agente"
@@ -63,6 +64,9 @@ type EsecutoreServer struct {
 	RitardoNasAssente time.Duration
 	// ControlloNas: ogni quanto guardare se il NAS è tornato. Zero = un minuto.
 	ControlloNas time.Duration
+
+	// dopoLaRipresa: solo per le prove (CO-18), dentro la transazione della ripresa, prima del COMMIT.
+	dopoLaRipresa func(context.Context)
 }
 
 func (e *EsecutoreServer) Avvia(ctx context.Context) {
@@ -146,9 +150,29 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return nil, err
 		}
-		return documenti.CopiaSulNas(ctx, q, e.NAS, j, p.DocumentoID)
+		return documenti.CopiaSulNasCon(ctx, q, e.NAS, j, p.DocumentoID, e.riprendiInTransazione)
 	}
 	return nil, fmt.Errorf("%w: %s", errTipoNonGestito, j.Tipo)
+}
+
+// riprendiInTransazione: la ripresa di un contenuto sparito, dalla copia sul NAS, in una transazione sua (V1, decisioni
+// dell'ondata B §7 [T], come le altre strade di AccodaStage): il lucchetto per contenuto resta preso dalla verifica del
+// gemello fino alla scrittura di path_staging, e un tempo 2 o la cache che tolgono lo stesso contenuto aspettano. La
+// ripresa risponde sempre con un errore (il motivo per il documento): la transazione si conferma comunque; se la
+// conferma non riesce, niente e' stato accodato e l'errore lo dice.
+func (e *EsecutoreServer) riprendiInTransazione(ctx context.Context, j *db.Job, a db.Allegato, originale error) error {
+	var esito error
+	err := pgx.BeginFunc(ctx, e.Pool, func(tx pgx.Tx) error {
+		esito = documenti.RiprendiContenuto(ctx, db.New(tx), j, a, originale)
+		if e.dopoLaRipresa != nil {
+			e.dopoLaRipresa(ctx)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("%w (la ripresa non e' stata registrata: %v)", originale, err)
+	}
+	return esito
 }
 
 var (

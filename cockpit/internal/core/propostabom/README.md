@@ -23,8 +23,14 @@
     `core/rfq/distintabozza/importazione`), chiuso con `importazione.Componi`: una sola implementazione delle impronte,
     quella della foglia (P-11, P-19). L'identità proposta viene da `CatenaCodice.Forma` (mai `IdentitaNodo`) con
     l'emittente esplicito (`cliente:<uuid>` / `partner:<id>`); `codice_proposto` e `rev_proposta` sono le proiezioni
-    importazione-1 (`ProiezioneCodice`, `ProiezioneRev`), anche su ogni lettura del registro (DECA PE-08); i nodi tolti o
-    non raggiunti stanno fra i nodi fuori per decisione; relazioni con i due estremi, file e letture citate, diagnostiche
+    importazione-1 (`ProiezioneCodice`, `ProiezioneRev`), anche su ogni lettura del registro (DECA PE-08); con la rev
+    vuota `motivo_rev` c'è sempre (`revisione_assente`, `revisione_non_letta`, `revisione_non_ammissibile`,
+    `revisione_fra_i_riferimenti`: U2 §4.2 punto 2; base B di V1-Q26, quindi niente `fonte_rev`); i nodi tolti o non
+    raggiunti stanno fra i nodi fuori per decisione, con la traccia dalle righe legacy della fotografia (`Ingresso.Foto`,
+    obbligatoria: chi, quando, la nota come motivo, `origine_legacy`, il segno di «Conferma l'albero», gli archi tolti che
+    staccano un nodo non raggiunto, `mancanti[]`: U2 §4.4, Q13) e con l'identità proposta e le due proiezioni (U2-P22); le
+    diagnostiche del contesto dichiarato e non applicato (`contesto.non_valido`, `contesto.non_attivo`) nella testata
+    (U2-P49); relazioni con i due estremi, file e letture citate, diagnostiche
     per nodo o in testata, contesto e perimetro del §3.8.2. Una diagnostica dell'ancoraggio o della valutazione entra solo
     se parla del gruppo: il prodotto, e ogni occorrenza che cita è lo STEP del gruppo o un file attivo del registro, mai
     un'altra copia dello STEP (il rif di un nodo è uguale su ogni copia) né un file non attivo (contato nella nota
@@ -34,20 +40,26 @@
   - **il confronto fra due registri** (`Confronta`, `ConfrontaCaselle`): `uguale`, `regole_cambiate`,
     `proposta_cambiata`, con le differenze di PE-18 (`{nodi[], archi[]}` più i campi del gruppo) calcolate con la
     proiezione della foglia (`importazione.ImpronteParziali`) su un contenuto ridotto alla voce o al campo: una differenza
-    c'è se e solo se il campo cambia `impronta_contenuto`; con `uguale` le differenze sono vuote per costruzione. La
+    c'è se e solo se il campo cambia `impronta_contenuto`; con `uguale` le differenze sono vuote per costruzione. Le
+    evidenze cambiate stanno in `differenze.evidenze[]` (`DifferenzaEvidenza`, U2 §5.2, DEC-B PD-05; prima era il segno
+    `evidenze_cambiate`), calcolate sulla proiezione di `impronta_evidenze` della foglia (`ProiezioneEvidenze`): solo
+    informazione, non cambiano l'esito né le impronte. La
     radice del gruppo serve solo a classificare la voce della radice: non entra nel confronto delle altre voci.
     `ConfrontaCaselle` (la bozza senza registro) non dà mai «aggiunta» la voce della radice, che il nodo del prodotto
     rappresenta (P-2), né una voce fuori per decisione;
   - **l'effetto di un cambio della fonte** (`EffettoDelCambioFonte`, cambio-fonte-1 in sola lettura sulla `VistaBozza`):
     gli elenchi della risposta di R2 con i suoi nomi (caselle e archi riscritti, nodi fuori per cambio fonte, identità
     aggiornate, da rivedere con il motivo, decisioni cadute, differenze) e quelli della sola anteprima (nodi che restano
-    ed entrano, preassociazioni nel vassoio). Un nodo escluso da una `non_includere` lo rappresenta la decisione: la sua
+    ed entrano, preassociazioni nel vassoio: gli `allegato_id` delle PB dei nodi che escono, in ordine di stringa;
+    la PB della vista è `{AllegatoID, ChiaveBozza}` dalla direttiva 35, blocco C-2). Un nodo escluso da una `non_includere` lo rappresenta la decisione: la sua
     voce non rientra, e un arco verso di lui non è fra le differenze. Con la stessa struttura sulla stessa occorrenza il
     JSON è solo `{"stessa_sorgente": true}`; gli elenchi vuoti dell'effetto, e le differenze vuote, sono assenti;
   - **il contenuto di S6** (`AnteprimaDelloSTEP`): i gruppi dello STEP per il prodotto con l'impronta_contenuto di
     adesso, la candidata in vista, la proposta (i byte del registro), il confronto del codice della radice con il codice
     del componente del prodotto nella working (`IngressoAnteprima.CodiceProdotto`, che passa chi chiama), le associazioni
-    previste, lo STEP secondario e, con una bozza, l'effetto del cambio della fonte. Il confronto e il motivo della scelta
+    previste, lo STEP secondario e, con una bozza, l'effetto del cambio della fonte (cambio-fonte-1; per una bozza senza
+    struttura la rotta lo riconcilia con `distintabozza.RiconciliaEffetto`, cambio-fonte-2, sul registro della proposta
+    che `Anteprima.RegistroDellaProposta` le passa: il pacchetto non dipende dalla persistenza). Il confronto e il motivo della scelta
     della fonte sono una funzione sola con R2 (`ConfrontoDelCodice`, `MotivoFonteObbligatorio`: il motivo serve con
     «diverso» e, per prudenza, con «non determinabile»);
   - **le aggiunte di V1 al modello di `/dati`** (`Modello`, EM §9.9; PE-01, PE-10, PE-15, PE-16, PE-28): i gruppi con
@@ -56,7 +68,9 @@
     `decisione_esistente.identita_registrata` (`IdentitaDelRegistrato`: la certificazione valida, oppure il cliente
     presunto); per gruppo le diagnostiche della testata (quelle di più nodi, MAT PN-07); lo STEP secondario; il motivo
     della mancanza di gruppi. Le occorrenze non attive non entrano fra i gruppi, nemmeno la BOM di lavoro: se non resta un
-    gruppo con uno STEP il motivo è `step_non_attivo`, con gli allegati (`StepNonAttivi` per il motivo della fonte). Un
+    gruppo con uno STEP il motivo è `step_non_attivo`, con gli allegati e lo stato di ognuno (`AllegatoNonAttivo`;
+    `StepNonAttivi` per il motivo della fonte) e il testo diviso per stato (`TestoStepNonAttivo`: «riattivalo» per
+    «Altri file», «ricaricalo» per uno scartato, DEC-B B-3). Un
     errore o un panic dell'adattatore restano nel gruppo (`importazione` con `ERRORE_CALCOLO`), e la pagina non cade.
 
 ## Non appartiene qui
@@ -83,13 +97,52 @@
 - **`importa_file.go`** — gli archi, le relazioni (sorgente nodo o file), i file del registro con il perimetro, le
   diagnostiche (una diagnostica sta in una voce solo se cita un nodo solo; altrimenti nella testata, una volta) e quelle
   dell'adattatore.
+- **`importa_traccia.go`** — l'identità proposta di un nodo con le proiezioni e `motivo_rev` (`MotivoRev*`), la traccia
+  dei nodi fuori per decisione dalla fotografia (`OrigineLegacy*`, `Mancante*`).
 - **`importa_letture.go`** — la lettura del registro (sempre la stessa funzione: la stessa chiave_lettura ha gli stessi
   byte ovunque), `ProiezioneCodice`, `ProiezioneRev`, il testo della struttura da rileggere (LS-01).
 - **`codici_diagnostica.go`** — i codici `importazione.*` dell'adattatore, nell'elenco d'oro.
-- **`confronta.go`** — `Confronto`, `Differenze`, `DifferenzaNodo`, `DifferenzaArco`, `Confronta`, `ConfrontaCaselle`.
+- **`confronta.go`** — `Confronto`, `Differenze`, `DifferenzaNodo`, `DifferenzaArco`, `DifferenzaEvidenza`, `Confronta`,
+  `ConfrontaCaselle`.
+- **`confronta_evidenze.go`** — le differenze delle evidenze (`differenze.evidenze[]`).
 - **`cambio_fonte.go`** — `VistaBozza` e i suoi tipi, `EffettoCambioFonte`, `EffettoDelCambioFonte`.
 - **`anteprima.go`** — `IngressoAnteprima`, `Anteprima`, `AnteprimaDelloSTEP`, `ConfrontoDelCodice`,
-  `MotivoFonteObbligatorio`.
+  `MotivoFonteObbligatorio`. Direttiva 39: `Anteprima.StrutturaSTEP` (`struttura_step`) e lo stato `in_analisi`
+  con l'analisi in corso; `StatoAnteprimaNonScaricato` lo mette la rotta di S6.
+- **`struttura_step.go`** (direttiva 39 §3) — `StatoAnalisiDelFile` (gli stessi valori di S8: `pronta`, `in_analisi`,
+  `errore`, `non_valutato`; un file senza i fatti di un'analisi è `non_valutato`, mai `pronta`), `StrutturaSTEP`,
+  `GruppoImportato`, `ClassificaStruttura` (`con_struttura`, `sola_radice` senza dedurre un mono-pezzo,
+  `nessuna_struttura` con la partenza `solo_prodotto`, `non_determinabile` con la presa d'atto richiesta),
+  `StrutturaDelloSTEPNelModello` (la fonte di `/dati`). La rotta di S8 usa la stessa funzione dello stato
+  dell'analisi (`statoAnalisiS8`).
+- **`candidatura_sorgente.go`** (giro G39, G39-02 [U]) — `CandidatureSorgenteDelFinito`, `CandidaturaSorgente`,
+  `EvidenzaCandidatura`, `StepCandidatiDelFinito`: lo STEP candidato sorgente di un prodotto finito letto con il Motore A
+  (l'ancoraggio del file a livello prodotto senza dimensioni discordanti: il codice letto dal nome del file o dalla
+  radice dello STEP contro il codice del prodotto, con la regola unica del marcatore), univoco con un candidato solo, con
+  le evidenze delle letture. Una regola sola: la usano S9 e `/dati` (proposte di sorgente, nessuna riga proposto); la
+  persistenza la chiama da `distintabozza.StepCandidatiDalMotore` (R2, PB iniziali, suggerimenti, R4: tutte le
+  candidature, univoche o no; `Univoche` per la proposta di S9 e l'esenzione dal motivo in S8), senza una seconda copia
+  scritta a mano (prova L1 `TestV1G39StepCandidatiUnaSolaRegolaColMotore` in distintabozza). Giro G39-bis (21/10), con la
+  fotografia dello stesso calcolo (`*fotorfq.Thread`): l'evidenza discordante toglie la candidatura [T-39; D-2 (c) [U],
+  D-AR04 (iii) [U]] quando il nome del file (senza cartella ed estensione, senza maiuscole/minuscole e spazi ai bordi) e'
+  il codice di un altro componente non archiviato della RFQ che non e' un finito, o comincia con quel codice seguito da
+  un separatore, cioe' da un carattere che non e' una lettera ne' una cifra (giro G39-ter; salvo quando il codice del
+  prodotto copre piu' nome), o quando l'ancoraggio ha un candidato senza dimensioni discordanti di un componente che non
+  e' un finito valutato (salvo il nodo di una struttura del prodotto quando lo STEP ha la sua struttura con la radice
+  del prodotto). Un altro finito (nell'ancoraggio o nel nome) e il nome ambiguo rendono la candidatura non univoca: il
+  nome ambiguo e' il codice di un altro componente che e' l'inizio del codice del prodotto, oppure (giro G39-ter,
+  [T-39], G39-06 [U]: il motore non sa decidere) il codice di un altro componente all'inizio del nome seguito subito da
+  una lettera o da una cifra, o scritto con separatori diversi (il confronto sulle sole lettere e cifre:
+  «9123456-100A», «9123456-100rev2», «9123456_100» con il sottoassieme 9123456-100 e il finito 9123456A), oppure il nome
+  di un altro componente per lo STEP che ha una sua struttura con la radice del prodotto ([T-39] da
+  G39-02 [U]: la struttura propria non diventa mai un file ordinario). La rete di sicurezza del nome esatto [T-39,
+  G39-02 [U]] lega al finito lo STEP che il calcolo non lega a nessun prodotto e il cui nome normalizzato e' il codice
+  del finito (evidenza
+  `nome_file.codice_del_prodotto`). Per la candidatura non univoca sceglie l'utente (G39-06 [U]): S8 verso un finito,
+  con il motivo, oppure una PB verso una parte o un sottoassieme (`distintabozza.StepCandidati.BloccaPB`). Prove: L1
+  `TestG39bisEvidenzaDiscordanteEReteDelNome`, `TestG39bisNomeCheCominciaColCodiceDiUnAltroComponente`,
+  `TestG39terNomiDelSottoassiemeSenzaSeparatore`, `TestG39terStrutturaPropriaColNomeDelFiglio`; L4
+  `transport/web/motore_a_bozza_v1_g39bis_db_test.go`, `transport/web/motore_a_bozza_v1_g39ter_db_test.go`.
 - **`modello.go`** — `IngressoModello`, `ModelloDelProdotto`, `GruppoDelModello`, `NodoDelModello`,
   `CompletezzaDelNodo`, `IdentitaRegistrata`, `IdentitaDelRegistrato`, `StepSecondario`, `MotivoSenzaGruppi`, `Modello`,
   `StepSecondarioDelProdotto`, `CodiceErroreCalcolo`, `importaProtetto`.

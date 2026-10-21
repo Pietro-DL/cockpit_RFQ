@@ -73,43 +73,6 @@ func TestEsitoDegliEventiSenzaPercorsi(t *testing.T) {
 	}
 }
 
-// TestPartiDellaRigaSenzaGlob (rilievo della revisione): con una radice che contiene «[» e «]» i parziali di una riga
-// sono solo quelli della sua cartella _parti, con il prefisso esatto «<id>.»; un file di una cartella sorella che
-// combacerebbe con il pattern non esce mai.
-func TestPartiDellaRigaSenzaGlob(t *testing.T) {
-	base := t.TempDir()
-	dep := filepath.Join(base, "dep[1]")
-	sorella := filepath.Join(base, "dep1")
-	for _, d := range []string{filepath.Join(dep, CartellaPartiDeposito), filepath.Join(sorella, CartellaPartiDeposito)} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	scrivi := func(p string) {
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	scrivi(filepath.Join(sorella, CartellaPartiDeposito, "5.abc"))
-	mio := filepath.Join(dep, CartellaPartiDeposito, "5.def")
-	scrivi(mio)
-	scrivi(filepath.Join(dep, CartellaPartiDeposito, "50.abc"))
-	scrivi(filepath.Join(dep, CartellaPartiDeposito, "x5.abc"))
-	d := &Deposito{Radice: dep, ID: uuid.New()}
-	got := d.partiDellaRiga(5)
-	if len(got) != 1 || !strings.EqualFold(got[0], mio) {
-		t.Errorf("partiDellaRiga(5) = %q, atteso solo %q", got, mio)
-	}
-	if id, ok := idDelParziale("12.a1b2"); !ok || id != 12 {
-		t.Errorf("idDelParziale: %d %v", id, ok)
-	}
-	for _, n := range []string{".abc", "abc", "x.1"} {
-		if _, ok := idDelParziale(n); ok {
-			t.Errorf("idDelParziale(%q) riconosciuto", n)
-		}
-	}
-}
-
 // TestS1ApreSoloCioCheS5Serve (rilievi della revisione): byte.staging guarda il disco solo nel posto del contenuto; lo
 // staging vecchio per messaggio e un percorso fuori dalla radice sono «non_verificato» e non accendono l'apertura; il
 // posto del contenuto senza il file e' «assente»; con il file, «presente» e l'apertura c'e'.

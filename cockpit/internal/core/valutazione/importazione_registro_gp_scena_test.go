@@ -504,6 +504,11 @@ func TestA06LEquivalenteK4(t *testing.T) {
 	if _, ok := lettureDelFile(t, k, aDxfK4)[aDxfK4.String()+"/"+eq.Prove[0].LetturaCodice]; !ok {
 		t.Errorf("la lettura del codice della parte citata dalla prova non sta fra le letture del DXF")
 	}
+	// PD-07 (a), chiusa da U2 §4.3 (U2-P18): la lettura del P/N in file[].letture[] porta codice_proposto come le altre,
+	// e «Adotta come codice» del P/N si accende
+	if l, ok := k.TrovaLettura(aDxfK4.String() + "/" + eq.Prove[0].LetturaCodice); !ok || l.CodiceProposto != "PN93000" {
+		t.Errorf("la lettura del P/N senza il codice di partenza: %+v", l)
+	}
 	if strings.Contains(string(v.IdentitaProposta), "PN93000") {
 		t.Error("l'equivalente è diventato l'identità proposta")
 	}
@@ -518,8 +523,8 @@ func TestA06LEquivalenteK4(t *testing.T) {
 //   - lo stesso ingresso: uguale, differenze vuote;
 //   - il contesto ridichiarato senza effetto sulle letture delle voci: regole_cambiate, differenze vuote, evidenze
 //     cambiate (l'impronta del contesto dei file del perimetro);
-//   - una grammatica cambiata che non cambia nessuna lettura (una famiglia nuova di BETA): oggi proposta_cambiata su ogni
-//     voce letta, con il solo hash_grammatica diverso (vedi la proposta di emendamento nel resoconto della corsia);
+//   - una grammatica cambiata che non cambia nessuna lettura (una famiglia nuova di BETA): regole_cambiate senza
+//     differenze, perché hash_grammatica esce dalla parte confrontata (B-1 strada (a), U2-P15);
 //   - un'identità cambiata (l'id di un figlio nei fatti): proposta_cambiata, il nodo cambiato con i campi;
 //   - un nodo sparito: il nodo e il suo arco tolti;
 //   - un segnale cambiato (il grafo diventa non completo: il contro-indizio nei segnali dei cordoni) e i campi del gruppo;
@@ -533,7 +538,7 @@ func TestA18IlConfrontoFraDueRegistri(t *testing.T) {
 		c := calcolaPerIlRegistro(t, scenaCollegamento(t), insiemeACME(t))
 		a := c.importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
 		x := propostabom.Confronta(a, a)
-		if x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() || x.EvidenzeCambiate || x.ImprontaContenutoCorrente != a.ImprontaContenuto {
+		if x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() || len(x.Differenze.Evidenze) > 0 || x.ImprontaContenutoCorrente != a.ImprontaContenuto {
 			t.Errorf("lo stesso registro: %+v", x)
 		}
 	})
@@ -548,15 +553,15 @@ func TestA18IlConfrontoFraDueRegistri(t *testing.T) {
 		nuovo := calcolaPerIlRegistro(t, scenaCollegamento(t), r2).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
 		x := propostabom.Confronta(vecchio, nuovo)
 		if x.Esito != propostabom.EsitoRegoleCambiate || !x.Differenze.Vuote() || vecchio.ImprontaContenuto != nuovo.ImprontaContenuto ||
-			vecchio.ImprontaRegole == nuovo.ImprontaRegole || !x.EvidenzeCambiate {
+			vecchio.ImprontaRegole == nuovo.ImprontaRegole || len(x.Differenze.Evidenze) == 0 {
 			t.Errorf("il contesto ridichiarato: %+v", x)
 		}
 	})
-	t.Run("una grammatica cambiata cambia l'hash di ogni lettura (proposta di emendamento)", func(t *testing.T) {
-		// Oggi (EM §3.8: hash_grammatica sta nella lettura, e la lettura nel contenuto) una grammatica nuova che non
-		// cambia nessuna lettura cambia comunque ogni identità proposta letta con quella grammatica: qui BETA cambia, ACME
-		// ne blocca l'hash (DichiarazionePartner) e quindi cambia anche l'hash di ACME. La sola differenza delle letture è
-		// hash_grammatica: la prova lo fissa, finché l'emendamento proposto nel resoconto non decide altrimenti.
+	t.Run("una grammatica cambiata che non cambia le letture: regole cambiate (B-1)", func(t *testing.T) {
+		// B-1 strada (a) (U2 §5.2, U2-P15; DEC-B §3): hash_grammatica resta nella lettura del registro, ma esce dalla parte
+		// confrontata. Qui BETA cambia (una famiglia nuova) e ACME ne blocca l'hash (DichiarazionePartner), quindi cambia
+		// anche l'hash di ACME: nessuna lettura cambia oltre l'hash, e il confronto dice regole_cambiate senza differenze,
+		// con la stessa impronta_contenuto. Prima di B-1 era proposta_cambiata su ogni voce letta.
 		_, h1 := insiemeConLegami(t, false)
 		r1, _ := insiemeConLegami(t, false, contestoDeiLegami(h1, motorea.OccorrenzaContesto{AllegatoID: aStepB.String()}))
 		_, h2 := insiemeConLegami(t, true)
@@ -567,15 +572,16 @@ func TestA18IlConfrontoFraDueRegistri(t *testing.T) {
 		vecchio := calcolaPerIlRegistro(t, scenaCollegamento(t), r1).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
 		nuovo := calcolaPerIlRegistro(t, scenaCollegamento(t), r2).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
 		x := propostabom.Confronta(vecchio, nuovo)
-		if x.Esito != propostabom.EsitoPropostaCambiata || len(x.Differenze.Nodi) != len(nuovo.Proposta.Nodi) {
+		if x.Esito != propostabom.EsitoRegoleCambiate || !x.Differenze.Vuote() || vecchio.ImprontaContenuto != nuovo.ImprontaContenuto ||
+			vecchio.ImprontaRegole == nuovo.ImprontaRegole {
 			t.Fatalf("BETA cambiato: %+v", x)
 		}
 		for i := range vecchio.Proposta.Nodi {
 			var a, b map[string]any
 			_ = json.Unmarshal(vecchio.Proposta.Nodi[i].IdentitaProposta, &a)
 			_ = json.Unmarshal(nuovo.Proposta.Nodi[i].IdentitaProposta, &b)
-			if a["hash_grammatica"] == b["hash_grammatica"] {
-				t.Errorf("%s: l'hash della lettura non è cambiato", vecchio.Proposta.Nodi[i].Voce)
+			if a["hash_grammatica"] == b["hash_grammatica"] || a["hash_grammatica"] == nil {
+				t.Errorf("%s: l'hash della lettura non resta nel registro o non è cambiato", vecchio.Proposta.Nodi[i].Voce)
 			}
 			delete(a, "hash_grammatica")
 			delete(b, "hash_grammatica")
@@ -644,7 +650,7 @@ func TestA18IlConfrontoFraDueRegistri(t *testing.T) {
 		decidi(t, &th, "#1", "duplicato", cProdotto, &op)
 		nuovo := calcolaPerIlRegistro(t, th, insiemeACME(t)).importa(t, rifProdB, propostabom.GruppoBOM, nil).Contenuto
 		x := propostabom.Confronta(vecchio, nuovo)
-		if x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() || !x.EvidenzeCambiate {
+		if x.Esito != propostabom.EsitoUguale || !x.Differenze.Vuote() || len(x.Differenze.Evidenze) == 0 {
 			t.Errorf("la riga della radice decisa: %+v", x)
 		}
 	})

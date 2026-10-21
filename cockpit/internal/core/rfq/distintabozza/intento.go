@@ -30,9 +30,11 @@ const (
 	IntentoInCorso              = "in_corso"
 )
 
-// I gesti di esito_intento (EM §8.4): i dieci della 0023.
+// I gesti di esito_intento (EM §8.4): i tredici della 0023, con conferma_sorgente (S8) e rifiuta_proposta (R15) del delta
+// dell'ondata C (U2 §3.14 riga 6) e revoca_sorgente (direttiva 39, dalla variante 20261019c; vigente la 20261019d).
 var GestiIntento = []string{"conferma_bom_v2", "conferma_bom_v3", "lotto_fascicolo", "correggi_documento", "fonte_step",
-	"riprova_copia", "scarta_file", "altri_file", "riattiva_file", "associa_step"}
+	"riprova_copia", "scarta_file", "altri_file", "riattiva_file", "associa_step", "conferma_sorgente", "rifiuta_proposta",
+	"revoca_sorgente"}
 
 var gestiDeiFile = map[string]bool{"scarta_file": true, "altri_file": true, "riattiva_file": true}
 

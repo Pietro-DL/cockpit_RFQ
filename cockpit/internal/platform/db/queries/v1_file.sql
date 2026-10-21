@@ -55,7 +55,7 @@ SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a
        r.rimozione_id, r.stato AS rimozione_stato, r.motivo AS rimozione_motivo, r.tentativi AS rimozione_tentativi,
        c.conservazione_id, c.stato AS conservazione_stato, c.causa AS conservazione_causa, c.errore AS conservazione_errore,
        c.verificato_il AS conservazione_verificato_il, c.bytes AS conservazione_bytes, c.percorso_relativo AS conservazione_percorso,
-       c.deposito_id AS conservazione_deposito,
+       c.radice_id AS conservazione_radice, c.esito_rimozione AS conservazione_esito,
        es.quando AS scarto_quando, es.motivo AS scarto_motivo, us.sigla AS scarto_autore,
        ea.quando AS altri_file_quando, ea.motivo AS altri_file_motivo, ua.sigla AS altri_file_autore,
        (SELECT count(*) FROM allegato v WHERE v.contenitore_id = a.allegato_id)::int AS n_voci_dirette,
@@ -157,16 +157,26 @@ dip AS (
      WHERE EXISTS (SELECT 1 FROM componente_proposta cp WHERE cp.allegato_id = occ.allegato_id AND cp.thread_id = occ.thread_id
                       AND cp.componente_id IS NOT NULL AND cp.stato IN ('confermata', 'duplicato'))
     UNION ALL
-    -- D-7: proposta aperta assegnata a un componente
+    -- D-7 dalle AR (direttiva 35, C-6b; piano §7.2 C-6: «D-7 e D-7b dalle AR»): l'associazione registrata attiva
+    -- dell'occorrenza (n = 1, anche senza una proposta aperta), oppure la copia senza AR di una proposta aperta (n = 0, la
+    -- pre-assegnazione legacy o il legame della sorgente)
+    SELECT occ.allegato_id, 'D-7', fra.componente_id::text, COALESCE(c.codice, '')::text, 1
+      FROM occ JOIN file_rfq_associazione fra ON fra.allegato_id = occ.allegato_id AND fra.thread_id = occ.thread_id AND fra.stato = 'attiva'
+      LEFT JOIN componente c ON c.componente_id = fra.componente_id
+    UNION ALL
     SELECT occ.allegato_id, 'D-7', p.componente_id::text, COALESCE(c.codice, '')::text, 0
       FROM occ JOIN documento_proposta p ON p.allegato_id = occ.allegato_id
       LEFT JOIN componente c ON c.componente_id = p.componente_id
      WHERE p.stato = 'aperta' AND p.componente_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione fra
+                        WHERE fra.allegato_id = occ.allegato_id AND fra.thread_id = occ.thread_id AND fra.stato = 'attiva')
     UNION ALL
-    -- D-7b: proposta aperta non assegnata
+    -- D-7b: proposta aperta non assegnata e senza AR attiva
     SELECT occ.allegato_id, 'D-7b', p.proposta_id::text, '', 0
       FROM occ JOIN documento_proposta p ON p.allegato_id = occ.allegato_id
      WHERE p.stato = 'aperta' AND p.componente_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM file_rfq_associazione fra
+                        WHERE fra.allegato_id = occ.allegato_id AND fra.thread_id = occ.thread_id AND fra.stato = 'attiva')
     UNION ALL
     -- D-8: lavori in corso: download, estrazione, analisi con l'occorrenza nel payload
     SELECT occ.allegato_id, 'D-8', j.tipo::text, '', 0
@@ -383,24 +393,28 @@ SELECT rimozione_id FROM file_rfq_rimozione
 
 -- name: ListIdConservazioniDaRiprendere :many
 -- Le copie da riprendere (il custode), senza lucchetto: da rilasciare con il tentativo scaduto, o in copia con il
--- battito fermo da piu' di 15 minuti (aggiornato_il, non l'inizio: giro 1, TR-01). Una pagina alla volta, per chiave
--- (conservazione_id > dopo), come le rimozioni.
+-- battito fermo da piu' di 15 minuti (ultimo_battito, la colonna del battito: U2 §3.3 passo 2; senza battito l'inizio). Una pagina alla volta, per chiave
+-- (conservazione_id > dopo), come le rimozioni. Non tornano le copie ferme su un esito che non si ritenta da solo (la
+-- scrittura sul NAS spenta: «Riprova la rimozione dalla cartella ALTRO»; gli errori da bonificare: U2 §3.5, §3.7,
+-- U2-P42, U2-P43); tornano le rimozioni dal NAS interrotte, ferme in in_rimozione da oltre 15 minuti.
 SELECT conservazione_id FROM file_rfq_conservazione
- WHERE ((stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= sqlc.arg(adesso)::timestamptz))
-        OR (stato = 'in_copia' AND aggiornato_il < sqlc.arg(adesso)::timestamptz - interval '15 minutes'))
+ WHERE ((stato = 'da_rilasciare' AND (prossimo_tentativo_il IS NULL OR prossimo_tentativo_il <= sqlc.arg(adesso)::timestamptz)
+         AND (esito_rimozione IS NULL
+              OR esito_rimozione NOT IN ('scrittura_nas_spenta', 'radice_cambiata', 'fuori_cartella', 'nome_ripreso')))
+        OR (stato = 'in_copia' AND COALESCE(ultimo_battito, iniziata_il) < sqlc.arg(adesso)::timestamptz - interval '15 minutes')
+        OR (stato = 'in_rimozione' AND aggiornato_il < sqlc.arg(adesso)::timestamptz - interval '15 minutes'))
    AND conservazione_id > sqlc.arg(dopo)::bigint
  ORDER BY conservazione_id
  LIMIT sqlc.arg(limite);
 
--- name: ContaConservazioniViveDeposito :one
--- Le copie vive (copiata o da_rilasciare) scritte in un deposito diverso da quello di questa radice: all'avvio il
--- server non parte se ce n'e' anche una sola (EM §10.5, segnaposto del deposito; giro 1, SIC-02).
-SELECT count(*)::int FROM file_rfq_conservazione
- WHERE stato IN ('copiata', 'da_rilasciare') AND deposito_id <> sqlc.arg(deposito_id)::uuid;
-
--- name: ContaConservazioniVive :one
--- Le copie vive (copiata o da_rilasciare), di qualunque deposito.
-SELECT count(*)::int FROM file_rfq_conservazione WHERE stato IN ('copiata', 'da_rilasciare');
+-- name: ListConservazioniRecenti :many
+-- Le copie toccate dopo un istante, senza lucchetto (il custode: le cartelle in cui cercare i parziali scaduti, U2
+-- §3.9). Il segnaposto del deposito locale e i suoi conteggi all'avvio non ci sono piu' (U2 §3.13): la radice di una
+-- copia e' radice_id (0023, variante 20261018d).
+SELECT conservazione_id, radice_id, cartella_thread, percorso_relativo, sha256
+  FROM file_rfq_conservazione
+ WHERE aggiornato_il >= sqlc.arg(dopo)::timestamptz
+ ORDER BY conservazione_id;
 
 -- ------------------------------------------------------------------ il tempo 2 dello scarto
 
@@ -518,9 +532,105 @@ SELECT f.allegato_id, f.stato FROM file_rfq f
 -- Le copie verificate di occorrenze in Altri file per questi contenuti: la cache non conta il pin «proposta aperta» di
 -- un'occorrenza in Altri file solo dopo aver visto il file della sua copia nel deposito con la dimensione attesa
 -- (EM §10.5; PM23 §7).
-SELECT c.sha256::char(64) AS sha256, c.percorso_relativo, c.bytes, c.deposito_id
+SELECT c.sha256::char(64) AS sha256, c.cartella_thread, c.percorso_relativo, c.bytes, c.radice_id
   FROM file_rfq_conservazione c
   JOIN file_rfq f ON f.thread_id = c.thread_id AND f.allegato_id = c.allegato_id AND f.stato = 'altri_file'
  WHERE c.stato = 'copiata' AND c.sha256 = ANY(sqlc.arg(sha)::char(64)[])
    AND EXISTS (SELECT 1 FROM documento_proposta p WHERE p.allegato_id = c.allegato_id AND p.stato = 'aperta')
  ORDER BY c.sha256, c.conservazione_id;
+
+-- ------------------------------------------------------------------ la copia nella cartella ALTRO (direttiva 35, C-6a)
+
+-- name: AggiornaConservazione :execrows
+-- Un passo di una copia degli Altri file dallo stato atteso (confronta e scambia), con le colonne della 0023 che la
+-- corsia file scrive (U2 §3.3, §3.4, §3.7): la prova di creazione (creato_dal_cockpit: si accende, non si spegne mai),
+-- il battito (ultimo_battito = now()), il token della rimozione (scritto entrando in in_rimozione, poi conservato) e
+-- l'esito della rimozione dal NAS (esito_rimozione: lo stato lo vuole, ck_cons_esito). Le transizioni le controlla il
+-- trigger (P4X09); verificato_il e concluso_il li scrive lui.
+UPDATE file_rfq_conservazione
+   SET stato = sqlc.arg(stato), causa = sqlc.narg(causa), errore = sqlc.narg(errore), tentativi = sqlc.arg(tentativi),
+       prossimo_tentativo_il = sqlc.narg(prossimo_tentativo_il),
+       sorgente_byte = COALESCE(sqlc.narg(sorgente_byte), sorgente_byte),
+       bytes = COALESCE(sqlc.narg(bytes), bytes),
+       creato_dal_cockpit = creato_dal_cockpit OR sqlc.arg(prova)::bool,
+       token_rimozione = COALESCE(sqlc.narg(token_rimozione)::uuid, token_rimozione),
+       esito_rimozione = sqlc.narg(esito_rimozione),
+       ultimo_battito = CASE WHEN sqlc.arg(battito)::bool THEN now() ELSE ultimo_battito END
+ WHERE conservazione_id = sqlc.arg(conservazione_id) AND stato = sqlc.arg(stato_atteso);
+
+-- name: ListConservazioniTrattenuteRfq :many
+-- Le copie trattenute del cockpit nella RFQ con questo contenuto, sotto questa radice e nella cartella della RFQ di
+-- adesso (base B di U2-Q01, U2 §3.8): un nuovo «Metti in Altri file» ne riusa il file ed eredita la prova (eredita_da;
+-- il trigger di nascita ricontrolla tutto e cede la riga vecchia). Si leggono in fase A, sotto BloccaThread e
+-- BloccaCartella(thread, «ALTRO»): la piu' recente prima.
+SELECT * FROM file_rfq_conservazione
+ WHERE thread_id = sqlc.arg(thread_id) AND sha256 = sqlc.arg(sha256)::char(64) AND stato = 'trattenuta' AND creato_dal_cockpit
+   AND radice_id = sqlc.arg(radice_id) AND cartella_thread = sqlc.arg(cartella_thread)::text
+ ORDER BY conservazione_id DESC;
+
+-- name: GetConservazioneCopiataRiga :one
+-- La copia verificata di un'occorrenza in Altri file, con tutte le colonne (la cartella della RFQ fotografata nella
+-- riga serve per trovare il file: U2 §3.4). Per «Riattiva».
+SELECT * FROM file_rfq_conservazione
+ WHERE thread_id = sqlc.arg(thread_id) AND allegato_id = sqlc.arg(allegato_id) AND stato = 'copiata';
+
+-- name: PercorsoDiUnDocumento :one
+-- Il percorso di una copia degli Altri file e' anche quello di un documento della RFQ, di uno spostamento pendente (da
+-- o a) o di un orfano aperto: la rimozione dal NAS non lo tocca (U2 §3.6 regola 2, §3.7). Le stesse tre condizioni di
+-- PercorsoOccupato, senza le copie di conservazione (la riga che si rilascia nomina quel percorso). In minuscolo: la
+-- condivisione e' Windows. Si legge sotto BloccaCartella(thread, «ALTRO»).
+SELECT (EXISTS (SELECT 1 FROM documento d
+                 WHERE d.thread_id = sqlc.arg(thread_id) AND lower(d.path_relativo) = lower(sqlc.arg(percorso)::text))
+     OR EXISTS (SELECT 1 FROM job j
+                 WHERE j.tipo = 'sposta_nas' AND j.stato IN ('pronto', 'in_corso')
+                   AND j.payload ->> 'thread_id' = sqlc.arg(thread_id)::uuid::text
+                   AND (lower(j.payload ->> 'da') = lower(sqlc.arg(percorso)::text) OR lower(j.payload ->> 'a') = lower(sqlc.arg(percorso)::text)))
+     OR EXISTS (SELECT 1 FROM nas_orfano o
+                 WHERE o.thread_id = sqlc.arg(thread_id) AND o.risolto_il IS NULL AND lower(o.percorso) = lower(sqlc.arg(percorso)::text)))::bool AS documento;
+
+-- name: ListTokenConservazioniInCopia :many
+-- I token delle copie degli Altri file in corso (in_copia): i loro parziali ALTRO\<nome>.parte.<token> sono vivi per
+-- chiunque pulisca i parziali della cartella ALTRO, i documenti come il custode (U2 §3.9: l'unione dei token).
+SELECT token FROM file_rfq_conservazione WHERE stato = 'in_copia' ORDER BY token;
+
+-- name: ListCitazioniRegistroConferme :many
+-- D-15b (U2-P04, U2 §4.6): le occorrenze dell'elenco citate dal registro d'importazione di una conferma della RFQ
+-- (conferma_strutturale.importazioni_citate → distinta_importazione.allegati_citati), con il numero della conferma e il
+-- codice del prodotto. Si mostra, non blocca.
+SELECT DISTINCT a.allegato_id, cs.conferma_id, cs.numero, co.codice AS prodotto
+  FROM conferma_strutturale cs
+  JOIN distinta_importazione di ON di.thread_id = cs.thread_id AND di.importazione_id = ANY (cs.importazioni_citate)
+  JOIN allegato a ON a.allegato_id = ANY (di.allegati_citati)
+  JOIN componente co ON co.componente_id = cs.prodotto_id
+ WHERE cs.thread_id = sqlc.arg(thread_id) AND a.allegato_id = ANY (sqlc.arg(allegati)::uuid[])
+ ORDER BY a.allegato_id, cs.numero, cs.conferma_id;
+
+-- name: DocumentoStepDelFinito :one
+-- Il documento e' uno STEP del prodotto finito (direttiva 39 §2, §5 [U]: «Cambiarlo = S8, non un normale gesto
+-- documentale»): lo STEP strutturale della working di un finito della RFQ, la sorgente di una bozza aperta di un prodotto
+-- della RFQ, o il contenuto di un allegato della RFQ legato come sorgente strutturale del finito (il predicato della 0023,
+-- allegato_sorgente_del_finito: la conferma della sorgente non revocata, il legame storico senza S8, la working, la
+-- bozza). I gesti legacy «Sostituisci», «Annulla sostituzione» e «Assegna» dei documenti nelle RFQ formato 3 lo leggono
+-- per rimandare a S8 e R5 (fascicolo/formato3_legacy.go). Nessuna riga = il documento non e' della RFQ.
+SELECT (EXISTS (SELECT 1 FROM componente c
+                 WHERE c.thread_id = d.thread_id AND c.tipo = 'finito' AND c.step_strutturale_id = d.documento_id)
+     OR EXISTS (SELECT 1 FROM distinta_bozza b
+                 WHERE b.thread_id = d.thread_id AND b.stato = 'aperta' AND b.fonte_sha256::text = d.sha256::text)
+     OR EXISTS (SELECT 1 FROM allegato x JOIN messaggio m ON m.messaggio_id = x.messaggio_id
+                 WHERE m.thread_id = d.thread_id AND x.sha256::text = d.sha256::text
+                   AND allegato_sorgente_del_finito(d.thread_id, x.allegato_id)))::bool AS step_del_finito
+  FROM documento d
+ WHERE d.documento_id = sqlc.arg(documento_id) AND d.thread_id = sqlc.arg(thread_id);
+
+-- name: ListAssociazioniAttiveDelDocumento :many
+-- Le AR attive (file_rfq_associazione) degli allegati della RFQ con il contenuto del documento, con il codice del
+-- componente: «Assegna» di un documento confermato nelle RFQ formato 3 non lo porta via dal componente della AR (la
+-- guardia di INC-G9, D-AR07 [T-39]). In ordine di codice e di allegato.
+SELECT f.allegato_id, f.componente_id, c.codice
+  FROM documento d
+  JOIN allegato x ON x.sha256::text = d.sha256::text
+  JOIN messaggio m ON m.messaggio_id = x.messaggio_id AND m.thread_id = d.thread_id
+  JOIN file_rfq_associazione f ON f.thread_id = d.thread_id AND f.allegato_id = x.allegato_id AND f.stato = 'attiva'
+  JOIN componente c ON c.componente_id = f.componente_id
+ WHERE d.documento_id = sqlc.arg(documento_id) AND d.thread_id = sqlc.arg(thread_id)
+ ORDER BY c.codice, f.allegato_id;

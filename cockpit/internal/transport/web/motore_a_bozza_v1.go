@@ -4,17 +4,18 @@ package web
 // piano della 0023 (prima parte, ondata B; emendamento di V1 = EM §9). In un file a parte, per non urtare motore_a.go,
 // motore_a_pagina.go e distinta_unica_pagina.go delle altre corsie:
 //   - R1  GET  /thread/{id}/motore-a/bozza?prodotto=[&eventi=1][&importazione=1][&registro=<impronta>][&confronto=1]
-//         e la variante ?effetto_cambio_tipo=<componente_id>&tipo_nuovo=<tipo> (PE-09);
-//   - R2  POST /thread/{id}/motore-a/bozza                       la forma salvataggio (le altre quattro con l'ondata C);
+//         e la variante ?effetto_cambio_tipo=<componente_id>&tipo_nuovo=<tipo> (PE-09); la variante ?ingressi=1 (ondata C,
+//         U2 §6.3.3: lo stato degli ingressi del riepilogo, solo database);
+//   - R2  POST /thread/{id}/motore-a/bozza                       le cinque forme (le quattro costruite dal server: direttiva 35, C-3);
 //   - R3  POST /thread/{id}/motore-a/bozza/{bozza}/abbandona     abbandona una bozza (formato 2 o 3);
 //   - R6  GET  /thread/{id}/motore-a/intento/{chiave}           l'esito di un intento;
 //   - R7  GET  /thread/{id}/motore-a/conferme?prodotto=[&conferma=][&importazione=1]   lo storico nei formati 1, 2, 3;
 //   - R11 POST /thread/{id}/motore-a/riallinea                  rifa' F8 e scrive f8_stato.
-// R4, R5 (e la conferma formato 3), S6 e S7 arrivano con l'ondata C (vogliono l'adattatore del Motore A e il servizio dei
-// file).
+// S8 e la revoca della sorgente (direttiva 39) sono in motore_a_sorgente_v1.go, R4 formato 3 in motore_a_bozza_v1_r4.go,
+// montate da registraBozzaMotoreA. R5 (la conferma formato 3), S6 e S7 arrivano dopo.
 //
-// Il montaggio: registraBozzaMotoreA. La chiama chi possiede registraMotoreA (motore_a.go, fuori dalla corsia: richiesta
-// nel resoconto della corsia, come per il guscio della pagina); le prove la montano da se'.
+// Il montaggio: registraBozzaMotoreA, chiamata da registraMotoreA (motore_a.go; DEC-B RQ-1, autorizzata alla corsia
+// persistenza dell'ondata C per questa sola chiamata); le prove la montano da se' solo se Registra non l'ha gia' montata.
 //
 // La catena di ogni rotta e' quella di motore_a.go (EM §9, §12): conMotoreA (flag spento = il 404 del router, prima della
 // sessione) → conNoStore → soloAdmin → gestore; per gli altri metodi una riga gemella senza metodo (405 con Allow a flag
@@ -37,8 +38,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -50,6 +53,7 @@ import (
 	"promatec/cockpit/internal/core/rfq/distintabozza"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/db"
+	motorea_web "promatec/cockpit/internal/transport/web/motore_a"
 )
 
 // maxCorpoBozzaV1: il corpo JSON di una rotta della bozza (EM §3.10: 2 MiB + 4 KiB).
@@ -78,6 +82,14 @@ func (s *Server) registraBozzaMotoreA(mux *http.ServeMux) {
 	mux.HandleFunc("/thread/{id}/motore-a/conferme", gemella("GET, HEAD"))
 	mux.HandleFunc("POST /thread/{id}/motore-a/riallinea", catena(s.bozzaV1Riallinea))
 	mux.HandleFunc("/thread/{id}/motore-a/riallinea", gemella("POST"))
+	// ondata C: R15, il rifiuto della proposta aggiornata (motore_a_proposta_v1.go)
+	s.registraPropostaV1(mux)
+	// direttiva 39: S8 e la revoca della sorgente (motore_a_sorgente_v1.go)
+	s.registraSorgenteV1(mux)
+	// direttiva 39: R4 formato 3, il riepilogo senza scritture (motore_a_bozza_v1_r4.go)
+	s.registraRiepilogoV1(mux)
+	// direttiva 39: R5 formato 3, la conferma atomica (motore_a_bozza_v1_r5.go)
+	s.registraConfermaV1(mux)
 }
 
 // metodoNonAmmessoBozzaV1: un metodo non previsto, a flag acceso: 405 con Allow, senza leggere la sessione.
@@ -103,6 +115,12 @@ type rifiutoBozzaV1 struct {
 	AggiornataIl     *time.Time                    `json:"aggiornata_il,omitempty"`
 	VersioneCorrente *confermabom.VersioneCorrente `json:"versione_corrente,omitempty"`
 	AllegatoID       *uuid.UUID                    `json:"allegato_id,omitempty"`
+	// il 409 ANTEPRIMA_SUPERATA delle forme che importano (EM §6.1, V-7; direttiva 35, C-3)
+	Anteprima         string                         `json:"anteprima,omitempty"`
+	ImprontaContenuto string                         `json:"impronta_contenuto,omitempty"`
+	GruppoCorrente    *distintabozza.GruppoRitrovato `json:"gruppo_corrente,omitempty"`
+	// S8 (G39-03): il prodotto a cui lo STEP e' gia' legato
+	AltroProdotto *uuid.UUID `json:"altro_prodotto,omitempty"`
 }
 
 // rispostaErroreBozzaV1 traduce un errore di distintabozza nel codice HTTP e nel corpo (commento di testa). Pura: le
@@ -111,7 +129,8 @@ func rispostaErroreBozzaV1(err error) (int, rifiutoBozzaV1) {
 	var e *distintabozza.Errore
 	if errors.As(err, &e) && e != nil {
 		r := rifiutoBozzaV1{Esito: "rifiutato", Codice: e.Codice, Motivo: e.Motivo, Campo: e.Campo, Testo: e.Messaggio, Motivi: e.Motivi,
-			VersioneCorrente: e.VersioneCorrente, AllegatoID: e.AllegatoID}
+			VersioneCorrente: e.VersioneCorrente, AllegatoID: e.AllegatoID, Anteprima: e.Anteprima, ImprontaContenuto: e.ImprontaContenuto,
+			GruppoCorrente: e.GruppoCorrente, AltroProdotto: e.AltroProdotto}
 		if c := e.Conflitto; c != nil {
 			id, v, da, il := c.BozzaID, c.Versione, c.AggiornataDa, c.AggiornataIl
 			r.BozzaID, r.StatoBozza, r.Versione, r.AggiornataDa, r.AggiornataIl = &id, c.Stato, &v, &da, &il
@@ -121,6 +140,19 @@ func rispostaErroreBozzaV1(err error) (int, rifiutoBozzaV1) {
 				r.Esito = "conflitto"
 			}
 			return stato, r
+		}
+		for _, c := range CodiciServerR2Forme {
+			if c.Codice == e.Codice {
+				return c.Stato, r
+			}
+		}
+		for _, c := range CodiciServerS8 {
+			if c.Codice == e.Codice {
+				if c.Stato == http.StatusConflict {
+					r.Esito = "conflitto"
+				}
+				return c.Stato, r
+			}
 		}
 	}
 	var rf fascicolo.Rifiuto
@@ -143,6 +175,13 @@ var statoDelCodiceV1 = map[string]int{
 	distintabozza.CodiceBozzaAltroProdotto: http.StatusUnprocessableEntity,
 	distintabozza.CodiceFileNonAttivo:      http.StatusUnprocessableEntity,
 	distintabozza.CodiceMotivoObbligatorio: http.StatusUnprocessableEntity,
+	distintabozza.CodiceAnteprimaSuperata:  http.StatusConflict,
+	// direttiva 35, C-3: le forme di R2 che importano (EM §6.1, U2 §2.8)
+	distintabozza.CodicePropostaNonDisponibile:   http.StatusUnprocessableEntity,
+	distintabozza.CodiceImportazioneTroppoGrande: http.StatusUnprocessableEntity,
+	// direttiva 39: R5 formato 3 (EM §9.5): i blocchi e la bozza uguale alla base sono 422 (U2-P55)
+	distintabozza.CodiceBlocchi:         http.StatusUnprocessableEntity,
+	distintabozza.CodiceNessunaModifica: http.StatusUnprocessableEntity,
 }
 
 // CodiceRotta: un codice che una rotta della bozza puo' dare, con il suo stato HTTP.
@@ -160,20 +199,44 @@ var CodiciServerBozzaV1 = []CodiceRotta{
 	{"R2", distintabozza.CodiceBozzaVersione, http.StatusConflict},
 	{"R2", distintabozza.CodiceBaseSuperata, http.StatusConflict},
 	{"R2", distintabozza.CodiceChiaveRiusata, http.StatusConflict},
+	{"R2", distintabozza.CodiceAnteprimaSuperata, http.StatusConflict},
 	{"R2", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
 	{"R2", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R2", distintabozza.CodiceBozzaAltroProdotto, http.StatusUnprocessableEntity},
 	{"R2", distintabozza.CodiceFileNonAttivo, http.StatusUnprocessableEntity},
 	{"R2", distintabozza.CodiceMotivoObbligatorio, http.StatusUnprocessableEntity},
+	{"R2", distintabozza.CodicePropostaNonDisponibile, http.StatusUnprocessableEntity},
+	{"R2", distintabozza.CodiceImportazioneTroppoGrande, http.StatusUnprocessableEntity},
 	{"R3", distintabozza.CodiceBozzaVersione, http.StatusConflict},
+	// R4 (EM §9.4: 422 CORPO_NON_VALIDO, FUORI_RFQ; 404 la RFQ): la bozza con i blocchi e' un 200
+	{"R4", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
+	{"R4", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R3", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R3", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
+	// R5 (EM §9.5; motore_a_bozza_v1_r5.go): 409 e 422; i 500/503 non_registrato stanno in CodiciServerR5Altri
+	{"R5", distintabozza.CodiceBaseSuperata, http.StatusConflict},
+	{"R5", distintabozza.CodiceAnteprimaSuperata, http.StatusConflict},
+	{"R5", distintabozza.CodiceChiaveRiusata, http.StatusConflict},
+	{"R5", distintabozza.CodiceBozzaVersione, http.StatusConflict},
+	{"R5", distintabozza.CodiceBlocchi, http.StatusUnprocessableEntity},
+	{"R5", distintabozza.CodiceNessunaModifica, http.StatusUnprocessableEntity},
+	{"R5", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
+	{"R5", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R6", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R7", distintabozza.CodiceFuoriRFQ, http.StatusUnprocessableEntity},
 	{"R7", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
 	// R11: un corpo che non e' vuoto ne' {} (PB-17); il ponte non ha ancora il catalogo di riallineaDocumenti (RQ-3): T-05 lo
 	// confronta appena c'e'
 	{"R11", distintabozza.CodiceCorpoNonValido, http.StatusUnprocessableEntity},
+}
+
+// CodiciServerR2Forme: i codici delle forme di R2 costruite dal server che i cataloghi del ponte non hanno ancora
+// (direttiva 35, C-3; U2 §2.8): FONTE_NON_CONFERMATA (422). Non stanno in CodiciServerBozzaV1, che T-05 confronta con
+// RIFIUTI_R2 del ponte: richiesta alla corsia interfaccia di aggiungerlo, poi passa nell'elenco unico.
+var CodiciServerR2Forme = []CodiceRotta{
+	{"R2", distintabozza.CodiceFonteNonConfermata, http.StatusUnprocessableEntity},
+	// G39-02 [U]: STEP_CANDIDATO_DEL_FINITO (422), richiesta alla corsia interfaccia di aggiungerlo a RIFIUTI_R2 del ponte
+	{"R2", distintabozza.CodiceStepCandidatoDelFinito, http.StatusUnprocessableEntity},
 }
 
 // scriviJSONBozzaV1: JSON senza l'escape HTML di encoding/json (lo snapshot di R1 e' byte per byte quello salvato: «&»,
@@ -295,7 +358,7 @@ type opzioneTipoV1 struct {
 type effettoTipoV1 struct {
 	Codice          string          `json:"codice"`
 	TipoAttuale     string          `json:"tipo_attuale"`
-	Spento          string          `json:"spento,omitempty"`
+	Spento          string          `json:"spento"` // DEC-B PD-05: sempre presente, vuoto quando il cambio si puo' fare
 	Bottone         string          `json:"bottone,omitempty"`
 	Opzioni         []opzioneTipoV1 `json:"opzioni"`
 	Sospende        []string        `json:"sospende"`
@@ -328,6 +391,10 @@ func (s *Server) bozzaV1Leggi(w http.ResponseWriter, r *http.Request) {
 			Messaggio: "manca il prodotto, o non è un UUID (?prodotto=…)"})
 		return
 	}
+	if q.Has("ingressi") {
+		s.bozzaV1Ingressi(w, r, thread, prodotto, q)
+		return
+	}
 	if comp := q.Get("effetto_cambio_tipo"); comp != "" || q.Has("tipo_nuovo") {
 		s.bozzaV1Effetto(w, r, thread, prodotto, comp, q.Get("tipo_nuovo"))
 		return
@@ -338,6 +405,24 @@ func (s *Server) bozzaV1Leggi(w http.ResponseWriter, r *http.Request) {
 			Messaggio: "registro è l'impronta di un registro: 64 cifre esadecimali minuscole"})
 		return
 	}
+	// G39-01, G39-02 [U] (distintabozza/adesso3.go): con ?suggerimenti_motore=1 il calcolo del motore di adesso, prima della
+	// lettura; un motore che non calcola non e' un errore di R1 (200, suggerimenti_motore.errore)
+	erroreMotore := ""
+	if q.Has("suggerimenti_motore") {
+		if q.Get("suggerimenti_motore") != "1" {
+			s.rispondiErroreBozzaV1(w, r, thread, &distintabozza.Errore{Codice: distintabozza.CodiceCorpoNonValido, Campo: "suggerimenti_motore",
+				Messaggio: "suggerimenti_motore vale solo 1"})
+			return
+		}
+		adesso, err := s.calcoloAdessoV1(r.Context(), thread, prodotto, uuid.Nil)
+		if err != nil {
+			if s.Log != nil && !errors.Is(err, motorea_web.ErrOccupato) && !errors.Is(err, motorea_web.ErrRegole) {
+				s.Log.Warn("motore A, R1: suggerimenti del motore non calcolati", "thread", thread, "err", err)
+			}
+			erroreMotore = codiceErroreMotoreV1(err)
+		}
+		op.Adesso = adesso
+	}
 	var out rispostaR1
 	err = s.inSolaLetturaV1(r.Context(), func(qq *db.Queries) error {
 		l, err := distintabozza.LeggiR1(r.Context(), qq, thread, prodotto, op)
@@ -347,6 +432,9 @@ func (s *Server) bozzaV1Leggi(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.rispondiErroreBozzaV1(w, r, thread, err)
 		return
+	}
+	if erroreMotore != "" {
+		out.SuggerimentiMotore = &distintabozza.EsitoMotoreR1{Errore: erroreMotore}
 	}
 	if q.Get("confronto") == "1" && out.Stato == distintabozza.StatoAperta {
 		out.Confronto = &confrontoR1{Errore: "Il confronto con la proposta di oggi non è ancora disponibile: arriva con l'adattatore del Motore A."}
@@ -364,6 +452,42 @@ func reImprontaV1(x string) bool {
 		}
 	}
 	return true
+}
+
+// bozzaV1Ingressi: la variante di R1 ?ingressi=1 (U2 §6.3.3): lo stato degli ingressi del riepilogo, solo database, senza
+// motore e senza lucchetti, in una transazione REPEATABLE READ READ ONLY; risponde anche senza bozza. Una variante a se':
+// ingressi vale solo «1» e non si combina con gli altri parametri di R1 (422 sul campo).
+func (s *Server) bozzaV1Ingressi(w http.ResponseWriter, r *http.Request, thread, prodotto uuid.UUID, q url.Values) {
+	if q.Get("ingressi") != "1" {
+		s.rispondiErroreBozzaV1(w, r, thread, &distintabozza.Errore{Codice: distintabozza.CodiceCorpoNonValido, Campo: "ingressi",
+			Messaggio: "ingressi vale 1"})
+		return
+	}
+	for _, k := range []string{"eventi", "importazione", "registro", "confronto", "effetto_cambio_tipo", "tipo_nuovo"} {
+		if q.Has(k) {
+			s.rispondiErroreBozzaV1(w, r, thread, &distintabozza.Errore{Codice: distintabozza.CodiceCorpoNonValido, Campo: k,
+				Messaggio: "?ingressi=1 e' una variante a se': non si combina con " + k})
+			return
+		}
+	}
+	var out distintabozza.Ingressi
+	err := s.inSolaLetturaV1(r.Context(), func(qq *db.Queries) error {
+		var err error
+		out, err = distintabozza.LeggiIngressi(r.Context(), qq, thread, prodotto, improntaRegoleV1(s.MotoreA))
+		return err
+	})
+	if err != nil {
+		s.rispondiErroreBozzaV1(w, r, thread, err)
+		return
+	}
+	s.scriviJSONBozzaV1(w, r, http.StatusOK, out)
+}
+
+// improntaRegoleV1: l'impronta delle regole caricate all'avvio (stato, versione e sha256 dell'indice, versione dei limiti),
+// che entra nella parte proposta degli ingressi (U2 §6.3.3). Le regole non cambiano durante la vita del processo: un
+// riavvio con altre regole cambia la parte.
+func improntaRegoleV1(r motorea_web.Regole) string {
+	return fmt.Sprintf("%s|%d|%s|%s", r.Stato, r.VersioneIndice, r.Sha256Indice, r.VersioneLimiti)
 }
 
 // bozzaV1Effetto: la variante di R1 con l'effetto del cambio di tipo (PE-09).
@@ -417,8 +541,12 @@ func (s *Server) bozzaV1Effetto(w http.ResponseWriter, r *http.Request, thread, 
 	s.scriviJSONBozzaV1(w, r, http.StatusOK, out)
 }
 
-// bozzaV1Salva: R2 (EM §9.2), la forma salvataggio. La transazione (lucchetto della RFQ, chiave, versione attesa,
-// riconciliazione, verifiche, versione ed eventi) e' tutta in distintabozza.SalvaFormato3.
+// bozzaV1Salva: R2 (EM §9.2), le cinque forme. La forma salvataggio: la transazione (lucchetto della RFQ, chiave, versione
+// attesa, riconciliazione, verifiche, versione ed eventi) e' tutta in distintabozza.SalvaFormato3. Le forme costruite dal
+// server (direttiva 35, C-3, R2 passo 6b): converti_da con distintabozza.Converti (conversione-1, EM §6.7), crea con
+// distintabozza.CreaFormato3 (vuota, registrato, conferma; la partenza step con il calcolo del motore prima),
+// riallinea_proposta con distintabozza.RiallineaFormato3 e cambia_sorgente con distintabozza.CambiaSorgenteFormato3 (con il
+// calcolo del motore prima, motore_a_bozza_v1_forme.go).
 func (s *Server) bozzaV1Salva(w http.ResponseWriter, r *http.Request) {
 	thread, ok := s.idDelPercorsoV1(w, r, "id")
 	if !ok || !s.rfqEsisteV1(w, r, thread) {
@@ -433,9 +561,120 @@ func (s *Server) bozzaV1Salva(w http.ResponseWriter, r *http.Request) {
 		s.rispondiErroreBozzaV1(w, r, thread, err)
 		return
 	}
-	sv := req.Salvataggio
-	sv.ThreadID, sv.UtenteID = thread, utenteDa(r.Context()).UtenteID
-	out, err := distintabozza.SalvaFormato3(r.Context(), s.Pool, sv)
+	utente := utenteDa(r.Context()).UtenteID
+	var out any
+	switch req.Forma {
+	case distintabozza.FormaSalvataggio:
+		sv := req.Salvataggio
+		sv.ThreadID, sv.UtenteID = thread, utente
+		// G39-01, G39-02 [U] (distintabozza/adesso3.go): il calcolo del motore di adesso solo quando il salvataggio ne ha
+		// bisogno, prima della transazione. Se serve (per il registro di un suggerimento accettato, o per una PB nuova o
+		// spostata su uno STEP: i soli STEP candidati, senza importare) e il motore e' occupato, scaduto o in errore:
+		// 503/504 (niente scritto, si riprova), perche' R2 non salvi come PB uno STEP che solo il motore riconosce candidato
+		// del finito (G39-02 [U]; rilievo minore 4 della revisione G39 parte A). Senza le regole del motore (non configurate:
+		// nessun suggerimento del calcolo puo' esserci) si prosegue senza il calcolo: il servizio decide (422
+		// importazione_sconosciuta; per gli STEP il ripiego [T-39], la lettura legacy con il marcatore, che R4 con il motore e
+		// R5 ricalcolano)
+		var registro, step bool
+		if err2 := s.inSolaLetturaV1(r.Context(), func(q *db.Queries) error {
+			var e error
+			registro, step, e = distintabozza.MotoreDelSalvataggio(r.Context(), q, sv)
+			return e
+		}); err2 != nil {
+			s.rispondiErroreBozzaV1(w, r, thread, err2)
+			return
+		}
+		switch {
+		case registro:
+			adesso, err2 := s.calcoloAdessoV1(r.Context(), thread, sv.ProdottoID, sv.BozzaID)
+			if err2 != nil && !errors.Is(err2, motorea_web.ErrRegole) {
+				s.rispondiErroreCalcoloV1(w, r, thread, err2)
+				return
+			}
+			sv.Adesso = adesso
+		case step:
+			st, err2 := s.stepCandidatiV1(r.Context(), thread)
+			if err2 != nil && !errors.Is(err2, motorea_web.ErrRegole) {
+				s.rispondiErroreCalcoloV1(w, r, thread, err2)
+				return
+			}
+			if st != nil {
+				sv.Adesso = &distintabozza.CalcoloAdesso{Step: st}
+			}
+		}
+		out, err = distintabozza.SalvaFormato3(r.Context(), s.Pool, sv)
+	case distintabozza.FormaConvertiDa:
+		out, err = distintabozza.Converti(r.Context(), s.Pool, req.Conversione3Da(thread, utente))
+	case distintabozza.FormaCrea:
+		var p *distintabozza.PropostaCalcolata
+		if req.Crea.Partenza == distintabozza.PartenzaStep {
+			// EM §6.3 passi 0-2: la chiave in sola lettura (un reinvio non calcola il motore), poi il calcolo e V-7
+			gia, err2 := s.riproponiR2(r.Context(), thread, req.Comune)
+			if err2 != nil {
+				s.rispondiErroreBozzaV1(w, r, thread, err2)
+				return
+			}
+			if !gia {
+				if p, err2 = s.propostaPerCrea(r.Context(), thread, req); err2 != nil {
+					s.rispondiErroreCalcoloV1(w, r, thread, err2)
+					return
+				}
+			}
+		}
+		if req.Crea.Partenza == distintabozza.PartenzaConferma {
+			// da-conferma-1 (G39-02 [U]; rilievo minore 5 della revisione G39 parte A): le PB iniziali della revisione, dove va
+			// anche un file arrivato dopo R5 (G39-01), escludono lo STEP candidato del finito con il riconoscimento del motore,
+			// come la partenza step; la chiave prima (un reinvio non calcola). Motore occupato, scaduto o in errore: 503/504,
+			// niente scritto; regole non configurate: il ripiego [T-39]
+			gia, err2 := s.riproponiR2(r.Context(), thread, req.Comune)
+			if err2 != nil {
+				s.rispondiErroreBozzaV1(w, r, thread, err2)
+				return
+			}
+			if !gia {
+				st, err2 := s.stepCandidatiV1(r.Context(), thread)
+				if err2 != nil && !errors.Is(err2, motorea_web.ErrRegole) {
+					s.rispondiErroreCalcoloV1(w, r, thread, err2)
+					return
+				}
+				if st != nil {
+					p = &distintabozza.PropostaCalcolata{StepCandidati: st}
+				}
+			}
+		}
+		out, err = distintabozza.CreaFormato3(r.Context(), s.Pool, req.CreaDaRichiesta(thread, utente, p))
+	case distintabozza.FormaRiallineaProposta:
+		var p *distintabozza.PropostaCalcolata
+		gia, err2 := s.riproponiR2(r.Context(), thread, req.Comune)
+		if err2 != nil {
+			s.rispondiErroreBozzaV1(w, r, thread, err2)
+			return
+		}
+		if !gia {
+			if p, err2 = s.propostaPerRiallinea(r.Context(), thread, req); err2 != nil {
+				s.rispondiErroreCalcoloV1(w, r, thread, err2)
+				return
+			}
+		}
+		out, err = distintabozza.RiallineaFormato3(r.Context(), s.Pool, req.RiallineaDaRichiesta(thread, utente, p))
+	case distintabozza.FormaCambiaSorgente:
+		var p *distintabozza.PropostaCalcolata
+		gia, err2 := s.riproponiR2(r.Context(), thread, req.Comune)
+		if err2 != nil {
+			s.rispondiErroreBozzaV1(w, r, thread, err2)
+			return
+		}
+		if !gia {
+			if p, err2 = s.propostaPerCambia(r.Context(), thread, req); err2 != nil {
+				s.rispondiErroreCalcoloV1(w, r, thread, err2)
+				return
+			}
+		}
+		out, err = distintabozza.CambiaSorgenteFormato3(r.Context(), s.Pool, req.CambiaSorgenteDaRichiesta(thread, utente, p))
+	default:
+		err = &distintabozza.Errore{Codice: distintabozza.CodiceCorpoNonValido, Motivo: distintabozza.MotivoFormaNonDisponibile, Campo: req.Forma,
+			Messaggio: "la forma " + req.Forma + " di R2 non c'e'"}
+	}
 	if err != nil {
 		s.rispondiErroreBozzaV1(w, r, thread, err)
 		return

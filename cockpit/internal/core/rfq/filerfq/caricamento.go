@@ -14,6 +14,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/db"
@@ -123,16 +125,19 @@ func ScriviParziale(radice string, r io.Reader, nome, tipo string, max int64) (F
 
 // EsitoFile e' l'esito di un file di E1′ (EM §10.9).
 type EsitoFile struct {
-	NomeFile             string         `json:"nome_file"`
-	Esito                string         `json:"esito"` // caricato | gia_presente | rifiutato
-	AllegatoID           *uuid.UUID     `json:"allegato_id"`
-	PropostaID           *uuid.UUID     `json:"proposta_id"`
-	Sha256               string         `json:"sha256"`
-	Origine              string         `json:"origine"`
-	Analisi              string         `json:"analisi"`
-	StatoFile            string         `json:"stato_file"`
-	RicaricatoDopoScarto bool           `json:"ricaricato_dopo_scarto"`
-	Motivo               *MotivoRifiuto `json:"motivo"`
+	NomeFile             string     `json:"nome_file"`
+	Esito                string     `json:"esito"` // caricato | gia_presente | rifiutato
+	AllegatoID           *uuid.UUID `json:"allegato_id"`
+	PropostaID           *uuid.UUID `json:"proposta_id"`
+	Sha256               string     `json:"sha256"`
+	Origine              string     `json:"origine"`
+	Analisi              string     `json:"analisi"`
+	StatoFile            string     `json:"stato_file"`
+	RicaricatoDopoScarto bool       `json:"ricaricato_dopo_scarto"`
+	// ByteRipristinati (DEC-B PF-27): gia_presente di un doppione senza nessuna sorgente che S5 serve: i byte arrivati
+	// sono diventati i suoi (campo aggiunto, nessuno tolto; c'e' solo quando e' vero).
+	ByteRipristinati bool           `json:"byte_ripristinati,omitempty"`
+	Motivo           *MotivoRifiuto `json:"motivo"`
 }
 
 // MotivoRifiuto: il codice e il testo del rifiuto di un file.
@@ -195,6 +200,13 @@ const (
 // dei caricamenti interni (origine dell'allegato manuale); altrimenti quello dei file del cliente (origine portale). La
 // risposta usa il vocabolario della richiesta (portale | interna) per ogni file, come per i file rifiutati e in testa
 // (rilievo della revisione). Il parziale si promuove o si butta qui; in ogni caso, all'uscita, non resta.
+//
+// L'ordine dei lucchetti (giro G39-bis, corsia file) e' quello unico di chi scrive file in una RFQ: la RFQ FOR UPDATE
+// (dentro fascicolo.NotaPortale / NotaInterna, il primo passo), il messaggio della nota, il contenuto, le righe nuove.
+// Un 40P01 o un 40001 che resta possibile per ragioni fuori da questo ordine (un lavoro che non segue l'ordine, un
+// trigger) non diventa un 500: la transazione si rifa' da capo, al piu' maxTentativiRegistrazione volte. Rifarla e'
+// idempotente: il rollback toglie tutte le righe, e il contenuto gia' promosso nello staging dal tentativo precedente
+// si ritrova sotto BloccaContenuto (fascicolo.AdottaContenuto lo adotta senza il parziale).
 func (s *Servizio) RegistraFile(ctx context.Context, thread uuid.UUID, u db.Utente, interna bool, f FileArrivato) (EsitoFile, error) {
 	origine := string(db.OrigineAllegatoPortale)
 	risposta := OriginePortale
@@ -207,7 +219,52 @@ func (s *Servizio) RegistraFile(ctx context.Context, thread uuid.UUID, u db.Uten
 	if err != nil {
 		return es, err
 	}
-	err = s.inTx(ctx, func(q *db.Queries) error {
+	for tentativo := 1; ; tentativo++ {
+		es = EsitoFile{NomeFile: f.Nome, Sha256: f.Sha256, Origine: risposta}
+		err = s.registraInTx(ctx, thread, u, interna, origine, f, def, &es)
+		if err == nil || !ErroreTemporaneo(err) || tentativo >= maxTentativiRegistrazione {
+			break
+		}
+		s.log().Warn("caricamento nella RFQ: errore temporaneo del database, la registrazione si rifa' da capo",
+			"rfq", thread, "file", f.Nome, "tentativo", tentativo, "err", err)
+		if !attendiRitento(ctx, tentativo) {
+			break
+		}
+	}
+	if err != nil {
+		return es, err
+	}
+	es.Analisi = s.analisiDi(ctx, thread, es.AllegatoID)
+	return es, nil
+}
+
+// maxTentativiRegistrazione: quante volte RegistraFile prova la transazione di un file prima di restituire l'errore
+// temporaneo (che diventa il 5xx «da verificare» di sempre).
+const maxTentativiRegistrazione = 3
+
+// ErroreTemporaneo: un errore del database che si risolve rifacendo la transazione da capo (40P01 deadlock, 40001
+// serializzazione).
+func ErroreTemporaneo(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001")
+}
+
+// attendiRitento aspetta un poco prima del tentativo dopo il numero n (25 ms, 50 ms, ...); falso se il contesto finisce.
+func attendiRitento(ctx context.Context, n int) bool {
+	t := time.NewTimer(time.Duration(25*n) * time.Millisecond)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// registraInTx e' la transazione di RegistraFile per un file (commento di RegistraFile); scrive l'esito in es.
+func (s *Servizio) registraInTx(ctx context.Context, thread uuid.UUID, u db.Utente, interna bool, origine string, f FileArrivato,
+	def string, es *EsitoFile) error {
+	return s.inTx(ctx, func(q *db.Queries) error {
 		var nota db.Messaggio
 		var err error
 		if interna {
@@ -232,7 +289,9 @@ func (s *Servizio) RegistraFile(ctx context.Context, thread uuid.UUID, u db.Uten
 				pid := p.PropostaID
 				es.PropostaID = &pid
 			}
-			return nil
+			rip, err := s.ripristinaByte(ctx, q, thread, *d.Presente, f, def)
+			es.ByteRipristinati = rip
+			return err
 		}
 		car := fascicolo.Caricato{Nome: f.Nome, Sha256: f.Sha256, Bytes: f.Bytes, Percorso: def, Tipo: f.Tipo, Parte: f.Parte,
 			Origine: db.OrigineAllegato(origine)}
@@ -258,11 +317,42 @@ func (s *Servizio) RegistraFile(ctx context.Context, thread uuid.UUID, u db.Uten
 		}
 		return nil
 	})
-	if err != nil {
-		return es, err
+}
+
+// ripristinaByte (DEC-B PF-27, prova OB-16): il doppione presente di un file ricaricato non ha nessuna sorgente che S5
+// serve (il suo contenuto nello staging, una copia registrata nella cartella ALTRO sotto la radice di questo server, un
+// documento della RFQ scritto sul NAS): allora i byte arrivati diventano i suoi, sotto BloccaContenuto
+// (fascicolo.AdottaContenuto), e path_staging si scrive dopo il contenuto (EM §10.6, «chi adotta»). Con una sorgente
+// presente non cambia niente e il parziale si butta. Nessun accesso al NAS: la copia in ALTRO conta per la sua riga
+// (copiata o da rilasciare), come in S1 (U2 §3.12).
+func (s *Servizio) ripristinaByte(ctx context.Context, q *db.Queries, thread uuid.UUID, d db.ListAllegatiDirettiStessoShaRow,
+	f FileArrivato, def string) (bool, error) {
+	if d.PathStaging.Valid && presenteNelloStaging(s.Staging, d.PathStaging.String, f.Sha256) {
+		return false, nil
 	}
-	es.Analisi = s.analisiDi(ctx, thread, es.AllegatoID)
-	return es, nil
+	if s.Conservatore != nil {
+		copie, err := q.ListCopieConservazioneAllegato(ctx, d.AllegatoID)
+		if err != nil {
+			return false, err
+		}
+		for _, c := range copie {
+			if c.RadiceID == s.Conservatore.RadiceID() && (c.Stato == "copiata" || (c.Stato == "da_rilasciare" && c.CreatoDalCockpit)) {
+				return false, nil
+			}
+		}
+	}
+	scritto, err := q.EsisteDocumentoScrittoSha(ctx, db.EsisteDocumentoScrittoShaParams{ThreadID: thread, Sha256: f.Sha256})
+	if err != nil || scritto {
+		return false, err
+	}
+	if err := fascicolo.AdottaContenuto(ctx, q, f.Sha256, def, f.Parte); err != nil {
+		return false, err
+	}
+	if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: d.AllegatoID, PathStaging: testo(def),
+		Sha256: testo(f.Sha256), Bytes: pgtype.Int8{Int64: f.Bytes, Valid: true}}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // analisiDi: lo stato dell'analisi di un allegato (lo stesso di S1), letto dopo il COMMIT.

@@ -34,27 +34,44 @@ const (
 )
 
 // Confronto: l'esito del confronto, l'impronta_contenuto del registro di adesso (quella che riallinea_proposta dichiara,
-// V-7), le differenze sui soli campi del contenuto e se sono cambiate le evidenze (solo informazione: mai un blocco).
+// V-7) e le differenze: sui campi del contenuto, e fra le evidenze (differenze.evidenze[], solo informazione: mai un
+// blocco, mai PROPOSTA_CAMBIATA; prima dell'ondata C era il solo segno evidenze_cambiate, DEC-B PD-05).
 type Confronto struct {
 	Esito                     string     `json:"esito"`
 	ImprontaContenutoCorrente string     `json:"impronta_contenuto_corrente"`
-	EvidenzeCambiate          bool       `json:"evidenze_cambiate"`
 	Differenze                Differenze `json:"differenze"`
 }
 
 // Differenze: la forma di PE-18, {nodi[], archi[]}, più i campi del gruppo che entrano nel confronto (gruppo: radice,
-// completezza del grafo, la fonte), che PE-18 non nomina e che una rianalisi di LS-01 cambia (RA-04).
+// completezza del grafo, la fonte), che PE-18 non nomina e che una rianalisi di LS-01 cambia (RA-04), e le evidenze
+// cambiate (U2 §5.2; DEC-B PD-05: {nodi[], archi[], gruppo[], evidenze[]}). Un elenco vuoto è assente (B-9).
 type Differenze struct {
-	Nodi   []DifferenzaNodo `json:"nodi,omitempty"`
-	Archi  []DifferenzaArco `json:"archi,omitempty"`
-	Gruppo []string         `json:"gruppo,omitempty"`
+	Nodi     []DifferenzaNodo     `json:"nodi,omitempty"`
+	Archi    []DifferenzaArco     `json:"archi,omitempty"`
+	Gruppo   []string             `json:"gruppo,omitempty"`
+	Evidenze []DifferenzaEvidenza `json:"evidenze,omitempty"`
 }
 
-// Vuote: nessuna differenza.
+// Vuote: nessuna differenza del contenuto (nodi, archi, gruppo). Le evidenze non contano: sono informazione, e con
+// l'esito «uguale» le differenze del contenuto sono vuote per costruzione anche quando le evidenze cambiano.
 func (d Differenze) Vuote() bool { return len(d.Nodi) == 0 && len(d.Archi) == 0 && len(d.Gruppo) == 0 }
 
-// IsZero: nessuna differenza; serve a «omitzero» di encoding/json (l'effetto del cambio della fonte, EffettoCambioFonte).
-func (d Differenze) IsZero() bool { return d.Vuote() }
+// IsZero: nessuna differenza, nemmeno fra le evidenze; serve a «omitzero» di encoding/json (l'effetto del cambio della
+// fonte, EffettoCambioFonte).
+func (d Differenze) IsZero() bool { return d.Vuote() && len(d.Evidenze) == 0 }
+
+// DifferenzaEvidenza: dove cambiano le evidenze fra due registri (U2 §5.2, «Le differenze delle evidenze»): calcolata
+// sulla proiezione di impronta_evidenze della foglia (importazione.ProiezioneEvidenze), quindi con lo stesso elenco
+// chiuso; non cambia le impronte. Voce è la chiave dell'elemento: n:<allegato_id>:<rif> per i campi di evidenza di una
+// voce o di un nodo fuori per decisione (solo «cambiato»: un nodo che entra, esce o passa fra le voci e i fuori lo
+// dicono già le differenze dei nodi), f:<allegato_id> per un file del registro (le sue letture, i candidati, gli
+// attributi: aggiunto, tolto o cambiato), r:<allegato_id>:<id> per una relazione con sorgente file, oppure «fonte»,
+// «gruppo», «diagnostiche» per i campi di evidenza della testata. Campi: i campi che cambiano, per «cambiato».
+type DifferenzaEvidenza struct {
+	Voce  string   `json:"voce"`
+	Tipo  string   `json:"tipo"`
+	Campi []string `json:"campi,omitempty"`
+}
 
 // DifferenzaNodo: un nodo che cambia (PE-18): la voce del registro, il tipo e i campi del contenuto che cambiano.
 // ChiaveBozza e DecisioneID li mette chi conosce la bozza (R1 ?confronto=1, la risposta di R2); il confronto fra registri
@@ -83,8 +100,11 @@ type DifferenzaArco struct {
 // stessa occorrenza: voci abbinate per voce (allegato e rif), archi per (allegato, padre, figlio). È puro e
 // deterministico, e non cambia gli ingressi.
 func Confronta(vecchio, nuovo importazione.Contenuto) Confronto {
-	out := Confronto{ImprontaContenutoCorrente: nuovo.ImprontaContenuto, EvidenzeCambiate: vecchio.ImprontaEvidenze != nuovo.ImprontaEvidenze}
+	out := Confronto{ImprontaContenutoCorrente: nuovo.ImprontaContenuto}
 	out.Differenze = differenze(vecchio, nuovo)
+	if vecchio.ImprontaEvidenze != nuovo.ImprontaEvidenze {
+		out.Differenze.Evidenze = differenzeEvidenze(vecchio, nuovo)
+	}
 	switch {
 	case vecchio.ImprontaContenuto != nuovo.ImprontaContenuto || !out.Differenze.Vuote():
 		out.Esito = EsitoPropostaCambiata

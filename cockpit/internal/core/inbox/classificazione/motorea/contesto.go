@@ -426,30 +426,46 @@ func copiaContesto(c ContestoLavorazione) ContestoLavorazione {
 	return x
 }
 
-// occorrenzeDi: gli indici del perimetro che coincidono con la fonte del documento.
+// occorrenzeDi: gli indici del perimetro che coincidono con la fonte del documento (OccorrenzaCoincide).
 func (c *ContestoRisolto) occorrenzeDi(f evidenze.Fonte) []int {
 	var out []int
-	nome := f.Provenienza.NomeRicevuto
-	base := path.Base(strings.ReplaceAll(f.Provenienza.PercorsoRicevuto, "\\", "/"))
+	file := FileDelPerimetro{AllegatoID: f.OrigineID, Sha256: f.RiferimentoFatti.Sha256, Nome: f.Provenienza.NomeRicevuto,
+		Percorso: f.Provenienza.PercorsoRicevuto, Contenitore: f.ContenitoreID}
 	for i, o := range c.perimetro {
-		if o.AllegatoID != "" {
-			if f.OrigineID != uuid.Nil && strings.EqualFold(o.AllegatoID, f.OrigineID.String()) {
-				out = append(out, i)
-			}
-			continue
+		if OccorrenzaCoincide(o, file) {
+			out = append(out, i)
 		}
-		if !strings.EqualFold(o.Sha256, f.RiferimentoFatti.Sha256) {
-			continue
-		}
-		if o.Nome != nome && (f.Provenienza.PercorsoRicevuto == "" || o.Nome != base) {
-			continue
-		}
-		if o.Contenitore != "" && o.Contenitore != f.ContenitoreID {
-			continue
-		}
-		out = append(out, i)
 	}
 	return out
+}
+
+// FileDelPerimetro: un'occorrenza di file come la confronta il perimetro di un contesto: l'allegato (uuid zero se il
+// documento non viene da un allegato), lo sha256, il nome ricevuto, il percorso ricevuto dentro un archivio ("" senza)
+// e il contenitore ("" senza).
+type FileDelPerimetro struct {
+	AllegatoID  uuid.UUID
+	Sha256      string
+	Nome        string
+	Percorso    string
+	Contenitore string
+}
+
+// OccorrenzaCoincide: un'occorrenza del perimetro di un contesto coincide con un file (la regola unica, GP1:60): per
+// allegato, se il perimetro lo scrive; altrimenti per sha256 e nome ricevuto (o il nome finale del percorso ricevuto
+// dentro un archivio), e per contenitore se il perimetro lo scrive; mai per sola impronta. È il criterio
+// dell'attivazione del contesto (NelPerimetro, quindi il perimetro dell'importazione: valutazione.RegoleDelThread) e
+// della dipendenza D-13 del ciclo dei file (filerfq): una funzione sola (DEC-B RF RQ-6, OB-20).
+func OccorrenzaCoincide(o OccorrenzaContesto, f FileDelPerimetro) bool {
+	if o.AllegatoID != "" {
+		return f.AllegatoID != uuid.Nil && strings.EqualFold(o.AllegatoID, f.AllegatoID.String())
+	}
+	if o.Sha256 == "" || o.Nome == "" || !strings.EqualFold(o.Sha256, f.Sha256) {
+		return false
+	}
+	if o.Nome != f.Nome && (f.Percorso == "" || o.Nome != path.Base(strings.ReplaceAll(f.Percorso, "\\", "/"))) {
+		return false
+	}
+	return o.Contenitore == "" || strings.EqualFold(o.Contenitore, f.Contenitore)
 }
 
 // occorrenzeAttive: gli indici del perimetro che il contesto attiva per un documento: vuoto se il contesto è nil o non

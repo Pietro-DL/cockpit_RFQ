@@ -8,16 +8,19 @@
 // Deriva dal ponte della tappa del 13/10 (corsia P, web/static/motore_a_gesti.mjs della tappa: blocco DEDICATE,
 // trasporto JSON, cataloghi dei codici, chiave del tentativo, confermaBom), riesaminato contro il contratto di V1
 // (MAT §8). Che cosa cambia:
-//   - una funzione per rotta: R1-R7, R11, il ramo JSON di POST /thread/{id}/carica (E1′), S1-S7, il modello
-//     /motore-a/dati e l'anteprima dell'autorizzazione (MAT §1.3). Le cinque forme di R2 hanno ciascuna la sua funzione;
-//     il riallineamento della proposta è riallineaProposta, mai «riallinea»; R11 è riallineaDocumenti;
-//   - i sei atti esistenti della lista chiusa ridotta (EM §9.10) in ATTI, con la risposta HTML data-ma-esito; nessun
-//     gesto legacy (MAT §7): né «Conferma l'albero», né i gesti strutturali immediati, né «Scarta il file»;
+//   - una funzione per rotta: R1-R7, R11, il ramo JSON di POST /thread/{id}/carica (E1′), S1-S9 (S8 e S9 di U2), la revoca
+//     della sorgente (direttiva 39 §2), R15 e il modello /motore-a/dati (MAT §1.3). Le cinque forme di R2 hanno ciascuna la
+//     sua funzione; il riallineamento della proposta è riallineaProposta, mai «riallinea»; R11 è riallineaDocumenti;
+//   - i tre atti esistenti della lista chiusa ridotta (EM §9.10 con il recepimento della direttiva 39; U2 §2.2) in ATTI, con
+//     la risposta HTML data-ma-esito. Direttiva 39 §2 e D-TAB-02 B rivista [T-39]: «Autorizza» e «Revoca l'autorizzazione»
+//     non sono più gesti della pagina nuova (la fonte della working la promuove solo R5; la revoca di uno STEP scelto per
+//     errore è revocaSorgente), e con loro esce l'anteprima dell'autorizzazione. Nessun gesto legacy (MAT §7): né «Conferma
+//     l'albero», né i gesti strutturali immediati, né «Scarta il file»;
 //   - una scrittura alla volta PER RISORSA (la bozza di un prodotto, un file, lo STEP di un prodotto, il caricamento):
 //     la coda sta nella pagina (MAT §1.3), che manda la seconda scrittura sulla stessa risorsa solo quando la prima ha
 //     un esito. Se una arriva comunque mentre l'altra è in volo, il ponte non la manda e torna PONTE_IN_VOLO, con il
 //     testo vero: «non è partita». Le letture non prendono lucchetti;
-//   - la chiave del tentativo dall'esito incerto (R5, S2, S3, S4, S7) sta nella memoria di sessione della scheda
+//   - la chiave del tentativo dall'esito incerto (R5, S2, S3, S4, S8, R15) sta nella memoria di sessione della scheda
 //     (sessionStorage), con l'impronta del corpo, PRIMA dell'invio, e si toglie a esito certo: sopravvive a una ricarica
 //     della pagina (EM §10.9, ultimo paragrafo; A4-Q05 A; MAT §5.5). Un'interruzione di rete non è una conferma fallita:
 //     l'esito si recupera con R6 e la stessa chiave;
@@ -30,7 +33,7 @@
 //     /motore-a/dati, S6 e R1 ?confronto=1 dicono l'errore di calcolo con un 200 e «errore» (D-18): la pagina lo legge;
 //   - le scritture con la versione attesa (R2, R3) tornano {esito: "ok"|"conflitto"|"no"|"errore", codice, motivo,
 //     testo, dati}; "ok" anche per «riproposto»;
-//   - le scritture con la chiave (R5, S2, S3, S4, S7) tornano {esito: "ok"|"conflitto"|"no"|"da_verificare"|
+//   - le scritture con la chiave (R5, S2, S3, S4, S8, R15) tornano {esito: "ok"|"conflitto"|"no"|"da_verificare"|
 //     "non_registrato"|"errore", codice, motivo, testo, chiave, dati}. "da_verificare" = 5xx, rete caduta, risposta che non
 //     si legge, sessione scaduta dopo l'invio: la chiave resta in sospeso e si verifica con esitoIntento. "non_registrato"
 //     = il 500 CONTROLLO_FINALE di R5 (EM §8.4): esito certo, niente «Riprova»;
@@ -85,7 +88,6 @@ const SCRITTURA_ILLEGGIBILE =
 // funzione.
 const DEDICATE = {
   leggiModello: "GET /thread/{id}/motore-a/dati",
-  anteprimaAutorizzazione: "GET /thread/{id}/motore-a/anteprima/step-strutturale",
   leggiBozza: "GET /thread/{id}/motore-a/bozza",
   salvaBozza: "POST /thread/{id}/motore-a/bozza",
   creaBozza: "POST /thread/{id}/motore-a/bozza",
@@ -105,7 +107,15 @@ const DEDICATE = {
   riattivaFile: "POST /thread/{id}/sorgente/file/{u}/riattiva",
   urlContenuto: "GET /thread/{id}/sorgente/file/{u}/contenuto",
   anteprimaStep: "GET /thread/{id}/sorgente/step/{u}/anteprima",
-  associaStep: "POST /thread/{id}/sorgente/step/{u}/associa",
+  // S7 («Associa lo STEP…») non c'è: il server non registra la rotta, e lo STEP non candidato si guarda con S6 e si
+  // conferma con S8 (partenza dal solo prodotto o dal gruppo dell'anteprima): scelta [T-39] della corsia, rilievo del 20/10
+  // le rotte di U2 (EM §9.5-bis, §10.9; MAT §1.3): S8 la conferma della sorgente, S9 lo smistamento di tutti i prodotti
+  // (una variante di /dati, ?sorgente=1), R15 il rifiuto della proposta aggiornata
+  confermaSorgente: "POST /thread/{id}/sorgente/step/{u}/conferma-sorgente",
+  // la revoca della sorgente della bozza (direttiva 39 §2; EM App. I.4): lo STEP scelto per errore, con il motivo
+  revocaSorgente: "POST /thread/{id}/sorgente/step/{u}/revoca-sorgente",
+  leggiSmistamento: "GET /thread/{id}/motore-a/dati",
+  rifiutaProposta: "POST /thread/{id}/motore-a/proposta-aggiornata/rifiuta",
 };
 // DEDICATE:fine
 
@@ -125,14 +135,23 @@ const CONFLITTI = {
   scartaFile: ["FILE_VERSIONE", "CHIAVE_RIUSATA", "ANTEPRIMA_SUPERATA"],
   altriFile: ["FILE_VERSIONE", "CHIAVE_RIUSATA", "ANTEPRIMA_SUPERATA", "COPIA_IN_CORSO"],
   riattivaFile: ["FILE_VERSIONE", "CHIAVE_RIUSATA", "ANTEPRIMA_SUPERATA"],
-  associaStep: ["ANTEPRIMA_SUPERATA", "CHIAVE_RIUSATA"],
+  // S8 al passo 0 (EM §10.9 «S8»): i rifiuti dei passi dopo arrivano dentro passi[] di un 200 «parziale».
+  // RICONCILIAZIONE_NON_DISPONIBILE (CodiciServerS8, direttiva 39): bozza da convertire, solo_prodotto su una bozza o su
+  // una conferma con un'altra sorgente
+  confermaSorgente: ["ANTEPRIMA_SUPERATA", "CHIAVE_RIUSATA", "BOZZA_VERSIONE", "RICONCILIAZIONE_NON_DISPONIBILE"],
+  // BOZZA_VERSIONE (giro G39, G39-03): la bozza dichiarata dalla revoca non è più quella (core/rfq/sorgente/revoca.go)
+  revocaSorgente: ["CHIAVE_RIUSATA", "BOZZA_VERSIONE"],
+  rifiutaProposta: ["ANTEPRIMA_SUPERATA", "CHIAVE_RIUSATA"],
 };
+// FONTE_NON_CONFERMATA (C-3, U2 §2.8): la forma step o cambia_sorgente su uno STEP senza il documento cad_3d confermato
+// e non sostituito del prodotto; mai per la partenza vuota (direttiva 39 §1)
+// STEP_CANDIDATO_DEL_FINITO (giro G39, G39-02 [U]; distintabozza/stepcandidati3.go): la PB nuova o spostata su uno STEP
+// candidato sorgente di un prodotto finito (la lettura del Motore A), anche in una bozza manuale
 const RIFIUTI_R2 = ["CORPO_NON_VALIDO", "FUORI_RFQ", "BOZZA_ALTRO_PRODOTTO", "FILE_NON_ATTIVO", "MOTIVO_OBBLIGATORIO",
-  "PROPOSTA_NON_DISPONIBILE", "IMPORTAZIONE_TROPPO_GRANDE"];
+  "PROPOSTA_NON_DISPONIBILE", "IMPORTAZIONE_TROPPO_GRANDE", "FONTE_NON_CONFERMATA", "STEP_CANDIDATO_DEL_FINITO"];
 const RIFIUTI_FILE = ["CORPO_NON_VALIDO", "FUORI_RFQ", "NON_GESTITO", "RFQ_UNITA", "DIPENDENZE_ATTIVE", "RISOLUZIONE_RICHIESTA"];
 const RIFIUTI = {
   leggiModello: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
-  anteprimaAutorizzazione: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
   leggiBozza: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
   salvaBozza: RIFIUTI_R2,
   creaBozza: RIFIUTI_R2,
@@ -141,8 +160,7 @@ const RIFIUTI = {
   convertiBozza: RIFIUTI_R2,
   abbandonaBozza: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
   riepilogoBom: ["CORPO_NON_VALIDO", "FUORI_RFQ"],
-  // NESSUNA_MODIFICA: la bozza è uguale alla conferma di base formato 3 (decisioni dell'ondata A, PE-23); lo stato 422,
-  // come gli altri rifiuti di una regola, è una proposta della corsia finché EM §9.5 non lo scrive
+  // NESSUNA_MODIFICA: la bozza è uguale alla conferma di base formato 3 (PE-23); lo stato è 422 (U2-P55; DEC-B PD-01)
   confermaBom: ["BLOCCHI", "CONGELATA", "NESSUNA_MODIFICA", "CORPO_NON_VALIDO", "FUORI_RFQ"],
   esitoIntento: ["FUORI_RFQ"],
   storicoConferme: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
@@ -152,7 +170,16 @@ const RIFIUTI = {
   altriFile: RIFIUTI_FILE.concat(["FILE_SENZA_BYTE", "FILE_SCARTATO", "CONSERVAZIONE_NON_RIUSCITA"]),
   riattivaFile: ["FILE_SCARTATO", "FUORI_RFQ", "CORPO_NON_VALIDO", "RFQ_UNITA", "CONSERVAZIONE_MANCANTE"],
   anteprimaStep: ["FUORI_RFQ", "NON_STEP", "FILE_NON_ATTIVO", "CORPO_NON_VALIDO"],
-  associaStep: ["MOTIVO_OBBLIGATORIO", "NON_STEP", "GIA_DOCUMENTO", "FILE_NON_ATTIVO", "FUORI_RFQ", "RFQ_UNITA", "CORPO_NON_VALIDO"],
+  // R11 (EM §9.8, invariato dal C3 §1.2): gli errori di appartenenza e di forma della busta comune; un 5xx resta
+  // «riallineamento non riuscito: riprova» (richiesta RQ-3 della corsia persistenza, ondata B)
+  riallineaDocumenti: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
+  // GIA_DOCUMENTO (CodiciServerS8): lo stesso contenuto è già un documento di un altro componente, senza componente o
+  // sostituito
+  confermaSorgente: ["FUORI_RFQ", "NON_STEP", "FILE_NON_ATTIVO", "RFQ_UNITA", "MOTIVO_OBBLIGATORIO", "CORPO_NON_VALIDO", "STEP_SORGENTE_DI_ALTRO_PRODOTTO", "GIA_DOCUMENTO"],
+  // la revoca: il motivo obbligatorio; nessuna_sorgente_da_revocare e prodotto_non_ammesso sono motivi di CORPO_NON_VALIDO
+  revocaSorgente: ["FUORI_RFQ", "MOTIVO_OBBLIGATORIO", "CORPO_NON_VALIDO"],
+  leggiSmistamento: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
+  rifiutaProposta: ["FUORI_RFQ", "CORPO_NON_VALIDO", "MOTIVO_OBBLIGATORIO"],
 };
 // i 503 e 504 del calcolo e della configurazione (EM §10.10): un errore che si ritenta, niente è stato scritto
 const OCCUPATO = ["CALCOLO_OCCUPATO", "NON_CONFIGURATO", "CALCOLO_SCADUTO"];
@@ -160,12 +187,11 @@ const STATI_BOZZA = ["aperta", "nessuna_bozza"];
 const STATI_INTENTO = ["registrato", "non_registrato", "registrato_senza_esito", "in_corso"];
 // CATALOGHI:fine
 
-// ATTI:inizio — i sei atti esistenti della lista chiusa ridotta (EM §9.10; MAT §1.4), campi di form, risposta HTML
-// <div data-ma-esito="ok|no">. {id} = la RFQ della pagina, {u} = un UUID. Nessun altro gesto legacy (MAT §7).
+// ATTI:inizio — i tre atti esistenti della lista chiusa ridotta (EM §9.10 e App. I con la direttiva 39; MAT §1.4), campi
+// di form, risposta HTML <div data-ma-esito="ok|no">. {id} = la RFQ della pagina. Nessun altro gesto legacy (MAT §7).
+// «Conferma la fonte…» non c'è più: la fa S8 (U2 §2.2). «Autorizza» e «Revoca l'autorizzazione» non ci sono più
+// (direttiva 39 §2, D-TAB-02 B rivista [T-39]): solo R5 promuove la fonte della working; la revoca è revocaSorgente.
 const ATTI = {
-  autorizza: "/thread/{id}/fascicolo/componente/{u}/step-strutturale",
-  revoca: "/thread/{id}/fascicolo/componente/{u}/step-strutturale/revoca",
-  confermaFonte: "/thread/{id}/fascicolo/conferma",
   prepara: "/thread/{id}/fascicolo/prepara",
   rianalizza: "/thread/{id}/fascicolo/rianalizza",
   riprovaCopie: "/thread/{id}/riprova-copie",
@@ -175,20 +201,6 @@ const ATTI = {
 // GUARDIE: controlli sui NOMI dei campi degli atti prima dell'invio, come nel ponte di P3 (Q-P3-02, base di lavoro A):
 // nessuna logica di dominio. Ognuna restituisce il motivo del rifiuto, o "".
 const GUARDIE = {
-  // la conferma della fonte è una voce sola, mai in catena (C3 §11.3; EM §2.3), senza i campi del lotto
-  confermaFonte: (p) => {
-    if (p.getAll("voce").length !== 1) return "«Conferma la fonte» conferma esattamente una voce";
-    for (const v of ["struttura", "strutturale", "firma", "conferma", "selezione"]) if (p.has(v)) return "«Conferma la fonte» non manda «" + v + "»";
-    return "";
-  },
-  // «Autorizza» solo con la presa d'atto spuntata da chi guarda e la firma dell'anteprima letta (MAT SG-10)
-  autorizza: (p) => {
-    if (p.get("presa_d_atto") !== "1") return "«Autorizza» vuole la presa d'atto";
-    if ((p.get("firma") || "").trim() === "") return "«Autorizza» vuole la firma dell'anteprima letta";
-    return "";
-  },
-  // «Revoca» con il motivo
-  revoca: (p) => ((p.get("motivo") || "").trim() === "" ? "«Revoca l'autorizzazione» vuole il motivo" : ""),
   // «Prepara i file» è solo il pulsante (DB7-6): mai il ramo automatico
   prepara: (p) => (p.has("auto") ? "«Prepara i file» è solo il pulsante (DB7-6)" : ""),
 };
@@ -262,7 +274,7 @@ export function canonico(v) {
 
 // formaCanonica: la forma del JSON canonico del contratto (EM §3.10), su cui il server calcola impronta_corpo di R5
 // (EM §8.4): i facoltativi assenti, vuoti o null tolti (sono equivalenti); nodi[] per chiave_bozza, archi[] per (padre,
-// figlio), decisioni[] per id, documenti_preassociati[] per proposta_id, caselle[] per (gruppo, rif, allegato_id);
+// figlio), decisioni[] per id, documenti_preassociati[] per allegato_id (direttiva 35, C-2), caselle[] per (gruppo, rif, allegato_id);
 // descrizione e ogni motivo in NFC. Lo stesso contenuto in un altro ordine (lo snapshot della pagina, nell'ordine dei
 // gesti, e quello riletto da R1 dopo una ricarica) ha la stessa forma: «Riprova la conferma…» riusa la chiave del
 // tentativo in sospeso (MAT §5.2, §5.5 n. 4). Gli elementi degli array restano tutti: si ordinano, non si tolgono.
@@ -270,7 +282,7 @@ const ORDINI = {
   nodi: (x) => [x.chiave_bozza],
   archi: (x) => [x.padre, x.figlio],
   decisioni: (x) => [x.id],
-  documenti_preassociati: (x) => [x.proposta_id],
+  documenti_preassociati: (x) => [x.allegato_id],
   caselle: (x) => [x.gruppo, x.rif, x.allegato_id],
 };
 function vuoto(v) {
@@ -394,7 +406,9 @@ async function chiama(nome, u, query, corpo, extra) {
       json = null;
     }
   }
-  return { stato: risp.status, json: oggetto(json) ? json : null, testo };
+  // X-Motivo: il codice che le rotte della Sorgente mettono su ogni risposta d'errore, anche senza busta (EM §10.9,
+  // §10.10; DEC-B PF-25); lo legge motivoContenuto per il visore
+  return { stato: risp.status, json: oggetto(json) ? json : null, testo, motivo: risp.headers.get("X-Motivo") || "" };
 }
 
 // ---------------------------------------------------------------- le scritture: una alla volta per risorsa
@@ -452,15 +466,6 @@ export async function leggiModello(prodotto) {
   return leggi("leggiModello", "", q, undefined, null);
 }
 
-// anteprimaAutorizzazione: GET …/motore-a/anteprima/step-strutturale?componente=…&documento=…&sorgente=… (MAT SG-09).
-// Un rifiuto è un 200 con «errore».
-export async function anteprimaAutorizzazione(campi) {
-  if (!oggetto(campi) || !uuid(campi.componente)) throw erroreDedicata("PONTE_ARGOMENTO", 0, "Il componente non è un UUID.");
-  const p = new URLSearchParams();
-  for (const k of ["componente", "documento", "nodo", "sorgente"]) if (typeof campi[k] === "string" && campi[k] !== "") p.set(k, campi[k]);
-  return leggi("anteprimaAutorizzazione", "", "?" + p.toString(), undefined, null);
-}
-
 // effettoLeggibile: «effetto» della variante di R1 nella forma che la pagina legge (proposta PE-B05; RPC PD-05 ancora
 // aperto): spento stringa, anche vuota, ed elenchi sospende, con_lei, resta_sospesa e avvisi, anche vuoti; rimozioni,
 // autorizzabile, step_strutturale e svuota_step, se ci sono, del loro tipo. Un effetto con altri nomi (per esempio quelli
@@ -494,11 +499,55 @@ export async function leggiBozza(prodotto, opz) {
     return leggi("leggiBozza", "", q, undefined, (j) => typeof j.componente_id === "string" && j.componente_id.toLowerCase() === c && j.tipo_nuovo === o.tipo_nuovo &&
       typeof j.firma_effetto === "string" && RE_FIRMA_EFFETTO.test(j.firma_effetto) && effettoLeggibile(j.effetto));
   }
+  // ?ingressi=1 (U2 §6.3.3; EM §9.1; MAT §1.5, WZ-11): la lettura leggera degli ingressi del riepilogo, solo database,
+  // che risponde anche senza bozza. È una variante di lettura a sé, come effetto_cambio_tipo: niente altri parametri
+  if (o.ingressi) {
+    return leggi("leggiBozza", "", q + "&ingressi=1", undefined, (j) => typeof j.impronta_ingressi === "string" && oggetto(j.parti) &&
+      ["bom", "bozza", "proposta", "analisi"].every((k) => oggetto(j.parti[k]) && typeof j.parti[k].impronta === "string") && Array.isArray(j.parti.analisi.in_analisi));
+  }
   if (o.eventi) q += "&eventi=1";
   if (o.importazione) q += "&importazione=1";
   if (typeof o.registro === "string" && RE_FIRMA.test(o.registro)) q += "&registro=" + o.registro;
   if (o.confronto) q += "&confronto=1";
+  // ?suggerimenti_motore=1 (giro G39, G39-01 e G39-02 [U]; distintabozza/adesso3.go): il calcolo del motore di adesso, con
+  // preassociazioni_proposte[] anche dei file arrivati dopo l'apertura, suggerimenti_motore {calcolati, errore?} e
+  // step_candidati[] {allegato_id, dal_motore}, anche per nessuna_bozza. Costa un calcolo: la pagina la chiede solo per
+  // l'avviso della bozza manuale e dopo il 422 proposta_non_corrispondente di R2, mai a ogni lettura
+  if (o.suggerimenti_motore) q += "&suggerimenti_motore=1";
   return leggi("leggiBozza", "", q, undefined, (j) => STATI_BOZZA.includes(j.stato));
+}
+
+// leggiSmistamento: S9, GET /thread/{id}/motore-a/dati?sorgente=1 (U2 §2.3; EM §10.9 «S9»): lo smistamento di tutti i
+// prodotti, con le azioni per riga calcolate dal server. Costa come /dati: la pagina la rilegge solo dopo un gesto o un
+// cambio della firma di S1, mai a intervalli (MAT §1.5). Il motore occupato è un 503 CALCOLO_OCCUPATO, niente scritto.
+export async function leggiSmistamento() {
+  return leggi("leggiSmistamento", "", "?sorgente=1", undefined, (j) => typeof j.firma === "string" && Array.isArray(j.prodotti) && Array.isArray(j.step));
+}
+
+// effettoS6: l'effetto sulla bozza di S6 (e gli elenchi della risposta di cambia_sorgente) con gli elenchi assenti letti
+// come vuoti (DEC-B B-9: negli oggetti composti dal motore un elenco vuoto è assente). Solo presentazione, per la pagina.
+const ELENCHI_EFFETTO = ["nodi_che_restano", "nodi_che_entrano", "fuori_per_cambio_fonte", "nuovi_nodi_proposti", "caselle_riscritte", "archi_riscritti",
+  "identita_aggiornate", "da_rivedere", "decisioni_cadute", "preassociazioni_nel_vassoio"];
+export function effettoS6(e) {
+  const o = oggetto(e) ? Object.assign({}, e) : {};
+  for (const k of ELENCHI_EFFETTO) o[k] = Array.isArray(o[k]) ? o[k] : [];
+  o.differenze = oggetto(o.differenze) ? o.differenze : {};
+  return o;
+}
+
+// motivoContenuto: il motivo per cui S5 non dà i byte di un file, letto dall'intestazione X-Motivo (EM §10.9: il visore
+// pdf.js vede lo stato, non il corpo; DEC-B PF-25 e RF RQ-11 (c): anche le risposte senza busta portano X-Motivo). Una
+// sola richiesta, di un byte (Range), fatta dalla pagina solo dopo che il visore non ha aperto il file: «Apri» resta un
+// indirizzo, mai una fetch. Torna {stato, motivo}; motivo "" se la risposta non lo dice (per esempio un 2xx).
+export async function motivoContenuto(allegato) {
+  if (!RFQ || !uuid(allegato)) return { stato: 0, motivo: "" };
+  try {
+    const r = await chiama("urlContenuto", allegato, "?modo=anteprima", undefined, { Range: "bytes=0-0" });
+    if (r.login) return { stato: 401, motivo: "SESSIONE_SCADUTA" };
+    return { stato: r.stato, motivo: r.motivo || codiceDi(r) };
+  } catch (err) {
+    return { stato: 0, motivo: "" };
+  }
 }
 
 // riepilogoBom: R4, POST di sola lettura …/motore-a/bom/riepilogo[?avvisi_motore=1] con la bozza formato 3 (EM §9.4).
@@ -687,7 +736,7 @@ export async function abbandonaBozza(id, corpo, prodotto) {
   return esitoScrittura("abbandonaBozza", r);
 }
 
-// ---------------------------------------------------------------- le scritture con la chiave: R5, S2, S3, S4, S7
+// ---------------------------------------------------------------- le scritture con la chiave: R5, S2, S3, S4, S8, R15
 
 // La memoria di sessione della scheda (EM §10.9; MAT §5.5): per ogni risorsa (thread, prodotto o allegato) il tentativo
 // dall'esito incerto {risorsa, nome, chiave, impronta, verificato, quando, etichetta} e, per i gesti dei file, l'allegato
@@ -775,7 +824,9 @@ export function abbandonaSospeso(risorsa) {
 //   - 200 → "ok" (chiude il tentativo);
 //   - 409 di CONFLITTI → "conflitto" (chiude il tentativo, salvo COPIA_IN_CORSO, da ritentare con la stessa chiave);
 //   - 422 di RIFIUTI → "no" (chiude);
-//   - 500 con esito "non_registrato" (CONTROLLO_FINALE di R5) → "non_registrato" (chiude: esito certo);
+//   - 500 con esito "non_registrato" (CONTROLLO_FINALE di R5) → "non_registrato" (chiude: esito certo); il 500
+//     ERRORE_CALCOLO di R5 (il motore nella connessione S) e i 503/504 del calcolo → "errore", tentativo «certo» da
+//     ritentare con la stessa chiave;
 //   - 5xx, rete, 2xx illeggibile, sessione scaduta dopo l'invio → "da_verificare" (resta, non verificato);
 //   - un rifiuto che non viene dal gestore (401 prima dell'invio, 403, 404, 405, 413, 409/422 con codici estranei) non
 //     dice niente del tentativo di prima con la stessa chiave: torna com'era.
@@ -794,7 +845,7 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
   // prima dell'invio: la chiave e l'impronta nella memoria di sessione della scheda; per i gesti dei file anche il corpo,
   // perché «Riprova» lo rimandi uguale anche dopo una ricarica (riprovaSospeso)
   const voce = { risorsa, nome, chiave, impronta, verificato: false, quando: new Date().toISOString(), etichetta: etichetta || "" };
-  if (GESTI_FILE.includes(nome)) Object.assign(voce, { u: (u || "").toLowerCase(), corpo });
+  if (GESTI_CON_CORPO.includes(nome)) Object.assign(voce, { u: (u || "").toLowerCase(), corpo });
   scriviSospeso(risorsa, voce);
   const rimetti = () => {
     if (riusato) scriviSospeso(risorsa, riusato);
@@ -819,7 +870,12 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
   }
   const codice = codiceDi(r);
   if (r.stato === 200 && r.json) {
-    togliSospeso(risorsa);
+    // S8 «parziale» per un errore temporaneo di un passo (ritentabile: il motore occupato al passo 3, uno stallo): l'intento
+    // non è scritto e lo stesso reinvio, con la stessa chiave e lo stesso corpo, riprende dal primo passo non fatto
+    // (U2 §2.2; EM §10.9 «S8»). Il tentativo resta «certo» (niente in volo), da ritentare con la stessa chiave
+    if (nome === "confermaSorgente" && r.json.esito === "parziale" && r.json.ritentabile === true) {
+      scriviSospeso(risorsa, Object.assign({}, voce, { verificato: true, certo: true, codice: "S8_RITENTABILE", quando: new Date().toISOString() }));
+    } else togliSospeso(risorsa);
     return { esito: "ok", codice: "", motivo: "", testo: testoDi(r, FATTO), chiave, dati: r.json };
   }
   if (r.stato === 409 && (CONFLITTI[nome] || []).includes(codice)) {
@@ -833,12 +889,25 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
     togliSospeso(risorsa);
     return { esito: "no", codice, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
   }
+  // 500 ERRORE_CALCOLO di R5 con esito non_registrato (il calcolo del motore nella connessione S non è riuscito; blocco
+  // «R4 completo» della persistenza): niente è scritto e non è il controllo finale; come il 503, il tentativo resta «certo»
+  // e si ritenta con la stessa chiave
+  if (nome === "confermaBom" && r.stato === 500 && r.json && r.json.esito === "non_registrato" && codice === "ERRORE_CALCOLO") {
+    scriviSospeso(risorsa, Object.assign({}, voce, { verificato: true, certo: true, codice, motivo: motivoDi(r), quando: new Date().toISOString() }));
+    return { esito: "errore", codice, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
+  }
   if (r.stato === 500 && r.json && r.json.esito === "non_registrato") {
     togliSospeso(risorsa);
     return { esito: "non_registrato", codice: codice || "CONTROLLO_FINALE", motivo: "", testo: testoDi(r), chiave, dati: r.json };
   }
   if ((r.stato === 503 || r.stato === 504) && OCCUPATO.includes(codice)) {
-    // un 503/504 del calcolo o della configurazione: il gestore ha detto che niente è stato scritto
+    // un 503/504 del calcolo o della configurazione: il gestore ha detto che niente è stato scritto. R5 formato 3 risponde
+    // 503 CALCOLO_OCCUPATO con esito non_registrato e la chiave: il tentativo resta «certo», da ritentare con la stessa
+    // chiave (come COPIA_IN_CORSO; resoconto della persistenza, R5 §6)
+    if (nome === "confermaBom" && r.json && r.json.esito === "non_registrato") {
+      scriviSospeso(risorsa, Object.assign({}, voce, { verificato: true, certo: true, codice, motivo: motivoDi(r), quando: new Date().toISOString() }));
+      return { esito: "errore", codice, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
+    }
     togliSospeso(risorsa);
     return { esito: "errore", codice, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
   }
@@ -849,8 +918,11 @@ async function scriviConChiave(nome, risorsa, u, corpo, etichetta) {
   return { esito: "errore", codice: codice || "PONTE_ERRORE_" + r.stato, motivo: motivoDi(r), testo: testoDi(r), chiave, dati: r.json };
 }
 
-// I gesti dei file con la chiave: il loro tentativo in sospeso porta anche il corpo (piccolo: ≤ 64 KiB, EM §10.9).
-const GESTI_FILE = ["scartaFile", "altriFile", "riattivaFile", "associaStep"];
+// I gesti dei file con la chiave: il loro tentativo in sospeso porta anche il corpo (piccolo: ≤ 64 KiB, EM §10.9). Con
+// U2 anche S8 (la conferma della sorgente) e R15 (il rifiuto della proposta aggiornata): «chiave e corpo nella memoria
+// della scheda, come S2-S4» (MAT §1.3, §5.5).
+const GESTI_FILE = ["scartaFile", "altriFile", "riattivaFile"];
+const GESTI_CON_CORPO = GESTI_FILE.concat(["confermaSorgente", "revocaSorgente", "rifiutaProposta"]);
 
 // riprovaSospeso: «Riprova» di un gesto dei file in sospeso, con il corpo e la chiave di allora, anche dopo una ricarica
 // (EM §10.9, «Reinvio e risposta persa»: «non_registrato → si rimanda con la stessa chiave e lo stesso corpo»; MAT §5.5
@@ -859,7 +931,8 @@ const GESTI_FILE = ["scartaFile", "altriFile", "riattivaFile", "associaStep"];
 export async function riprovaSospeso(risorsa) {
   if (!RFQ) return Object.assign(nonPartita("Il gesto non è partito: il ponte non è configurato."), { chiave: "" });
   const s = leggiSospeso(String(risorsa || ""));
-  if (!s || !GESTI_FILE.includes(s.nome) || !oggetto(s.corpo) || !uuid(s.u) || s.risorsa !== risorsa) {
+  const conU = !!(s && DEDICATE[s.nome] && DEDICATE[s.nome].indexOf("{u}") >= 0);
+  if (!s || !GESTI_CON_CORPO.includes(s.nome) || !oggetto(s.corpo) || (conU && !uuid(s.u)) || s.risorsa !== risorsa) {
     return Object.assign(nonPartita("Il tentativo in sospeso non ha un corpo da rimandare: verificalo, o abbandonalo."), { chiave: "" });
   }
   return scriviConChiave(s.nome, risorsa, s.u, s.corpo, s.etichetta);
@@ -872,24 +945,40 @@ function impronteCorpo(nome, corpo) {
   if (nome !== "confermaBom") return corpo;
   const b = Object.assign({}, corpo.bozza || {});
   delete b.bozza_versione;
-  return formaCanonica({ firma_anteprima: corpo.firma_anteprima, bozza: b }, "");
+  const o = { firma_anteprima: corpo.firma_anteprima, bozza: b };
+  // la presa d'atto dei documenti in analisi fa parte del corpo (U2 §6.3.7): un elenco diverso è un corpo diverso
+  if (Array.isArray(corpo.presa_d_atto_in_analisi)) o.presa_d_atto_in_analisi = corpo.presa_d_atto_in_analisi.slice().sort();
+  return formaCanonica(o, "");
 }
 
 // conChiave: il corpo con la chiave al suo posto (EM §9.5: dentro la bozza per R5; §10.9: al primo livello per S2-S4
-// e S7).
+// e S8, R15).
 function conChiave(nome, corpo, chiave) {
-  if (nome === "confermaBom") return { firma_anteprima: corpo.firma_anteprima, bozza: Object.assign({}, corpo.bozza, { chiave_idempotenza: chiave }) };
+  if (nome === "confermaBom") {
+    const o = { firma_anteprima: corpo.firma_anteprima, bozza: Object.assign({}, corpo.bozza, { chiave_idempotenza: chiave }) };
+    if (Array.isArray(corpo.presa_d_atto_in_analisi)) o.presa_d_atto_in_analisi = corpo.presa_d_atto_in_analisi;
+    return o;
+  }
   return Object.assign({}, corpo, { chiave_idempotenza: chiave });
 }
 
 // confermaBom: R5, POST …/motore-a/bom/conferma con {firma_anteprima, bozza} (EM §9.5). La bozza formato 3 è completa
-// di bozza_id e bozza_versione, senza chiave_idempotenza: la mette il ponte (dentro la bozza).
-export async function confermaBom(firma, bozza) {
+// di bozza_id e bozza_versione, senza chiave_idempotenza: la mette il ponte (dentro la bozza). opz.presa = gli
+// allegato_id dei documenti in analisi che il riepilogo ha mostrato e di cui chi conferma ha preso atto (U2 §6.3.7: il
+// corpo porta presa_d_atto_in_analisi, al primo livello accanto a firma e bozza: scelta [T] della corsia, EM non dice
+// dove sta); senza documenti in analisi il campo non c'è.
+export async function confermaBom(firma, bozza, opz) {
   if (typeof firma !== "string" || !RE_FIRMA.test(firma)) return Object.assign(nonPartita("La conferma non è partita: serve la firma del riepilogo letto (64 esadecimali)."), { chiave: "" });
   if (!oggetto(bozza) || !uuid(bozza.prodotto_id) || !uuid(bozza.bozza_id)) return Object.assign(nonPartita("La conferma non è partita: la bozza non ha prodotto o bozza_id."), { chiave: "" });
   if (Object.prototype.hasOwnProperty.call(bozza, "chiave_idempotenza")) return Object.assign(nonPartita("La conferma non è partita: la chiave la mette il ponte, non la bozza."), { chiave: "" });
   const risorsa = "bozza:" + bozza.prodotto_id.toLowerCase();
-  return scriviConChiave("confermaBom", risorsa, "", { firma_anteprima: firma, bozza }, "Conferma BOM");
+  const corpo = { firma_anteprima: firma, bozza };
+  const presa = opz && Array.isArray(opz.presa) ? opz.presa : null;
+  if (presa && presa.length) {
+    if (!presa.every(uuid)) return Object.assign(nonPartita("La conferma non è partita: la presa d'atto dei documenti in analisi non è un elenco di UUID."), { chiave: "" });
+    corpo.presa_d_atto_in_analisi = presa.map((x) => x.toLowerCase());
+  }
+  return scriviConChiave("confermaBom", risorsa, "", corpo, "Conferma BOM");
 }
 
 function corpoFile(nome, allegato, corpo) {
@@ -925,12 +1014,64 @@ export async function riattivaFile(allegato, corpo) {
   return scriviConChiave("riattivaFile", "file:" + allegato.toLowerCase(), allegato, c, "Riattiva");
 }
 
-// associaStep: S7, POST …/sorgente/step/{allegato}/associa con {prodotto_id, codice_atteso, componente_atteso, motivo?}
-// (EM §10.9; base di lavoro della domanda V1-Q17).
-export async function associaStep(allegato, corpo) {
-  const c = corpoFile("associaStep", allegato, corpo);
-  if (!c || !uuid(c.prodotto_id)) return Object.assign(nonPartita("L'associazione non è partita: allegato, prodotto o corpo non validi."), { chiave: "" });
-  return scriviConChiave("associaStep", "file:" + allegato.toLowerCase(), allegato, c, "Associa lo STEP");
+// confermaSorgente: S8, POST …/sorgente/step/{allegato}/conferma-sorgente (U2 §2.2; EM §10.9 «S8»; direttiva 39 §2-§3
+// con la forma del server, motore_a_sorgente_v1.go e core/rfq/sorgente). Due partenze:
+//   - "step" (predefinita): {prodotto_id, partenza?, gruppo, impronta_contenuto, sha256?, codice_atteso?, motivo?,
+//     bozza?, scelte?, sostituisci?}, con il gruppo e l'impronta dell'anteprima (S6, V-7);
+//   - "solo_prodotto": {prodotto_id, partenza: "solo_prodotto", stato_analisi, presa_d_atto: true, sha256?,
+//     codice_atteso?, motivo, bozza?}, per uno STEP senza struttura importabile o con l'analisi in corso o fallita: lo
+//     stato è quello mostrato (pronta | in_analisi | errore | non_valutato), la presa d'atto la spunta chi guarda; niente
+//     gruppo, impronta né scelte.
+// codice_atteso è il codice del PRODOTTO mostrato (il server risponde 409 ANTEPRIMA_SUPERATA anteprima «prodotto» se è
+// cambiato), non il codice letto dal file. Una procedura del server a passi idempotenti: 200 «completata» o «parziale»
+// (passi[], ritentabile), con l'esito di ogni passo. La risorsa è il prodotto («sorgente:<prodotto>»): il tentativo in
+// sospeso porta chiave e corpo, e «Riprova» li rimanda uguali.
+const STATI_ANALISI_S8 = ["pronta", "in_analisi", "errore", "non_valutato"];
+export async function confermaSorgente(allegato, corpo) {
+  const c = corpoFile("confermaSorgente", allegato, corpo);
+  const no = (t) => Object.assign(nonPartita("La conferma della sorgente non è partita: " + t + "."), { chiave: "" });
+  if (!c || !uuid(c.prodotto_id)) return no("STEP, prodotto o corpo non validi");
+  const partenza = c.partenza === undefined ? "step" : c.partenza;
+  if (partenza === "step") {
+    if (typeof c.gruppo !== "string" || !c.gruppo || typeof c.impronta_contenuto !== "string" || !c.impronta_contenuto) return no("la partenza dallo STEP vuole gruppo e impronta dell'anteprima");
+    if (c.stato_analisi !== undefined || c.presa_d_atto !== undefined) return no("stato dell'analisi e presa d'atto sono della partenza dal solo prodotto");
+  } else if (partenza === "solo_prodotto") {
+    if (c.gruppo !== undefined || c.impronta_contenuto !== undefined || c.scelte !== undefined) return no("la partenza dal solo prodotto non ha gruppo, impronta né scelte");
+    if (!STATI_ANALISI_S8.includes(c.stato_analisi)) return no("manca lo stato dell'analisi mostrato");
+    if (c.presa_d_atto !== true) return no("manca la presa d'atto dello stato dell'analisi");
+  } else return no("la partenza è step oppure solo_prodotto");
+  // G39-03 [U]: sposta_da, se c'è, è l'altro prodotto da cui lo STEP passa a questo; correzione_sorgente è un sì
+  if (c.sposta_da !== undefined && (!uuid(c.sposta_da) || c.sposta_da.toLowerCase() === c.prodotto_id.toLowerCase())) return no("sposta_da è l'altro prodotto da cui la sorgente passa a questo");
+  if (c.correzione_sorgente !== undefined && c.correzione_sorgente !== true) return no("correzione_sorgente, se c'è, è true");
+  return scriviConChiave("confermaSorgente", "sorgente:" + c.prodotto_id.toLowerCase(), allegato, c, "Conferma della sorgente");
+}
+
+// revocaSorgente: la revoca della sorgente della bozza, POST …/sorgente/step/{allegato}/revoca-sorgente con {prodotto_id,
+// motivo} (direttiva 39 §2; EM App. I.4; motore_a_sorgente_v1.go): per uno STEP scelto per errore, con il motivo. Non
+// tocca la working, il documento, il NAS né la bozza; fino a una nuova S8 la conferma della BOM resta bloccata. Stessa
+// risorsa di S8 («sorgente:<prodotto>»): una revoca e una conferma dello stesso prodotto non sono mai in volo insieme.
+export async function revocaSorgente(allegato, corpo) {
+  const c = corpoFile("revocaSorgente", allegato, corpo);
+  if (!c || !uuid(c.prodotto_id) || typeof c.motivo !== "string" || !c.motivo.trim()) {
+    return Object.assign(nonPartita("La revoca della sorgente non è partita: STEP, prodotto o motivo non validi."), { chiave: "" });
+  }
+  // G39-03 [U]: la causa sorgente_errata è un sì; la bozza dichiarata ha bozza_id e versione_attesa (almeno 1)
+  if ((c.sorgente_errata !== undefined && c.sorgente_errata !== true) ||
+    (c.bozza !== undefined && !(oggetto(c.bozza) && uuid(c.bozza.bozza_id) && Number.isInteger(c.bozza.versione_attesa) && c.bozza.versione_attesa >= 1))) {
+    return Object.assign(nonPartita("La revoca della sorgente non è partita: la causa o la bozza dichiarata non sono valide."), { chiave: "" });
+  }
+  return scriviConChiave("revocaSorgente", "sorgente:" + c.prodotto_id.toLowerCase(), allegato, c, "Revoca della sorgente");
+}
+
+// rifiutaProposta: R15, POST …/motore-a/proposta-aggiornata/rifiuta con {prodotto_id, conferma_id, gruppo,
+// impronta_contenuto, motivo} (U2 §5.7; EM §9.5-bis). Solo senza bozza: con la bozza il rifiuto è «Mantieni» per tutte
+// nel riallineamento (BZ-17). Non è uno scarto (file) né un abbandono (bozza).
+export async function rifiutaProposta(corpo) {
+  if (!oggetto(corpo) || !uuid(corpo.prodotto_id) || !uuid(corpo.conferma_id) || typeof corpo.motivo !== "string" || !corpo.motivo.trim() ||
+    Object.prototype.hasOwnProperty.call(corpo, "chiave_idempotenza")) {
+    return Object.assign(nonPartita("Il rifiuto non è partito: prodotto, conferma o motivo non validi."), { chiave: "" });
+  }
+  return scriviConChiave("rifiutaProposta", "proposta:" + corpo.prodotto_id.toLowerCase(), "", corpo, "Rifiuta la proposta aggiornata");
 }
 
 // ---------------------------------------------------------------- R11 ed E1′
@@ -950,6 +1091,7 @@ export async function riallineaDocumenti() {
     return { esito: "errore", codice: "PONTE_SESSIONE", motivo: "", testo: SESSIONE, dati: null };
   }
   if (r.stato === 200 && r.json) return { esito: "ok", codice: "", motivo: "", testo: testoDi(r, "Documenti riallineati."), dati: r.json };
+  if (r.stato === 422 && RIFIUTI.riallineaDocumenti.includes(codiceDi(r))) return { esito: "no", codice: codiceDi(r), motivo: motivoDi(r), testo: testoDi(r), dati: r.json };
   return { esito: "errore", codice: codiceDi(r) || "PONTE_ERRORE_" + r.stato, motivo: "", testo: testoDi(r, "Riallineamento dei documenti non riuscito: riprova."), dati: r.json };
 }
 
@@ -1068,7 +1210,7 @@ export async function carica(files, origine, progresso) {
   return { esito: "errore", codice: codice || "PONTE_ERRORE_" + r.stato, testo: testoDi(r, "Il caricamento non è riuscito: rileggi la Sorgente prima di riprovare."), file: fileRisp, dati: r.json };
 }
 
-// ---------------------------------------------------------------- i sei atti esistenti (lista chiusa ridotta)
+// ---------------------------------------------------------------- i cinque atti esistenti (lista chiusa ridotta)
 
 // leggiEsito: l'esito di un atto, letto come TESTO da un solo <div data-ma-esito> e nient'altro (rispondiMotoreA,
 // motore_a.go). Un corpo d'altra forma → null.
@@ -1092,8 +1234,8 @@ function valoreCampo(v) {
   throw new TypeError("valore di un campo non ammesso");
 }
 
-// esegui: uno dei sei atti di ATTI, con i campi di form. u = l'UUID del percorso (il componente di «Autorizza» e
-// «Revoca»). HX-Request e HX-Current-URL = la pagina /thread/{id}/motore-a: threadFrammento risponde con il solo
+// esegui: uno dei tre atti di ATTI, con i campi di form. u = l'UUID del percorso, se la rotta lo vuole (nessuno dei tre
+// atti di oggi). HX-Request e HX-Current-URL = la pagina /thread/{id}/motore-a: threadFrammento risponde con il solo
 // <div data-ma-esito> (dalMotoreA, motore_a.go), qualunque sia l'indirizzo del guscio. Limite dichiarato (EM §9.10):
 // gli atti rispondono 200 anche a un rifiuto e fanno girare F8 anche dopo un rifiuto.
 export async function esegui(atto, campi, u) {

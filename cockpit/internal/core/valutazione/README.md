@@ -377,6 +377,15 @@ markmap:
   - la porta stretta: BOM, UTF-8, surrogati soli, versione, chiavi sconosciute, ripetute o con le maiuscole diverse,
     null, numeri non interi, testo dopo l'oggetto; poi i controlli del contenuto (ID, cliente, thread, uso, origine,
     autorità). I codici sono quelli «contratto.*» della grammatica.
+  - fuori dal file dei casi (`json:"-"`): `Categorie` (V1, ondata C) e `Registrate` (direttiva 35, blocco C-4: le AR
+    attive di ogni thread, allegato → componente, lette dal servizio unico accanto al caricatore da chi legge il database).
+- **`registrate.go`** (direttiva 35, blocco C-4) — responsabilità:
+  - `conLeAssociazioniRegistrate`: la fonte «manuale» del Motore A con il ripiego transitorio [T] «AR attiva, altrimenti
+    copia senza AR» (piano delle dipendenze della direttiva 35 §7.2 C-4), in un punto solo, prima del calcolo del thread
+    (`esitoDelThread`): per una proposta aperta di un allegato con una AR attiva il componente è quello della AR; senza AR
+    la copia resta (pre-assegnazione legacy). Il caricatore e la fotografia restano quelli di A1c; l'impronta della
+    fotografia è quella letta. Senza AR l'esito è quello di prima, byte per byte (`registrate_test.go`, L1; la L4 con il
+    calcolo vero è `transport/web/motore_a/registrate_db_test.go`).
 - **`richiesta.go`** — responsabilità:
   - `RichiestaDelThread`: lo stato di ogni messaggio e del thread, l'evento del triage come evidenza, l'uso dei
     segmenti con il caso o con il riconoscimento, le decisioni (T-16).
@@ -1212,7 +1221,9 @@ markmap:
 - **`importazione_cambio_fonte_scena_test.go`** (V1, EM §6.6, cambio-fonte-1 in sola lettura) — L1:
   `propostabom.EffettoDelCambioFonte` sui registri veri: la stessa struttura (riallineamento), fra due occorrenze dello
   stesso STEP (niente ereditato in silenzio: caselle e archi riscritti, identità aggiornate, da rivedere per
-  altra_occorrenza e per la lettura assente), verso un altro STEP (nodi fuori, decisioni cadute, il vassoio).
+  altra_occorrenza e per la lettura assente), verso un altro STEP (nodi fuori, decisioni cadute, il vassoio); le
+  preassociazioni per `allegato_id` (direttiva 35, blocco C-2): il vassoio dà gli allegato_id delle PB dei nodi che
+  escono, in ordine di stringa, mai la PB di un nodo che resta.
 - **`importazione_modello_scena_test.go`** (V1, EM §9.9 e §10.9) — L1: `propostabom.Modello` (A-26 l'identità
   registrata, A-27 la completezza del 2D e le diagnostiche correnti per nodo, A-28 i gruppi con l'impronta_contenuto di
   `ImportaGruppo` e il motivo senza gruppi) e `propostabom.AnteprimaDelloSTEP` (S6: la candidata in vista, la proposta,

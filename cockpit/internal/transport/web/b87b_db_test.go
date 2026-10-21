@@ -25,6 +25,7 @@ import (
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 var reFirma = regexp.MustCompile(`name="firma" value="([0-9a-f]+)"`)
@@ -506,7 +507,7 @@ func TestDecidereUnFileNonSiFaRiscrivereDaUnaLettura(t *testing.T) {
 	if a := decidi(s.boh, url.Values{"tipo": {"da_determinare"}}); !strings.Contains(a, "scegli che cos'è il file") {
 		t.Errorf("da determinare: %q", a)
 	}
-	s.esegui(`UPDATE documento_proposta SET componente_id = $2, codice = '77722757' WHERE proposta_id = $1`, s.pdfProdotto, s.prodotto)
+	testutil.CopiaLegacy(s.b.t, s.b.pool, `UPDATE documento_proposta SET componente_id = $2, codice = '77722757' WHERE proposta_id = $1`, s.pdfProdotto, s.prodotto)
 	if a := decidi(s.pdfProdotto, url.Values{"tipo": {"disegno_2d"}, "codice": {"77800000"}}); !strings.Contains(a, "è assegnato a un componente") {
 		t.Errorf("proposta agganciata: %q", a)
 	}

@@ -468,7 +468,7 @@ func TestUpsertPropostaConservaEAggiorna(t *testing.T) {
 		RETURNING componente_id`, thread, utente)
 	assegnata := b.allegato(msg, "7120013.pdf", strings.Repeat("5", 64), 300_000)
 	b.scende(assegnata)
-	b.esegui(`UPDATE documento_proposta SET componente_id = $2, codice = '7120020', dettagli = dettagli || `+chiavi+` WHERE allegato_id = $1`, assegnata.AllegatoID, comp)
+	testutil.CopiaLegacy(b.t, b.pool, `UPDATE documento_proposta SET componente_id = $2, codice = '7120020', dettagli = dettagli || `+chiavi+` WHERE allegato_id = $1`, assegnata.AllegatoID, comp)
 	analizza(assegnata)
 	if got := b.testo(`SELECT codice || ':' || (dettagli ->> 'codice_letto') || ':' || (dettagli #>> '{destinazione,valore}') || ':' || (dettagli #>> '{storia,0,esito}') || ':' ||
 		(dettagli #>> '{valutazione,da}') FROM documento_proposta WHERE allegato_id = $1`, assegnata.AllegatoID); got != "7120020:7120013:generale:generale:analisi" {

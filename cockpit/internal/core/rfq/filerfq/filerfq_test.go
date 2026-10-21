@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/rfq/filerfq/conservatoreprova"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -135,11 +136,11 @@ func TestControllaDipendenzeOrdine(t *testing.T) {
 	unica := Dipendenza{AllegatoID: a, Codice: "D-14", Esito: EsitoRisoluzione, Risoluzione: RisoluzioneUnicaCopia, Testo: "x"}
 	mostra := Dipendenza{AllegatoID: a, Codice: "D-11", Esito: EsitoMostra, Testo: "x"}
 	el, _ := chiudiElenco([]Dipendenza{scoll, blocco, mostra})
-	if rf := controllaDipendenze(el, "diversa", false, false, true); rf == nil || rf.Codice != "DIPENDENZE_ATTIVE" {
+	if rf := controllaDipendenze(el, "diversa", false, false, true, nil); rf == nil || rf.Codice != "DIPENDENZE_ATTIVE" {
 		t.Errorf("il blocco non vince: %v", rf)
 	}
 	el, _ = chiudiElenco([]Dipendenza{scoll, unica, mostra})
-	rf := controllaDipendenze(el, "diversa", false, false, true)
+	rf := controllaDipendenze(el, "diversa", false, false, true, nil)
 	if rf == nil || rf.Codice != "RISOLUZIONE_RICHIESTA" {
 		t.Fatalf("la risoluzione non e' chiesta: %v", rf)
 	}
@@ -147,13 +148,13 @@ func TestControllaDipendenzeOrdine(t *testing.T) {
 		t.Errorf("campi: %v", rf.Extra["campi"])
 	}
 	// con Altri file l'unica copia non si chiede (i byte si conservano)
-	if rf := controllaDipendenze(el, el.Impronta, true, false, false); rf != nil {
+	if rf := controllaDipendenze(el, el.Impronta, true, false, false, nil); rf != nil {
 		t.Errorf("Altri file chiede la conferma dell'unica copia: %v", rf)
 	}
-	if rf := controllaDipendenze(el, "diversa", true, true, true); rf == nil || rf.Codice != "ANTEPRIMA_SUPERATA" || rf.Extra["anteprima"] != "dipendenze_file" {
+	if rf := controllaDipendenze(el, "diversa", true, true, true, nil); rf == nil || rf.Codice != "ANTEPRIMA_SUPERATA" || rf.Extra["anteprima"] != "dipendenze_file" {
 		t.Errorf("impronta diversa: %v", rf)
 	}
-	if rf := controllaDipendenze(el, el.Impronta, true, true, true); rf != nil {
+	if rf := controllaDipendenze(el, el.Impronta, true, true, true, nil); rf != nil {
 		t.Errorf("tutto in ordine: %v", rf)
 	}
 }
@@ -215,53 +216,30 @@ func TestAtteseCrescenti(t *testing.T) {
 	}
 }
 
-// TestDepositoContenimento: un percorso che esce dal deposito non si apre mai (EM §10.5, «lettura»; PP-06).
-func TestDepositoContenimento(t *testing.T) {
-	d := &Deposito{Radice: t.TempDir(), ID: uuid.New()}
-	th, a := uuid.New(), uuid.New()
-	buono := th.String() + `\` + a.String() + ".7.pdf"
-	p, err := d.PercorsoCopia(buono)
-	if err != nil || !strings.HasPrefix(p, d.Radice) {
-		t.Fatalf("percorso buono: %q %v", p, err)
+// TestCopiaNelDepositoPerLaCache (EM §10.5; U2 §3.13): la verifica che la cache usa per non contare il pin di un file in
+// Altri file guarda la copia con la dimensione attesa, solo sotto la radice del conservatore; senza conservatore non
+// c'e' (il pin resta). Il contenimento dei percorsi lo provano le L1 di storage/nas.
+func TestCopiaNelDepositoPerLaCache(t *testing.T) {
+	if (&Servizio{}).CopiaNelDeposito() != nil {
+		t.Error("senza conservatore la verifica della cache c'e'")
 	}
-	for _, cattivo := range []string{`..\fuori.pdf`, th.String() + `\..\..\fuori.pdf`, `C:\Windows\x.pdf`, `\x.pdf`, ""} {
-		if _, err := d.PercorsoCopia(cattivo); err == nil {
-			t.Errorf("%q: un percorso che esce dal deposito si apre", cattivo)
-		}
-	}
-	// la copia c'e' con la dimensione attesa, e solo nel suo deposito
+	cons := conservatoreprova.Nuovo(t.TempDir())
+	s := &Servizio{Conservatore: cons}
+	cartella, buono := `ACME\WIP\2026 10 19 RFQ-L1`, `ALTRO\ACME-7.pdf`
+	p := cons.Percorso(cartella, buono)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(p, []byte("%PDF-1.4 prova"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !d.CopiaPresente(buono, d.ID, 14) {
+	c := s.CopiaNelDeposito()
+	if !c(cartella, buono, cons.RadiceID(), 14) {
 		t.Error("la copia presente non risulta")
 	}
-	if d.CopiaPresente(buono, d.ID, 13) || d.CopiaPresente(buono, uuid.New(), 14) {
-		t.Error("una copia con un'altra dimensione o di un altro deposito risulta presente")
-	}
-}
-
-func TestSegnaposto(t *testing.T) {
-	dir := t.TempDir()
-	if _, presente, err := leggiSegnaposto(dir); err != nil || presente {
-		t.Fatalf("senza segnaposto: %v %v", presente, err)
-	}
-	id := uuid.New()
-	if err := os.WriteFile(filepath.Join(dir, NomeSegnaposto), []byte("# commento\n"+id.String()+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, presente, err := leggiSegnaposto(dir)
-	if err != nil || !presente || got != id {
-		t.Fatalf("segnaposto: %v %v %v", got, presente, err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, NomeSegnaposto), []byte("non un uuid\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := leggiSegnaposto(dir); err == nil {
-		t.Error("un segnaposto illeggibile non ferma l'avvio")
+	if c(cartella, buono, cons.RadiceID(), 13) || c(cartella, buono, uuid.New(), 14) || c(cartella, `..\fuori.pdf`, cons.RadiceID(), 14) ||
+		c(`..\ACME`, buono, cons.RadiceID(), 14) || c("", buono, cons.RadiceID(), 14) {
+		t.Error("una copia con un'altra dimensione, di un'altra radice, fuori dalla radice o in un'altra cartella risulta presente")
 	}
 }
 

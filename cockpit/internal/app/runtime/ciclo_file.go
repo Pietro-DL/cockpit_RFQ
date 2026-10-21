@@ -1,12 +1,22 @@
 package runtime
 
-// ciclo_file.go: il servizio del ciclo dei file della Sorgente (V1, EM §10; corsia file, ondata B): il deposito degli
-// «Altri file» ([conservazione]), il servizio che usano le rotte della Sorgente e il custode che riprende le rimozioni e
-// i rilasci rimasti a meta'.
+// ciclo_file.go: il servizio del ciclo dei file della Sorgente (V1, EM §10; corsia file) e il custode che riprende le
+// rimozioni e i rilasci rimasti a meta'.
+//
+// Il deposito locale degli «Altri file» delle prove dell'ondata B ([conservazione], la cartella con il segnaposto
+// preparata all'avvio) non c'e' piu' (U2 §3.13; [U] Q06 e C-02 B): gli Altri file stanno nella cartella ALTRO della
+// RFQ sul NAS, scritta solo da storage/nas. L'avvio non crea cartelle ne' segnaposto per loro, e una sezione
+// [conservazione] rimasta nel file ferma gia' il caricamento della configurazione (platform/config).
+//
+// Il posto delle copie e' nas.Conservatore sulla radice del NAS della configurazione ([nas].radice, la stessa dei
+// documenti), con DryRun quando la capacita' nas_scrittura e' spenta all'avvio e con la capacita' riletta a ogni
+// gesto (U2 §3.5): con la scrittura spenta «Metti in Altri file» risponde 503 NON_CONFIGURATO / nas_scrittura e non
+// scrive niente, e una copia scartata resta da togliere finche' qualcuno non usa «Riprova la rimozione dalla cartella
+// ALTRO». Le protezioni della configurazione restano quelle dei documenti (shadow, radici di produzione,
+// consenti_nas_produzione). Senza [nas].radice nessun posto: 503 NON_CONFIGURATO / conservazione.
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -14,36 +24,33 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/core/rfq/filerfq"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
-	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 	motorea_web "promatec/cockpit/internal/transport/web/motore_a"
 )
 
-// preparaCicloFile apre il deposito degli «Altri file» e costruisce il servizio. Un deposito che non torna con le copie
-// registrate (segnaposto assente o di un'altra radice, EM §10.5) ferma l'avvio: le copie registrate non sarebbero in
-// quella cartella. Senza [conservazione] il servizio c'e' lo stesso, senza deposito: «Metti in Altri file» risponde 503.
-//
-// Con il flag [motore_a] spento il deposito non si prepara, anche con la radice scritta: le rotte della Sorgente non
-// esistono, e l'avvio non crea cartelle ne' segnaposto sul disco del server e non si ferma per una radice sbagliata
-// (EM §10.5: «nessuna scrittura senza il suo OK»; rilievo della revisione). Il custode e la cache vedono un deposito non
-// configurato: i rilasci aspettano, e la cache tiene lo staging dei file in Altri file (il lato che non cancella).
-func preparaCicloFile(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, radiceStaging string,
+// preparaCicloFile costruisce il servizio del ciclo dei file, con il posto delle copie degli Altri file (la cartella
+// ALTRO della RFQ sotto [nas].radice). L'avvio non scrive niente sul disco.
+func preparaCicloFile(_ context.Context, cfg *config.Config, pool *pgxpool.Pool, radiceStaging string, capacita coda.Capacita,
 	log *slog.Logger) (*filerfq.Servizio, error) {
-	radice := cfg.Conservazione.Radice
-	if !cfg.MotoreA.Anteprima && strings.TrimSpace(radice) != "" {
-		log.Info("deposito degli Altri file non preparato: [motore_a] e' spento, la Sorgente non c'e'", "voce", "[conservazione].radice")
-		radice = ""
+	svc := &filerfq.Servizio{Pool: pool, Staging: radiceStaging, NASRadice: cfg.NAS.Radice, Log: log}
+	if strings.TrimSpace(cfg.NAS.Radice) == "" {
+		log.Info("Altri file: [nas].radice non c'e': «Metti in Altri file» risponde 503 NON_CONFIGURATO")
+		return svc, nil
 	}
-	dep, err := filerfq.PreparaDeposito(ctx, db.New(pool), radice)
-	if err != nil {
-		return nil, fmt.Errorf("[conservazione]: %w", err)
+	svc.Conservatore = conservatoreNAS(cfg.NAS.Radice, capacita)
+	if ok, motivo := svc.Conservatore.Disponibile(); !ok {
+		log.Info("Altri file: la scrittura sul NAS e' spenta: «Metti in Altri file» risponde 503 NON_CONFIGURATO", "motivo", motivo)
 	}
-	if dep != nil {
-		log.Info("deposito degli Altri file pronto", "radice", dep.Radice, "deposito", dep.ID)
-	} else if cfg.MotoreA.Anteprima {
-		log.Info("deposito degli Altri file non configurato: «Metti in Altri file» risponde 503 NON_CONFIGURATO", "voce", "[conservazione].radice")
-	}
-	return &filerfq.Servizio{Pool: pool, Staging: radiceStaging, Deposito: dep, NASRadice: cfg.NAS.Radice, Log: log}, nil
+	return svc, nil
+}
+
+// conservatoreNAS: lo scrittore delle copie degli Altri file sulla radice del NAS (U2 §3.13: l'unica implementazione di
+// produzione), con il DryRun dell'avvio e la capacita' nas_scrittura riletta a ogni gesto (U2 §3.5).
+func conservatoreNAS(radice string, capacita coda.Capacita) *nas.Conservatore {
+	return &nas.Conservatore{Radice: radice, DryRun: !capacita.NasScrittura,
+		Scrittura: func() bool { return coda.CapacitaAttuali().NasScrittura }}
 }
 
 // contestiPerIlCicloFile: i contesti partner dichiarati per una RFQ, ridotti all'id e al perimetro dei file, per la

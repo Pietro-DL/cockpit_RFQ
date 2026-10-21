@@ -106,9 +106,11 @@ type DecisioneBozza struct {
 	Lettura       *importazione.LetturaCompatta
 }
 
-// PreassociazioneBozza: una preassociazione, {proposta_id, chiave_bozza}.
+// PreassociazioneBozza: una preassociazione del formato 3, {allegato_id, chiave_bozza}, la stessa forma di
+// Preassociazione3 di distintabozza (direttiva 35, DIR35-PB: la PB è dell'occorrenza, mai della proposta). Il formato 2
+// ({proposta_id, chiave_bozza}) non arriva qui: lo traduce solo la conversione (converti_da).
 type PreassociazioneBozza struct {
-	PropostaID  uuid.UUID
+	AllegatoID  uuid.UUID
 	ChiaveBozza string
 }
 
@@ -122,7 +124,9 @@ const (
 // effetto_sulla_bozza). Per lo stesso gruppo della stessa struttura sulla stessa occorrenza c'è solo StessaSorgente
 // (OV-05): il gesto è un riallineamento, e il JSON è solo {"stessa_sorgente": true}. La convenzione del JSON [T]: un
 // elenco vuoto è assente, e così differenze senza differenze, come gli elenchi del modello di /dati (la pagina legge un
-// elenco assente come vuoto); gli elenchi di primo livello di S6 restano array (EM §10.9).
+// elenco assente come vuoto); gli elenchi di primo livello di S6 restano array (EM §10.9). preassociazioni_nel_vassoio
+// dà gli allegato_id delle preassociazioni dei nodi che escono (direttiva 35, DIR35-PB), in ordine di stringa come le PB
+// nello snapshot.
 type EffettoCambioFonte struct {
 	StessaSorgente            bool                 `json:"stessa_sorgente,omitempty"`
 	NodiCheRestano            []string             `json:"nodi_che_restano,omitempty"`
@@ -267,10 +271,11 @@ func EffettoDelCambioFonte(b VistaBozza, vecchio *importazione.Contenuto, nuovo 
 		}
 	}
 
-	// passi 4 e 5: le preassociazioni dei nodi che escono vanno nel vassoio; gli archi «step» che restano si riscrivono
+	// passi 4 e 5: le preassociazioni dei nodi che escono vanno nel vassoio, per allegato_id (come il vassoio di R1); gli
+	// archi «step» che restano si riscrivono
 	for _, p := range b.Preassociazioni {
 		if escono[p.ChiaveBozza] {
-			out.PreassociazioniNelVassoio = append(out.PreassociazioniNelVassoio, p.PropostaID.String())
+			out.PreassociazioniNelVassoio = append(out.PreassociazioniNelVassoio, p.AllegatoID.String())
 		}
 	}
 	nellaBozza := map[[2]string]bool{}

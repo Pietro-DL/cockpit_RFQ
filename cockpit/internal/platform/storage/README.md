@@ -81,6 +81,12 @@ markmap:
   - `Sha256File`, `Sha256Da`;
   - `TokenDiParte`, `Parte`;
   - `ErrConflitto`
+- **`altro.go`, `altro_rimozione.go`** (V1, ondata C, corsia file; U2 §3.2-§3.9, §3.11-§3.12) — le copie del cockpit in una cartella che e' anche delle persone (la cartella ALTRO della RFQ):
+  - `Conservatore{Radice, DryRun}`, `Posto{RadiceID, Cartella, Percorso, Sha256, Bytes}`, `ImprontaRadice`, `Disponibile`;
+  - `Copia` (parziale `<nome>.parte.<token>` esclusivo, sha calcolato scrivendo, `Sync`, verifica, promozione senza sostituzione; `EsitoCopia{Creato, Causa, GiaPresenteStessoSha}`), `Leggi`, `Apri` (sha verificato dallo stesso handle), `Stato` (`presente`, `cambiata`, `non_trovata`, `estranea`), `PulisciPartiCopie`;
+  - `Rimuovi` (la rinomina nel nome di servizio `.<nome>.cockpit-rimozione.<token>` nascosto, l'apertura esclusiva, la verifica, la cancellazione o il ritorno al nome; `EsitoRimozione` con gli esiti e i motivi della tabella di U2 §3.7), `NomeServizio`;
+  - `ErrScritturaSpenta`, `ErrNomeOccupato`, `ErrPromozioneNonDisponibile`, `ErrCopiaMancante`, `ErrCopiaCambiata`, `ErrRadiceDiversa`, `ErrPercorsoNonValido`
+- **`altro_windows.go`, `altro_altri.go`** — `rinominaSenzaSostituire` (`MoveFileW` senza `MOVEFILE_REPLACE_EXISTING`; altrove il link esclusivo, mai `os.Rename`), `nascondi` (`FILE_ATTRIBUTE_HIDDEN`), `apriEsclusivo` (`CreateFile` senza condivisione; altrove un'apertura normale, limite dichiarato), `fileInUso`, `spazioEsaurito`
 
 ### Entry point
 
@@ -93,6 +99,7 @@ markmap:
 - **`UNC`**: `core/rfq/documenti` (`nas_percorso.go`, `integrita.go`)
 - **`Sha256File`, `Sha256Da`**: `core/rfq/documenti`, `transport/workerapi`, `platform/storage/staging`
 - **`ErrConflitto`**: `app/runtime/esecutore.go` (un conflitto è un fallimento definitivo)
+- **`Conservatore`** (`altro.go`): il posto degli «Altri file» del ciclo dei file della Sorgente (`core/rfq/filerfq`, interfaccia `Conservatore`); nelle prove lo stesso su una cartella temporanea (`core/rfq/filerfq/conservatoreprova`); in produzione si cabla con il delta della 0023
 
 ### Dati
 
@@ -124,6 +131,8 @@ markmap:
 ### Invarianti
 
 - Il NAS non si sovrascrive: `.parte` esclusivo, verifica dell'hash, promozione per hard link o creazione esclusiva.
+- Per le copie in una cartella delle persone (`altro.go`) il ripiego della creazione esclusiva **non** si usa: senza rinomina esclusiva ne' link la copia non si fa (`ErrPromozioneNonDisponibile`), perche' un'interruzione lascerebbe un file troncato con un nome credibile. `os.Rename` non compare nel pacchetto.
+- La rimozione tocca solo un file con lo sha atteso, sotto la stessa radice (`RadiceID`), passando per il nome di servizio; un file cambiato torna al suo nome; «rimosso» solo quando la cancellazione e' riuscita nella stessa chiamata.
 - Due tentativi dello stesso job non condividono un `.parte`.
 - `DryRun` non scrive e non toglie niente (`CreaCartella`, `Copia`, `PulisciParti`, `RimuoviCartellaVuota`).
 - Una cartella si toglie solo se è vuota (`os.Remove`, mai `RemoveAll`).
@@ -137,6 +146,9 @@ markmap:
   - i `.parte` scaduti tolti e quelli vivi no,
   - `DryRun`,
   - `UNC` (corto, locale, lungo di rete, lungo locale, niente prefisso doppio).
+- **`altro_test.go`** (V1, ondata C): la copia senza parziali, il nome occupato prima o durante la promozione (il file resta), nessun ripiego senza promozione esclusiva, DryRun, sha diverso, sorgente illeggibile, cartella della RFQ assente, radice diversa, percorsi che escono; `Apri` e `Stato` (dimensione e sha); la rimozione (rimosso, cambiato, gia' assente, scrittura spenta, radice e percorso, ripresa con e senza nome di servizio, nome ripreso); i parziali; l'impronta della radice.
+- **`altro_windows_test.go`**: la rimozione di un file aperto senza e con la condivisione in cancellazione (passi (a) e (b′)), il nome di servizio nascosto, la rinomina che non sostituisce.
+- **`altro_condivisione_windows_test.go`** (AF-34): lo stesso protocollo su una condivisione di prova indicata da `COCKPIT_PROVA_CONDIVISIONE`; senza, SALTATA-AMBIENTE.
 
 ### Stato
 

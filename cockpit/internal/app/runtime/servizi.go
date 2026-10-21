@@ -53,7 +53,8 @@ type Servizi struct {
 	// MotoreA: le regole della Distinta nuova del motore A, preparate all'avvio da [motore_a] (giro 5, A1d; piano 7.4.5).
 	MotoreA motorea_web.Regole
 
-	// CicloFile: il servizio del ciclo dei file della Sorgente (V1, EM §10), con il deposito degli «Altri file».
+	// CicloFile: il servizio del ciclo dei file della Sorgente (V1, EM §10), con il posto degli «Altri file» (la cartella
+	// ALTRO della RFQ sul NAS).
 	CicloFile *filerfq.Servizio
 }
 
@@ -104,10 +105,9 @@ func CostruisciServizi(ctx context.Context, cfg *config.Config, pool *pgxpool.Po
 		log.Warn("[retention].giorni_staging e' deprecata: vale come cache_gg", "giorni", cfg.Retention.GiorniStaging,
 			"nota", "scrivere cache_gg = "+strconv.Itoa(cfg.Retention.GiorniStaging)+" e togliere la riga")
 	}
-	// V1 (EM §10.5): il deposito degli «Altri file» e il servizio del ciclo dei file (ciclo_file.go). Un deposito che non
-	// torna con le copie registrate ferma l'avvio; la cache non toglie lo staging di un file in Altri file finche' la sua
-	// copia non c'e' nel deposito (CopiaNelDeposito).
-	cicloFile, err := preparaCicloFile(ctx, cfg, pool, radiceStaging, log)
+	// V1 (EM §10.5): il servizio del ciclo dei file (ciclo_file.go). La cache non toglie lo staging di un file in Altri
+	// file finche' la sua copia non c'e' (CopiaNelDeposito: senza un posto per gli Altri file, mai).
+	cicloFile, err := preparaCicloFile(ctx, cfg, pool, radiceStaging, capacita, log)
 	if err != nil {
 		return nil, err
 	}

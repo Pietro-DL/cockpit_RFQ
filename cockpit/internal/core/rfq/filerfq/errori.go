@@ -83,6 +83,19 @@ func nonConfigurato(motivo, testo string) *Rifiuto {
 	return rifiuto(http.StatusServiceUnavailable, "NON_CONFIGURATO", testo, extra("motivo", motivo))
 }
 
-// ErrConservazioneNonConfigurata: «Metti in Altri file» senza [conservazione] (EM §10.5).
-var ErrConservazioneNonConfigurata = nonConfigurato("conservazione",
-	"La conservazione degli Altri file non è configurata su questo server: niente è cambiato.")
+// conservazioneNonDisponibile: «Metti in Altri file» quando la copia non si puo' scrivere (U2 §3.5): 503
+// NON_CONFIGURATO con il motivo, niente scritto (nessuna riga, nessun file).
+func conservazioneNonDisponibile(motivo string) *Rifiuto {
+	return nonConfigurato(motivo, TestoNonDisponibile(motivo)+": niente è cambiato.")
+}
+
+// TestoNonDisponibile: perche' «Metti in Altri file» non si puo' fare su questo server, in parole (S1 e S3).
+func TestoNonDisponibile(motivo string) string {
+	switch motivo {
+	case "nas_scrittura":
+		return "La scrittura sul NAS è spenta su questo server: la cartella ALTRO sta sul NAS"
+	case "nas":
+		return "Il NAS non è configurato su questo server: la cartella ALTRO sta sul NAS"
+	}
+	return "La cartella ALTRO degli Altri file non è ancora attiva su questo server"
+}

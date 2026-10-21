@@ -26,8 +26,26 @@ import (
 	"promatec/cockpit/internal/platform/storage/staging"
 )
 
-// CopiaSulNas copia sul NAS il file di un documento confermato, verificando l'hash.
+// CopiaSulNas copia sul NAS il file di un documento confermato, verificando l'hash. La ripresa di un contenuto sparito
+// usa q: per l'esecutore dei job, che lavora sul pool, c'e' CopiaSulNasCon con la ripresa in una transazione sua.
 func CopiaSulNas(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, j *db.Job, documentoID uuid.UUID) (any, error) {
+	return CopiaSulNasCon(ctx, q, scrittore, j, documentoID, nil)
+}
+
+// Ripresa rimette in moto un contenuto sparito dalla cache (RiprendiContenuto) e risponde con l'errore da scrivere sul
+// documento.
+type Ripresa func(ctx context.Context, j *db.Job, a db.Allegato, originale error) error
+
+// CopiaSulNasCon e' CopiaSulNas con chi fa la ripresa. Nil = RiprendiContenuto con q. L'esecutore dei job passa una
+// ripresa in una transazione sua (V1, decisioni dell'ondata B §7 [T]): con q sul pool il lucchetto per contenuto di
+// AccodaStage varrebbe per la sola istruzione, e il riuso del gemello non sarebbe protetto contro un tempo 2
+// concorrente.
+func CopiaSulNasCon(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, j *db.Job, documentoID uuid.UUID, riprendi Ripresa) (any, error) {
+	if riprendi == nil {
+		riprendi = func(ctx context.Context, j *db.Job, a db.Allegato, originale error) error {
+			return RiprendiContenuto(ctx, q, j, a, originale)
+		}
+	}
 	d, err := q.GetDocumento(ctx, documentoID)
 	if err != nil {
 		return nil, err
@@ -56,7 +74,7 @@ func CopiaSulNas(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, j
 		// Il contenuto non c'e' piu' nella cache. L'operatore ha gia' deciso che quel file va sul
 		// NAS, e il file e' ancora in Outlook o dentro il suo archivio: la ripresa si accoda da
 		// sola (Pre-7), e questo tentativo fallisce dicendo che cosa sta succedendo.
-		err = RiprendiContenuto(ctx, q, j, *sparito, err)
+		err = riprendi(ctx, j, *sparito, err)
 	}
 	if err != nil {
 		// Il motivo va SCRITTO SUL DOCUMENTO, non solo nel log: il log lo legge chi sta
@@ -125,6 +143,15 @@ func PulisciPartiScadute(ctx context.Context, q *db.Queries, scrittore *nas.Scri
 		if t.Valid {
 			vivi[t.UUID] = true
 		}
+	}
+	// V1 (U2 §3.6 regola 6, §3.9): nella cartella ALTRO della RFQ scrivono anche le copie degli Altri file, con il token
+	// della loro riga; i parziali delle copie in_copia sono vivi anche qui (l'unione dei token; prova AF-33)
+	copie, err := q.ListTokenConservazioniInCopia(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, t := range copie {
+		vivi[t] = true
 	}
 	limite := time.Now().Add(-time.Duration(coda.DurataMassimaS(db.TipoJobCopiaNas)) * time.Second)
 	return scrittore.PulisciParti(cartella, vivi, limite)

@@ -425,8 +425,8 @@ func fileConChiave(t *testing.T, p *pgxpool.Pool, allegato, utente, chiave uuid.
 		sql  string
 		args []any
 	}{
-		{`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, deposito_id)
-			SELECT m.thread_id, a.allegato_id, a.sha256, 10, 'segnaposto', gen_random_uuid()
+		{`INSERT INTO file_rfq_conservazione (thread_id, allegato_id, sha256, bytes, percorso_relativo, radice_id)
+			SELECT m.thread_id, a.allegato_id, a.sha256, 10, 'ALTRO\' || a.allegato_id || '.pdf', gen_random_uuid()
 			  FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id WHERE a.allegato_id = $1`, []any{allegato}},
 		{`UPDATE file_rfq_conservazione SET stato = 'copiata', sorgente_byte = 'staging' WHERE allegato_id = $1 AND stato = 'in_copia'`, []any{allegato}},
 		{`INSERT INTO file_rfq (thread_id, allegato_id, stato, versione, messaggio_id, canale, contenitore_id, indice, nome_file, path_interno,
@@ -504,14 +504,24 @@ func TestV1Rev2R16RegistratoSenzaEsito(t *testing.T) {
 	if err != nil || e.Stato != IntentoRegistrato || e.Gesto != "altri_file" || e.StatiCorrenti == nil || e.StatiCorrenti.Stato != "altri_file" {
 		t.Fatalf("registrato con gli stati correnti: %+v %v", e, err)
 	}
-	// l'evento dell'associazione con la chiave: registrato_senza_esito del gesto associa_step
+	// l'evento del gesto associa_step con la chiave (S7: «assegna» della pagina nuova, senza riga della AR):
+	// registrato_senza_esito del gesto associa_step
 	ka := uuid.New()
 	proposta := nuovaProposta(t, p, s.allegato, s.thread, nil)
-	esegui3(t, p, `INSERT INTO associazione_evento (thread_id, proposta_id, azione, origine, chiave_idempotenza, autore_id)
-		VALUES ($1, $2, 'riapri', 'ponte', $3, $4)`, s.thread, proposta, ka, s.utente)
+	esegui3(t, p, `INSERT INTO associazione_evento (thread_id, proposta_id, azione, componente_dopo, origine, chiave_idempotenza, autore_id)
+		VALUES ($1, $2, 'assegna', $5, 'ponte', $3, $4)`, s.thread, proposta, ka, s.utente, s.prodotto)
 	e, err = LeggiIntento(ctx, p, s.thread, ka)
 	if err != nil || e.Stato != IntentoRegistratoSenzaEsito || e.Gesto != "associa_step" {
 		t.Fatalf("dall'associazione: %+v %v", e, err)
+	}
+	// direttiva 35, C-1c: un altro evento di associazione con la chiave (qui «riapri» di un gesto delle proposte) non e'
+	// associa_step: la ricerca e' ristretta al gesto
+	kr := uuid.New()
+	esegui3(t, p, `INSERT INTO associazione_evento (thread_id, proposta_id, azione, origine, chiave_idempotenza, autore_id)
+		VALUES ($1, $2, 'riapri', 'ponte', $3, $4)`, s.thread, proposta, kr, s.utente)
+	e, err = LeggiIntento(ctx, p, s.thread, kr)
+	if err != nil || e.Stato != IntentoNonRegistrato {
+		t.Fatalf("un evento che non e' del gesto associa_step: %+v %v", e, err)
 	}
 	// la chiave di un evento dei file di un'altra RFQ: FUORI_RFQ, mai l'esito di quella RFQ
 	kx := uuid.New()

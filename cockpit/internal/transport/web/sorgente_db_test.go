@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -29,7 +30,9 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/rfq/filerfq"
+	"promatec/cockpit/internal/core/rfq/filerfq/conservatoreprova"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/storage/staging"
 	"promatec/cockpit/internal/platform/testutil"
 	"promatec/cockpit/internal/transport/workerapi"
@@ -39,6 +42,7 @@ import (
 type bancoSorgente struct {
 	*bancoWeb
 	svc        *filerfq.Servizio
+	cons       *conservatoreprova.Locale
 	wa         *workerapi.Server
 	ad, op, co *browser
 	cliente    uuid.UUID
@@ -54,15 +58,12 @@ func (b *bancoWeb) sorgente(t *testing.T, acceso bool) *bancoSorgente {
 		acmeAccendi(t, b)
 	}
 	wa := b.caricamentoAcceso(t)
-	dep, err := filerfq.PreparaDeposito(b.ctx, b.q, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := &filerfq.Servizio{Pool: b.pool, Staging: b.ws.Staging, Deposito: dep, Pipeline: wa, Log: testutil.LogSilenzioso(),
+	cons := conservatoreprova.Nuovo(t.TempDir())
+	svc := &filerfq.Servizio{Pool: b.pool, Staging: b.ws.Staging, Conservatore: cons, Pipeline: wa, Log: testutil.LogSilenzioso(),
 		EtaMinima: time.Nanosecond}
 	b.ws.CicloFile = svc
 	t.Cleanup(func() { b.ws.CicloFile = nil })
-	s := &bancoSorgente{bancoWeb: b, svc: svc, wa: wa}
+	s := &bancoSorgente{bancoWeb: b, svc: svc, cons: cons, wa: wa}
 	s.ad = b.browser("10.0.0.8")
 	s.ad.login("AD", "prova-ad")
 	s.op = operatore(b)
@@ -561,7 +562,7 @@ func TestPP05PathStagingAlterato(t *testing.T) {
 }
 
 // PP-06: percorso_relativo della conservazione alterato: il database lo rifiuta (CHECK e trigger), e in lettura il
-// contenimento nel deposito rifiuta un percorso che esce (L1: TestDepositoContenimento).
+// contenimento del conservatore rifiuta un percorso che esce (L1: TestAltroCopiaRifiuti in storage/nas).
 func TestPP06PercorsoDellaCopiaAlterato(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.sorgente(t, true)
@@ -574,8 +575,9 @@ func TestPP06PercorsoDellaCopiaAlterato(t *testing.T) {
 			t.Errorf("il database accetta il percorso della copia %q", p)
 		}
 	}
-	if _, err := s.svc.Deposito.PercorsoCopia(`..\..\fuori.pdf`); err == nil {
-		t.Error("il contenimento del deposito lascia uscire un percorso")
+	fuori := nas.Posto{RadiceID: s.cons.RadiceID(), Percorso: `..\..\fuori.pdf`, Sha256: strings.Repeat("a", 64), Bytes: -1}
+	if _, _, err := s.cons.Apri(fuori); !errors.Is(err, nas.ErrPercorsoNonValido) {
+		t.Errorf("il contenimento del conservatore lascia uscire un percorso: %v", err)
 	}
 }
 
@@ -768,15 +770,12 @@ func TestR21IlModelloDellaSorgente(t *testing.T) {
 	if r, _ := s.gesto(s.thread, x, "scarta", "non serve", nil); r.stato != 200 {
 		t.Fatalf("Scarta: %d %s", r.stato, r.corpo)
 	}
-	// una copia di conservazione in errore: il deposito non accetta i file
-	parti := filepath.Join(s.svc.Deposito.Radice, filerfq.CartellaPartiDeposito)
-	_ = os.RemoveAll(parti)
-	if err := os.WriteFile(parti, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// una copia di conservazione in errore: la promozione esclusiva non si puo' fare (nessun ripiego)
+	s.cons.Promozione = func(string, string) error { return nas.ErrPromozioneNonDisponibile }
 	if r, _ := s.gesto(s.thread, k, "altri-file", "", nil); r.stato != http.StatusUnprocessableEntity {
 		t.Fatalf("la copia doveva fallire: %d %s", r.stato, r.corpo)
 	}
+	s.cons.Promozione = nil
 	m := s.modello(s.thread, a)
 	cont, _ := m["contatori"].(map[string]any)
 	if cont["attivi"] != float64(1) || cont["altri_file"] != float64(1) || cont["scartati"] != float64(1) {
@@ -1015,14 +1014,35 @@ func TestGestiDellaSorgenteDallaRotta(t *testing.T) {
 	if r := s.chiama(s.ad, http.MethodPost, rottaFile(s.thread, a, "scarta"), grande, nil); r.stato != http.StatusRequestEntityTooLarge || r.h.Get("X-Motivo") != "TROPPO_GRANDE" {
 		t.Errorf("corpo oltre 64 KiB: %d %s", r.stato, r.corpo)
 	}
-	// «Metti in Altri file» senza il deposito: 503 NON_CONFIGURATO
-	dep := s.svc.Deposito
-	s.svc.Deposito = nil
+	// «Metti in Altri file» senza un posto per gli Altri file, e con la scrittura sul NAS spenta (U2 §3.5): 503
+	// NON_CONFIGURATO con il motivo, nessuna riga e nessun file
+	righeCopie := func() int {
+		var n int
+		if err := s.pool.QueryRow(s.ctx, `SELECT count(*) FROM file_rfq_conservazione`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	primaRighe, primaFile := righeCopie(), len(s.cons.File())
+	s.svc.Conservatore = nil
 	r, _ := s.gesto(s.thread, a, "altri-file", "", nil)
 	if m := r.mappa(t); r.stato != http.StatusServiceUnavailable || m["codice"] != "NON_CONFIGURATO" || m["motivo"] != "conservazione" {
-		t.Errorf("Altri file senza deposito: %d %v", r.stato, m)
+		t.Errorf("Altri file senza conservatore: %d %v", r.stato, m)
 	}
-	s.svc.Deposito = dep
+	s.svc.Conservatore = s.cons
+	s.cons.DryRun = true
+	r, _ = s.gesto(s.thread, a, "altri-file", "", nil)
+	if m := r.mappa(t); r.stato != http.StatusServiceUnavailable || m["codice"] != "NON_CONFIGURATO" || m["motivo"] != "nas_scrittura" {
+		t.Errorf("Altri file con la scrittura spenta: %d %v", r.stato, m)
+	}
+	if mo := s.modello(s.thread, a); mo["configurazione"].(map[string]any)["motivo_conservazione"] != "nas_scrittura" {
+		t.Errorf("S1 con la scrittura spenta: %v", mo["configurazione"])
+	}
+	s.cons.DryRun = false
+	if righeCopie() != primaRighe || len(s.cons.File()) != primaFile {
+		t.Errorf("con la scrittura spenta qualcosa e' stato scritto: righe %d → %d, file %d → %d", primaRighe, righeCopie(),
+			primaFile, len(s.cons.File()))
+	}
 	// «Metti in Altri file», poi «Riattiva»
 	r, _ = s.gesto(s.thread, a, "altri-file", "da tenere", nil)
 	if m := r.mappa(t); r.stato != 200 || m["esito"] != "in_altri_file" || m["stato"] != "altri_file" || m["versione"] != float64(1) {

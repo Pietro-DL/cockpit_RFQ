@@ -55,6 +55,8 @@ func bzRotte() []bzRotta {
 		{"R1", "/thread/" + id + "/motore-a/bozza?prodotto=" + mwUUID(10).String(), "GET /thread/{id}/motore-a/bozza", "GET, HEAD, POST"},
 		{"R2", "/thread/" + id + "/motore-a/bozza", "POST /thread/{id}/motore-a/bozza", "GET, HEAD, POST"},
 		{"R3", "/thread/" + id + "/motore-a/bozza/" + mwUUID(20).String() + "/abbandona", "POST /thread/{id}/motore-a/bozza/{bozza}/abbandona", "POST"},
+		{"R4", "/thread/" + id + "/motore-a/bom/riepilogo", "POST /thread/{id}/motore-a/bom/riepilogo", "POST"},
+		{"R5", "/thread/" + id + "/motore-a/bom/conferma", "POST /thread/{id}/motore-a/bom/conferma", "POST"},
 		{"R6", "/thread/" + id + "/motore-a/intento/" + mwUUID(30).String(), "GET /thread/{id}/motore-a/intento/{chiave}", "GET, HEAD"},
 		{"R7", "/thread/" + id + "/motore-a/conferme?prodotto=" + mwUUID(10).String(), "GET /thread/{id}/motore-a/conferme", "GET, HEAD"},
 		{"R11", "/thread/" + id + "/motore-a/riallinea", "POST /thread/{id}/motore-a/riallinea", "POST"},
@@ -155,6 +157,8 @@ func TestBozzaV1SoloLAdmin(t *testing.T) {
 		{"R6 chiave non valida", http.MethodGet, "/thread/" + id + "/motore-a/intento/xyz", "", map[string]string{"id": id, "chiave": "xyz"}, s.bozzaV1Intento, http.StatusBadRequest},
 		{"R7 thread non valido", http.MethodGet, "/thread/xyz/motore-a/conferme?prodotto=" + id, "", map[string]string{"id": "xyz"}, s.bozzaV1Storico, http.StatusBadRequest},
 		{"R11 thread non valido", http.MethodPost, "/thread/xyz/motore-a/riallinea", `{}`, map[string]string{"id": "xyz"}, s.bozzaV1Riallinea, http.StatusBadRequest},
+		{"R4 thread non valido", http.MethodPost, "/thread/xyz/motore-a/bom/riepilogo", `{}`, map[string]string{"id": "xyz"}, s.bozzaV1Riepilogo, http.StatusBadRequest},
+		{"R5 thread non valido", http.MethodPost, "/thread/xyz/motore-a/bom/conferma", `{}`, map[string]string{"id": "xyz"}, s.bozzaV1Conferma, http.StatusBadRequest},
 	}
 	for _, c := range casi {
 		porta := s.conMotoreA(conNoStore(s.soloRuolo(db.RuoloUtenteAdmin, c.h)))
@@ -345,8 +349,8 @@ func TestBozzaV1T05CodiciControIlPonte(t *testing.T) {
 		return out
 	}
 	conflitti, rifiuti := catalogo("CONFLITTI"), catalogo("RIFIUTI")
-	funzione := map[string]string{"R1": "leggiBozza", "R2": "salvaBozza", "R3": "abbandonaBozza", "R6": "esitoIntento", "R7": "storicoConferme",
-		"R11": "riallineaDocumenti"}
+	funzione := map[string]string{"R1": "leggiBozza", "R2": "salvaBozza", "R3": "abbandonaBozza", "R4": "riepilogoBom", "R5": "confermaBom", "R6": "esitoIntento",
+		"R7": "storicoConferme", "R11": "riallineaDocumenti"}
 	contiene := func(xx []string, x string) bool {
 		for _, y := range xx {
 			if y == x {

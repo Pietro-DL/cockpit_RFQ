@@ -107,6 +107,8 @@ func Ascolta(ctx context.Context, cfg *config.Config, s *Servizi, materiale *ret
 	// V1: la «Riattiva» rimanda il file sulla stessa strada d'ingresso (EM §10.6)
 	if s.CicloFile != nil {
 		s.CicloFile.Pipeline = wa
+		// V1 (U2-P45): un archivio in Altri file si riestrae dalla sua copia nella cartella ALTRO
+		wa.ArchiviInAltriFile = s.CicloFile
 	}
 	// L'esecutore interno parte QUI e non prima, perche' gli serve chi sa scompattare un archivio, e
 	// quel qualcuno e' la stessa parte che riceve i risultati dei worker: dal blocco 4A l'estrazione

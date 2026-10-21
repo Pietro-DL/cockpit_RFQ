@@ -49,7 +49,16 @@ markmap:
 
 ### Le query per file
 
-- 38 file, 620 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
+- 46 file, 655 query (contati il 20/10 con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; V1, direttiva 35, blocco C-1c,
+  corsia persistenza: + `v1_associazioni.sql` con 17 query; V1, direttiva 35, blocco C-2,
+  corsia persistenza: + `v1_preassociazioni.sql` con 2 query; V1, direttiva 39 §4, corsia persistenza: +
+  `v1_provenienza_pb.sql` con 4 query; V1, direttiva 39, R4, corsia persistenza: + `v1_riepilogo_r4.sql` con 5 query (47
+  file, 660 query); V1, direttiva 39, R5, corsia persistenza: + `v1_conferma_r5.sql` con 13 query (48 file, 673 query);
+  V1, direttiva 39, blocco «R5 completo», corsia persistenza: + `v1_r5_completo.sql` con 5 query;
+  V1, direttiva 39, rilievi della revisione del 20/10, corsia persistenza: + `v1_step_del_finito.sql` con 1 query (51
+  file, 686 query contati il 20/10 sul ramo `v1-persistenza`) e `v1_conversioni_p1.sql` con 1 query (52 file, 687 query);
+  V1, ondata C, corsia
+  persistenza: + `v1_ingressi.sql` con 4 query e `v1_proposta.sql` con 2; A1c: 33 e 482, A1d-P4-B1: +
   `p4_conferme.sql` con 27 query, 22 piu' le 5 delle correzioni del 13/10; V1: + `v1_formato3.sql` con 43 query e
   `ConfermaDistintaBozza` in `p4_conferme.sql`; V1, ondata B, corsia persistenza: + `v1_bozza_rotte.sql` con 22 query;
   V1, corsia motore: + `v1_motore.sql` con 3 query; V1, ondata B, corsia file: + `v1_file.sql` con 42 query,
@@ -151,13 +160,149 @@ markmap:
   - Le colonne `tx` (xid8) non si leggono; le date le scrive il database; ogni lettura porta la RFQ nel `WHERE`: le testate direttamente, versioni ed eventi con una JOIN sulla testata (RC-19); gli eventi si leggono fino a una versione e a pagine
 - **`v1_motore.sql`** — le letture di V1 del modello della pagina della Distinta (`/motore-a/dati`, EM §9.9; corsia motore, ondata B), solo SELECT, nello snapshot REPEATABLE READ READ ONLY della fotografia
   - Tabelle: `file_rfq` (le occorrenze non attive), `distinta_bozza`, `distinta_bozza_versione` e `distinta_importazione` (le bozze aperte formato 3 con le colonne del registro della versione, mai il contenuto), `f8_stato` (lo stato del rismistamento)
-  - Query: 3 (`ListFileRfqNonAttivi`, `ListSorgentiBozzeAperte`, `GetStatoF8DelThread`); le chiama `transport/web/motore_a` (`dati_v1.go:leggiV1`); le prova la L4 `transport/web/motore_a/dati_v1_db_test.go`
+  - Query: 2 (`ListSorgentiBozzeAperte`, `GetStatoF8DelThread`); le chiama `transport/web/motore_a` (`dati_v1.go:leggiV1`); le prova la L4 `transport/web/motore_a/dati_v1_db_test.go`. Direttiva 39 (corsia motore): `ListEventiFonteDelThread` dice anche `con_chiave` (l'evento ha la chiave d'idempotenza di un intento: la conferma e la revoca di S8 la hanno, gli eventi delle pagine legacy no), per non leggere la revoca della sorgente della bozza come la revoca dell'autorizzazione della working (sqlc v1.31.1: cambia solo `v1_motore.sql.go`). Dall'ondata C le occorrenze non attive le legge la lettura unica `ListOccorrenzeNonAttiveRfq` di `v1_file.sql` (la stessa di F8; decisioni dell'ondata B §5.1): `ListFileRfqNonAttivi`, con lo stesso testo SQL, è tolta (sqlc v1.31.1 su una copia: cambia solo `v1_motore.sql.go`)
 - **`v1_bozza_rotte.sql`** — V1, ondata B (corsia persistenza, passo 6 del piano della 0023, prima parte): le letture dello stato della RFQ e delle rotte della bozza nel formato 3, gli aggiornamenti di `f8_stato` di R11, la testata di una bozza convertita, l'allegato della storia della fonte degli atti esistenti
   - Tabelle e viste: `componente`, `componente_relazione`, `conferma_strutturale` (testate), `documento`, `documento_provenienza`, `allegato` + `messaggio` (con `file_rfq_attivo`), `documento_proposta`, `thread_offerta` (anche FOR KEY SHARE per R6), `distinta_bozza` (insert con l'id della conversione), `distinta_bozza_versione`, `esito_intento`, `file_rfq_evento`, `associazione_evento`, `f8_stato` (letture e i due UPDATE di R11), `file_rfq`, `file_rfq_rimozione`, `file_rfq_conservazione`, `utente`, `distinta_importazione`
   - Query: 22; chi le chiama: `core/rfq/confermabom` (lo stato della RFQ), `core/rfq/distintabozza` (R1, R2, R6, R7, conversione), `core/rfq/fascicolo` (`GetAllegatoDelDocumento`) e `transport/web` (R11, con `OraDelDatabase`: l'inizio del riallineamento sull'orologio del database, dal secondo passaggio dell'ondata B). Lo schema non cambia: nessuna migrazione
+- **`v1_ingressi.sql`** — V1, ondata C (corsia persistenza): `impronta-ingressi-1` (U2 §6.3.3), le quattro parti degli ingressi del riepilogo che R1 `?ingressi=1` legge per la notifica con il wizard aperto e che R5 rileggera' per il controllo finale (parti proposta e analisi). Un'istruzione sola per parte, solo SELECT, senza lucchetti; il digest e' calcolato nel database sul contenuto delle righe (mai orari, id d'interpretazione o i fatti interi: `analisi_fatti.digest` della 0023)
+  - Tabelle e viste: `working_contatore`, `conferma_strutturale`, `componente`, `fonte_step_evento`, `distinta_bozza`, `componente_proposta`, `relazione_proposta`, `rimozione_proposta`, `documento_proposta`, `analisi_fatti`, `file_rfq` (con `file_rfq_attivo` e `file_rfq_scartato_legacy`), `allegato`, `messaggio`, `deroga_struttura`, `deroga_fabbisogno`, `documento`, `job`
+  - Query: 4 (`IngressiBom`, `IngressiBozza`, `IngressiProposta`, `IngressiAnalisi`); le chiama `core/rfq/distintabozza` (`ingressi.go`); le prova la L4 `core/rfq/distintabozza/ondatac_formato_db_test.go`. Generate con la stessa v1.31.1 della cache dei moduli: nasce solo `v1_ingressi.sql.go`
+  - Direttiva 35, blocco C-1c: `IngressiProposta` e' `impronta-ingressi-2` (INC-G12): fuori le colonne di copia di `documento_proposta` e le righe che R5 segna (il segno e l'elenco passato da R5: `escludi_proposte`, `escludi_archi`), dentro le AR degli allegati citati dalla bozza del prodotto (o `allegati_citati`), viste come prima della transazione corrente; tabelle in piu': `file_rfq_associazione`, `distinta_bozza_versione`. In `v1_formato3.sql` `GetAssociazioneEventoPerChiave` e' ristretta al gesto `associa_step` (`assegna`, origine `ponte`, senza riga della AR)
+- **`v1_preassociazioni.sql`** — V1, direttiva 35, blocco C-2 (corsia persistenza, file proprio per INC-G21): le preassociazioni del formato 3 per `allegato_id`. Le occorrenze date con appartenenza alla RFQ, attivita' (`file_rfq_attivo` e non `file_rfq_scartato_legacy`) e natura preassociabile (provvisorio, base [T] D-2 (a): la regola del punto 1 di `trg_fra_nasce`, scritta uguale); le AR attive degli allegati dati (lo svincolo di R2 cita una AR attiva, EM §3.6.2). Solo SELECT
+  - Tabelle: `allegato`, `messaggio`, `file_rfq`, `file_rfq_evento`, `documento_proposta` (nelle due funzioni), `file_rfq_associazione`
+  - Query: 2 (`ListAllegatiPreassociabili`, che chiama `core/rfq/distintabozza` (`preassociazioni3.go`, `conversione.go`); `ListAssociazioniAttiveDegliAllegati`, che chiama `preassociazioni3.go`); le prova la L4 `core/rfq/distintabozza/c2_preassociazioni_db_test.go`. Generate con la v1.31.1 della cache dei moduli: nasce solo `v1_preassociazioni.sql.go`, e cambia `v1_formato3.sql.go` per D-6 (`ListDipendenzeBozzaPerFile`: PB e svincolo del formato 3 per `allegato_id`, la PB del formato 2 con il join di prima)
+- **`v1_associazioni.sql`** — V1, direttiva 35, blocco C-1c (corsia persistenza, file proprio per INC-G21): il servizio unico delle
+  associazioni registrate. Le letture delle AR (attive di un allegato e della RFQ, la storia, per chiave d'atto e per chiave di chiusura),
+  la nascita e la chiusura di una riga, l'evento del giornale, la copia derivata (scritta con la lettura del codice conservata in
+  `dettagli.codice_letto`, tolta rimettendola), l'allineamento del codice delle copie, i controlli prima della scrittura (componente,
+  documento confermato altrove), il caricamento della storia della fonte del legame della sorgente (provvisorio D-AR02 A, non cablato).
+  Nessuna query prende lucchetti o usa `ON CONFLICT`
+  - Tabelle: `file_rfq_associazione`, `associazione_evento`, `documento_proposta`, `componente`, `allegato`, `messaggio`, `documento`,
+    `fonte_step_evento`
+  - Query: 17; le chiama solo `core/rfq/associazioni`; le prova la L4 `core/rfq/associazioni/associazioni_db_test.go`. Generate con la
+    v1.31.1 della cache dei moduli: nasce solo `v1_associazioni.sql.go`
+- **`v1_lettura_bozze.sql`** — V1, direttiva 35, blocco C-4 (parte persistenza; corsia persistenza, file proprio per INC-G21):
+  la lettura delle bozze di tutti i prodotti della RFQ per S9 (U2 §12 punto 6). Le bozze aperte con la versione corrente
+  (snapshot e impronta) e gli eventi delle sole azioni del vassoio «Da ricollocare» fino alla versione corrente di ogni
+  bozza. Solo SELECT, senza lucchetti, nella transazione REPEATABLE READ READ ONLY di chi legge; non legge
+  `documento_proposta` (prova L1 `TestV1C4LeQueryDellaLetturaNonLeggonoLaCopia`)
+  - Tabelle: `distinta_bozza`, `distinta_bozza_versione`, `distinta_bozza_evento`
+  - Query: 2 (`ListBozzeAperteDellaRfq`, `ListEventiFileBozzeAperteDellaRfq`); le chiama `core/rfq/distintabozza`
+    (`bozze_rfq.go`); le prova la L4 `core/rfq/distintabozza/bozze_rfq_db_test.go`. Generate con la v1.31.1 della cache
+    dei moduli: nasce solo `v1_lettura_bozze.sql.go`
+- **`v1_forme_server.sql`** — V1, direttiva 35, blocco C-3 (R2 passo 6b; corsia persistenza, file proprio per INC-G21):
+  le query delle forme di R2 costruite dal server che le altre non hanno
+  - Tabelle: `documento`
+  - Query: 1 (`GetDocumentoFonteConfermata`: il documento cad_3d confermato e non sostituito del prodotto con lo sha256
+    della fonte, U2 §2.8); la chiama `core/rfq/distintabozza` (`importa3.go`); la prova la L4
+    `core/rfq/distintabozza/c3_step_db_test.go`. Generata con la v1.31.1 della cache dei moduli: nasce solo
+    `v1_forme_server.sql.go` (la rigenerazione riscrive `v1_file.sql.go` e `v1_motore.sql.go` con soli fine riga
+    diversi: ripristinati)
+- **`v1_sorgente_s8.sql`** — V1, direttiva 39 (S8, revoca, RFQ formato 3; corsia persistenza, file proprio per INC-G21):
+  sole letture
+  - Tabelle: `distinta_bozza`, `conferma_strutturale`, `distinta_importazione`, `fonte_step_evento`
+  - Query: 2 (`RfqFormato3`: almeno una bozza o una conferma formato 3, o un registro d'importazione, nella storia della
+    RFQ; la chiama `core/rfq/associazioni` (`formato3.go`); `ListFonteStepPerChiave`: gli eventi della fonte scritti con
+    una chiave, per il «gia' fatto» del passo 2 di S8; la chiama `core/rfq/sorgente`). Le prova la L4
+    `core/rfq/sorgente/s8_db_test.go`. Generate con la v1.31.1 della cache dei moduli: nasce solo `v1_sorgente_s8.sql.go`
+    (la rigenerazione riscrive `v1_file.sql.go` e `v1_motore.sql.go` con soli fine riga diversi: ripristinati)
+- **`v1_provenienza_pb.sql`** — V1, direttiva 39 §4 (PB iniziali, suggerimenti, conversione delle pre-assegnazioni;
+  corsia persistenza, file proprio per INC-G21): sole letture, senza lucchetti
+  - Tabelle: `file_rfq_associazione`, `distinta_bozza`, `distinta_bozza_versione`, `documento_proposta`, `componente`,
+    `allegato`, `messaggio`, `documento`; le funzioni `file_rfq_attivo`, `file_rfq_scartato_legacy`,
+    `allegato_sorgente_del_finito` della 0023
+  - Query: 4 (`ListAssociazioniDegliAllegati`: le AR attive e chiuse degli allegati; `ListPreassociazioniAltreBozze`: gli
+    allegati preassociati nelle bozze aperte formato 3 degli altri prodotti; `ListCopieSenzaARDellaRfq`: le
+    pre-assegnazioni legacy aperte con tipo del componente, estensione, attivita', natura e STEP sorgente;
+    `ListDocumentiConfermatiDegliAllegati`: il componente del documento confermato con lo stesso contenuto). Le chiama
+    `core/rfq/distintabozza` (`pbiniziali3.go`, `conversionep1.go`); le prova la L4
+    `core/rfq/distintabozza/c39_pb_db_test.go`. Generate con la v1.31.1 della cache dei moduli: nasce solo
+    `v1_provenienza_pb.sql.go` (`v1_file.sql.go` e `v1_motore.sql.go` riscritti con soli fine riga diversi: ripristinati)
+- **`v1_riepilogo_r4.sql`** — V1, direttiva 39 (R4 formato 3 e il Piano del servizio unico; corsia persistenza, file
+  proprio per INC-G21): sole letture, senza lucchetti
+  - Tabelle: `allegato`, `messaggio`, `documento_proposta`, `documento`, `analisi_fatti`, `analizzatore_corrente`,
+    `deroga_struttura`; le funzioni `file_rfq_attivo`, `file_rfq_scartato_legacy`, `allegato_sorgente_del_finito` della
+    0023 e `struttura_motivo_parziale` della 0020
+  - Query: 5 (`ListOccorrenzePiano`: le occorrenze con la lettura del codice della proposta, la regola di
+    `v1_ingressi.sql`; `ListDocumentiDegliAllegati`: i documenti con lo stesso contenuto, anche senza componente;
+    `ListDocumentiScrittiDeiComponenti`: i documenti gia' sul NAS, per RICODIFICA_FILE_NAS; `GetStrutturaDellaSorgente`:
+    il motivo parziale della struttura dello STEP sorgente e la deroga che vale; `ListStepDelProdotto`: i documenti
+    `cad_3d` del finito con estensione e nome, per il legame storico univoco che ricava
+    `confermabom.LegameStoricoUnivoco`; dal giro del gate del 20/10 il filtro sullo STEP non e' piu' nella query). Le chiamano `core/rfq/associazioni` (`piano.go`) e `core/rfq/distintabozza`
+    (`riepilogo3_lettura.go`); le prova la L4 `core/rfq/distintabozza/riepilogo3_db_test.go`. Generate con la v1.31.1
+    della cache dei moduli: nasce solo `v1_riepilogo_r4.sql.go` (`v1_file.sql.go` e `v1_motore.sql.go` riscritti con soli
+    fine riga diversi: ripristinati). La nullabilita' di una colonna di un LEFT JOIN LATERAL e' scritta con un booleano
+    (`con_deroga`), non con l'UUID nullo che sqlc non vede
+- **`v1_riepilogo_r4_completo.sql`** — V1, direttiva 39, blocco «R4 completo» (corsia persistenza, file proprio per
+  INC-G21): sole letture, senza lucchetti
+  - Tabelle: `componente_proposta`
+  - Query: 1 (`ListRigheStrutturaR4`: le righe legacy dei contenuti dati, con chi le ha decise: le esclusioni legacy e la
+    condizione (c) sullo STEP sorgente, la condizione (e) sugli STEP secondari autorizzati). La chiama
+    `core/rfq/distintabozza` (`riepilogo3_lettura.go`); la provano le L4 `riepilogo3_completamento_db_test.go`. Generata
+    con la v1.31.1 della cache dei moduli: nasce solo `v1_riepilogo_r4_completo.sql.go` (cinque `.sql.go` riscritti con
+    soli fine riga diversi: ripristinati)
+- **`v1_conferma_r5.sql`** — V1, direttiva 39 (R5 formato 3, la conferma atomica; corsia persistenza, file proprio per
+  INC-G21): le scritture della working che le query di prima non avevano (l'arco nuovo senza `ON CONFLICT`, la posizione
+  di un arco), i lucchetti delle righe di proposta nell'ordine documentato (`documento_proposta`, `componente_proposta`,
+  `relazione_proposta`), le righe dello STEP A sostituito (lettura e chiusura, tranne quelle che la bozza confermata usa),
+  lo stato di F8 della conferma dopo il COMMIT
+  - Tabelle: `componente_relazione`, `documento_proposta`, `componente_proposta`, `relazione_proposta`, `allegato`,
+    `f8_stato`
+  - Query: 13 (`InsertRelazioneR5`, `SetPosizioneRelazioneR5`, `BloccaDocumentiPropostaR5`, `BloccaComponentiPropostaR5`,
+    `BloccaRelazioniPropostaR5`, `ListProposteDelloShaR5`, `ListRelazioniDelloShaR5`, `ListRelazioniPropostaR5`,
+    `ChiudiProposteDelloShaR5`, `ChiudiRelazioniDelloShaR5`, `SegnaF8DellaConfermaEseguito`, `SegnaF8DellaConfermaErrore`,
+    `GetF8StatoDellaConferma`); le chiamano `core/rfq/distintabozza` (`conferma3*.go`) e `transport/web`
+    (`motore_a_bozza_v1_r5.go`, F8); le prova la L4 `core/rfq/distintabozza/c39_r5_db_test.go` e
+    `transport/web/motore_a_bozza_v1_r5_db_test.go`. Generate con la v1.31.1 della cache dei moduli: nasce solo
+    `v1_conferma_r5.sql.go`, cambia `v1_ingressi.sql.go` (sotto; `v1_file.sql.go` e `v1_motore.sql.go` riscritti con
+    soli fine riga diversi: ripristinati)
+  - In `v1_ingressi.sql`, `IngressiProposta` ha due elenchi in piu' (2-bis): `escludi_documenti` (lo STEP A che R5
+    marca sostituito) e `escludi_rimozioni` (gli STEP di cui R5 chiude le rimozioni): scritture di R5, escluse da H_S e
+    H_T; R1 passa elenchi vuoti
+- **`v1_conversioni_p1.sql`** — V1, direttiva 39 §4 (D-AR14 A [T-39]; rilievo della revisione del 20/10; corsia
+  persistenza, file proprio per INC-G21): le conversioni delle pre-assegnazioni legacy che una bozza abbandonata non ha
+  consumato
+  - Tabelle: `associazione_evento`, `documento_proposta`, `file_rfq_associazione`, `conferma_strutturale` (solo SELECT)
+  - Query: 1 (`ListConversioniP1DaRiprendere`: gli allegati il cui ultimo evento del giornale delle AR e' la conversione
+    `conversione_legacy`, senza AR attiva ne' copia, senza conferme formato 3 del prodotto dopo la conversione; l'allegato
+    anche dalla proposta per gli eventi di prima della 0023). La chiama `core/rfq/distintabozza` (`conversionep1.go`); la
+    prova la L4 `c39_conversione_p1_db_test.go`. Generata con la v1.31.1 della cache dei moduli: nasce solo
+    `v1_conversioni_p1.sql.go` (quattro `.sql.go` riscritti con soli fine riga diversi: ripristinati)
+- **`v1_step_del_finito.sql`** — V1, direttiva 39 §5 [U] (rilievo della revisione del 20/10; corsia persistenza, file
+  proprio per INC-G21): gli STEP candidati come sorgente di un finito della RFQ, che le PB iniziali del server e i
+  suggerimenti non toccano
+  - Tabelle: `allegato`, `messaggio`, `documento_proposta`, `componente` (solo SELECT)
+  - Query: 1 (`ListStepCandidatiDelFinito`: fra gli allegati dati, gli STEP della RFQ che una proposta di documento dice
+    `cad_3d` di un finito della RFQ, per la copia del componente o per il codice, con il prodotto). La chiama
+    `core/rfq/distintabozza` (`stepcandidati3.go`, `StepCandidatiDelFinito`); la prova la L4
+    `core/rfq/sorgente/s8_step_del_finito_db_test.go`. Generata con la v1.31.1 della cache dei moduli: nasce solo
+    `v1_step_del_finito.sql.go` (quattro `.sql.go` riscritti con soli fine riga diversi: ripristinati)
+  - G39-02 [U] (20/10 sera): e' il RIPIEGO [T-39] di quando il calcolo del Motore A non c'e' (con il motore il candidato si
+    riconosce dalla sua lettura). Rende anche il prodotto (riga `allegato_id`, `prodotto_id`) e confronta il codice letto
+    anche senza il marcatore (il codice del prodotto senza la lettera finale dopo una cifra: 12345678 contro 12345678Z, codici inventati,
+    PM-01). Nessun DDL
+- **`v1_r5_completo.sql`** — V1, direttiva 39, blocco «R5 completo» (corsia persistenza, file proprio per INC-G21): la
+  ricodifica di un componente registrato in R5 (D-ASS-01 [U]; EM §9.5 passo 5, H.5) e il ripristino di un archiviato
+  riusato (EM §5.2 W3)
+  - Tabelle: `documento`, `file_rfq_associazione`, `allegato`, `documento_proposta`, `correzione_documento`, `componente`
+  - Query: 5 (`ListDocumentiDeiComponentiR4`: i documenti confermati dei componenti ricodificati, per
+    `RICODIFICA_FILE_NAS` con i motivi `scritto_sul_nas` e `documento_confermato`, solo SELECT; `ListAttiveDelComponenteR5`:
+    le AR attive di un componente con l'allegato e la lettura conservata; `InsertCorrezioneRicodificaR5`: la traccia
+    `ricodifica_bom` per AR; `RicodificaComponenteR5`: il codice nuovo solo se e' ancora quello della decisione;
+    `RipristinaComponenteR5`). Le chiama `core/rfq/distintabozza` (`riepilogo3_lettura.go`, `conferma3_scritture.go`); le
+    provano le L4 `c39_r5_ricodifica_db_test.go` e `c39_r5_completo_db_test.go`. Generate con la v1.31.1 della cache dei
+    moduli: nasce solo `v1_r5_completo.sql.go`, cambia `v1_ingressi.sql.go` (sotto; quattro `.sql.go` riscritti con soli
+    fine riga diversi: ripristinati). `ListAttiveDelComponenteR5` porta l'UUID nullo per la proposta assente (sqlc non vede la
+    nullabilita' del LEFT JOIN LATERAL)
+  - In `v1_ingressi.sql`, `IngressiProposta` ha un elenco in piu' (2-ter): `escludi_codice_componenti`, i componenti che
+    R5 ricodifica: il codice delle loro copie legacy senza lettura conservata non entra (lo riscrive `AllineaCodiceCopia`);
+    R1 passa un elenco vuoto
+- **`v1_proposta.sql`** — V1, ondata C (corsia persistenza): il rifiuto della proposta aggiornata (R15, U2 §5.7), la tabella in sola aggiunta della 0023 (riga 9)
+  - Tabelle: `proposta_aggiornata_rifiuto`, `utente`
+  - Query: 2 (`InsertPropostaAggiornataRifiuto`, che chiama `core/rfq/distintabozza` (`rifiuto.go`); `ListRifiutiPropostaProdotto`, per `/dati` della corsia motore: senza chiamanti in produzione al primo commit). Generate con la v1.31.1 della cache dei moduli: nasce solo `v1_proposta.sql.go`
 - **`v1_file.sql`** — il ciclo dei file della Sorgente (V1, ondata B, corsia file; EM §10): le occorrenze e la loro fotografia, il perimetro di un archivio, il modello di S1, le dipendenze D-1…D-15 in una passata, l'unica copia (D-14) in blocco, le righe delle rimozioni e delle copie di conservazione prese `FOR UPDATE` o `SKIP LOCKED` (il custode, che le scorre a pagine per chiave: `ListIdRimozioniDaRiprendere`, `ListIdRimozioniNonRitentabili`, `ListIdConservazioniDaRiprendere` con `dopo`), i pin del tempo 2 per file, le guardie degli scrittori legacy (`StatoOccorrenzaAllegato`), l'elenco `NonAttivi` (`ListOccorrenzeNonAttiveRfq`). Lo scarto col vecchio «Scarta il file» (`scartato_legacy`, e lo stato «scartata» delle altre occorrenze) ha la stessa definizione in ogni query: proposta scartata da una persona, nessuna riga o la riga in attivo nella RFQ dell'occorrenza, nessun evento `scarta` del ciclo per l'allegato
   - Tabelle e viste: `file_rfq`, `file_rfq_evento`, `file_rfq_rimozione`, `file_rfq_conservazione`, `esito_intento`, `allegato`, `messaggio`, `documento_proposta`, `documento`, `documento_provenienza`, `componente`, `componente_proposta`, `job`, `annotazione_pdf`, `nas_anomalia`, `fonte_step_evento`, `conferma_strutturale`, `utente`
-  - Query: 42; le chiamano `core/rfq/filerfq` (le scritture del ciclo solo da li': prova statica CO-12), le guardie di `transport/workerapi`, `transport/web` e `core/rfq/documenti`, e il flusso F8 (`ListOccorrenzeNonAttiveRfq`)
+  - Query: 49 (direttiva 39, rilievi della revisione alla corsia file: + `DocumentoStepDelFinito` e `ListAssociazioniAttiveDelDocumento`, le guardie dei gesti documentali legacy nelle RFQ formato 3 in `core/rfq/fascicolo/formato3_legacy.go`); le chiamano `core/rfq/filerfq` (le scritture del ciclo solo da li': prova statica CO-12), le guardie di `transport/workerapi`, `transport/web` e `core/rfq/documenti`, e il flusso F8 (`ListOccorrenzeNonAttiveRfq`)
   - Lo scarto col vecchio «Scarta il file» (`scartato_legacy`): proposta scartata da una persona e nessuna riga del ciclo dei file per l'allegato in nessuna RFQ
 - Il predicato `file_rfq_attivo` (V1, R-4 della persistenza, EM §10.7) nelle letture e nei cambi dello staging fuori dalle viste: `proposte.sql` (le tre query della struttura, `FileNelFlusso`), `analisi.sql` (la distribuzione delle letture), `preparazione.sql` (la preparazione e i file fermi; non `ListLavoroPendenteRfq`, che legge il caricatore del motore), `cache.sql` (i pin), `allegati.sql` (il gemello attivo prima, `AllegatoInStagingPerHash`)
 - **`panoramica.sql`** — pagina Richieste
@@ -318,6 +463,23 @@ markmap:
     passaggio la query `OraDelDatabase` cambia solo `v1_bozza_rotte.sql.go`.
   - V1, corsia motore (ondata B): la stessa v1.31.1, su una copia fuori dal worktree; nasce solo `v1_motore.sql.go`
     (le tre query non hanno tabelle nuove: `models.go` non cambia).
+  - V1, direttiva 35 (blocco C-1b, variante `20261019a` della 0023): la stessa v1.31.1 (l'eseguibile di
+    `%LOCALAPPDATA%\cockpit_rfq_test\sqlc\`, che sull'albero senza cambiamenti dava `sqlc diff` pulito); cambia solo
+    `models.go`: `FileRfqAssociazione` e `VArBackfillDiagnostica` nuove, quattro campi in coda ad `AssociazioneEvento`,
+    uno a `CorrezioneDocumento`, i commenti. Nessuna query nuova in questo blocco (le query delle AR sono del servizio
+    unico, C-1c, in un file proprio).
+  - V1, direttiva 39 (variante `20261019c` della 0023): la stessa v1.31.1 di `%LOCALAPPDATA%\cockpit_rfq_test\sqlc\`;
+    cambiano `models.go` (`RfqFormato3Segno` nuova; `ProvenienzaPb` e `ImportazioneID` in `FileRfqAssociazione`;
+    `AssociazioneEvento.AutoreID` diventa `NullUUID`, perche' l'autore manca solo con `conversione_legacy`; i commenti),
+    `v1_associazioni.sql.go` (`InsertAssociazione` con la provenienza e il registro d'origine), `v1_preassociazioni.sql.go`
+    (`ListAllegatiPreassociabili` senza l'esclusione degli STEP e con `legato_come_sorgente`), `v1_sorgente_s8.sql.go`
+    (`RfqFormato3` legge `rfq_e_formato3`) e `v1_formato3.sql.go` (`GetAssociazioneEventoPerChiave` con l'autore
+    `NullUUID`). Gli INSERT del giornale (`InsertEventoAssociazione`, `InsertAssociazioneEvento`) tengono l'autore non
+    nullo con il cast `::uuid`: i chiamanti delle altre corsie non cambiano. `v1_file.sql.go` e `v1_motore.sql.go`
+    riscritti con soli fine riga diversi: ripristinati.
+  - V1, direttiva 39, rilievi della revisione alla corsia file: la stessa v1.31.1 di
+    `%LOCALAPPDATA%\cockpit_rfq_test\sqlc\`; cambia solo `v1_file.sql.go` (`DocumentoStepDelFinito`,
+    `ListAssociazioniAttiveDelDocumento`); gli altri file generati riscritti con soli fine riga diversi: ripristinati.
 - **Dopo:** `go build ./...`, `go vet ./internal/platform/db/`, e le prove L4 dei package che usano le query toccate.
 
 ### Aggiungere una query

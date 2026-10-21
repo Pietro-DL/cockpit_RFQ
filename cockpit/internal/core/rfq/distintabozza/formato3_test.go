@@ -235,6 +235,32 @@ func TestV1LeRegoleDiFormaDelFormato3(t *testing.T) {
 		{"preassociazione su un nodo che non c'e'", "chiave_bozza", "", func(s map[string]any) {
 			s["documenti_preassociati"].([]any)[0].(map[string]any)["chiave_bozza"] = "k-x"
 		}},
+		// direttiva 35, C-2: la PB formato 3 e' {allegato_id, chiave_bozza}; la forma {proposta_id} e' del formato 2
+		{"preassociazione con proposta_id", "snapshot", "", func(s map[string]any) {
+			s["documenti_preassociati"] = []any{map[string]any{"proposta_id": "00000000-0000-4000-8000-0000000d0001", "chiave_bozza": "k-0007"}}
+		}},
+		{"preassociazione con allegato e proposta", "snapshot", "", func(s map[string]any) {
+			s["documenti_preassociati"].([]any)[0].(map[string]any)["proposta_id"] = "00000000-0000-4000-8000-0000000d0001"
+		}},
+		{"preassociazione senza allegato", "documenti_preassociati[0].allegato_id", "", func(s map[string]any) {
+			delete(s["documenti_preassociati"].([]any)[0].(map[string]any), "allegato_id")
+		}},
+		// lo stesso allegato non e' preassociato due volte (provvisorio, base [T] D-ASS-04 A), nemmeno sullo stesso nodo
+		{"stesso allegato preassociato due volte", "documenti_preassociati[1].allegato_id", "", func(s map[string]any) {
+			s["documenti_preassociati"] = append(s["documenti_preassociati"].([]any),
+				map[string]any{"allegato_id": id.pdf.String(), "chiave_bozza": "k-0009"})
+		}},
+		{"stesso allegato due volte sullo stesso nodo", "documenti_preassociati[1].allegato_id", "", func(s map[string]any) {
+			s["documenti_preassociati"] = append(s["documenti_preassociati"].([]any),
+				map[string]any{"allegato_id": id.pdf.String(), "chiave_bozza": "k-0007"})
+		}},
+		// scollega_documento {allegato_id, componente_id} (provvisorio, base [T] D-4 A)
+		{"svincolo con proposta_id", "decisioni[", "", func(s map[string]any) {
+			d := decisioneIn3(s, "sv-0001")
+			delete(d, "allegato_id")
+			d["proposta_id"] = "00000000-0000-4000-8000-0000000d0007"
+		}},
+		{"svincolo senza allegato", "allegato_id", "", func(s map[string]any) { delete(decisioneIn3(s, "sv-0001"), "allegato_id") }},
 	}
 	for _, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {

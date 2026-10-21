@@ -59,7 +59,7 @@ type Cache struct {
 	// «Altri file» con la dimensione attesa. Una proposta aperta di un'occorrenza in Altri file smette di tenere il
 	// contenuto nello staging solo quando la sua copia c'e' davvero. Nil = deposito non configurato: la proposta resta
 	// un pin (il lato che non cancella).
-	CopiaNelDeposito func(percorsoRelativo string, depositoID uuid.UUID, bytes int64) bool
+	CopiaNelDeposito func(cartellaThread, percorsoRelativo string, radiceID uuid.UUID, bytes int64) bool
 	// PrimaDiRimuovere: solo per le prove (PM23 CO-07, CO-11, CO-15): si chiama fra la passata che decide e la
 	// transazione che cancella, cioe' nel punto in cui un caricamento o una «Riattiva» possono arrivare. Nil in
 	// produzione.
@@ -329,7 +329,7 @@ func PinDiUnaVoce(voci []string, motivi map[string]string) string {
 // «proposta aperta in Altri file» che cade quando la copia verificata e' nel deposito (copiaNelDeposito; nil = deposito
 // non configurato: il pin resta). Senza la regola archivio → voci, che applica chi chiama (VociDiArchivi,
 // PinDiUnaVoce). Un contenuto senza pin non sta nella mappa.
-func PinDiContenuti(ctx context.Context, q *db.Queries, sha []string, copiaNelDeposito func(string, uuid.UUID, int64) bool) (map[string]string, error) {
+func PinDiContenuti(ctx context.Context, q *db.Queries, sha []string, copiaNelDeposito func(string, string, uuid.UUID, int64) bool) (map[string]string, error) {
 	pin, err := q.ListContenutiPinnati(ctx, sha)
 	if err != nil {
 		return nil, fmt.Errorf("contenuti pinnati: %w", err)
@@ -353,7 +353,7 @@ func PinDiContenuti(ctx context.Context, q *db.Queries, sha []string, copiaNelDe
 // cade se OGNI copia verificata di quelle occorrenze c'e' nel deposito con la dimensione attesa (EM §10.5). Se il file
 // del deposito manca, il pin resta: la cache non toglie lo staging di un file in Altri file senza byte nel deposito
 // (PM23 AF-15), e la Sorgente segnala l'anomalia.
-func sciogliAltriFile(ctx context.Context, q *db.Queries, copiaNelDeposito func(string, uuid.UUID, int64) bool, sha []string,
+func sciogliAltriFile(ctx context.Context, q *db.Queries, copiaNelDeposito func(string, string, uuid.UUID, int64) bool, sha []string,
 	motivi map[string]string) error {
 	if len(sha) == 0 || copiaNelDeposito == nil {
 		return nil
@@ -367,7 +367,7 @@ func sciogliAltriFile(ctx context.Context, q *db.Queries, copiaNelDeposito func(
 	for _, cp := range copie {
 		s := strings.TrimSpace(cp.Sha256)
 		trovate[s] = true
-		if !cp.Bytes.Valid || !copiaNelDeposito(cp.PercorsoRelativo, cp.DepositoID, cp.Bytes.Int64) {
+		if !cp.Bytes.Valid || !copiaNelDeposito(cp.CartellaThread.String, cp.PercorsoRelativo, cp.RadiceID, cp.Bytes.Int64) {
 			mancante[s] = true
 		}
 	}

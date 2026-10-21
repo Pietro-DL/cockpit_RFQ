@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/storage/staging"
 )
 
@@ -73,7 +74,10 @@ type ModelloSorgente struct {
 }
 
 type Configurazione struct {
+	// Conservazione: «Metti in Altri file» si puo' fare su questo server (un posto per le copie, scrivibile).
 	Conservazione bool `json:"conservazione"`
+	// MotivoConservazione: perche' no (conservazione, nas, nas_scrittura), quando Conservazione e' falso.
+	MotivoConservazione string `json:"motivo_conservazione,omitempty"`
 }
 
 type Contatori struct {
@@ -187,10 +191,13 @@ type AzioneContenuto struct {
 }
 
 type AzioniFile struct {
-	Scarta    Azione          `json:"scarta"`
-	AltriFile Azione          `json:"altri_file"`
-	Riattiva  Azione          `json:"riattiva"`
-	Contenuto AzioneContenuto `json:"contenuto"`
+	Scarta    Azione `json:"scarta"`
+	AltriFile Azione `json:"altri_file"`
+	Riattiva  Azione `json:"riattiva"`
+	// RiprovaRimozione: «Riprova la rimozione dalla cartella ALTRO» (U2 §3.5), su un file scartato la cui copia in ALTRO
+	// e' ancora da togliere; acceso solo con la scrittura sul NAS accesa.
+	RiprovaRimozione Azione          `json:"riprova_rimozione"`
+	Contenuto        AzioneContenuto `json:"contenuto"`
 }
 
 // StepSorgente: uno STEP attivo della RFQ (MAT SG-01): le proposte del motore per STEP le da' /dati.
@@ -209,7 +216,19 @@ type Dettaglio struct {
 	NVoci              *int            `json:"n_voci,omitempty"`
 	ImprontaVoci       string          `json:"impronta_voci,omitempty"`
 	Voci               []VoceDettaglio `json:"voci,omitempty"`
-	Eventi             []EventoFile    `json:"eventi"`
+	// AzioniArchivio: per un archivio, i due gesti di «Metti in Altri file» (U2 §3.10), con il perimetro da mandare in
+	// S3 e la disponibilita': «Metti lo ZIP originale in Altri file» (contenitore) e «Metti in Altri file anche i
+	// contenuti (N)…» (contenitore_e_voci, con n_voci e impronta_voci di questo dettaglio).
+	AzioniArchivio []AzioneArchivio `json:"azioni_archivio,omitempty"`
+	Eventi         []EventoFile     `json:"eventi"`
+}
+
+// AzioneArchivio: un gesto di «Metti in Altri file» su un archivio (U2 §3.10).
+type AzioneArchivio struct {
+	Perimetro   string `json:"perimetro"`
+	Disponibile bool   `json:"disponibile"`
+	Motivo      string `json:"motivo"`
+	NVoci       int    `json:"n_voci"`
 }
 
 type VoceDettaglio struct {
@@ -277,7 +296,8 @@ func (s *Servizio) Modello(ctx context.Context, thread uuid.UUID, op OpzioniMode
 			figli[r.ContenitoreID.UUID] = append(figli[r.ContenitoreID.UUID], r.AllegatoID)
 		}
 	}
-	m := &ModelloSorgente{ThreadID: thread, Configurazione: Configurazione{Conservazione: s.Deposito != nil},
+	disp, motivoDisp := s.disponibile()
+	m := &ModelloSorgente{ThreadID: thread, Configurazione: Configurazione{Conservazione: disp, MotivoConservazione: motivoDisp},
 		File: []FileSorgente{}, Step: []StepSorgente{}}
 	for _, r := range righe {
 		f := s.fileDaRiga(r, pendenti[r.AllegatoID], figli[r.AllegatoID], unita)
@@ -418,22 +438,31 @@ func (s *Servizio) fileDaRiga(r db.ListFileSorgenteRow, pendenti map[string]bool
 		switch r.ConservazioneStato.String {
 		case "errore_copia":
 			cf.Stato = "errore"
-		case "da_rilasciare":
-			if r.ConservazioneErrore.Valid && r.ConservazioneErrore.String != "" && stato != StatoScartato {
+		case "da_rilasciare", "in_rimozione", "rilasciata":
+			switch {
+			case r.ConservazioneEsito.Valid && r.ConservazioneEsito.String != "":
+				// l'esito della rimozione dalla cartella ALTRO, con il testo della tabella di U2 §3.7 (anche per un file
+				// scartato: «rimozione in attesa» o l'errore vero, mai «eliminato» per un file che c'e' ancora)
+				cf.Motivo = TestoRimozioneNAS(nas.RimozioneInAttesa, r.ConservazioneEsito.String)
+			case r.ConservazioneStato.String == "da_rilasciare" && r.ConservazioneErrore.Valid && r.ConservazioneErrore.String != "" &&
+				stato != StatoScartato:
 				cf.Motivo = SenzaPercorsi(r.ConservazioneErrore.String)
 			}
+		case "trattenuta":
+			// base B di U2-Q01 (U2 §3.8): nessun file del cockpit resta invisibile. Solo il nome, mai il percorso
+			cf.Motivo = "C'è una copia del cockpit nella cartella ALTRO: " + nomeNellaCartella(r.ConservazionePercorso.String)
 		}
-		if (r.ConservazioneStato.String == "copiata" || r.ConservazioneStato.String == "da_rilasciare") &&
-			s.Deposito != nil && r.ConservazioneDeposito.Valid && r.ConservazioneBytes.Valid &&
-			s.Deposito.CopiaPresente(r.ConservazionePercorso.String, r.ConservazioneDeposito.UUID, r.ConservazioneBytes.Int64) {
-			f.Byte.Conservazione = "presente"
-		} else if r.ConservazioneStato.String == "copiata" && s.Deposito == nil {
-			f.Byte.Conservazione = "non_verificato"
-		}
-		// una copia verificata il cui file manca nel deposito e' un'anomalia: la Sorgente la segnala (EM §10.5)
-		if r.ConservazioneStato.String == "copiata" && f.Byte.Conservazione == "assente" {
-			cf.Stato = "errore"
-			cf.Motivo = "il file della copia non è nel deposito"
+		// S1 non tocca il posto delle copie (U2 §3.12: sul NAS, ogni 5 secondi, non va bene): dice lo stato registrato.
+		// Una copia verificata della radice di questo server vale presente; senza conservatore, o di un'altra radice, non
+		// e' verificabile qui. Che la copia sia cambiata o non trovata sul NAS lo dira' l'ultimo controllo del custode
+		// (riga 4 del delta della 0023 in U2 §3.14), mai una lettura di S1.
+		if r.ConservazioneStato.String == "copiata" || r.ConservazioneStato.String == "da_rilasciare" {
+			switch {
+			case s.Conservatore != nil && r.ConservazioneRadice.Valid && r.ConservazioneRadice.UUID == s.Conservatore.RadiceID():
+				f.Byte.Conservazione = "presente"
+			case r.ConservazioneStato.String == "copiata":
+				f.Byte.Conservazione = "non_verificato"
+			}
 		}
 		f.Conservazione = cf
 	}
@@ -457,6 +486,30 @@ func (s *Servizio) fileDaRiga(r db.ListFileSorgenteRow, pendenti map[string]bool
 func esiste(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// altriFileDisponibile: «Metti in Altri file» si puo' fare su questo server.
+func (s *Servizio) altriFileDisponibile() bool {
+	ok, _ := s.disponibile()
+	return ok
+}
+
+// lowerPrimo: la prima lettera minuscola (i motivi delle azioni spente sono frasi in mezzo a un testo).
+func lowerPrimo(t string) string {
+	if t == "" {
+		return t
+	}
+	r := []rune(t)
+	if r[0] >= 'A' && r[0] <= 'Z' {
+		r[0] = r[0] - 'A' + 'a'
+	}
+	return string(r)
+}
+
+// nomeNellaCartella: il nome del file di un percorso ALTRO\<nome> (quello che c'e' dopo l'ultima barra).
+func nomeNellaCartella(percorso string) string {
+	p := strings.ReplaceAll(percorso, "/", `\`)
+	return p[strings.LastIndex(p, `\`)+1:]
 }
 
 // esitoSenzaPercorsi: l'esito di un evento per S1, con ogni testo passato da SenzaPercorsi (i numeri restano numeri:
@@ -498,11 +551,22 @@ func (s *Servizio) azioni(f FileSorgente, natura db.NaturaAllegato, unita bool) 
 	switch {
 	case !gestibile:
 		a.Scarta = no("il ciclo dei file gestisce i file e gli elementi di Outlook")
-		a.AltriFile, a.Riattiva = a.Scarta, a.Scarta
+		a.AltriFile, a.Riattiva, a.RiprovaRimozione = a.Scarta, a.Scarta, a.Scarta
 	case unita:
 		a.Scarta = no("la RFQ è stata unita a un'altra: i suoi file si gestiscono in quella")
-		a.AltriFile, a.Riattiva = a.Scarta, a.Scarta
+		a.AltriFile, a.Riattiva, a.RiprovaRimozione = a.Scarta, a.Scarta, a.Scarta
 	default:
+		switch {
+		case f.Stato != StatoScartato:
+			a.RiprovaRimozione = no("il file non è scartato")
+		case f.Conservazione == nil || f.Conservazione.Stato != "da_rilasciare" || f.Conservazione.Causa != "scartato":
+			a.RiprovaRimozione = no("nella cartella ALTRO non c'è una copia di questo file da togliere")
+		case !s.altriFileDisponibile():
+			_, motivo := s.disponibile()
+			a.RiprovaRimozione = no(lowerPrimo(TestoNonDisponibile(motivo)))
+		default:
+			a.RiprovaRimozione = si
+		}
 		switch {
 		case f.ScartatoLegacy && f.Byte.Staging == "assente":
 			a.Scarta = no("scartato con il gesto precedente: nello staging non c'è una copia da eliminare")
@@ -518,8 +582,9 @@ func (s *Servizio) azioni(f FileSorgente, natura db.NaturaAllegato, unita bool) 
 			a.AltriFile = no("il file è scartato: per riaverlo si ricarica")
 		case f.Stato == StatoAltriFile:
 			a.AltriFile = no("il file è già in Altri file")
-		case s.Deposito == nil:
-			a.AltriFile = no("la conservazione degli Altri file non è configurata su questo server")
+		case !s.altriFileDisponibile():
+			_, motivo := s.disponibile()
+			a.AltriFile = no(lowerPrimo(TestoNonDisponibile(motivo)))
 		default:
 			a.AltriFile = si
 		}
@@ -581,9 +646,27 @@ func (s *Servizio) dettaglio(ctx context.Context, q *db.Queries, thread, allegat
 		d.NVoci = &n
 		d.ImprontaVoci = p.Impronta()
 		d.Voci = []VoceDettaglio{}
+		attive := 0
 		for _, v := range p.Voci {
 			d.Voci = append(d.Voci, VoceDettaglio{AllegatoID: v.AllegatoID, NomeFile: v.NomeFile, Stato: v.StatoCiclo()})
+			if v.StatoCiclo() == StatoAttivo {
+				attive++
+			}
 		}
+		solo := AzioneArchivio{Perimetro: PerimetroContenitore, Disponibile: true}
+		tutto := AzioneArchivio{Perimetro: PerimetroContenitoreEVoci, Disponibile: true, NVoci: attive}
+		switch {
+		case o.StatoCiclo() != StatoAttivo:
+			solo = AzioneArchivio{Perimetro: PerimetroContenitore, Motivo: "l'archivio non è fra i file attivi"}
+			tutto = AzioneArchivio{Perimetro: PerimetroContenitoreEVoci, Motivo: solo.Motivo, NVoci: attive}
+		case !s.altriFileDisponibile():
+			_, motivo := s.disponibile()
+			solo.Disponibile, solo.Motivo = false, lowerPrimo(TestoNonDisponibile(motivo))
+			tutto.Disponibile, tutto.Motivo = false, solo.Motivo
+		case attive == 0:
+			tutto.Disponibile, tutto.Motivo = false, "l'archivio non ha file estratti attivi"
+		}
+		d.AzioniArchivio = []AzioneArchivio{solo, tutto}
 	}
 	ev, err := q.ListEventiFileConAutore(ctx, db.ListEventiFileConAutoreParams{ThreadID: thread, AllegatoID: allegato})
 	if err != nil {

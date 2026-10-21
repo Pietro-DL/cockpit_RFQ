@@ -172,6 +172,62 @@ func TestUnContenutoSparitoSiRiprendeDaOutlookDaSolo(t *testing.T) {
 	}
 }
 
+// CO-18 (V1, decisioni dell'ondata B §7 [T]: la ripresa contro un tempo 2). La ripresa che parte dalla copia sul NAS
+// sta in una transazione sua: mentre e' aperta il lucchetto per contenuto e' preso (un tempo 2 o la cache che tolgono
+// lo stesso contenuto aspetterebbero) e il download accodato non si vede ancora; dopo il COMMIT il lucchetto e' libero
+// e il download c'e', una volta sola.
+func TestCO18LaRipresaDellaCopiaStaInUnaTransazione(t *testing.T) {
+	p, q, ctx := preparaDB(t)
+	conCapacita(t, coda.Capacita{NasScrittura: true})
+	b := nuovoBancoRipresa(t, ctx, p, "CO18")
+	if err := os.Remove(b.percorso); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coda.AccodaCopia(ctx, q, b.doc); err != nil {
+		t.Fatal(err)
+	}
+	chiave := "stage:" + b.allegato.String()
+	// il lucchetto di BloccaContenuto (pg_advisory_xact_lock sulla stessa chiave), provato da un'altra connessione
+	libero := func() bool {
+		t.Helper()
+		tx, err := p.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		var ok bool
+		if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('contenuto:' || lower($1::text), 0))`,
+			b.sha).Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	chiamato := false
+	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}}
+	e.dopoLaRipresa = func(context.Context) {
+		chiamato = true
+		if libero() {
+			t.Error("durante la ripresa il lucchetto per contenuto e' libero: un tempo 2 potrebbe togliere il contenuto a meta'")
+		}
+		if _, tot := contaJobPerChiave(t, ctx, p, chiave); tot != 0 {
+			t.Errorf("il download si vede prima del COMMIT della ripresa (%d job)", tot)
+		}
+	}
+	err := eseguiLaCopia(t, ctx, q, e)
+	if !chiamato {
+		t.Fatalf("la ripresa non e' passata dalla transazione dell'esecutore: %v", err)
+	}
+	if !errors.Is(err, documenti.ErrContenutoMancante) || !strings.Contains(err.Error(), "download da Outlook accodato") {
+		t.Errorf("l'esito della ripresa: %v", err)
+	}
+	if !libero() {
+		t.Error("dopo il COMMIT della ripresa il lucchetto per contenuto e' ancora preso")
+	}
+	if pend, _ := contaJobPerChiave(t, ctx, p, chiave); pend != 1 {
+		t.Errorf("job di download pendenti = %d, atteso 1", pend)
+	}
+}
+
 // ST7, seconda forma. La voce viene da un archivio che e' ANCORA in cache: si riestrae da li', senza
 // tornare in Outlook. E' la riparazione a buon mercato per cui la dipendenza archivio → voci esiste.
 func TestUnaVoceDiArchivioSparitaSiRiestraeSenzaTornareInOutlook(t *testing.T) {

@@ -200,6 +200,11 @@ markmap:
   `attivazionePer` e per `NelPerimetro`): i partner attivi con l'hash delle loro letture, la copia canonica del contesto
   con l'ereditato (la forma su cui si calcola l'impronta: `ContestoCanonico`), il perimetro per occorrenza. Non cambiano
   la lettura.
+- **`OccorrenzaCoincide`, `FileDelPerimetro`** (V1, ondata C; DEC-B RF RQ-6, OB-20) — la regola unica con cui
+  un'occorrenza del perimetro di un contesto coincide con un file (allegato; oppure sha256 e nome ricevuto, o il nome
+  finale del percorso dentro un archivio, e il contenitore se scritto; mai la sola impronta). La usano l'attivazione
+  (`occorrenzeDi`, quindi `NelPerimetro` e il perimetro dell'importazione) e la dipendenza D-13 del ciclo dei file
+  (`filerfq.citaOccorrenza`): l'importazione e la Sorgente vedono lo stesso perimetro.
 - Oggi, nel codice di prodotto, il banco (`app/bancoa`, da A1a.5); l'anteprima arriva in A1d.
 
 ## Invarianti

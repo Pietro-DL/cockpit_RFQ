@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"promatec/cockpit/internal/core/rfq/associazioni"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -233,6 +234,16 @@ func (s *Server) fileGenerale(w http.ResponseWriter, r *http.Request) {
 		if tipo != db.TipoDocumentoAltro && tipo != db.TipoDocumentoCapitolato {
 			return "", rifiuto("un file senza componente entra come documentazione generale o come capitolato")
 		}
+		// Prima la RFQ, poi la proposta (V1, decisioni dell'ondata B §7 [T]): e' l'ordine della conferma della voce, dei
+		// gesti della Sorgente e di R5, che prendono la RFQ e poi le proposte. Con la proposta bloccata prima e la RFQ
+		// chiesta dopo (dalla scrittura del documento) questo gesto e un gesto della Sorgente potevano aspettarsi a vicenda
+		// (40P01). Da C-6b (INC-G25) gesto ha gia' preso la RFQ FOR UPDATE (lucchetti_legacy.go): questa lettura resta per
+		// il rifiuto di una RFQ che non c'e'.
+		if _, err := q.BloccaThreadCondiviso(ctx, thread); errors.Is(err, pgx.ErrNoRows) {
+			return "", rifiuto("il file non è di questa RFQ")
+		} else if err != nil {
+			return "", err
+		}
 		p, err := q.BloccaProposta(ctx, pid)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!p.ThreadID.Valid || p.ThreadID.UUID != thread)) {
 			return "", rifiuto("il file non è di questa RFQ")
@@ -243,16 +254,19 @@ func (s *Server) fileGenerale(w http.ResponseWriter, r *http.Request) {
 		if p.Stato != db.StatoPropostaAperta {
 			return "", rifiuto("il file è già stato deciso")
 		}
-		if p.ComponenteID.Valid {
-			if _, err := q.SetComponenteProposta(ctx, db.SetComponentePropostaParams{PropostaID: pid, Codice: p.Codice}); err != nil {
-				return "", err
-			}
-			if p, err = q.BloccaProposta(ctx, pid); err != nil {
-				return "", err
-			}
-		}
 		a, err := q.GetAllegato(ctx, p.AllegatoID)
 		if err != nil {
+			return "", err
+		}
+		// C-6b (gesti_legacy_ar.go, D-AR03 D [U]): nella RFQ interamente legacy lo sgancio passa dal servizio unico
+		// (file_generale: la AR chiusa o la copia tolta, con l'evento), prima della decisione sulla proposta; nella RFQ
+		// formato 3 un file associato, con una copia o nella bozza non diventa documentazione generale (D-AR06 A [T-39]);
+		// senza legami va avanti
+		if err := chiusuraLegacy(ctx, q, thread, utente, p, a, associazioni.MotivoFileGenerale,
+			"prima lo si svincola nella bozza e si conferma la BOM, poi si torna qui"); err != nil {
+			return "", err
+		}
+		if p, err = q.BloccaProposta(ctx, pid); err != nil {
 			return "", err
 		}
 		m, err := q.GetMessaggio(ctx, a.MessaggioID)

@@ -7,6 +7,9 @@ package importazione
 //   - impronta_evidenze: il resto della proposta, solo informativa;
 //   - impronta_regole: lo sha256 canonico di regole.
 //
+// Dentro le letture della parte confrontata (identita_proposta, alternative[], riferimenti[].lettura) l'hash della
+// grammatica non entra in impronta_contenuto (B-1 strada (a), U2-P15: CampoFuoriDalConfronto).
+//
 // L'elenco chiuso sta nelle tabelle di questo file, e la proiezione le legge: un campo che non e' in una tabella non
 // entra in nessuna impronta parziale, e la prova L1 dell'elenco chiuso (TestElencoChiusoDelRegistro) fallisce se un
 // campo tipizzato del contenuto non ha la sua classe. Le proiezioni sono una scelta tecnica [T] di questo file, perche'
@@ -74,7 +77,12 @@ var (
 		"fabbisogni_previsti_all_importazione": InEvidenze, "riga_legacy": InEvidenze,
 	}
 	campiStatoMotore = map[string]string{"raggiunto": InContenuto, "tolto": InContenuto, "deciso": InEvidenze}
-	campiFuori       = map[string]string{"voce": InContenuto, "segno": InContenuto, "chi": InEvidenze, "quando": InEvidenze, "motivo": InEvidenze}
+	// fuori_per_decisione: voce e segno nel confronto; la traccia (Q13, U2 §4.4) e l'identità proposta con le due
+	// proiezioni (U2-P22) fra le evidenze.
+	campiFuori = map[string]string{"voce": InContenuto, "segno": InContenuto, "chi": InEvidenze, "quando": InEvidenze, "motivo": InEvidenze,
+		"origine_legacy": InEvidenze, "segno_albero": InEvidenze, "archi_tolti": InEvidenze, "mancanti": InEvidenze,
+		"identita_proposta": InEvidenze, "codice_proposto": InEvidenze, "motivo_proposto": InEvidenze, "rev_proposta": InEvidenze,
+		"motivo_rev": InEvidenze}
 
 	// CampiDellaRadiceFraLeEvidenze: per la voce della radice (origine.rif = gruppo.radice) questi campi, che vengono
 	// dallo stato della RFQ, passano dal confronto alle evidenze; con loro stato_motore.raggiunto e tolto e, dei
@@ -113,27 +121,56 @@ type Impronte struct {
 // canonica del registro, FormaCanonica, cosi' un vuoto o un ordine diverso non cambiano le impronte) con l'elenco chiuso
 // di importazione-1. I campi impronta_* del contenuto non entrano: si possono calcolare prima di scriverli.
 func ImpronteParziali(contenuto []byte) (Impronte, error) {
-	contenuto, err := FormaCanonica(contenuto)
+	cont, ev, regole, err := proiezioni(contenuto)
 	if err != nil {
-		return Impronte{}, forma("contenuto", "il contenuto non si legge: %v", err)
+		return Impronte{}, err
+	}
+	var out Impronte
+	if out.Contenuto, err = jsoncanonico.ImprontaDi(cont); err != nil {
+		return Impronte{}, forma("contenuto", "la parte confrontata non ha una forma canonica: %v", err)
+	}
+	if out.Evidenze, err = jsoncanonico.ImprontaDi(ev); err != nil {
+		return Impronte{}, forma("contenuto", "le evidenze non hanno una forma canonica: %v", err)
+	}
+	if out.Regole, err = jsoncanonico.ImprontaDi(regole); err != nil {
+		return Impronte{}, forma("regole", "le regole non hanno una forma canonica: %v", err)
+	}
+	return out, nil
+}
+
+// ProiezioneEvidenze: la proiezione di impronta_evidenze di un contenuto (l'oggetto di cui impronta_evidenze è lo
+// sha256 canonico), con le chiavi dei livelli (fonte, gruppo, nodi, fuori_per_decisione, file, relazioni,
+// diagnostiche) e le voci con la loro chiave «voce». Serve a dire dove le evidenze cambiano (differenze.evidenze[] del
+// confronto, U2 §5.2) con lo stesso elenco chiuso delle impronte, mai una copia.
+func ProiezioneEvidenze(contenuto []byte) (map[string]any, error) {
+	_, ev, _, err := proiezioni(contenuto)
+	return ev, err
+}
+
+// proiezioni: le tre proiezioni di un contenuto (la parte confrontata, le evidenze, le regole) sulla forma canonica del
+// registro.
+func proiezioni(contenuto []byte) (cont, ev map[string]any, regole any, err error) {
+	contenuto, err = FormaCanonica(contenuto)
+	if err != nil {
+		return nil, nil, nil, forma("contenuto", "il contenuto non si legge: %v", err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(contenuto))
 	dec.UseNumber()
 	var v map[string]any
 	if err := dec.Decode(&v); err != nil {
-		return Impronte{}, forma("contenuto", "il contenuto non si legge: %v", err)
+		return nil, nil, nil, forma("contenuto", "il contenuto non si legge: %v", err)
 	}
 	gruppo := oggettoDi(v["gruppo"])
 	proposta := oggettoDi(v["proposta"])
 	radice, _ := gruppo["radice"].(string)
 	fonte := oggettoDi(proposta["fonte"])
 
-	cont := map[string]any{
+	cont = map[string]any{
 		"fonte":  scegli(fonte, campiFonte, InContenuto),
 		"gruppo": scegli(gruppo, campiGruppo, InContenuto),
 		"archi":  elencoONiente(proposta["archi"]),
 	}
-	ev := map[string]any{
+	ev = map[string]any{
 		"fonte":        scegli(fonte, campiFonte, InEvidenze),
 		"gruppo":       scegli(gruppo, campiGruppo, InEvidenze),
 		"file":         elencoONiente(proposta["file"]),
@@ -156,7 +193,7 @@ func ImpronteParziali(contenuto []byte) (Impronte, error) {
 		case "file":
 			relE = append(relE, x)
 		default:
-			return Impronte{}, forma(fmt.Sprintf("proposta.relazioni[%d].sorgente.tipo", i), "la sorgente di una relazione e' nodo o file")
+			return nil, nil, nil, forma(fmt.Sprintf("proposta.relazioni[%d].sorgente.tipo", i), "la sorgente di una relazione e' nodo o file")
 		}
 	}
 	cont["relazioni"], ev["relazioni"] = relC, relE
@@ -171,18 +208,7 @@ func ImpronteParziali(contenuto []byte) (Impronte, error) {
 		fuoriC, fuoriE = append(fuoriC, fc), append(fuoriE, fe)
 	}
 	cont["fuori_per_decisione"], ev["fuori_per_decisione"] = fuoriC, fuoriE
-
-	var out Impronte
-	if out.Contenuto, err = jsoncanonico.ImprontaDi(cont); err != nil {
-		return Impronte{}, forma("contenuto", "la parte confrontata non ha una forma canonica: %v", err)
-	}
-	if out.Evidenze, err = jsoncanonico.ImprontaDi(ev); err != nil {
-		return Impronte{}, forma("contenuto", "le evidenze non hanno una forma canonica: %v", err)
-	}
-	if out.Regole, err = jsoncanonico.ImprontaDi(v["regole"]); err != nil {
-		return Impronte{}, forma("regole", "le regole non hanno una forma canonica: %v", err)
-	}
-	return out, nil
+	return cont, ev, v["regole"], nil
 }
 
 // proiettaVoce divide una voce fra confronto ed evidenze; la voce della radice passa alle evidenze i campi che vengono
@@ -245,8 +271,60 @@ func proiettaVoce(voce map[string]any, radice string) (map[string]any, map[strin
 			}
 		}
 	}
+	senzaHashGrammatica(vc)
 	vc["stato_motore"], ve["stato_motore"] = smc, sme
 	return vc, ve
+}
+
+// CampoFuoriDalConfronto: il campo di una lettura che resta nel registro ma non entra nella parte confrontata (B-1,
+// strada (a); U2-P15): l'hash della grammatica del suo emittente. Una grammatica nuova che non cambia nessuna lettura
+// cambia impronta_regole («regole cambiate»), mai impronta_contenuto; l'hash resta nella lettura del registro, in
+// regole e nell'impronta intera.
+const CampoFuoriDalConfronto = "hash_grammatica"
+
+// senzaHashGrammatica toglie l'hash della grammatica dalle letture della parte confrontata di una voce: l'identità
+// proposta, le alternative e la lettura di ogni riferimento. Lavora su copie: la voce del registro non cambia.
+func senzaHashGrammatica(vc map[string]any) {
+	togli := func(v any) any {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		if _, c := m[CampoFuoriDalConfronto]; !c {
+			return m
+		}
+		cp := copiaOggetto(m)
+		delete(cp, CampoFuoriDalConfronto)
+		return cp
+	}
+	if x, ok := vc["identita_proposta"]; ok {
+		vc["identita_proposta"] = togli(x)
+	}
+	if l, ok := vc["alternative"].([]any); ok {
+		n := make([]any, len(l))
+		for i, x := range l {
+			n[i] = togli(x)
+		}
+		vc["alternative"] = n
+	}
+	if l, ok := vc["riferimenti"].([]any); ok {
+		n := make([]any, len(l))
+		for i, r := range l {
+			m, ok := r.(map[string]any)
+			if !ok {
+				n[i] = r
+				continue
+			}
+			if lt, ok := m["lettura"]; ok {
+				cp := copiaOggetto(m)
+				cp["lettura"] = togli(lt)
+				n[i] = cp
+				continue
+			}
+			n[i] = r
+		}
+		vc["riferimenti"] = n
+	}
 }
 
 func oggettoDi(v any) map[string]any {

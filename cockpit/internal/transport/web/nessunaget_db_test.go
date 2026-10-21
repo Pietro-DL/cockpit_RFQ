@@ -259,6 +259,12 @@ func TestNessunaGetScrive(t *testing.T) {
 		{distinta + "/albero/riepilogo", false, true, false},
 		// Giro 5, A1d-Q2: le due GET JSON della Distinta nuova del motore A, dell'amministratore
 		{"/thread/" + s.thread.String() + "/motore-a/dati", false, true, true},
+		// V1, direttiva 35 (C-4): S9, la variante ?sorgente=1 con la lettura delle bozze e delle AR (R-36)
+		{"/thread/" + s.thread.String() + "/motore-a/dati?sorgente=1", false, true, true},
+		// V1, direttiva 39 (corsia motore): S6, l'anteprima dello STEP prima di S8 (EM §10.9: S6 entra qui). Su un
+		// componente che non e' un finito risponde 422, mai un 5xx
+		{"/thread/" + s.thread.String() + "/sorgente/step/" + s.stepFermo.String() + "/anteprima?prodotto=" + s.pezzo.String(), false, false, true},
+		{"/thread/" + s.thread.String() + "/sorgente/step/" + s.letto.String() + "/anteprima?prodotto=" + s.pezzo.String(), false, false, true},
 		{"/thread/" + s.thread.String() + "/motore-a/anteprima/step-strutturale?componente=" + s.pezzo.String(), false, true, true},
 		// Giro 5, A1d-P4, B5.1: la pagina della Distinta nuova, dell'amministratore (con hx: il frammento)
 		{"/thread/" + s.thread.String() + "/motore-a", false, true, true},
@@ -272,6 +278,15 @@ func TestNessunaGetScrive(t *testing.T) {
 		{"/thread/" + s.thread.String() + "/sorgente?scartati=1&file=" + s.letto.String(), false, true, true},
 		{"/thread/" + s.thread.String() + "/sorgente/file/" + s.letto.String() + "/contenuto", false, false, true},
 		{"/thread/" + s.thread.String() + "/sorgente/file/" + s.pdfFermo.String() + "/contenuto?modo=scarica", false, false, true},
+		// V1, ondata C, corsia persistenza (DEC-B RQ-1 e RQ-3, PM23 T-04): le GET della bozza montate da registraMotoreA
+		// (R1, R6, R7) e il guscio della pagina, dell'amministratore. R1 e R7 su un componente che non e' un finito
+		// rispondono 422, mai un 5xx; R6 con una chiave mai usata dice non_registrato
+		{"/thread/" + s.thread.String() + "/motore-a/bozza?prodotto=" + s.pezzo.String(), false, false, true},
+		{"/thread/" + s.thread.String() + "/motore-a/bozza?prodotto=" + s.pezzo.String() + "&eventi=1&confronto=1", false, false, true},
+		{"/thread/" + s.thread.String() + "/motore-a/bozza?prodotto=" + s.pezzo.String() + "&ingressi=1", false, false, true},
+		{"/thread/" + s.thread.String() + "/motore-a/intento/" + uuid.New().String(), false, true, true},
+		{"/thread/" + s.thread.String() + "/motore-a/conferme?prodotto=" + s.pezzo.String(), false, false, true},
+		{"/thread/" + s.thread.String() + "/distinta-unica", false, true, true},
 	}
 	clienteMA := uuidSQL(t, b, `SELECT cliente_id FROM thread_offerta WHERE thread_id = $1`, s.thread)
 	mwAccendi(t, b, mwRegoleACME(t, clienteMA, "Acme S.p.A.", 20*time.Second))
