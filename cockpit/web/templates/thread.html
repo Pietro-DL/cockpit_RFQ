@@ -16,7 +16,8 @@
     <h1>{{.T.Oggetto.String}} <a class="bottone primario" href="/thread/{{.T.ThreadID}}/distinta" style="font-size:14px;vertical-align:middle">Apri la Distinta →</a>
       {{/* Giro 5, A1d, notte 14/10, WP-U, U1: la Distinta nuova del motore A, con la guardia della sua rotta (flag acceso
            e admin: distintaNuovaVisibile). */}}
-      {{if .DistintaNuova}}<a class="bottone" id="rfq-motore-a" href="/thread/{{.T.ThreadID}}/motore-a" style="font-size:14px;vertical-align:middle" title="La distinta e lo smistamento calcolati dal motore A, in anteprima (solo admin)">Distinta nuova (Motore A)</a>{{end}}</h1>
+      {{if .DistintaNuova}}<a class="bottone" id="rfq-motore-a" href="/thread/{{.T.ThreadID}}/motore-a" style="font-size:14px;vertical-align:middle" title="La distinta e lo smistamento calcolati dal motore A, in anteprima (solo admin)">Distinta nuova (Motore A)</a>
+      <a class="bottone" id="rfq-distinta-unica" href="/thread/{{.T.ThreadID}}/distinta-unica" style="font-size:14px;vertical-align:middle" title="La Distinta unica di V1: sorgente STEP, bozza, riepilogo e conferma della BOM (solo admin)">Distinta unica (V1)</a>{{end}}</h1>
     <div class="meta">
       <div><b>Cartella:</b> <code>{{.T.CartellaRelativa.String}}</code> {{if .T.CartellaCreata}}<span class="chip fatto">creata</span>{{else}}<span class="chip pronto">in creazione</span>{{end}}</div>
       <div><b>Buyer:</b> {{if .Riga.Buyer.Valid}}{{.Riga.Buyer.String}}{{else}}<em class="muto">—</em>{{end}}
@@ -112,7 +113,8 @@
          che dice se c'e' da andarci, e il link. */}}
     <div class="riepilogo-fascicolo">
       <p><a class="bottone primario" href="/thread/{{.T.ThreadID}}/distinta">Apri la Distinta</a> <a class="bottone" href="/thread/{{.T.ThreadID}}/fascicolo" title="La schermata di prima, con i gesti avanzati: revisioni, autorizzazione degli STEP, deroghe">Fascicolo completo</a>
-        {{if .DistintaNuova}}<a class="bottone" href="/thread/{{.T.ThreadID}}/motore-a" title="La distinta e lo smistamento calcolati dal motore A, in anteprima (solo admin)">Distinta nuova (Motore A)</a>{{end}}</p>
+        {{if .DistintaNuova}}<a class="bottone" href="/thread/{{.T.ThreadID}}/motore-a" title="La distinta e lo smistamento calcolati dal motore A, in anteprima (solo admin)">Distinta nuova (Motore A)</a>
+        <a class="bottone" href="/thread/{{.T.ThreadID}}/distinta-unica" title="La Distinta unica di V1: sorgente STEP, bozza, riepilogo e conferma della BOM (solo admin)">Distinta unica (V1)</a>{{end}}</p>
       {{if .Scrive}}<form method="post" action="/thread/{{.T.ThreadID}}/fascicolo/prepara" hx-post="/thread/{{.T.ThreadID}}/fascicolo/prepara" hx-target="#thread">
         <button type="submit" class="piccolo" title="Scarica i file utili, estrae gli archivi e accoda le analisi che mancano. La pagina lo fa da sola quando si apre">Prepara i file</button>
       </form>{{end}}

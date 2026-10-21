@@ -66,7 +66,7 @@
     <a href="/thread/{{.ThreadID}}" title="La pagina di prima della richiesta: la mail con gli allegati, i codici trovati">pagina della RFQ</a>
     {{/* Giro 5, A1d, notte 14/10, WP-U, U1: la Distinta nuova del motore A, con la guardia della sua rotta (flag acceso e
          admin: distintaNuovaVisibile). */}}
-    {{if .DistintaNuova}}<a class="rq-motore-a" href="/thread/{{.ThreadID}}/motore-a" title="La distinta e lo smistamento calcolati dal motore A, in anteprima (solo admin)">Distinta nuova (Motore A)</a>{{end}}
+    {{if .DistintaNuova}}<a class="rq-motore-a" href="/thread/{{.ThreadID}}/motore-a" title="La distinta e lo smistamento calcolati dal motore A, in anteprima (solo admin)">Distinta nuova (Motore A)</a> <a class="rq-motore-a" href="/thread/{{.ThreadID}}/distinta-unica" title="La Distinta unica di V1: sorgente STEP, bozza, riepilogo e conferma della BOM (solo admin)">Distinta unica (V1)</a>{{end}}
   </div>
   <div class="rq-segnali">
     {{if gt .NBloccanti 0}}<span class="rq-segnale bloc">⚠ {{.FraseBloccanti}}</span>{{end}}

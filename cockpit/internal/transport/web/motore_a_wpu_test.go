@@ -443,7 +443,7 @@ func TestIlCollegamentoAllaDistintaNuova(t *testing.T) {
 		}
 		return buf.String()
 	}
-	if strings.Contains(rendi(), "/motore-a") {
+	if h := rendi(); strings.Contains(h, "/motore-a") || strings.Contains(h, "/distinta-unica") {
 		t.Error("Richieste: il collegamento alla Distinta nuova senza la guardia")
 	}
 	p.Card[0].DistintaNuova = true
@@ -451,6 +451,10 @@ func TestIlCollegamentoAllaDistintaNuova(t *testing.T) {
 	if want := `href="/thread/` + p.Card[0].ThreadID.String() + `/motore-a"`; !strings.Contains(h, want) || strings.Count(h, "/motore-a") != 1 ||
 		!strings.Contains(h, "Distinta nuova (Motore A)") {
 		t.Errorf("Richieste: il collegamento della prima card (%s) non c'è, o è anche sulle altre", want)
+	}
+	if want := `href="/thread/` + p.Card[0].ThreadID.String() + `/distinta-unica"`; !strings.Contains(h, want) || strings.Count(h, "/distinta-unica") != 1 ||
+		!strings.Contains(h, "Distinta unica (V1)") {
+		t.Errorf("Richieste: il collegamento alla Distinta unica della prima card (%s) non c'è, o è anche sulle altre", want)
 	}
 
 	_, _, thd := datiSintetici()
@@ -461,11 +465,14 @@ func TestIlCollegamentoAllaDistintaNuova(t *testing.T) {
 		}
 		return buf.String()
 	}
-	if strings.Contains(rendiT(), "/motore-a") {
+	if h := rendiT(); strings.Contains(h, "/motore-a") || strings.Contains(h, "/distinta-unica") {
 		t.Error("RFQ: il collegamento alla Distinta nuova senza la guardia")
 	}
 	thd.DistintaNuova = true
 	if h := rendiT(); strings.Count(h, `href="/thread/`+thd.T.ThreadID.String()+`/motore-a"`) != 2 || !strings.Contains(h, "Distinta nuova (Motore A)") {
 		t.Error("RFQ: il collegamento alla Distinta nuova non c'è nella testata e nel riepilogo del Fascicolo")
+	}
+	if h := rendiT(); strings.Count(h, `href="/thread/`+thd.T.ThreadID.String()+`/distinta-unica"`) != 2 || !strings.Contains(h, "Distinta unica (V1)") {
+		t.Error("RFQ: il collegamento alla Distinta unica non c'è nella testata e nel riepilogo del Fascicolo")
 	}
 }
