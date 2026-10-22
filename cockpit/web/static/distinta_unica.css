@@ -328,6 +328,7 @@
 /* il visore dei PDF (MAT FL-03, PN-04): la pagina disegnata da pdf.js, mai più larga della finestra */
 .du-finestra .du-visore-tela { overflow: auto; max-height: 70vh; border: 1px solid var(--du-line); border-radius: var(--du-r2); background: var(--du-sunken); padding: 6px; }
 .du-finestra .du-visore-tela canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: var(--du-carta-2d); }
+.du-finestra .du-visore-tela--dettaglio canvas { max-width: none; }
 .du .du-nodo-cod { font: 600 var(--du-t-lg)/1.2 var(--du-f-mono); overflow-wrap: anywhere; }
 .du .du-sez { border-top: 1px solid var(--du-line); padding-top: 9px; display: grid; gap: 6px; min-width: 0; }
 .du .du-sez > h3 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

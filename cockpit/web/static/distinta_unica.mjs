@@ -300,8 +300,11 @@ function disegniDelProdotto(p) {
     if (!ogg(n) || !ogg(n.nodo)) return;
     const pr = n.disegni && n.disegni.primario;
     const an = pr && pr.anteprima;
-    if (!ogg(an) || an.disponibile !== true || typeof an.allegato_id !== "string" || !RE_UUID.test(an.allegato_id)) return;
-    const x = { aid: an.allegato_id.toLowerCase(), nome: (pr && pr.nome_file) || "" };
+    // un TIFF il server lo dice senza anteprima (anteprima.disponibile false: il web del server non lo converte), ma la
+    // pagina lo disegna da sé (anteprimaTif, richiesta del frontend del 22/10): vale con il suo riferimento all'originale
+    const tif = ogg(an) && (an.formato === "tiff" || /^tiff?$/i.test(String((pr && pr.estensione) || "")));
+    if (!ogg(an) || (an.disponibile !== true && !tif) || typeof an.allegato_id !== "string" || !RE_UUID.test(an.allegato_id)) return;
+    const x = { aid: an.allegato_id.toLowerCase(), nome: (pr && pr.nome_file) || "", tif };
     const rif = typeof n.nodo.rif === "string" ? n.nodo.rif : "";
     if (rif && !out["r:" + rif]) out["r:" + rif] = x;
     const cid = (ogg(n.nodo.decisione) && n.nodo.decisione.componente_id) || (rif.indexOf("componente:") === 0 ? rif.slice(11) : "");
@@ -1972,14 +1975,23 @@ function disegnoDelNodo(v) {
   if (ct && ct.disponibile === false) d.chiuso = ct.motivo || "il contenuto del file non si apre su questo server";
   return d;
 }
+// Il 2D si cerca due volte nelle stesse fonti e nello stesso ordine: prima solo un PDF (come prima), poi anche un TIFF
+// (i 2D di alcuni clienti sono solo TIFF: richiesta del frontend del 22/10). Con tutti e due vale il PDF. {aid, nome, tif}.
 function primoDisegnoDelNodo(v) {
+  return cercaDisegnoDelNodo(v, false) || cercaDisegnoDelNodo(v, true);
+}
+function cercaDisegnoDelNodo(v, ancheTif) {
   const pdf = (aid) => {
     const f = fileDi(aid);
-    return !!f && ePdf(f) && (!f.stato || f.stato === "attivo");
+    return !!f && (ePdf(f) || (ancheTif && eTif(f))) && (!f.stato || f.stato === "attivo");
+  };
+  const di = (aid) => {
+    const f = fileDi(aid);
+    return { aid: String(aid).toLowerCase(), nome: nomeFile(aid), tif: !!f && !ePdf(f) && eTif(f) };
   };
   if (S.lavoro && v.nodo && !v.noninc) {
     const pb = arr(S.lavoro.documenti_preassociati).find((d) => d.chiave_bozza === v.k && pdf(d.allegato_id));
-    if (pb) return { aid: String(pb.allegato_id).toLowerCase(), nome: nomeFile(pb.allegato_id) };
+    if (pb) return di(pb.allegato_id);
   }
   const p = prodottoScelto();
   const m = (p && p.disegni) || {};
@@ -1990,16 +2002,17 @@ function primoDisegnoDelNodo(v) {
   // Altri file non è più il 2D del pezzo, e lascia il posto al 2D attivo che viene dopo (seconda revisione della corsia
   // ALBERO, rilievo A [T]); i byte non si controllano qui (lo fa disegnoDelNodo, «anteprima non disponibile»)
   const fdm = dm ? fileDi(dm.aid) : null;
-  if (dm && (!fdm || !fdm.stato || fdm.stato === "attivo")) return { aid: dm.aid, nome: dm.nome || nomeFile(dm.aid) };
+  if (dm && (!dm.tif || ancheTif) && (!fdm || !fdm.stato || fdm.stato === "attivo")) return { aid: dm.aid, nome: dm.nome || nomeFile(dm.aid), tif: !!dm.tif };
   if (cid && S.lavoro) {
-    for (const [aid, ar] of associazioniRegistrate()) if (ar.componente_id === cid && pdf(aid)) return { aid: String(aid).toLowerCase(), nome: nomeFile(aid) };
+    for (const [aid, ar] of associazioniRegistrate()) if (ar.componente_id === cid && pdf(aid)) return di(aid);
   }
-  for (const a of arr(v.voce && v.voce.associazioni_proposte)) if (pdf(a.allegato_id)) return { aid: String(a.allegato_id).toLowerCase(), nome: nomeFile(a.allegato_id) };
+  for (const a of arr(v.voce && v.voce.associazioni_proposte)) if (pdf(a.allegato_id)) return di(a.allegato_id);
   return null;
 }
 // miniatura: lo spazio dell'anteprima: la pagina 1 del PDF, disegnata da pdf.js dall'indirizzo di S5 che costruisce il
-// ponte (come il visore), una volta per file e tenuta in memoria per la pagina; «nessun 2D associato» senza un 2D.
-// «grande»: quella del pannello del nodo, che apre il visore.
+// ponte (come il visore), o la prima pagina del TIFF, decodificata dalla pagina (anteprimaTif); una volta per file e
+// tenuta in memoria per la pagina; «nessun 2D associato» senza un 2D. «grande»: quella del pannello del nodo, che apre
+// il visore.
 function miniatura(v, grande) {
   const d = disegnoDelNodo(v);
   const cls = "du-nc-mini" + (grande ? " du-nc-mini--grande" : "");
@@ -2011,11 +2024,16 @@ function miniatura(v, grande) {
   h("span", { class: "du-nc-mini-nome" }, d.nome || "2D"), h("span", {}, grande ? "anteprima non disponibile: " + d.chiuso : "anteprima non disponibile"));
   const el = h(grande ? "button" : "span", { class: cls, id: grande ? "du-nodo-2d" : null, type: grande ? "button" : null, "data-du-mini": d.aid,
     title: (d.nome || "2D") + (grande ? ": apri nel visore" : ""), "aria-label": grande ? "Apri il 2D " + (d.nome || "") + " nel visore" : null, "aria-hidden": grande ? null : "true" });
-  if (grande) el.addEventListener("click", () => apriVisore(fileDi(d.aid) || { allegato_id: d.aid, nome_file: d.nome || "2D.pdf", estensione: "pdf" }));
+  if (grande) el.addEventListener("click", () => apriVisore(fileDelDisegno(d)));
+  if (d.tif) MINI.tif.add(d.aid);
   riempiMini(el, d.aid);
   return el;
 }
-const MINI = { cache: new Map(), fallite: new Map(), coda: [], inCorso: new Set(), attive: 0, lavoratore: null };
+// fileDelDisegno: il file di S1 del 2D, o quello che la pagina ne sa (nome e formato) se S1 non lo elenca
+function fileDelDisegno(d) {
+  return fileDi(d.aid) || { allegato_id: d.aid, nome_file: d.nome || (d.tif ? "2D.tif" : "2D.pdf"), estensione: d.tif ? "tif" : "pdf" };
+}
+const MINI = { cache: new Map(), fallite: new Map(), coda: [], inCorso: new Set(), attive: 0, lavoratore: null, tif: new Set() };
 function riempiMini(el, aid) {
   const url = MINI.cache.get(aid);
   if (url) {
@@ -2027,7 +2045,8 @@ function riempiMini(el, aid) {
   const ko = MINI.fallite.get(aid);
   if (ko && Date.now() - ko.quando < 60000) {
     el.classList.add("du-nc-mini--na");
-    el.textContent = "anteprima non disponibile";
+    // nella scheda la parola, il motivo nel suggerimento; nel pannello del nodo (grande) il motivo per intero
+    el.textContent = el.classList.contains("du-nc-mini--grande") ? ko.testo : "anteprima non disponibile";
     el.title = ko.testo;
     el.dataset.duStato = "errore";
     return;
@@ -2037,7 +2056,7 @@ function riempiMini(el, aid) {
   if (!MINI.coda.includes(aid) && !MINI.inCorso.has(aid)) MINI.coda.push(aid);
   setTimeout(lavoraMini, 0);
 }
-// lavoraMini: al più due PDF insieme, nell'ordine in cui le schede li chiedono (dalla radice in giù)
+// lavoraMini: al più due 2D insieme (PDF o TIFF), nell'ordine in cui le schede li chiedono (dalla radice in giù)
 function lavoraMini() {
   while (MINI.attive < 2 && MINI.coda.length) {
     const aid = MINI.coda.shift();
@@ -2055,6 +2074,12 @@ function lavoraMini() {
 async function disegnaMini(aid) {
   let task = null;
   try {
+    if (MINI.tif.has(aid)) {
+      // un TIFF: i byte dal ponte, la riduzione nel worker, un data: URL come per il PDF
+      const t = await anteprimaTif(aid, 640, 452, "miniature");
+      MINI.cache.set(aid, t.canvas.toDataURL("image/png"));
+      return;
+    }
     const p = await pdfjs();
     if (!p) throw new Error("il visore dei PDF non si carica");
     if (!MINI.lavoratore) MINI.lavoratore = new p.lib.PDFWorker({ name: "du-miniature" });
@@ -2074,8 +2099,8 @@ async function disegnaMini(aid) {
     MINI.fallite.set(aid, { quando: Date.now(), testo: "anteprima non disponibile: " + testoErrore(e) });
   } finally {
     if (task) task.destroy().catch(() => {});
+    document.querySelectorAll("[data-du-mini='" + aid + "']").forEach((el) => riempiMini(el, aid));
   }
-  document.querySelectorAll("[data-du-mini='" + aid + "']").forEach((el) => riempiMini(el, aid));
 }
 
 // ---------------------------------------------------------------- il menu del nodo (messaggio 46, D38)
@@ -2092,7 +2117,7 @@ function apriMenuNodo(k, x, y) {
   if (!v || !radice) return;
   const voci = g.modo === "bozza" ? vociGesti(g, v) : [];
   const d = disegnoDelNodo(v);
-  if (d && !d.chiuso) voci.unshift({ id: "du-menu-2d", testo: "Apri il 2D", fai: () => apriVisore(fileDi(d.aid) || { allegato_id: d.aid, nome_file: d.nome || "2D.pdf", estensione: "pdf" }) });
+  if (d && !d.chiuso) voci.unshift({ id: "du-menu-2d", testo: "Apri il 2D", fai: () => apriVisore(fileDelDisegno(d)) });
   voci.unshift({ id: "du-menu-pannello", testo: "Mostra nel pannello", fai: () => {
     S.zona = "nodo";
     render();
@@ -3478,10 +3503,10 @@ function srvAz(r, nome) {
   if (typeof a === "boolean") return a ? "" : "non ammesso per questa riga";
   return a.disponibile === false ? senzaGergo(a.motivo) || "non ammesso per questa riga" : "";
 }
-// apriFile: «Apri» (MAT FL-03): un PDF nel visore della pagina; gli altri formati all'indirizzo di S5. Un indirizzo, mai
-// una fetch della pagina
+// apriFile: «Apri» (MAT FL-03): un PDF o un TIFF nel visore della pagina; gli altri formati all'indirizzo di S5. Un
+// indirizzo, mai una richiesta della pagina (i byte del TIFF li prende il ponte)
 function apriFile(f) {
-  if (ePdf(f)) return apriVisore(f);
+  if (ePdf(f) || eTif(f)) return apriVisore(f);
   const a = h("a", { href: P.urlContenuto(f.allegato_id, "anteprima"), target: "_blank", rel: "noopener" });
   document.body.append(a);
   a.click();
@@ -5687,6 +5712,126 @@ function pdfjs() {
 function ePdf(f) {
   return /^pdf$/i.test((f && f.estensione) || "") || /\.pdf$/i.test((f && f.nome_file) || "");
 }
+function eTif(f) {
+  return /^tiff?$/i.test((f && f.estensione) || "") || /\.tiff?$/i.test((f && f.nome_file) || "");
+}
+
+// ---------------------------------------------------------------- le anteprime TIFF (richiesta del frontend del 22/10)
+
+// Edge e Chrome non disegnano un TIFF, e i 2D di alcuni clienti sono TIFF CCITT G4 a 1 bit fino a 14043×9933 px. anteprimaTif prende
+// i byte con il ponte (byteContenuto: la rotta S5 di sempre, nessuna rotta nuova) e li passa al worker degli statici che
+// il guscio dice (data-du-tif, che carica UTIF.js da data-du-utif solo alla prima anteprima): il worker decodifica la
+// prima pagina a 1 bit e la riduce per aree a maxW×maxH, senza mai un RGBA a piena risoluzione; il main thread mette
+// solo la tela piccola. Due worker: uno per le miniature (dalla coda MINI) e uno per il visore, così il visore non
+// aspetta le miniature. Torna {canvas, larghezza, altezza} o lancia: un errore del ponte porta stato e motivo (X-Motivo
+// di S5), uno del worker dice «formato TIFF non supportato (<compressione>)».
+const TIF = { lavoratori: {}, n: 0, attese: new Map() };
+function lavoratoreTif(nome) {
+  const m = $("#du");
+  const src = m && m.dataset.duTif;
+  const utif = m && m.dataset.duUtif;
+  if (!src || !utif || typeof Worker === "undefined") return null;
+  if (!TIF.lavoratori[nome]) {
+    let w;
+    try {
+      w = new Worker(src, { name: "du-tif-" + nome });
+    } catch (e) {
+      return null;
+    }
+    w.onmessage = (ev) => {
+      const a = ev.data && TIF.attese.get(ev.data.id);
+      if (!a) return;
+      TIF.attese.delete(ev.data.id);
+      a.fine(ev.data);
+    };
+    // lo script del worker o di UTIF che non si carica: le attese di quel worker finiscono con l'errore, e il prossimo
+    // TIFF ne crea uno nuovo
+    w.onerror = (ev) => {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      for (const [id, a] of TIF.attese) {
+        if (a.nome !== nome) continue;
+        TIF.attese.delete(id);
+        a.fine({ ok: false, errore: "il lettore dei TIFF non si carica" });
+      }
+      if (TIF.lavoratori[nome] === w) delete TIF.lavoratori[nome];
+      w.terminate();
+    };
+    TIF.lavoratori[nome] = w;
+  }
+  return { w: TIF.lavoratori[nome], utif: new URL(utif, location.href).href };
+}
+async function anteprimaTif(aid, maxW, maxH, nome) {
+  const spessa = nome === "miniature";
+  const l = lavoratoreTif(nome);
+  if (!l) throw new Error("il lettore dei TIFF non si carica in questo browser");
+  const byte = await P.byteContenuto(aid);
+  const id = ++TIF.n;
+  const r = await new Promise((fine) => {
+    TIF.attese.set(id, { fine, nome });
+    l.w.postMessage({ id, chiave: aid, utif: l.utif, buf: byte, maxW, maxH, spessa }, [byte]);
+    setTimeout(() => {
+      if (!TIF.attese.has(id)) return;
+      TIF.attese.delete(id);
+      fine({ ok: false, errore: "il TIFF non si è aperto in 90 secondi" });
+    }, 90000);
+  });
+  if (!r.ok) throw new Error(r.errore || "formato TIFF non supportato");
+  const canvas = document.createElement("canvas");
+  canvas.width = r.W;
+  canvas.height = r.H;
+  canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(r.rgba), r.W, r.H), 0, 0);
+  canvas.dataset.duTif = r.w + "x" + r.h;
+  return { canvas, larghezza: r.w, altezza: r.h };
+}
+// apriVisoreTif: il TIFF nel visore della pagina, la prima pagina. «Adatta» (all'apertura) la riduce alla larghezza della
+// finestra in pixel veri dello schermo, per aree come la miniatura, perché le linee sottili non spariscano in una
+// riduzione del browser; «Dettaglio» la riduce a 2000 px di lato al più (mai ingrandita), da scorrere. La decodifica è
+// una sola: il worker del visore tiene l'ultima pagina decodificata.
+async function apriVisoreTif(f) {
+  const mio = { chiuso: false };
+  visoreAttivo = { destroy: () => { mio.chiuso = true; } };
+  const aid = String(f.allegato_id).toLowerCase();
+  const tela = h("div", { class: "du-visore-tela", id: "du-visore-tela" }, h("p", { class: "du-muto du-piccolo" }, "Apertura del TIFF…"));
+  const pagina = h("span", { class: "du-piccolo", id: "du-visore-pagina" }, "");
+  const adatta = h("button", { type: "button", class: "du-btn du-btn--sm", id: "du-visore-adatta", "aria-pressed": "true", disabled: true }, "Adatta");
+  const dettaglio = h("button", { type: "button", class: "du-btn du-btn--sm", id: "du-visore-dettaglio", "aria-pressed": "false", disabled: true }, "Dettaglio");
+  const viste = {};
+  const errore = (e) => {
+    // i byte che S5 non dà: il motivo di X-Motivo, come per il PDF; un TIFF che non si decodifica: il formato
+    const m = e && typeof e.motivo === "string" && e.stato ? e : null;
+    tela.replaceChildren(m
+      ? h("p", { class: "du-err", id: "du-visore-errore", "data-du-motivo": m.motivo || "" }, "Contenuto non disponibile: " + testoMotivoContenuto(m.motivo, f, m.stato) + ".")
+      : h("p", { class: "du-err", id: "du-visore-errore" }, "anteprima non disponibile: " + testoErrore(e)));
+  };
+  const mostra = async (vicino) => {
+    const chiave = vicino ? "dettaglio" : "adatta";
+    adatta.disabled = dettaglio.disabled = true;
+    try {
+      if (!viste[chiave]) {
+        const dpr = window.devicePixelRatio || 1;
+        const larga = Math.max(200, Math.round(((tela.clientWidth || 760) - 14) * dpr));
+        viste[chiave] = await anteprimaTif(aid, vicino ? 2000 : Math.min(2000, larga), vicino ? 2000 : 4000, "visore");
+      }
+      if (mio.chiuso || !tela.isConnected) return;
+      const t = viste[chiave];
+      tela.classList.toggle("du-visore-tela--dettaglio", vicino);
+      tela.replaceChildren(t.canvas);
+      pagina.textContent = "pagina 1 · " + t.larghezza + "×" + t.altezza + " px";
+      adatta.setAttribute("aria-pressed", vicino ? "false" : "true");
+      dettaglio.setAttribute("aria-pressed", vicino ? "true" : "false");
+      adatta.disabled = dettaglio.disabled = false;
+    } catch (e) {
+      if (!mio.chiuso && tela.isConnected) errore(e);
+    }
+  };
+  adatta.addEventListener("click", () => mostra(false));
+  dettaglio.addEventListener("click", () => mostra(true));
+  apriFinestra("Visore: " + f.nome_file, h("div", { id: "du-visore", style: "display:grid;gap:8px" },
+    h("div", { class: "du-azioni" }, adatta, dettaglio, pagina,
+      h("a", { class: "du-btn du-btn--sm du-btn--ghost", href: P.urlContenuto(f.allegato_id, "scarica"), download: f.nome_file || "" }, "Scarica")), tela),
+  [{ testo: "Chiudi", chiudi: true }]);
+  await mostra(false);
+}
 let visoreAttivo = null;
 // apriVisore: il PDF nel visore della pagina, una pagina alla volta con ‹ ›. Un byte che non c'è (410 FILE_SCARTATO,
 // BYTE_NON_DISPONIBILI) è «Contenuto non disponibile» con il motivo che la risposta permette di dire (MAT §5.4, S5).
@@ -5699,6 +5844,7 @@ async function apriVisore(f) {
     }
     visoreAttivo = null;
   }
+  if (!ePdf(f) && eTif(f)) return apriVisoreTif(f);
   const stato = { doc: null, n: 1 };
   const tela = h("div", { class: "du-visore-tela", id: "du-visore-tela" }, h("p", { class: "du-muto du-piccolo" }, "Apertura del PDF…"));
   const pagina = h("span", { class: "du-piccolo", id: "du-visore-pagina" }, "");
@@ -5776,10 +5922,10 @@ function testoMotivoContenuto(motivo, f, stato) {
   if (motivo) return motivo;
   return stato ? "la rotta del contenuto risponde " + stato : "il file non si apre";
 }
-// bottoneApri: «Apri» di un file (MAT FL-03): un PDF nel visore della pagina, gli altri formati come documento dalla
-// rotta S5 (il browser li scarica: S5 li dà come allegato).
+// bottoneApri: «Apri» di un file (MAT FL-03): un PDF o un TIFF nel visore della pagina, gli altri formati come documento
+// dalla rotta S5 (il browser li scarica: S5 li dà come allegato).
 function bottoneApri(f, id) {
-  if (ePdf(f)) return btn("Apri", () => apriVisore(f), { cls: "du-btn--sm", id: id || null, perche: false });
+  if (ePdf(f) || eTif(f)) return btn("Apri", () => apriVisore(f), { cls: "du-btn--sm", id: id || null, perche: false });
   return h("a", { class: "du-btn du-btn--sm", href: P.urlContenuto(f.allegato_id, "anteprima"), target: "_blank", rel: "noopener", id: id || null }, "Apri");
 }
 
