@@ -23,7 +23,7 @@ import * as P from "./distinta_unica_ponte.mjs";
 
 // ---------------------------------------------------------------- browser ad albero (frontend del 22/10 [U])
 // Distinta unica, il browser ad albero della Revisione (richiesta [U] del 22/10, frontend): l'albero degli assiemi come
-// quello di SolidWorks o di Fusion 360, prima dell'organigramma. Righe compatte e rientrate con il triangolo apri/chiudi,
+// quello di SolidWorks o di Fusion 360, sotto l'organigramma e largo quanto la tela. Righe compatte e rientrate con il triangolo apri/chiudi,
 // l'icona del tipo, codice e descrizione, la quantità del legame, lo stato con le parole della pagina e, sotto ogni pezzo,
 // i suoi documenti come foglie. È solo presentazione: legge il grafo che la pagina ha già disegnato (lo stesso
 // dell'organigramma) e i documenti che la pagina già conosce; non parla col server e non decide niente. Il clic su una
@@ -440,17 +440,50 @@ const { creaBrowser, browserChiuso } = (() => {
           el("button", { type: "button", class: "du-br-btn", id: "du-br-comprimi", onclick: () => tutti(false) }, "Comprimi tutto")),
         el("div", { class: "du-br-cerca" }, filtro, conto)),
       lista);
+    // niente «scroll anchoring» sulla pagina (revisione del 22/10): con la pagina in fondo, riaprire o allungare il
+    // browser la faceva scorrere da sola (Edge, +226 px) e la tela saltava sullo schermo. Il foglio lo toglie dentro .du;
+    // qui sul documento, che è il contenitore che scorre (il foglio non esce da .du)
+    document.documentElement.style.overflowAnchor = "none";
+    if (document.body) document.body.style.overflowAnchor = "none";
+    // lo spaziatore: chiudendo il browser con la pagina in fondo, il documento si accorcerebbe e la pagina scivolerebbe
+    // indietro (la tela scende sullo schermo). Resta riservata sotto la barra l'altezza che serve a non spostare niente;
+    // si toglie appena la pagina è risalita abbastanza da non accorgersene, alla riapertura o al ridisegno successivo.
+    let spazio = 0, ascoltaSpazio = null;
+    const togliSpazio = () => {
+      const orgbr = pannello.closest(".du-orgbr");
+      if (orgbr) orgbr.style.paddingBottom = "";
+      spazio = 0;
+      if (ascoltaSpazio) window.removeEventListener("scroll", ascoltaSpazio);
+      ascoltaSpazio = null;
+    };
     chiudi.addEventListener("click", () => {
       const ora = !pannello.classList.contains("du-br--chiuso");
+      const orgbr = pannello.closest(".du-orgbr");
+      const sy0 = window.scrollY;
+      if (!ora) togliSpazio();
       segnaChiuso(ora);
       pannello.classList.toggle("du-br--chiuso", ora);
-      const orgbr = pannello.closest(".du-orgbr");
       if (orgbr) orgbr.classList.toggle("du-orgbr--chiuso", ora);
       corpo.hidden = ora;
       maniglia.hidden = ora;
       chiudi.setAttribute("aria-expanded", ora ? "false" : "true");
       chiudi.title = ora ? "Apri il browser della distinta" : "Richiudi il browser della distinta";
-      // il browser sta sotto la tela: aprirlo o chiuderlo non la sposta, e la vista resta quella che è
+      if (ora && orgbr) {
+        const manca = Math.ceil(sy0 - (document.documentElement.scrollHeight - window.innerHeight));
+        if (manca > 0) {
+          togliSpazio();
+          spazio = manca;
+          orgbr.style.paddingBottom = manca + "px";
+          window.scrollTo({ top: sy0, left: window.scrollX, behavior: "instant" });
+          ascoltaSpazio = () => {
+            if (!pannello.isConnected) return togliSpazio();
+            if (window.scrollY + window.innerHeight <= document.documentElement.scrollHeight - spazio - 1) togliSpazio();
+          };
+          window.addEventListener("scroll", ascoltaSpazio, { passive: true });
+        }
+      }
+      // il browser sta sotto la tela: aprirlo o chiuderlo non la sposta, né nella pagina né sullo schermo, e la vista
+      // resta quella che è
     });
     // la maniglia in alto (terza richiesta del 22/10): trascinata in su allunga il browser, in giù lo accorcia; la tela
     // sopra resta dov'è e alta com'è, la pagina scorre di quanto il browser cresce perché la maniglia resti sotto il
@@ -460,11 +493,15 @@ const { creaBrowser, browserChiuso } = (() => {
     const altoMax = () => Math.max(ALTO_MIN, Math.round(window.innerHeight * 0.7));
     const maniglia = el("div", { class: "du-br-maniglia", id: "du-br-maniglia", role: "separator", tabindex: "0", hidden: chiuso,
       "aria-orientation": "horizontal", "aria-controls": "du-br", "aria-label": "Altezza del browser: trascina in su o in giù, oppure frecce su e giù",
+      "aria-valuemin": String(ALTO_MIN), "aria-valuemax": String(altoMax()), "aria-valuenow": String(altezzaScelta || 260), "aria-valuetext": (altezzaScelta || 260) + " pixel",
       title: "Trascina per allungare o accorciare il browser" });
     const altezza = (hh) => {
       const n = Math.round(Math.min(altoMax(), Math.max(ALTO_MIN, hh)));
       pannello.style.height = n + "px";
       altezzaScelta = n;
+      maniglia.setAttribute("aria-valuenow", String(n));
+      maniglia.setAttribute("aria-valuemax", String(altoMax()));
+      maniglia.setAttribute("aria-valuetext", n + " pixel");
       return n;
     };
     maniglia.addEventListener("pointerdown", (e) => {
@@ -6561,6 +6598,9 @@ async function apriVisoreTif(f) {
   const errore = (e) => {
     // i byte che S5 non dà: il motivo di X-Motivo, come per il PDF; un TIFF che non si decodifica: il formato
     const m = e && typeof e.motivo === "string" && e.stato ? e : null;
+    // senza una pagina da mostrare «Adatta» e «Dettaglio» non portano a niente: restano solo «Scarica» e «Chiudi»
+    adatta.hidden = dettaglio.hidden = true;
+    pagina.textContent = "";
     tela.replaceChildren(m
       ? h("p", { class: "du-err", id: "du-visore-errore", "data-du-motivo": m.motivo || "" }, "Contenuto non disponibile: " + testoMotivoContenuto(m.motivo, f, m.stato) + ".")
       : h("p", { class: "du-err", id: "du-visore-errore" }, "anteprima non disponibile: " + testoErrore(e)));

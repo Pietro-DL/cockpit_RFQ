@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Browser, richiesta del 22/10 (frontend): il browser ad albero della Revisione, come quello degli assiemi di SolidWorks o
-di Fusion 360, prima dell'organigramma (in distinta_unica.mjs, blocco «browser ad albero»).
+di Fusion 360, sotto l'organigramma e largo quanto la tela (in distinta_unica.mjs, blocco «browser ad albero»).
 
 Lo lancia TestDistintaUnicaBrowserAlberoNelBrowser (distinta_unica_browser_albero_browser_test.go, tag `integrazione
 browser`) sul banco finto di distinta_unica_banco_test.go, con `python -I`. Riusa gli aiuti di distinta_unica.py (la
@@ -30,6 +30,8 @@ Che cosa prova:
   BR9  «Mostra tutto» (il pulsante che era «Adatta», e il tasto 0): l'albero intero e al centro della tela
   BR10 lo schermo intero: tutta la finestra, «Cerca» che evidenzia e centra (Invio al seguente), il clic su una scheda
        che la sceglie ed evidenzia padri, figli e documenti, Esc che rimette la pagina dov'era; nessuna richiesta
+  BR11 (revisione del 22/10) con la pagina scorsa in fondo, chiudere e riaprire il browser non sposta la tela sullo
+       schermo (getBoundingClientRect().top fermo entro 1 px), a 1600 × 1000, 1920 × 1080 e 1366 × 768
 
 Codici e nomi dei file inventati (ACME, ACM-xxxx), quelli del banco. Le schermate vanno nella cartella --foto.
 """
@@ -509,6 +511,57 @@ def br8(b):
         m8 = tela(p)
         sotto(m8, "1440 × 680 aperto")
         ferma(m7, m8, "a 1440 × 680, aprendo il browser")
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("BR11", "con la pagina in fondo, chiudere e riaprire il browser non sposta la tela sullo schermo (1600 × 1000, 1920 × 1080, 1366 × 768)")
+def br11(b):
+    """Revisione del 22/10: BR8 misura la tela nella pagina; qui la si misura sullo schermo (getBoundingClientRect().top),
+    con la pagina scorsa in fondo, dove lo «scroll anchoring» di Edge la faceva saltare di 226 px riaprendo il browser e
+    il documento più corto la faceva scendere chiudendolo."""
+    p = b.page
+
+    def schermo():
+        return p.evaluate("() => ({ top: document.getElementById('du-vp').getBoundingClientRect().top, sy: window.scrollY })")
+
+    try:
+        for w, hh in ((1600, 1000), (1920, 1080), (1366, 768)):
+            revisione_da_capo(b, w, hh)
+            expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true")
+            p.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+            p.wait_for_timeout(300)
+            m0 = schermo()
+            p.click("#du-br-chiudi")
+            expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
+            p.wait_for_timeout(300)
+            m1 = schermo()
+            p.click("#du-br-chiudi")
+            expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_BREVE)
+            p.wait_for_timeout(300)
+            m2 = schermo()
+            print("      %dx%d in fondo: tela sullo schermo %r → chiuso %r → riaperto %r" % (w, hh, m0, m1, m2))
+            verifica(abs(m1["top"] - m0["top"]) <= 1, "%d × %d: chiudendo il browser in fondo alla pagina la tela si sposta sullo schermo: %r → %r" % (w, hh, m0, m1))
+            verifica(abs(m2["top"] - m0["top"]) <= 1, "%d × %d: riaprendo il browser in fondo alla pagina la tela salta sullo schermo: %r → %r" % (w, hh, m0, m2))
+            # richiuso, risalendo lo spazio tenuto sotto la barra se ne va; poi di nuovo in fondo (la pagina ora più
+            # corta) e riaperto: è il caso dello «scroll anchoring» (+226 px in Edge senza overflow-anchor: none)
+            p.click("#du-br-chiudi")
+            expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
+            p.wait_for_timeout(200)
+            # (non la rotella: sopra la tela fa lo zoom)
+            p.evaluate("window.scrollBy(0, -400)")
+            p.wait_for_timeout(400)
+            spazio = p.evaluate("() => document.querySelector('.du-orgbr').style.paddingBottom")
+            verifica(spazio == "", "%d × %d: risalendo, lo spazio sotto la barra resta: %r" % (w, hh, spazio))
+            p.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+            p.wait_for_timeout(300)
+            m3 = schermo()
+            p.click("#du-br-chiudi")
+            expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_BREVE)
+            p.wait_for_timeout(300)
+            m4 = schermo()
+            print("      %dx%d chiuso in fondo e riaperto: %r → %r" % (w, hh, m3, m4))
+            verifica(abs(m4["top"] - m3["top"]) <= 1, "%d × %d: riaprendo il browser (chiuso, pagina in fondo) la tela salta sullo schermo: %r → %r" % (w, hh, m3, m4))
     finally:
         p.set_viewport_size({"width": 1440, "height": 900})
 

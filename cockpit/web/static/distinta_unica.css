@@ -565,6 +565,9 @@
    o si accorcia con la maniglia in alto; richiuso resta una barra sottile «Browser» sotto la tela, larga quanto lei. La
    tela viene prima nel flusso e sta dove stava prima del browser: aprirlo, chiuderlo o allungarlo non la sposta e non le
    cambia misura (le prove di stabilità misurano quelle posizioni). Tutte le regole sotto .du. */
+/* niente «scroll anchoring» del browser (revisione del 22/10): con la pagina scorsa in fondo, riaprire o allungare il
+   browser faceva scorrere la pagina da sola (in Edge +226 px) e la tela saltava sullo schermo */
+.du, .du .du-ws, .du .du-orgbr, .du #du-br { overflow-anchor: none; }
 .du .du-orgbr { position: relative; display: grid; gap: var(--du-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .du .du-orgbr > * { min-width: 0; }
 /* nelle finestre basse (sotto i 760 px, dove il browser parte richiuso) la barra «Browser» richiusa non allunga la
@@ -579,10 +582,11 @@
 .du .du-br { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-width: 0;
   height: 260px; min-height: 140px; max-height: 70vh; padding-top: 8px;
   background: var(--du-surf); border: 1px solid var(--du-line); border-radius: var(--du-r2); box-shadow: var(--du-sh1); overflow: hidden; }
-/* la maniglia: una fascia di 8 px sul bordo alto (fuori dal pulsante «Browser», che non copre), con il segno al centro;
+/* la maniglia: una fascia di 8 px sul bordo alto (da afferrare 16 px, con ::before trasparente) (fuori dal pulsante «Browser», che non copre), con il segno al centro;
    trascinata in su allunga il browser */
 .du .du-br-maniglia { position: absolute; left: 0; right: 0; top: 0; z-index: 3; height: 8px; cursor: ns-resize; touch-action: none; outline-offset: -2px; }
 .du .du-br-maniglia[hidden] { display: none; }
+.du .du-br-maniglia::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; height: 16px; }
 .du .du-br-maniglia::after { content: ""; position: absolute; left: 50%; top: 2px; width: 44px; height: 4px; margin-left: -22px; border-radius: var(--du-r-pill); background: var(--du-line2); }
 .du .du-br-maniglia:hover::after, .du .du-br-maniglia--attiva::after { background: var(--du-acc); }
 .du .du-br-maniglia:focus-visible { outline: 2px solid var(--du-acc); }
