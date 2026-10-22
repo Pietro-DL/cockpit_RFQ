@@ -213,7 +213,7 @@ const PASSI = {
     { sel: ["#du-vista-org", "#du-vista-elenco"], t: "Organigramma o Elenco",
       s: "Due modi di guardare la stessa bozza: l'albero di schede o la tabella con filtri e ricerca. Il pannello del nodo resta lo stesso." },
     { sel: ["#du-br"], t: "Il browser della distinta",
-      s: "Sopra l'organigramma, l'albero compatto della distinta: assiemi, pezzi, quantità e, sotto ogni pezzo, i suoi file. Clic su una riga per scegliere il pezzo; la striscia «Browser» lo apre e lo richiude.",
+      s: "Sopra l'organigramma, l'albero compatto della distinta: assiemi, pezzi, quantità e, sotto ogni pezzo, i suoi file. Clic su una riga per scegliere il pezzo; la linguetta «Browser» (nell'angolo della tela, se è richiuso) lo apre e lo richiude.",
       manca: "Il browser compare nell'Organigramma, con una bozza o una BOM confermata." },
     { sel: ["#du-proposta-step"], t: "La proposta dello STEP",
       s: "Dice se la bozza e la struttura letta nello STEP sono diverse. Puoi importare solo alcuni elementi o ripartire da capo.",
