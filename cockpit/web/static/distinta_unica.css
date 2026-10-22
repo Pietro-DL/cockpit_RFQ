@@ -558,35 +558,43 @@
   .du .du-sg-cerca { flex-basis: 100%; max-width: none; }
 }
 
-/* ---- Browser ad albero (richiesta del 22/10, frontend: du_browser.mjs). L'albero degli assiemi come il browser di
-   SolidWorks o di Fusion 360, a sinistra dell'organigramma (sopra, nelle finestre strette): righe compatte e rientrate,
-   il triangolo apri/chiudi, l'icona del tipo, codice e descrizione, la quantità del legame, lo stato e i documenti come
-   foglie. Alto quanto la tela, scorre per conto suo; richiuso resta una linguetta stretta. Tutte le regole sotto .du. */
-.du .du-orgbr { display: grid; gap: 10px; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: stretch; min-width: 0; }
-.du .du-orgbr.du-orgbr--chiuso { grid-template-columns: 40px minmax(0, 1fr); }
+/* ---- Browser ad albero (richiesta del 22/10, frontend). L'albero degli assiemi come il browser di SolidWorks o di
+   Fusion 360, SOPRA l'organigramma e largo quanto la sua zona (seconda richiesta del 22/10 [U]: «il browser va sopra,
+   non al fianco»): righe compatte e rientrate, il triangolo apri/chiudi, l'icona del tipo, codice e descrizione, la
+   quantità del legame, lo stato e i documenti come foglie. Alto 260 px, scorre per conto suo e si allunga o si accorcia
+   con la maniglia in basso a destra; richiuso resta una striscia di una riga. La tela sotto tiene tutta la larghezza.
+   Tutte le regole sotto .du. */
+.du .du-orgbr { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .du .du-orgbr > * { min-width: 0; }
-.du .du-br { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; height: clamp(320px, calc(100vh - 300px), 860px);
+.du .du-br { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-width: 0;
+  height: 260px; min-height: 140px; max-height: 70vh; resize: vertical;
   background: var(--du-surf); border: 1px solid var(--du-line); border-radius: var(--du-r2); box-shadow: var(--du-sh1); overflow: hidden; }
-.du .du-br-chiudi { display: inline-flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: var(--du-s2) var(--du-s3); border: 0; border-bottom: 1px solid var(--du-line);
-  background: var(--du-surf2); color: var(--du-ink2); cursor: pointer; text-align: left; font: 700 var(--du-t-xs)/1.2 var(--du-f-cond); letter-spacing: .09em; text-transform: uppercase; }
+.du .du-br-chiudi { grid-column: 1; grid-row: 1; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 var(--du-s3); border: 0; border-bottom: 1px solid var(--du-line);
+  border-right: 1px solid var(--du-line); background: var(--du-surf2); color: var(--du-ink2); cursor: pointer; text-align: left; white-space: nowrap;
+  font: 700 var(--du-t-xs)/1.2 var(--du-f-cond); letter-spacing: .09em; text-transform: uppercase; }
 .du .du-br-chiudi:hover { color: var(--du-acc); background: var(--du-acc-soft); }
-.du .du-br--chiuso { grid-template-rows: minmax(0, 1fr); }
-.du .du-br--chiuso .du-br-chiudi { flex-direction: column; justify-content: flex-start; height: 100%; padding: 10px 0; border-bottom: 0; }
-.du .du-br--chiuso .du-br-chiudi-t { writing-mode: vertical-rl; transform: rotate(180deg); }
-.du .du-br-corpo { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
-.du .du-br-testa { display: grid; gap: var(--du-s2); padding: var(--du-s3) var(--du-s3) var(--du-s2); border-bottom: 1px solid var(--du-line); }
-.du .du-br-gesti { display: flex; gap: 6px; flex-wrap: wrap; }
+.du .du-br-chiudi-v { display: inline-grid; place-items: center; width: 16px; height: 16px; }
+.du .du-br-chiudi-v .du-br-ico { width: 12px; height: 12px; stroke-width: 2; transform: rotate(90deg); }
+.du .du-br-chiudi-n { font: 500 var(--du-t-xs)/1.2 var(--du-f-body); letter-spacing: 0; text-transform: none; color: var(--du-ink3); }
+.du .du-br--chiuso { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; height: auto !important; min-height: 0; resize: none; }
+.du .du-br--chiuso .du-br-chiudi { grid-column: 1 / -1; min-height: 34px; border-bottom: 0; border-right: 0; }
+.du .du-br--chiuso .du-br-chiudi-v .du-br-ico { transform: none; }
+/* il corpo non fa una scatola sua: la testa sta sulla prima riga accanto alla linguetta, le righe sotto per tutta la larghezza */
+.du .du-br-corpo { display: contents; }
+.du .du-br-corpo[hidden] { display: none; }
+.du .du-br-testa { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: var(--du-s2) var(--du-s3); min-width: 0; padding: 6px var(--du-s3); border-bottom: 1px solid var(--du-line); }
+.du .du-br-gesti { display: flex; gap: 6px; flex: 0 0 auto; }
 .du .du-br-btn { min-height: 26px; padding: 1px 9px; border: 1px solid var(--du-line2); border-radius: var(--du-r-pill); background: var(--du-surf); color: var(--du-ink2);
   font: 550 var(--du-t-sm)/1.2 var(--du-f-body); cursor: pointer; white-space: nowrap; box-shadow: var(--du-sh1); }
 .du .du-br-btn:hover { border-color: var(--du-acc-line); color: var(--du-acc); background: var(--du-surf2); }
-.du .du-br-cerca { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.du .du-br-cerca { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 420px; margin-left: auto; }
 .du .du-br-filtro { flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 3px 9px; border: 1px solid var(--du-line2); border-radius: var(--du-r2); background: var(--du-surf);
   color: var(--du-ink); font: var(--du-t-sm)/1.3 var(--du-f-body); }
 .du .du-br-filtro:hover { border-color: var(--du-acc-line); }
 .du .du-br-filtro:focus { border-color: var(--du-acc); outline: none; box-shadow: 0 0 0 4px var(--du-acc-halo); }
 .du .du-br-conto { flex: 0 0 auto; font-size: var(--du-t-xs); color: var(--du-ink3); white-space: nowrap; }
 .du .du-br-conto:empty { display: none; }
-.du .du-br-albero { overflow: auto; overscroll-behavior: contain; padding: 4px 0 10px; min-height: 0; font-size: var(--du-t-sm); outline-offset: -2px; }
+.du .du-br-albero { grid-column: 1 / -1; grid-row: 2; overflow: auto; overscroll-behavior: contain; padding: 4px 0 10px; min-height: 0; font-size: var(--du-t-sm); outline-offset: -2px; }
 .du .du-br-vuoto { margin: 10px 12px; font-size: var(--du-t-sm); color: var(--du-ink3); }
 .du .du-br-riga { position: relative; display: flex; align-items: center; gap: 5px; min-height: 26px; padding: 1px 8px 1px calc(6px + var(--du-br-liv, 0) * 16px);
   color: var(--du-ink); cursor: default; white-space: nowrap; user-select: none; -webkit-user-select: none; border-left: 2px solid transparent; }
@@ -616,7 +624,7 @@
 .du .du-br-q--prop { color: var(--du-prop); border-style: dashed; border-color: var(--du-prop-line); }
 .du .du-br-q--conf { color: var(--du-ok); border-color: var(--du-ok-line); background: var(--du-ok-soft); }
 .du .du-br-q--bozza { color: var(--du-bozza); border-color: var(--du-bozza-line); background: var(--du-bozza-soft); }
-.du .du-br-st { flex: 0 0 auto; font-size: .65rem; font-weight: 500; line-height: 1.5; padding: 0 7px; border: 1px solid; border-radius: var(--du-r-pill); max-width: 13ch; overflow: hidden; text-overflow: ellipsis; }
+.du .du-br-st { flex: 0 0 auto; font-size: .65rem; font-weight: 500; line-height: 1.5; padding: 0 7px; border: 1px solid; border-radius: var(--du-r-pill); max-width: 22ch; overflow: hidden; text-overflow: ellipsis; }
 .du .du-br-st--ok { color: var(--du-ok); background: var(--du-ok-soft); border-color: var(--du-ok-line); }
 .du .du-br-st--prop { color: var(--du-prop); background: var(--du-prop-soft); border-color: var(--du-prop-line); border-style: dashed; }
 .du .du-br-st--bozza { color: var(--du-bozza); background: var(--du-bozza-soft); border-color: var(--du-bozza-line); }

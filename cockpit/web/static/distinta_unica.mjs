@@ -122,17 +122,21 @@ const { creaBrowser, browserChiuso } = (() => {
   }
   // salva: la memoria sta già in MEM, per tutta la vita della pagina
   function salva() {}
-  // browserChiuso: la scelta di chi guarda (ricordata finché la pagina resta aperta); senza scelta, aperto dai 1600 px di
-  // larghezza in su. Sotto, la tela resta larga come prima (l'organigramma si apre adattato al riquadro) e il browser è
-  // una linguetta a sinistra che si apre con un clic, e da lì resta aperto.
+  // browserChiuso: la scelta di chi guarda (ricordata finché la pagina resta aperta); senza scelta, aperto solo nelle
+  // finestre alte almeno 1200 px. Il browser sta sopra la tela (seconda richiesta del 22/10 [U]) e aperto le toglie
+  // 270 px d'altezza: nelle finestre più basse l'organigramma deve aprirsi intero come prima del browser (a 1600 × 1000
+  // si vede tutto al 47 %), quindi il browser parte come una striscia di una riga che si apre con un clic, e da lì resta
+  // aperto.
   let sceltaChiuso = null;
   function browserChiuso() {
     if (sceltaChiuso !== null) return sceltaChiuso;
-    return window.innerWidth < 1600;
+    return window.innerHeight < 1200;
   }
   function segnaChiuso(si) {
     sceltaChiuso = !!si;
   }
+  // l'altezza scelta con la maniglia (per tutta la vita della pagina, come la scelta aperto/chiuso)
+  let altezzaScelta = 0;
 
   // ---- l'albero: dalla radice per i legami, un pezzo sotto ogni suo padre (come le istanze nel browser di un CAD)
 
@@ -417,8 +421,19 @@ const { creaBrowser, browserChiuso } = (() => {
 
     disegna();
     const pannello = el("aside", { class: "du-br" + (chiuso ? " du-br--chiuso" : ""), id: "du-br", "aria-label": "Browser della distinta" });
+    if (altezzaScelta) pannello.style.height = altezzaScelta + "px";
+    // i conti della striscia: le righe dei pezzi e dei documenti dell'albero costruito qui (niente letture nuove)
+    let nPezzi = 0, nDoc = 0;
+    const conta = (lista0) => lista0.forEach((n) => {
+      if (n.tipo === "pezzo") nPezzi++;
+      else if (n.tipo === "doc") nDoc++;
+      conta(n.figli);
+    });
+    conta(radici);
     const chiudi = el("button", { type: "button", class: "du-br-chiudi", id: "du-br-chiudi", "aria-expanded": chiuso ? "false" : "true", "aria-controls": "du-br-corpo",
-      title: chiuso ? "Apri il browser della distinta" : "Richiudi il browser della distinta" }, icona("pannello"), el("span", { class: "du-br-chiudi-t" }, "Browser"));
+      title: chiuso ? "Apri il browser della distinta" : "Richiudi il browser della distinta" },
+      el("span", { class: "du-br-chiudi-v" }, icona("freccia")), icona("pannello"), el("span", { class: "du-br-chiudi-t" }, "Browser"),
+      el("span", { class: "du-br-chiudi-n" }, nPezzi + (nPezzi === 1 ? " pezzo" : " pezzi") + (nDoc ? " · " + nDoc + (nDoc === 1 ? " documento" : " documenti") : "")));
     const corpo = el("div", { class: "du-br-corpo", id: "du-br-corpo", hidden: chiuso },
       el("div", { class: "du-br-testa" },
         el("div", { class: "du-br-gesti", role: "group", "aria-label": "Apri e chiudi i rami" },
@@ -434,7 +449,25 @@ const { creaBrowser, browserChiuso } = (() => {
       corpo.hidden = ora;
       chiudi.setAttribute("aria-expanded", ora ? "false" : "true");
       chiudi.title = ora ? "Apri il browser della distinta" : "Richiudi il browser della distinta";
+      // la tela sotto si è spostata: la vista si riadatta alla parte che si vede, senza scorrere la pagina
+      if (o.telaCambiata) o.telaCambiata();
     });
+    // la maniglia: l'altezza scelta resta per i ridisegni della pagina; la tela sotto si riadatta se la vista è quella di partenza
+    if (typeof ResizeObserver === "function") {
+      let h0 = 0;
+      new ResizeObserver(() => {
+        if (pannello.classList.contains("du-br--chiuso") || !pannello.isConnected) return;
+        const hh = Math.round(pannello.getBoundingClientRect().height);
+        if (!h0) {
+          h0 = hh;
+          return;
+        }
+        if (Math.abs(hh - h0) < 1) return;
+        h0 = hh;
+        if (pannello.style.height) altezzaScelta = parseInt(pannello.style.height, 10) || altezzaScelta;
+        if (o.telaCambiata) o.telaCambiata();
+      }).observe(pannello);
+    }
     pannello.append(chiudi, corpo);
     return pannello;
   }
@@ -2143,14 +2176,34 @@ function documentiBrowser(g, v) {
   }
   return out;
 }
-// conBrowser: il browser a sinistra della tela (sopra, nelle finestre strette); richiuso, resta la sua linguetta
+// conBrowser: il browser sopra la tela, largo quanto lei (seconda richiesta del 22/10 [U]); richiuso, resta la sua striscia
 function conBrowser(g, vp) {
   const br = creaBrowser({ g, chiave: chiaveBrowser(), scelto: S.nodo, scegli, icona: iconaBrowser, statoDi: statoBrowser, documenti: (v) => documentiBrowser(g, v),
     centra: (k) => {
       if (S.nodo !== k) scegli(k);
       centraSel();
-    } });
+    }, telaCambiata });
   return h("div", { class: "du-orgbr" + (browserChiuso() ? " du-orgbr--chiuso" : "") }, br, vp);
+}
+// telaCambiata: il browser sopra la tela si è aperto, richiuso o allungato, e la tela si è spostata in giù o in su
+// (revisione di design del 22/10: la vista restava quella di prima). Se la vista è ancora quella di partenza o di
+// «Mostra tutto» (auto), la si rifà per la parte di tela che si vede adesso; se chi guarda l'ha spostata o ingrandita, resta
+// sua. Cambia solo la trasformazione del mondo: niente ridisegno, niente scorrimento della pagina.
+function telaCambiata() {
+  if (!L || !L.vp || !document.body.contains(L.vp)) return;
+  const c = cam();
+  if (c && c.auto) setCam(c.tutto ? vistaTutto() : vistaRiadattata());
+}
+// vistaRiadattata: la vista di partenza per la tela spostata. Se adattato alla parte che si vede l'albero non si
+// leggerebbe più (vistaIniziale lo aprirebbe al 60 % sul prodotto, con schede fuori dai bordi), lo si adatta alla tela
+// intera: tutte le schede restano dentro la tela, e la pagina non scorre.
+function vistaRiadattata() {
+  const a = vistaAdatta();
+  if (a.k >= 0.35) return Object.assign(vistaIniziale(), { auto: true });
+  const d = vpDim();
+  const l = L.lay;
+  const k = clamp(Math.min((d.w - 24) / l.W, (d.h - 24) / l.H), KMIN, 1);
+  return { k, tx: (d.w - l.W * k) / 2, ty: 12, auto: true };
 }
 // legendaOrg: la legenda sotto l'organigramma, come nella pagina di prima (messaggio 46, D07): i tratti dei legami, le
 // schede, i segni e il trascinamento.
@@ -3038,8 +3091,8 @@ function renderCorpo() {
   if (L) {
     const c = cam();
     const ps = ancora && ancora.chiave === L.chiave ? L.lay.pos[ancora.k] : null;
-    if (!c) setCam(vistaIniziale());
-    else if (ps) setCam({ k: c.k, tx: ancora.sx - ps.x * c.k, ty: ancora.sy - ps.y * c.k });
+    if (!c) setCam(Object.assign(vistaIniziale(), { auto: true }));
+    else if (ps) setCam({ k: c.k, tx: ancora.sx - ps.x * c.k, ty: ancora.sy - ps.y * c.k, auto: c.auto, tutto: c.tutto });
     else applicaCam();
   }
 }
@@ -5907,7 +5960,7 @@ async function guarda(allegato, gruppo, silenzioso) {
     const ra = $("#du-rev-anteprima");
     if (ra) {
       ra.scrollIntoView({ block: "start", behavior: "instant" });
-      if (L && L.vp && ra.contains(L.vp)) setCam(vistaIniziale());
+      if (L && L.vp && ra.contains(L.vp)) setCam(Object.assign(vistaIniziale(), { auto: true }));
     }
   }
   // UI46 (controllo di stabilità del 21/10 [T]): l'anteprima allargata nasconde l'elenco, e il fuoco che era sulla riga

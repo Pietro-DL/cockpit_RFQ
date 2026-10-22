@@ -7,7 +7,8 @@ browser`) sul banco finto di distinta_unica_banco_test.go, con `python -I`. Rius
 classe Banco).
 
 Che cosa prova:
-  BR0  senza una scelta nella pagina il browser parte richiuso sotto i 1600 px di larghezza, aperto da lì in su
+  BR0  senza una scelta nella pagina il browser parte richiuso (una striscia sopra la tela) nelle finestre alte meno di
+       1200 px, aperto da lì in su (seconda richiesta del 22/10: il browser sta sopra l'organigramma)
   BR1  le righe annidate: il prodotto, i suoi figli, sotto i pezzi i loro documenti come foglie (PDF, STEP…), con
        l'icona del tipo, il codice, la quantità del legame e lo stato; ruoli ARIA tree/treeitem con aria-level e
        aria-expanded; nessuna chiave interna (k-…), UUID o nome tecnico a schermo
@@ -72,7 +73,7 @@ def revisione(b):
         b.passo("revisione")
         b.salvata(1)
     expect(p.locator("#du-vp .du-nc[data-k]").first).to_be_visible(timeout=T_LUNGO)
-    # sotto i 1600 px, senza una scelta nella sessione, il browser parte richiuso (la linguetta): lo si apre
+    # sotto i 1200 px d'altezza, senza una scelta nella pagina, il browser parte richiuso (la striscia): lo si apre
     expect(p.locator("#du-br-chiudi")).to_be_visible(timeout=T_LUNGO)
     if p.locator("#du-br-chiudi").get_attribute("aria-expanded") == "false":
         p.click("#du-br-chiudi")
@@ -93,12 +94,13 @@ def testo_browser(p):
     return p.locator("#du-br").inner_text()
 
 
-@prova("BR0", "senza una scelta nella pagina: richiuso sotto i 1600 px (la tela larga come prima), aperto da 1600 px in su")
+@prova("BR0", "senza una scelta nella pagina: richiuso (una striscia) sotto i 1200 px d'altezza, aperto da lì in su")
 def br0(b):
     p = b.page
     p.evaluate("() => { try { sessionStorage.removeItem('du-br-chiuso'); } catch (e) {} }")
-    for w, atteso in ((1440, "false"), (1600, "true")):
-        p.set_viewport_size({"width": w, "height": 900})
+    # il browser sta sopra la tela (seconda richiesta del 22/10): conta l'altezza della finestra, non la larghezza
+    for w, hh, atteso in ((1600, 1000, "false"), (1440, 900, "false"), (1600, 1200, "true")):
+        p.set_viewport_size({"width": w, "height": hh})
         b.apri()
         b.passo("revisione")
         p.wait_for_timeout(300)
@@ -280,7 +282,7 @@ def br5(b):
     b.passo("revisione")
     expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_LUNGO)
     expect(p.locator("#du-br-corpo")).to_be_hidden(timeout=T_BREVE)
-    # aperto, resta aperto fra le schede; ricaricando, si riparte dalla scelta di partenza (richiuso sotto i 1600 px)
+    # aperto, resta aperto fra le schede; ricaricando, si riparte dalla scelta di partenza (richiuso sotto i 1200 px d'altezza)
     p.click("#du-br-chiudi")
     b.passo("sorgente")
     b.passo("revisione")
@@ -303,11 +305,13 @@ def br6(b):
         p.click("#du-br-espandi")
         p.wait_for_timeout(300)
         m = p.evaluate("""() => { const a = document.querySelector('#du-br').getBoundingClientRect(), v = document.querySelector('#du-vp').getBoundingClientRect();
-            return { sw: document.documentElement.scrollWidth, iw: innerWidth, a: [a.left, a.right, a.width, a.height], v: [v.left, v.right, v.width] }; }""")
+            return { sw: document.documentElement.scrollWidth, iw: innerWidth, a: [a.left, a.right, a.width, a.height, a.bottom], v: [v.left, v.right, v.width, v.top] }; }""")
         print("      %dx%d: %r" % (w, hh, m))
         verifica(m["sw"] <= m["iw"] + 1, "scorrimento orizzontale a %dx%d: %r" % (w, hh, m))
         verifica(m["a"][2] >= 240 and m["v"][2] >= 360, "browser o tela troppo stretti a %dx%d: %r" % (w, hh, m))
         verifica(m["v"][1] <= m["iw"] + 1, "la tela esce dalla finestra a %dx%d" % (w, hh))
+        # il browser sta sopra la tela, largo quanto lei (seconda richiesta del 22/10)
+        verifica(abs(m["a"][0] - m["v"][0]) <= 1 and abs(m["a"][2] - m["v"][2]) <= 1, "il browser non è largo quanto la tela a %dx%d: %r" % (w, hh, m))
         b.foto("BR6_%dx%d.png" % (w, hh))
     p.set_viewport_size({"width": 1440, "height": 900})
 
