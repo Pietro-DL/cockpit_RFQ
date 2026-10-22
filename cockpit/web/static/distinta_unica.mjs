@@ -18,6 +18,7 @@
 // che V1 non ha restano visibili e spente, con il motivo scritto accanto (MAT §6.1).
 
 import * as P from "./distinta_unica_ponte.mjs";
+import { creaBrowser, browserChiuso } from "./du_browser.mjs";
 
 // ---------------------------------------------------------------- utilità del DOM
 
@@ -1675,6 +1676,58 @@ function organigramma(g) {
   vp.addEventListener("keydown", vpKey);
   return vp;
 }
+// ---------------------------------------------------------------- il browser ad albero della Revisione (du_browser.mjs)
+
+// Richiesta [U] del 22/10 (frontend): prima dell'organigramma, l'albero degli assiemi come il browser di SolidWorks o di
+// Fusion 360, con i documenti di ogni pezzo come foglie. Il modulo du_browser.mjs disegna; qui gli si passano solo le
+// cose che la pagina sa già (il grafo della tela, i documenti del pannello del nodo, gli stati delle schede) e le sue
+// funzioni di scelta (scegli, centraSel). Nessuna lettura nuova, nessun gesto di scrittura dal browser.
+function chiaveBrowser() {
+  return "br|" + S.prodotto + "|" + S.passo + "|" + (anteprimaInRevisione() ? "anteprima|" + S.anteprimaAllegato + "|" + S.anteprimaGruppo : bozzaAperta() ? "bozza" : "working");
+}
+function iconaBrowser(v) {
+  if (v.noninc || v.escluso) return "cad";
+  const d = v.k ? decisioneCategoria(v.k) : null;
+  const c = classeProposta(v);
+  if (v.tipo !== "finito" && v.tipo !== "sottoassieme" && ((d && d.esito === "conferma" && d.categoria === "minuteria") || (!d && c && c.categoria === "minuteria"))) return "minuteria";
+  if (v.tipo === "finito") return "finito";
+  if (v.tipo === "sottoassieme") return "assieme";
+  if (v.tipo === "commerciale") return "commerciale";
+  return "particolare";
+}
+const TONI_BROWSER = { reg: "ok", prop: "prop", bozza: "bozza" };
+function statoBrowser(v) {
+  return v.stato && v.stato.t ? { testo: v.stato.t, tono: TONI_BROWSER[v.stato.c] || "neu" } : null;
+}
+// documentiBrowser: i documenti del pezzo con le parole della linguetta «Documenti del nodo» (documentiDelNodo)
+function documentiBrowser(g, v) {
+  const nome = (aid) => (fileDi(aid) ? nomeFile(aid) : "file della RFQ");
+  const out = [];
+  if (g.modo === "bozza") {
+    const doc = documentiNodo(v);
+    for (const aid of doc.pb) out.push({ id: aid, nome: nome(aid), stato: "preassociato", tono: "bozza" });
+    for (const pa of doc.pa) out.push({ id: pa.allegato_id, nome: nome(pa.allegato_id), stato: "proposto", tono: "prop" });
+    for (const f of doc.ar) {
+      const sv0 = svincoloDi(f.allegato_id);
+      out.push({ id: f.allegato_id, nome: f.nome_file || nome(f.allegato_id), stato: f.documento ? "confermato" : sv0 ? "da scollegare" : "associato", tono: f.documento ? "ok" : sv0 ? "ver" : "info" });
+    }
+    for (const x of doc.nonRichieste) out.push({ id: x.allegato_id, nome: nome(x.allegato_id), stato: "non richiesta", tono: "neu" });
+  } else if (g.modo === "working") {
+    for (const f of documentiWorking(v).ar) out.push({ id: f.allegato_id, nome: f.nome_file || nome(f.allegato_id), stato: f.documento ? "confermato" : "associato", tono: f.documento ? "ok" : "info" });
+  } else {
+    for (const a of arr(v.voce && v.voce.associazioni_proposte)) out.push({ id: a.allegato_id, nome: nome(a.allegato_id), stato: "proposto", tono: "prop" });
+  }
+  return out;
+}
+// conBrowser: il browser a sinistra della tela (sopra, nelle finestre strette); richiuso, resta la sua linguetta
+function conBrowser(g, vp) {
+  const br = creaBrowser({ g, chiave: chiaveBrowser(), scelto: S.nodo, scegli, icona: iconaBrowser, statoDi: statoBrowser, documenti: (v) => documentiBrowser(g, v),
+    centra: (k) => {
+      if (S.nodo !== k) scegli(k);
+      centraSel();
+    } });
+  return h("div", { class: "du-orgbr" + (browserChiuso() ? " du-orgbr--chiuso" : "") }, br, vp);
+}
 // legendaOrg: la legenda sotto l'organigramma, come nella pagina di prima (messaggio 46, D07): i tratti dei legami, le
 // schede, i segni e il trascinamento.
 function legendaOrg(g) {
@@ -2424,8 +2477,10 @@ function strisciaProposta() {
 // (fuocoSuRiga, l'esito di S8) lo fanno dopo renderCorpo e restano come sono. Oltre allo scorrimento si tiene ferma
 // un'ancora (la prima riga o sezione con un id in vista nel riquadro): se sopra compare o sparisce qualcosa (la barra
 // delle azioni di gruppo alla prima spunta, una striscia nel pannello dopo un salvataggio), l'ancora resta dov'era.
-const SCORREVOLI_CORPO = ["#du-sg-albero", "#du-sg-elenco", "#du-sg-dettaglio", ".du-zona--nodo", ".du-segnalati-c"];
-const ANCORE_CORPO = { "#du-sg-elenco": "[role=row][id]", "#du-sg-albero": "[id]", "#du-sg-dettaglio": "[id]", ".du-zona--nodo": "[id]", ".du-segnalati-c": "" };
+// il browser ad albero della Revisione (#du-br-albero, du_browser.mjs) scorre per conto suo: torna dov'era finché resta
+// lo stesso prodotto e la stessa vista (bozza, BOM confermata, anteprima)
+const SCORREVOLI_CORPO = ["#du-sg-albero", "#du-sg-elenco", "#du-sg-dettaglio", ".du-zona--nodo", ".du-segnalati-c", "#du-br-albero"];
+const ANCORE_CORPO = { "#du-sg-elenco": "[role=row][id]", "#du-sg-albero": "[id]", "#du-sg-dettaglio": "[id]", ".du-zona--nodo": "[id]", ".du-segnalati-c": "", "#du-br-albero": "[id]" };
 function ancoraIn(el, sel) {
   if (!sel || !el.scrollTop) return null;
   const b = el.getBoundingClientRect();
@@ -2438,6 +2493,7 @@ function ancoraIn(el, sel) {
 function chiaveScorrevole(sel) {
   const sg = "sorgente|";
   if (sel === "#du-sg-albero") return sg;
+  if (sel === "#du-br-albero") return chiaveBrowser();
   if (sel === "#du-sg-elenco") return sg + SG.cartella + "|" + SG.cerca;
   if (sel === "#du-sg-dettaglio") return sg + SG.cartella + "|" + (SG.memo[SG.cartella] ? SG.memo[SG.cartella].file || "" : "") + "|" + (S.anteprima ? S.anteprimaAllegato + "|" + S.anteprimaGruppo + "|" + (SG.larga ? 1 : 0) : "");
   if (sel === ".du-zona--nodo") return S.passo + "|" + S.vista + "|" + (S.nodo || "") + "|" + S.linguettaNodo + "|" + (S.passo === "sorgente" ? S.anteprimaAllegato + "|" + S.anteprimaGruppo : "");
@@ -5466,7 +5522,7 @@ function riquadroAnteprima(g) {
   const gr = gruppi.find((x) => x.gruppo === S.anteprimaGruppo) || null;
   if (gr) box.append(h("p", { class: "du-nota", id: "du-anteprima-codici" }, righeCodici(a.codice_prodotto || codiceProdotto(), radiceDi(gr), a.confronto, stepProposto(S.prodotto, a.allegato_id))));
   box.append(azioniAnteprima(a, gr));
-  if (S.vista === "org" && g && g.radice) box.append(strumentiOrg(g), organigramma(g));
+  if (S.vista === "org" && g && g.radice) box.append(strumentiOrg(g), anteprimaInRevisione() ? conBrowser(g, organigramma(g)) : organigramma(g));
   else if (g && g.radice) box.append(elencoRighe(g));
   else box.append(h("p", { class: "du-muto du-piccolo" }, "Scegli una struttura dello STEP per vederla."));
   return box;
@@ -5826,7 +5882,7 @@ function corpoRevisione() {
   if (S.nodo && !g.nodi[S.nodo]) S.nodo = "";
   const vista = h("section", { class: "du-zona du-zona--vista", "aria-label": "BOM di lavoro" },
     h("div", { class: "du-zona-testa" }, h("h2", {}, S.vista === "org" ? "Organigramma della bozza" : "Elenco della bozza"), statoConferma()),
-    h("div", { class: "du-zona-corpo" }, S.vista === "org" ? [riquadroSenzaSorgente(), riquadroProposta(), riquadroAbbinamenti(), riquadroDifferenze(), strumentiOrg(g), cassettoSegnalati(g), postoSelezione(g), organigramma(g), legendaOrg(g)] :
+    h("div", { class: "du-zona-corpo" }, S.vista === "org" ? [riquadroSenzaSorgente(), riquadroProposta(), riquadroAbbinamenti(), riquadroDifferenze(), strumentiOrg(g), cassettoSegnalati(g), postoSelezione(g), conBrowser(g, organigramma(g)), legendaOrg(g)] :
       [riquadroSenzaSorgente(), riquadroProposta(), riquadroAbbinamenti(), riquadroDifferenze(), vassoio(), elencoRighe(g)]));
   const nodo = h("section", { class: "du-zona du-zona--nodo", "aria-label": "Pannello del nodo" },
     h("div", { class: "du-zona-testa" }, h("h2", {}, "Pannello del nodo")),
@@ -5997,7 +6053,7 @@ function revisioneWorking(u) {
       b.disabled = true;
       b.title = (b.getAttribute("aria-label") || "") + " (BOM confermata, in sola lettura)";
     });
-    corpo = [strumentiOrg(g), vp];
+    corpo = [strumentiOrg(g), conBrowser(g, vp)];
   } else corpo = [elencoRighe(g)];
   const vista = h("section", { class: "du-zona du-zona--vista", id: "du-working", "data-du-conferma": u.conferma_id, "aria-label": "BOM confermata" },
     h("div", { class: "du-zona-testa", id: "du-working-testa" }, h("h2", {}, titolo), statoConferma()),
