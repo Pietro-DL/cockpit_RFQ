@@ -205,6 +205,7 @@ func normalizzaFamiglia(f FamigliaCodice) FamigliaCodice {
 		fo.SegmentiMancanti = copia(fo.SegmentiMancanti)
 		fo.Parti = normalizzaParti(fo.Parti)
 		fo.Estensioni = insieme(fo.Estensioni)
+		fo.StessaParteDi = insieme(fo.StessaParteDi)
 		if fo.ConfinePrima != nil {
 			c := *fo.ConfinePrima
 			fo.ConfinePrima = &c
