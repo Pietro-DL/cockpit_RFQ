@@ -512,3 +512,87 @@
   .du .du-sg-cella-gesto { grid-column: 2; justify-self: start; }
   .du .du-sg-cerca { flex-basis: 100%; max-width: none; }
 }
+
+/* ---- Browser ad albero (richiesta del 22/10, frontend: du_browser.mjs). L'albero degli assiemi come il browser di
+   SolidWorks o di Fusion 360, a sinistra dell'organigramma (sopra, nelle finestre strette): righe compatte e rientrate,
+   il triangolo apri/chiudi, l'icona del tipo, codice e descrizione, la quantità del legame, lo stato e i documenti come
+   foglie. Alto quanto la tela, scorre per conto suo; richiuso resta una linguetta stretta. Tutte le regole sotto .du. */
+.du .du-orgbr { display: grid; gap: 10px; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: stretch; min-width: 0; }
+.du .du-orgbr.du-orgbr--chiuso { grid-template-columns: 40px minmax(0, 1fr); }
+.du .du-orgbr > * { min-width: 0; }
+.du .du-br { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; height: clamp(320px, calc(100vh - 300px), 860px);
+  background: var(--du-surf); border: 1px solid var(--du-line); border-radius: var(--du-r2); box-shadow: var(--du-sh1); overflow: hidden; }
+.du .du-br-chiudi { display: inline-flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 6px 10px; border: 0; border-bottom: 1px solid var(--du-line);
+  background: var(--du-surf2); color: var(--du-ink2); cursor: pointer; text-align: left; font: 700 var(--du-t-xs)/1.2 var(--du-f-cond); letter-spacing: .09em; text-transform: uppercase; }
+.du .du-br-chiudi:hover { color: var(--du-acc); background: var(--du-acc-soft); }
+.du .du-br--chiuso { grid-template-rows: minmax(0, 1fr); }
+.du .du-br--chiuso .du-br-chiudi { flex-direction: column; justify-content: flex-start; height: 100%; padding: 10px 0; border-bottom: 0; }
+.du .du-br--chiuso .du-br-chiudi-t { writing-mode: vertical-rl; transform: rotate(180deg); }
+.du .du-br-corpo { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.du .du-br-testa { display: grid; gap: 6px; padding: 8px 8px 6px; border-bottom: 1px solid var(--du-line); }
+.du .du-br-gesti { display: flex; gap: 6px; flex-wrap: wrap; }
+.du .du-br-btn { min-height: 26px; padding: 1px 9px; border: 1px solid var(--du-line2); border-radius: 999px; background: var(--du-surf); color: var(--du-ink2);
+  font: 500 var(--du-t-sm)/1.2 var(--du-f-body); cursor: pointer; white-space: nowrap; }
+.du .du-br-btn:hover { border-color: var(--du-acc); color: var(--du-acc); }
+.du .du-br-cerca { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.du .du-br-filtro { flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 3px 9px; border: 1px solid var(--du-line2); border-radius: var(--du-r2); background: var(--du-surf);
+  color: var(--du-ink); font: var(--du-t-sm)/1.3 var(--du-f-body); }
+.du .du-br-filtro:focus { border-color: var(--du-acc); outline: none; box-shadow: 0 0 0 3px var(--du-acc-soft); }
+.du .du-br-conto { flex: 0 0 auto; font-size: var(--du-t-xs); color: var(--du-ink3); white-space: nowrap; }
+.du .du-br-conto:empty { display: none; }
+.du .du-br-albero { overflow: auto; overscroll-behavior: contain; padding: 4px 0 10px; min-height: 0; font-size: var(--du-t-sm); outline-offset: -2px; }
+.du .du-br-vuoto { margin: 10px 12px; font-size: var(--du-t-sm); color: var(--du-ink3); }
+.du .du-br-riga { position: relative; display: flex; align-items: center; gap: 5px; min-height: 26px; padding: 1px 8px 1px calc(6px + var(--du-br-liv, 0) * 16px);
+  color: var(--du-ink); cursor: default; white-space: nowrap; user-select: none; -webkit-user-select: none; border-left: 2px solid transparent; }
+.du .du-br-riga:hover { background: var(--du-sunken); }
+.du .du-br-riga:focus-visible { outline: 2px solid var(--du-acc); outline-offset: -2px; border-radius: 0; }
+.du .du-br-riga--scelta, .du .du-br-riga--scelta:hover { background: var(--du-acc-soft); border-left-color: var(--du-acc); }
+.du .du-br-riga--scelta .du-br-cod { color: var(--du-acc); font-weight: 600; }
+.du .du-br-tri { flex: 0 0 16px; width: 16px; height: 16px; display: inline-grid; place-items: center; color: var(--du-ink3); cursor: pointer; border-radius: var(--du-r1); }
+.du .du-br-tri:hover { color: var(--du-acc); background: var(--du-surf); }
+.du .du-br-tri--vuoto { cursor: default; }
+.du .du-br-tri .du-br-ico { width: 12px; height: 12px; stroke-width: 2; }
+.du .du-br-tri--aperto .du-br-ico { transform: rotate(90deg); }
+.du .du-br-ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; stroke-linecap: round; flex: 0 0 auto; }
+.du .du-br-tipo { flex: 0 0 20px; width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: var(--du-r1); }
+.du .du-br-tipo--finito { color: var(--du-acc); background: var(--du-acc-soft); }
+.du .du-br-tipo--assieme { color: var(--du-info); background: var(--du-info-soft); }
+.du .du-br-tipo--particolare { color: var(--du-sciolto); background: var(--du-sciolto-soft); }
+.du .du-br-tipo--commerciale { color: var(--du-ver); background: var(--du-ver-soft); }
+.du .du-br-tipo--minuteria { color: var(--du-ink2); background: var(--du-sunken); }
+.du .du-br-tipo--cad, .du .du-br-tipo--noninc { color: var(--du-ink4); background: var(--du-sunken); }
+.du .du-br-ico--gruppo { color: var(--du-ink3); }
+.du .du-br-nome { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: inline-flex; gap: 6px; align-items: baseline; }
+.du .du-br-mono { font-family: var(--du-f-mono); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.du .du-br-cod { flex: 0 0 auto; }
+.du .du-br-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--du-ink2); }
+.du .du-br-q { flex: 0 0 auto; font: 600 var(--du-t-xs)/1.5 var(--du-f-mono); padding: 0 6px; border: 1px solid var(--du-line2); border-radius: 999px; color: var(--du-ink2); background: var(--du-surf); }
+.du .du-br-q--prop { color: var(--du-prop); border-style: dashed; border-color: var(--du-prop-line); }
+.du .du-br-q--conf { color: var(--du-ok); border-color: var(--du-ok-line); background: var(--du-ok-soft); }
+.du .du-br-q--bozza { color: var(--du-bozza); border-color: var(--du-bozza-line); background: var(--du-bozza-soft); }
+.du .du-br-st { flex: 0 0 auto; font-size: .65rem; font-weight: 500; line-height: 1.5; padding: 0 5px; border: 1px solid; border-radius: var(--du-r1); max-width: 13ch; overflow: hidden; text-overflow: ellipsis; }
+.du .du-br-st--ok { color: var(--du-ok); background: var(--du-ok-soft); border-color: var(--du-ok-line); }
+.du .du-br-st--prop { color: var(--du-prop); background: var(--du-prop-soft); border-color: var(--du-prop-line); border-style: dashed; }
+.du .du-br-st--bozza { color: var(--du-bozza); background: var(--du-bozza-soft); border-color: var(--du-bozza-line); }
+.du .du-br-st--info { color: var(--du-info); background: var(--du-info-soft); border-color: var(--du-info-line); }
+.du .du-br-st--ver { color: var(--du-ver); background: var(--du-ver-soft); border-color: var(--du-ver-line); }
+.du .du-br-st--neu { color: var(--du-ink2); background: var(--du-sunken); border-color: var(--du-line2); }
+.du .du-br-riga--doc { color: var(--du-ink2); }
+.du .du-br-riga--doc .du-br-nome { font-size: var(--du-t-xs); }
+.du .du-br-file { flex: 0 0 auto; position: relative; display: inline-flex; align-items: center; gap: 3px; color: var(--du-ink3); }
+.du .du-br-file b { font: 700 .5625rem/1 var(--du-f-cond); letter-spacing: .04em; padding: 2px 3px; border-radius: 2px; background: var(--du-sunken); color: var(--du-ink2); }
+.du .du-br-file--pdf b { background: var(--du-ko-soft); color: var(--du-ko); }
+.du .du-br-file--dxf b { background: var(--du-info-soft); color: var(--du-info); }
+.du .du-br-file--step b { background: var(--du-ok-soft); color: var(--du-ok); }
+.du .du-br-riga--gruppo { color: var(--du-ink2); font-weight: 600; margin-top: 6px; border-top: 1px solid var(--du-line); padding-top: 4px; cursor: pointer; }
+.du .du-br-riga--gruppo .du-br-q--neu { background: var(--du-sunken); }
+@media (prefers-reduced-motion: no-preference) {
+  .du .du-br-tri .du-br-ico { transition: transform .12s ease; }
+  .du .du-br-riga { transition: background-color .1s ease; }
+}
+@media (max-width: 1099.98px) {
+  .du .du-orgbr, .du .du-orgbr.du-orgbr--chiuso { grid-template-columns: minmax(0, 1fr); }
+  .du .du-br { height: auto; max-height: 300px; }
+  .du .du-br--chiuso .du-br-chiudi { flex-direction: row; height: auto; padding: 6px 10px; }
+  .du .du-br--chiuso .du-br-chiudi-t { writing-mode: horizontal-tb; transform: none; }
+}
