@@ -102,8 +102,10 @@ export const AIUTI = [
     s: "Mette in evidenza sulle schede che cosa è diverso fra la bozza e la proposta del sistema." },
   { k: "segnalati", sel: "#du-segnalati-apri", t: "Nodi segnalati",
     s: "I pezzi su cui il sistema ha un dubbio (per esempio un possibile elemento CAD da non includere). Li apri in elenco e li decidi uno per uno o insieme." },
-  { k: "zoom", sel: "#du-zoom-adatta", t: "Zoom e posizione",
-    s: "«Adatta» mostra tutto l'albero nella finestra, «Centra» lo rimette al centro; − e + cambiano lo zoom. Puoi anche trascinare lo sfondo." },
+  { k: "zoom", sel: "#du-zoom-adatta", t: "Mostra tutto",
+    s: "Centra l'organigramma e lo rimpicciolisce quanto basta per vederlo tutto (tasto 0). «Centra» porta al centro il pezzo scelto; − e + cambiano lo zoom." },
+  { k: "schermo", sel: "#du-zoom-schermo", t: "Schermo intero",
+    s: "Apre l'organigramma a tutta finestra: cerca un pezzo per codice o descrizione, clic su una scheda per vedere padri, figli e documenti. Esc torna alla pagina dov'era." },
   { k: "tela", sel: "#du-vp", t: "Organigramma della bozza",
     s: "Clic su una scheda per sceglierla e vederla nel pannello del nodo. Il bordo e i colori dicono il tipo e lo stato; le pillole sui legami dicono la quantità." },
   { k: "scheda", sel: "#du-vp .du-nc", t: "Scheda di un pezzo",
@@ -222,6 +224,9 @@ const PASSI = {
     { sel: ["#du-vp", "#du-elenco"], t: "La bozza", scorri: true,
       s: "Ogni scheda è un pezzo: codice, revisione, miniatura del disegno. Clic su una scheda per sceglierla; trascina lo sfondo per spostarti.",
       manca: "La bozza compare quando il prodotto ne ha una." },
+    { sel: ["#du-zoom-schermo"], t: "Schermo intero", scorri: true,
+      s: "L'organigramma a tutta finestra: cerca un pezzo, clic su una scheda per evidenziare padri, figli e documenti. «Mostra tutto» lo rimette intero; Esc torna qui.",
+      manca: "Il pulsante sta nell'angolo dell'organigramma, nella vista «Organigramma»." },
     { sel: ["#du-pannello"], t: "Il pannello del nodo", scorri: true,
       s: "Tutto sul pezzo scelto, diviso in sezioni: identità proposta e decisa, tipo e categoria, posizione, documenti, provenienza.",
       manca: "Il pannello si riempie quando scegli un pezzo sulla tela o nell'elenco." },
@@ -406,7 +411,8 @@ function nascondiFumetto(b) {
 function aggiornaIcone() {
   A.rif = 0;
   if (!A.strato) return;
-  A.strato.hidden = !A.attivi || G.aperta;
+  // nello schermo intero dell'organigramma gli aiuti della pagina restano sotto: niente icone sopra la tela
+  A.strato.hidden = !A.attivi || G.aperta || !!document.getElementById("du-fs-barra");
   if (A.strato.hidden) {
     nascondiFumetto();
     return;

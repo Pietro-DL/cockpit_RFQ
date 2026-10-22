@@ -125,8 +125,8 @@ const { creaBrowser, browserChiuso } = (() => {
   // browserChiuso: la scelta di chi guarda (ricordata finché la pagina resta aperta); senza scelta, aperto solo nelle
   // finestre alte almeno 1200 px. Il browser sta sopra la tela (seconda richiesta del 22/10 [U]) e aperto le toglie
   // 270 px d'altezza: nelle finestre più basse l'organigramma deve aprirsi intero come prima del browser (a 1600 × 1000
-  // si vede tutto al 47 %), quindi il browser parte come una striscia di una riga che si apre con un clic, e da lì resta
-  // aperto.
+  // si vede tutto), quindi il browser parte come una linguetta nell'angolo della tela, che si apre con un clic e da lì
+  // resta aperto.
   let sceltaChiuso = null;
   function browserChiuso() {
     if (sceltaChiuso !== null) return sceltaChiuso;
@@ -1928,8 +1928,8 @@ function impagina(g, ap) {
     const cx = (cadute[0] + cadute[cadute.length - 1]) / 2;
     pos[k] = { x: cx - CW / 2, y };
     cresci(pos[k].x + CW, y + CH);
-    tratti.push({ d: "M" + cx + " " + (y + CH) + " V" + yb, neutro: true });
-    if (cadute.length > 1) tratti.push({ d: "M" + cadute[0] + " " + yb + " H" + cadute[cadute.length - 1], neutro: true });
+    tratti.push({ d: "M" + cx + " " + (y + CH) + " V" + yb, neutro: true, p: k });
+    if (cadute.length > 1) tratti.push({ d: "M" + cadute[0] + " " + yb + " H" + cadute[cadute.length - 1], neutro: true, p: k });
     return fondo;
   }
   let yE = MARGINE;
@@ -2039,22 +2039,24 @@ function scheda(g, v, ps) {
   card.addEventListener("click", (e) => {
     if (Date.now() - V.ultimoMov < 300) return;
     if (e.target.closest(".du-nc-sel")) return;
-    if ((e.ctrlKey || e.metaKey) && sel.ok) {
+    if ((e.ctrlKey || e.metaKey) && sel.ok && !FS.attivo) {
       cambiaSelezione(v.k, !S.selezione.has(v.k));
       return;
     }
-    scegli(v.k);
+    scegliTela(v.k);
   });
   // il menu del nodo (messaggio 46, D38): il clic destro, il tasto del menu o Maiusc+F10 aprono i gesti del pezzo, non il
-  // menu del browser
+  // menu del browser (nello schermo intero niente gesti: si guarda e si cerca)
   card.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (FS.attivo) return;
     apriMenuNodo(v.k, e.clientX, e.clientY);
   });
   card.addEventListener("keydown", (e) => {
     if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
     e.preventDefault();
+    if (FS.attivo) return;
     const r = card.getBoundingClientRect();
     apriMenuNodo(v.k, r.left + 24, r.top + 24);
   });
@@ -2105,7 +2107,13 @@ function organigramma(g) {
   const mondo = h("div", { class: "du-vp-mondo", id: "du-vp-mondo", style: "width:" + lay.W + "px;height:" + lay.H + "px" });
   const svg = sv("svg", { class: "du-vp-archi", width: lay.W, height: lay.H, viewBox: "0 0 " + lay.W + " " + lay.H, "aria-hidden": "true" });
   lay.tratti.forEach((t) => {
-    svg.append(sv("path", { d: t.d, class: "du-ar " + (t.neutro ? "du-ar--neutro" : "du-ar--" + t.a.kind + (t.secondo ? " du-ar--secondo" : "")) }));
+    const pa = sv("path", { d: t.d, class: "du-ar " + (t.neutro ? "du-ar--neutro" : "du-ar--" + t.a.kind + (t.secondo ? " du-ar--secondo" : "")) });
+    // di quale legame è il tratto (il padre; per i tratti di un legame anche il figlio): serve all'evidenza dello schermo intero
+    if (t.a) {
+      pa.setAttribute("data-p", t.a.p);
+      pa.setAttribute("data-f", t.a.f);
+    } else if (t.p) pa.setAttribute("data-p", t.p);
+    svg.append(pa);
   });
   mondo.append(svg);
   lay.etichette.forEach((e) => mondo.append(h("div", { class: "du-vp-etic", style: "left:" + e.x + "px;top:" + e.y + "px" }, e.t)));
@@ -2113,20 +2121,29 @@ function organigramma(g) {
   lay.stubs.forEach((s) => {
     const v = g.nodi[s.a.f];
     mondo.append(h("button", { type: "button", class: "du-nc du-nc--stub du-nc--" + v.tipo, style: "left:" + s.x + "px;top:" + s.y + "px;width:" + s.w + "px;height:" + SH + "px",
-      title: "Stesso componente della scheda sotto il primo padre", onclick: () => scegli(v.k) }, "↗ ", h("span", { class: "du-mono" }, v.cod || "(senza codice)"), " stesso pezzo"));
+      title: "Stesso componente della scheda sotto il primo padre", onclick: () => scegliTela(v.k) }, "↗ ", h("span", { class: "du-mono" }, v.cod || "(senza codice)"), " stesso pezzo"));
   });
   lay.pills.forEach((pl) => {
     const a = pl.a;
     const no = g.modo !== "bozza" ? "nella Sorgente la quantità è quella del file" : perchéNoModifica();
     mondo.append(h("button", { type: "button", class: "du-oq", id: "oq-" + sid(a.id), style: "left:" + pl.x + "px;top:" + pl.y + "px", disabled: !!no,
-      "aria-label": titoloQta(a, g), title: titoloQta(a, g) + (no ? " (" + no + ")" : " · clic per cambiarla"),
+      "aria-label": titoloQta(a, g), title: titoloQta(a, g) + (no ? " (" + no + ")" : " · clic per cambiarla"), "data-p": a.p, "data-f": a.f,
       onclick: (e) => {
         e.stopPropagation();
         if (Date.now() - V.ultimoMov < 300) return;
+        // nello schermo intero si guarda e si cerca: i gesti di scrittura restano alla pagina
+        if (FS.attivo) return;
         apriQuantita(a.f, a.p);
       } }, qPill(a, g)));
   });
   vp.append(mondo);
+  // «Schermo intero» (seconda richiesta del 22/10 [U]) nell'angolo della tela della Revisione, sopra il mondo: non toglie
+  // spazio alla barra degli strumenti (che andava su due righe) e si vede sempre dove si guarda l'albero
+  if (S.passo === "revisione") vp.append(h("button", { type: "button", class: "du-btn du-btn--sm du-vp-fs", id: "du-zoom-schermo",
+    title: "L'organigramma a tutta finestra: cerca un pezzo e guarda i suoi collegamenti (Esc per uscire)", onclick: (e) => {
+      e.stopPropagation();
+      apriSchermo();
+    } }, "⛶ Schermo intero"));
   L = { lay, chiave: chiaveCamera(), vp, mondo, g };
   vp.addEventListener("pointerdown", vpDown);
   vp.addEventListener("wheel", vpWheel, { passive: false });
@@ -2234,6 +2251,8 @@ function applicaCam() {
   L.vp.dataset.scala = String(Math.round(c.k * 100));
   const z = $("#du-zoom-val");
   if (z) z.textContent = Math.round(c.k * 100) + " %";
+  const zf = FS.attivo && $("#du-fs-zoom-val");
+  if (zf) zf.textContent = Math.round(c.k * 100) + " %";
 }
 function setCam(c) {
   if (!L || !c) return;
@@ -2255,6 +2274,7 @@ function setCam(c) {
 // parte resta sotto la piega. «Adatta» e l'apertura adattano l'albero alla parte che si vede (collaudo UI46, giro 3,
 // F3-I5: il terzo livello restava sotto il bordo finché non si premeva «Adatta») [T]. Almeno 200 px: sotto, la tela intera.
 function altoVisibile(d) {
+  if (FS.attivo && L.vp.classList.contains("du-vp--schermo")) return d.h;
   const r = L.vp.getBoundingClientRect();
   // la barra della bozza è appiccicata in fondo (.du-salva, sticky): copre la tela che le sta dietro
   const barra = $("#du-barra .du-salva") || $("#du-barra");
@@ -2273,6 +2293,18 @@ function vistaAdatta() {
   const k = clamp(Math.min((d.w - 24) / l.W, (hv - 24) / l.H), KMIN, 1);
   // in alto, come la pagina di prima (il prodotto sempre in vista, anche in un riquadro più alto della parte visibile)
   return { k, tx: (d.w - l.W * k) / 2, ty: 12 };
+}
+// vistaTutto: «Mostra tutto» (seconda richiesta del 22/10 [U]: «centra l'albero e lo scala perché sia visibile per
+// intero»): lo zoom di vistaAdatta (la parte di tela che si vede, F3-I5) e l'albero al centro di quella parte, in larghezza
+// e in altezza. Prende il posto di «Adatta» (stesso pulsante, stesso tasto 0): una funzione sola, non due con nomi diversi.
+// auto: la vista resta «tutto» finché chi guarda non la sposta (telaCambiata la rifà se la tela cambia posto o misura).
+function vistaTutto() {
+  const d = vpDim();
+  const l = L.lay;
+  const a = vistaAdatta();
+  const hv = altoVisibile(d);
+  const top0 = hv < d.h ? Math.max(0, -L.vp.getBoundingClientRect().top) : 0;
+  return { k: a.k, tx: (d.w - l.W * a.k) / 2, ty: top0 + Math.max(12, (hv - l.H * a.k) / 2), auto: true, tutto: true };
 }
 // vistaIniziale: all'apertura l'albero adattato al riquadro che si vede (F3-I5 [T]); solo un albero così grande che
 // adattato non si leggerebbe più (sotto il 35 %) si apre al 60 % sul prodotto, come prima
@@ -2303,8 +2335,192 @@ function centraSel() {
   const k = Math.max(cam().k, 0.8);
   setCam({ k, tx: d.w / 2 - (ps.x + CW / 2) * k, ty: d.h / 2 - (ps.y + CH / 2) * k });
 }
+// ---------------------------------------------------------------- lo schermo intero dell'organigramma
+// Seconda richiesta del 22/10 [U]: l'organigramma a tutta finestra, facile da navigare: trascina per spostare, rotellina
+// o + − per lo zoom, «Mostra tutto», «Cerca» per codice o descrizione (evidenzia e centra il pezzo trovato, avanti e
+// indietro fra i risultati) e il clic su una scheda che la sceglie come fa la tela (scegli) ed evidenzia i suoi
+// collegamenti: padri, figli e documenti associati, con il resto attenuato. Esc o «Esci» chiudono e la pagina torna
+// dov'era (scorrimento e vista della tela). È la stessa tela della pagina (L.vp) messa sopra la pagina con position:
+// fixed, al suo posto un segnaposto della stessa altezza: nessuna lettura nuova, nessun gesto di scrittura (menu del
+// nodo, trascinamento e quantità restano alla pagina), solo i dati che la pagina ha già.
+const FS = { attivo: false, scroll: null, cam: null, chiave: "", h: 0, fuoco: "", cerca: "", trovati: [], i: -1, barra: null, info: null, tasti: null };
+// scegliTela: il clic su una scheda (o sul rimando «stesso pezzo»): sceglie il pezzo come sempre; nello schermo intero
+// ne evidenzia anche i collegamenti
+function scegliTela(k) {
+  if (FS.attivo) FS.fuoco = k;
+  scegli(k);
+  if (FS.attivo) fsEvidenzia();
+}
+function apriSchermo() {
+  if (FS.attivo || !L || !L.vp || !document.body.contains(L.vp)) return;
+  const radice = $("#du");
+  if (!radice) return;
+  FS.attivo = true;
+  FS.scroll = [window.scrollX, window.scrollY];
+  FS.chiave = L.chiave;
+  FS.cam = Object.assign({}, cam());
+  FS.h = Math.round(L.vp.getBoundingClientRect().height);
+  FS.fuoco = "";
+  FS.cerca = "";
+  FS.trovati = [];
+  FS.i = -1;
+  const cerca = h("input", { type: "search", id: "du-fs-cerca", class: "du-fs-cerca", placeholder: "Cerca per codice o descrizione", "aria-label": "Cerca un pezzo per codice o descrizione",
+    autocomplete: "off", spellcheck: "false" });
+  cerca.addEventListener("input", () => fsCerca(cerca.value));
+  cerca.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      fsVai(e.shiftKey ? -1 : 1);
+    }
+  });
+  const bt = (id, testo, t, fn, cls) => h("button", { type: "button", id, class: "du-btn du-btn--sm" + (cls ? " " + cls : ""), title: t, "aria-label": t, onclick: fn }, testo);
+  FS.barra = h("div", { class: "du-fs-barra", id: "du-fs-barra", role: "toolbar", "aria-label": "Organigramma a schermo intero" },
+    h("span", { class: "du-fs-t" }, "Organigramma", h("span", { class: "du-fs-t2" }, " · schermo intero")),
+    h("span", { class: "du-fs-cercagrp", role: "search" }, cerca,
+      bt("du-fs-prec", "‹", "Risultato precedente (Maiusc+Invio)", () => fsVai(-1)),
+      bt("du-fs-succ", "›", "Risultato seguente (Invio)", () => fsVai(1)),
+      h("span", { class: "du-fs-conto", id: "du-fs-conto", "aria-live": "polite" })),
+    h("span", { class: "du-zoom du-fs-zoom", role: "group", "aria-label": "Zoom" },
+      h("button", { type: "button", id: "du-fs-meno", "aria-label": "Rimpicciolisci", onclick: () => zoomCentro(0.8) }, "−"),
+      h("span", { class: "du-z", id: "du-fs-zoom-val" }, "—"),
+      h("button", { type: "button", id: "du-fs-piu", "aria-label": "Ingrandisci", onclick: () => zoomCentro(1.25) }, "+"),
+      h("button", { type: "button", id: "du-fs-tutto", title: "Mostra tutto: l'organigramma intero, al centro (tasto 0)", onclick: () => setCam(vistaTutto()) }, "Mostra tutto")),
+    bt("du-fs-esci", "Esci", "Esci dallo schermo intero (Esc)", chiudiSchermo, "du-fs-esci"));
+  FS.info = h("aside", { class: "du-fs-coll", id: "du-fs-coll", "aria-label": "Collegamenti del pezzo scelto", hidden: true });
+  radice.append(FS.barra, FS.info);
+  FS.tasti = (e) => {
+    if (!FS.attivo || e.key !== "Escape") return;
+    // un dialogo o la guida aperti si chiudono prima loro
+    const fin = $("#du-finestra");
+    if ((fin && !fin.hidden) || document.getElementById("du-guida")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    chiudiSchermo();
+  };
+  window.addEventListener("keydown", FS.tasti, true);
+  fsAggancia();
+  setCam(vistaTutto());
+  cerca.focus({ preventScroll: true });
+}
+// fsAggancia: la tela di adesso (dopo un ridisegno è un elemento nuovo) va a tutta finestra, con il segnaposto al suo posto
+function fsAggancia() {
+  if (!FS.attivo) return;
+  if (!L || !L.vp || L.chiave !== FS.chiave) {
+    // la pagina ha cambiato vista o prodotto: lo schermo intero non ha più la sua tela
+    chiudiSchermo();
+    return;
+  }
+  const vp = L.vp;
+  vp.classList.add("du-vp--schermo");
+  const prima = vp.previousElementSibling;
+  if (!prima || !prima.classList.contains("du-vp-posto")) vp.before(h("div", { class: "du-vp-posto", "aria-hidden": "true", style: "height:" + FS.h + "px" }));
+  fsEvidenzia();
+}
+function chiudiSchermo() {
+  if (!FS.attivo) return;
+  FS.attivo = false;
+  window.removeEventListener("keydown", FS.tasti, true);
+  if (FS.barra) FS.barra.remove();
+  if (FS.info) FS.info.remove();
+  FS.barra = FS.info = FS.tasti = null;
+  document.querySelectorAll(".du-vp-posto").forEach((x) => x.remove());
+  if (L && L.vp) {
+    L.vp.classList.remove("du-vp--schermo", "du-vp--fuoco");
+    L.vp.querySelectorAll(".du-nc--coll, .du-nc--fuoco, .du-nc--trovato, .du-nc--trovato-att").forEach((c) => c.classList.remove("du-nc--coll", "du-nc--fuoco", "du-nc--trovato", "du-nc--trovato-att"));
+    L.vp.querySelectorAll(".du-ar--coll, .du-oq--coll").forEach((c) => c.classList.remove("du-ar--coll", "du-oq--coll"));
+    // la vista della tela torna quella di prima dello schermo intero
+    if (L.chiave === FS.chiave && FS.cam) {
+      S.camere[L.chiave] = Object.assign({}, FS.cam);
+      applicaCam();
+    }
+  }
+  if (FS.scroll) window.scrollTo(FS.scroll[0], FS.scroll[1]);
+  const b = $("#du-zoom-schermo");
+  if (b) b.focus({ preventScroll: true });
+  FS.fuoco = "";
+  FS.cerca = "";
+  FS.trovati = [];
+  FS.i = -1;
+}
+function fsCerca(q) {
+  FS.cerca = q;
+  const t = String(q || "").trim().toLowerCase();
+  FS.trovati = !t || !L ? [] : Object.keys(L.lay.pos).filter((k) => L.g.nodi[k] && ((L.g.nodi[k].cod || "") + " " + (L.g.nodi[k].desc || "")).toLowerCase().indexOf(t) >= 0);
+  FS.i = FS.trovati.length ? 0 : -1;
+  if (FS.i >= 0) fsCentra(FS.trovati[0]);
+  fsEvidenzia();
+}
+function fsVai(d) {
+  if (!FS.trovati.length) return;
+  FS.i = (FS.i + d + FS.trovati.length) % FS.trovati.length;
+  fsCentra(FS.trovati[FS.i]);
+  fsEvidenzia();
+}
+// fsCentra: il pezzo al centro della tela, almeno al 70 % perché si legga
+function fsCentra(k) {
+  if (!L || !L.lay.pos[k]) return;
+  const d = vpDim();
+  const ps = L.lay.pos[k];
+  const kk = Math.max(cam() ? cam().k : 0.7, 0.7);
+  setCam({ k: kk, tx: d.w / 2 - (ps.x + CW / 2) * kk, ty: d.h / 2 - (ps.y + CH / 2) * kk });
+}
+// fsEvidenzia: le classi dell'evidenza sulla tela di adesso (il pezzo scelto nello schermo intero, i suoi padri e figli, i
+// tratti e le quantità dei loro legami; i pezzi trovati dalla ricerca) e il riquadro dei collegamenti
+function fsEvidenzia() {
+  if (!FS.attivo || !L || !L.vp) return;
+  const g = L.g;
+  const k = FS.fuoco && g.nodi[FS.fuoco] ? FS.fuoco : "";
+  const padri = k ? padriA(g, k) : [];
+  const figli = k ? figliA(g, k) : [];
+  const coll = new Set(k ? [k].concat(padri.map((a) => a.p), figli.map((a) => a.f)) : []);
+  const tro = new Set(FS.trovati);
+  const att = FS.i >= 0 ? FS.trovati[FS.i] : "";
+  L.vp.classList.toggle("du-vp--fuoco", !!k);
+  for (const c of L.vp.querySelectorAll(".du-nc[data-k]")) {
+    const x = c.dataset.k;
+    c.classList.toggle("du-nc--coll", coll.has(x));
+    c.classList.toggle("du-nc--fuoco", x === k);
+    c.classList.toggle("du-nc--trovato", tro.has(x));
+    c.classList.toggle("du-nc--trovato-att", x === att);
+  }
+  const padriK = new Set(padri.map((a) => a.p));
+  for (const p of L.vp.querySelectorAll(".du-ar[data-p]")) {
+    const f = p.getAttribute("data-f");
+    const pp = p.getAttribute("data-p");
+    p.classList.toggle("du-ar--coll", !!k && (f ? pp === k || f === k : pp === k || padriK.has(pp)));
+  }
+  for (const q of L.vp.querySelectorAll(".du-oq[data-p]")) q.classList.toggle("du-oq--coll", !!k && (q.dataset.p === k || q.dataset.f === k));
+  const conto = $("#du-fs-conto");
+  if (conto) conto.textContent = !String(FS.cerca || "").trim() ? "" : FS.trovati.length ? FS.i + 1 + " di " + FS.trovati.length : "Nessun pezzo trovato";
+  const box = FS.info;
+  if (!box) return;
+  if (!k) {
+    box.hidden = true;
+    box.replaceChildren();
+    return;
+  }
+  const v = g.nodi[k];
+  const voce = (kk, q) => h("li", {}, h("button", { type: "button", class: "du-fs-voce", "data-k": kk, onclick: () => {
+    scegliTela(kk);
+    fsCentra(kk);
+  } }, h("span", { class: "du-mono" }, g.nodi[kk].cod || "(senza codice)"), g.nodi[kk].desc ? h("span", { class: "du-fs-desc" }, " " + g.nodi[kk].desc) : null,
+  q !== undefined && q !== null ? h("span", { class: "du-fs-q" }, " ×" + q) : null));
+  const docs = documentiBrowser(g, v);
+  const sez = (titolo, id, lista, vuoto) => [h("h3", { class: "du-fs-h" }, titolo + " (" + lista.length + ")"),
+    lista.length ? h("ul", { class: "du-fs-lista", id }, lista) : h("p", { class: "du-fs-vuoto" }, vuoto)];
+  box.replaceChildren(
+    h("div", { class: "du-fs-coll-t" }, h("span", { class: "du-fs-coll-e" }, "Collegamenti di"), h("strong", { class: "du-mono" }, v.cod || "(senza codice)"), v.desc ? h("span", { class: "du-fs-desc" }, v.desc) : null),
+    ...sez("Padri", "du-fs-padri", padri.map((a) => voce(a.p, a.qta)), k === g.radice ? "È il prodotto: non ha padri." : "Nessun padre nella distinta."),
+    ...sez("Figli", "du-fs-figli", figli.map((a) => voce(a.f, a.qta)), "Nessun figlio."),
+    ...sez("Documenti", "du-fs-doc", docs.map((d0) => h("li", { class: "du-fs-docv" }, h("span", { class: "du-mono" }, d0.nome), d0.stato ? h("span", { class: "du-fs-st" }, " · " + d0.stato) : null)), "Nessun documento associato."),
+    h("button", { type: "button", class: "du-btn du-btn--sm", id: "du-fs-togli", onclick: () => {
+      FS.fuoco = "";
+      fsEvidenzia();
+    } }, "Togli l'evidenza"));
+  box.hidden = false;
+}
 function puoTrascinare(k) {
-  return !!L && L.g.modo === "bozza" && k !== L.g.radice && !!L.g.nodi[k] && !L.g.nodi[k].noninc && puoModificare() && S.vista === "org";
+  return !!L && !FS.attivo && L.g.modo === "bozza" && k !== L.g.radice && !!L.g.nodi[k] && !L.g.nodi[k].noninc && puoModificare() && S.vista === "org";
 }
 function vpDown(e) {
   if (!L) return;
@@ -2443,7 +2659,8 @@ function vpWheel(e) {
   e.preventDefault();
   const r = L.vp.getBoundingClientRect();
   const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
-  if (e.ctrlKey || e.metaKey) {
+  // nello schermo intero la rotellina ingrandisce e rimpicciolisce (con Maiusc sposta, come nella pagina)
+  if (e.ctrlKey || e.metaKey || (FS.attivo && !e.shiftKey)) {
     zoomA(cam().k * Math.exp(-e.deltaY * unit * 0.0016), e.clientX - r.left, e.clientY - r.top);
     return;
   }
@@ -2465,7 +2682,7 @@ function vpKey(e) {
     zoomCentro(0.8);
   } else if (e.key === "0") {
     e.preventDefault();
-    setCam(vistaAdatta());
+    setCam(vistaTutto());
   }
 }
 // vietatoSotto: perché il pezzo k non va sotto «verso» (presentazione del rifiuto prima del dialogo; la regola che
@@ -3086,6 +3303,8 @@ function renderCorpo() {
   const vista = vistaCorpoPrima(box);
   box.replaceChildren(S.passo === "revisione" ? corpoRevisione() : corpoSorgente());
   vistaCorpoDopo(box, vista);
+  // lo schermo intero si riaggancia alla tela nuova prima della camera, che la misura
+  if (FS.attivo) fsAggancia();
   // la tela dell'anteprima prende la sua altezza prima della camera, che la misura (C2-I4)
   if (L && S.passo === "sorgente" && $("#du-sg-dettaglio #du-vp")) adattaAltezzaSg();
   if (L) {
@@ -6975,7 +7194,7 @@ function strumentiOrg(g) {
     h("button", { type: "button", id: "du-zoom-meno", "aria-label": "Rimpicciolisci", onclick: () => zoomCentro(0.8) }, "−"),
     h("span", { class: "du-z", id: "du-zoom-val", "aria-live": "polite" }, "—"),
     h("button", { type: "button", id: "du-zoom-piu", "aria-label": "Ingrandisci", onclick: () => zoomCentro(1.25) }, "+"),
-    h("button", { type: "button", id: "du-zoom-adatta", title: "Tutto l'organigramma nel riquadro (tasto 0)", onclick: () => setCam(vistaAdatta()) }, "Adatta"),
+    h("button", { type: "button", id: "du-zoom-adatta", title: "Mostra tutto: l'organigramma intero, al centro della tela (tasto 0)", onclick: () => setCam(vistaTutto()) }, "Mostra tutto"),
     h("button", { type: "button", id: "du-zoom-centra", title: "Centra il pezzo scelto", onclick: centraSel }, "Centra")));
   return h("div", { class: "du-strumenti", role: "toolbar", "aria-label": "Strumenti dell'organigramma" }, parti);
 }

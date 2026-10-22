@@ -562,9 +562,10 @@
    Fusion 360, SOPRA l'organigramma e largo quanto la sua zona (seconda richiesta del 22/10 [U]: «il browser va sopra,
    non al fianco»): righe compatte e rientrate, il triangolo apri/chiudi, l'icona del tipo, codice e descrizione, la
    quantità del legame, lo stato e i documenti come foglie. Alto 260 px, scorre per conto suo e si allunga o si accorcia
-   con la maniglia in basso a destra; richiuso resta una striscia di una riga. La tela sotto tiene tutta la larghezza.
-   Tutte le regole sotto .du. */
-.du .du-orgbr { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+   con la maniglia in basso a destra; richiuso resta una linguetta di una riga nell'angolo in alto a sinistra della tela,
+   sopra di lei e fuori dal flusso: chiuso non toglie altezza alla tela, che sta dove stava prima del browser (le prove di
+   stabilità misurano quelle posizioni). La tela tiene tutta la larghezza. Tutte le regole sotto .du. */
+.du .du-orgbr { position: relative; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .du .du-orgbr > * { min-width: 0; }
 .du .du-br { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-width: 0;
   height: 260px; min-height: 140px; max-height: 70vh; resize: vertical;
@@ -576,7 +577,8 @@
 .du .du-br-chiudi-v { display: inline-grid; place-items: center; width: 16px; height: 16px; }
 .du .du-br-chiudi-v .du-br-ico { width: 12px; height: 12px; stroke-width: 2; transform: rotate(90deg); }
 .du .du-br-chiudi-n { font: 500 var(--du-t-xs)/1.2 var(--du-f-body); letter-spacing: 0; text-transform: none; color: var(--du-ink3); }
-.du .du-br--chiuso { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; height: auto !important; min-height: 0; resize: none; }
+.du .du-br--chiuso { position: absolute; left: 0; top: 0; z-index: 6; grid-template-columns: auto; grid-template-rows: auto; height: auto !important; min-height: 0; resize: none;
+  border-radius: var(--du-r3) 0 var(--du-r2) 0; box-shadow: var(--du-sh-hover); }
 .du .du-br--chiuso .du-br-chiudi { grid-column: 1 / -1; min-height: 34px; border-bottom: 0; border-right: 0; }
 .du .du-br--chiuso .du-br-chiudi-v .du-br-ico { transform: none; }
 /* il corpo non fa una scatola sua: la testa sta sulla prima riga accanto alla linguetta, le righe sotto per tutta la larghezza */
@@ -645,11 +647,58 @@
   .du .du-br-tri .du-br-ico { transition: transform .12s ease; }
   .du .du-br-riga { transition: background-color .1s ease; }
 }
-@media (max-width: 1099.98px) {
-  .du .du-orgbr, .du .du-orgbr.du-orgbr--chiuso { grid-template-columns: minmax(0, 1fr); }
-  .du .du-br { height: auto; max-height: 300px; }
-  .du .du-br--chiuso .du-br-chiudi { flex-direction: row; height: auto; padding: 6px 10px; }
-  .du .du-br--chiuso .du-br-chiudi-t { writing-mode: horizontal-tb; transform: none; }
+@media (max-width: 899.98px) {
+  .du .du-br-testa { flex-wrap: wrap; }
+  .du .du-br-cerca { flex-basis: 100%; }
+}
+
+/* ---- Schermo intero dell'organigramma (seconda richiesta del 22/10 [U]). La tela della pagina (#du-vp) va sopra tutto
+   con position: fixed, sotto una barra fissa con «Cerca», lo zoom, «Mostra tutto» ed «Esci»; al suo posto nella pagina
+   resta un segnaposto della stessa altezza (.du-vp-posto), così niente sotto si sposta. Il riquadro dei collegamenti
+   galleggia a destra. Il clic su una scheda evidenzia lei, i padri, i figli e i loro legami; il resto si attenua. */
+.du .du-vp-fs { position: absolute; right: 10px; top: 10px; z-index: 6; box-shadow: var(--du-sh-hover); cursor: pointer; }
+.du .du-vp--schermo .du-vp-fs { display: none; }
+.du .du-vp.du-vp--schermo { position: fixed; left: 0; right: 0; top: 56px; bottom: 0; height: auto; z-index: 58; border: 0; border-top: 1px solid var(--du-line2); border-radius: 0; outline-offset: -4px; }
+.du .du-fs-barra { position: fixed; left: 0; right: 0; top: 0; height: 56px; z-index: 59; box-sizing: border-box; display: flex; align-items: center; gap: 10px 16px; padding: 0 16px;
+  background: var(--du-surf); box-shadow: var(--du-sh2); min-width: 0; }
+.du .du-fs-t { font: 700 var(--du-t-md, 1rem)/1.2 var(--du-f-cond); color: var(--du-ink); white-space: nowrap; }
+.du .du-fs-t2 { font-weight: 500; color: var(--du-ink3); }
+.du .du-fs-cercagrp { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 520px; min-width: 0; margin-left: auto; }
+.du .du-fs-cerca { flex: 1 1 auto; min-width: 120px; min-height: 32px; padding: 3px 10px; border: 1px solid var(--du-line2); border-radius: var(--du-r2); background: var(--du-surf); color: var(--du-ink);
+  font: var(--du-t-sm)/1.3 var(--du-f-body); }
+.du .du-fs-cerca:focus { border-color: var(--du-acc); outline: none; box-shadow: 0 0 0 4px var(--du-acc-halo); }
+.du .du-fs-conto { min-width: 9ch; font-size: var(--du-t-xs); color: var(--du-ink3); white-space: nowrap; }
+.du .du-fs-zoom { flex: 0 0 auto; }
+.du .du-fs-esci { flex: 0 0 auto; }
+.du .du-fs-coll { position: fixed; right: 16px; top: 72px; z-index: 59; width: min(320px, calc(100vw - 32px)); max-height: calc(100vh - 96px); overflow: auto; box-sizing: border-box;
+  display: grid; gap: 6px; padding: 12px 14px; background: var(--du-surf); border: 1px solid var(--du-line2); border-left: 4px solid var(--du-acc); border-radius: var(--du-r2);
+  box-shadow: var(--du-sh2); font-size: var(--du-t-sm); color: var(--du-ink); }
+.du .du-fs-coll[hidden] { display: none; }
+.du .du-fs-coll-t { display: grid; gap: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--du-line); }
+.du .du-fs-coll-e { font: 600 var(--du-t-xs)/1.3 var(--du-f-cond); letter-spacing: .08em; text-transform: uppercase; color: var(--du-ink3); }
+.du .du-fs-coll-t strong { font-size: 1rem; color: var(--du-acc); }
+.du .du-fs-h { margin: 4px 0 0; font: 700 var(--du-t-xs)/1.3 var(--du-f-cond); letter-spacing: .06em; text-transform: uppercase; color: var(--du-ink2); }
+.du .du-fs-lista { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.du .du-fs-voce { width: 100%; text-align: left; padding: 3px 6px; border: 1px solid transparent; border-radius: var(--du-r1); background: none; color: var(--du-ink); cursor: pointer;
+  font: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.du .du-fs-voce:hover, .du .du-fs-voce:focus-visible { background: var(--du-acc-soft); border-color: var(--du-acc-line); outline: none; }
+.du .du-fs-desc, .du .du-fs-st, .du .du-fs-vuoto { color: var(--du-ink3); }
+.du .du-fs-q { font-family: var(--du-f-mono); color: var(--du-ink2); }
+.du .du-fs-docv { padding: 2px 6px; overflow-wrap: anywhere; }
+.du .du-fs-vuoto { margin: 0; padding: 2px 6px; font-size: var(--du-t-xs); }
+.du .du-vp--schermo .du-nc-sel { display: none; }
+/* l'evidenza dei collegamenti: il resto si attenua, non sparisce */
+.du .du-vp--fuoco .du-nc:not(.du-nc--coll) { opacity: .28; }
+.du .du-vp--fuoco .du-ar:not(.du-ar--coll) { opacity: .18; }
+.du .du-vp--fuoco .du-oq:not(.du-oq--coll), .du .du-vp--fuoco .du-vp-etic { opacity: .28; }
+.du .du-nc.du-nc--coll { box-shadow: 0 0 0 3px var(--du-acc-line), var(--du-sh-hover); }
+.du .du-nc.du-nc--fuoco { outline: 3px solid var(--du-acc); outline-offset: 3px; z-index: 4; }
+.du .du-ar.du-ar--coll { stroke: var(--du-acc); stroke-width: 3; }
+.du .du-nc.du-nc--trovato { box-shadow: 0 0 0 3px var(--du-ver-line), var(--du-sh-hover); }
+.du .du-nc.du-nc--trovato-att { outline: 3px solid var(--du-ver); outline-offset: 3px; z-index: 4; }
+@media (max-width: 899.98px) {
+  .du .du-fs-t2 { display: none; }
+  .du .du-fs-zoom .du-z { display: none; }
 }
 
 /* ---------------------------------------------------------------- Guida e aiuti (frontend del 22/10 [U]; du_guida.mjs)

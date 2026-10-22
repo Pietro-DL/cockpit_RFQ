@@ -7,7 +7,7 @@ browser`) sul banco finto di distinta_unica_banco_test.go, con `python -I`. Rius
 classe Banco).
 
 Che cosa prova:
-  BR0  senza una scelta nella pagina il browser parte richiuso (una striscia sopra la tela) nelle finestre alte meno di
+  BR0  senza una scelta nella pagina il browser parte richiuso (una linguetta nell'angolo della tela) nelle finestre alte meno di
        1200 px, aperto da lì in su (seconda richiesta del 22/10: il browser sta sopra l'organigramma)
   BR1  le righe annidate: il prodotto, i suoi figli, sotto i pezzi i loro documenti come foglie (PDF, STEP…), con
        l'icona del tipo, il codice, la quantità del legame e lo stato; ruoli ARIA tree/treeitem con aria-level e
@@ -24,6 +24,11 @@ Che cosa prova:
        orizzontale della pagina
   BR7  le schermate dell'insieme a 1600 × 1000 e 1366 × 768 (Sorgente, anteprima, Revisione con il browser, aiuto «(?)»,
        guida al passo del browser, elenco, wizard), senza scorrimento orizzontale
+  BR8  (seconda richiesta del 22/10 [U]) il browser sta SOPRA la tela e largo quanto lei; a 1600 × 1000 l'organigramma si
+       apre intero; aprirlo e chiuderlo non fa saltare la pagina (±1 px) e la vista della tela si riadatta
+  BR9  «Mostra tutto» (il pulsante che era «Adatta», e il tasto 0): l'albero intero e al centro della tela
+  BR10 lo schermo intero: tutta la finestra, «Cerca» che evidenzia e centra (Invio al seguente), il clic su una scheda
+       che la sceglie ed evidenzia padri, figli e documenti, Esc che rimette la pagina dov'era; nessuna richiesta
 
 Codici e nomi dei file inventati (ACME, ACM-xxxx), quelli del banco. Le schermate vanno nella cartella --foto.
 """
@@ -73,7 +78,7 @@ def revisione(b):
         b.passo("revisione")
         b.salvata(1)
     expect(p.locator("#du-vp .du-nc[data-k]").first).to_be_visible(timeout=T_LUNGO)
-    # sotto i 1200 px d'altezza, senza una scelta nella pagina, il browser parte richiuso (la striscia): lo si apre
+    # sotto i 1200 px d'altezza, senza una scelta nella pagina, il browser parte richiuso (la linguetta): lo si apre
     expect(p.locator("#du-br-chiudi")).to_be_visible(timeout=T_LUNGO)
     if p.locator("#du-br-chiudi").get_attribute("aria-expanded") == "false":
         p.click("#du-br-chiudi")
@@ -94,7 +99,7 @@ def testo_browser(p):
     return p.locator("#du-br").inner_text()
 
 
-@prova("BR0", "senza una scelta nella pagina: richiuso (una striscia) sotto i 1200 px d'altezza, aperto da lì in su")
+@prova("BR0", "senza una scelta nella pagina: richiuso (una linguetta) sotto i 1200 px d'altezza, aperto da lì in su")
 def br0(b):
     p = b.page
     p.evaluate("() => { try { sessionStorage.removeItem('du-br-chiuso'); } catch (e) {} }")
@@ -374,6 +379,230 @@ def br7(b):
         p.wait_for_timeout(300)
     p.set_viewport_size({"width": 1440, "height": 900})
     b.apri()
+
+
+# ---- seconda richiesta del 22/10 [U] (Stefano): il browser SOPRA l'organigramma, «Mostra tutto» e lo schermo intero
+
+TELA = r"""() => { const v = document.getElementById('du-vp'); if (!v) return null; const R = v.getBoundingClientRect();
+  const alto = Math.max(R.top, 0), basso = Math.min(R.bottom, innerHeight);
+  let fuori = [], fuoriVisibile = [], l = 1e9, r = -1e9;
+  for (const c of v.querySelectorAll('.du-nc[data-k]')) { const q = c.getBoundingClientRect();
+    l = Math.min(l, q.left); r = Math.max(r, q.right);
+    if (q.left < R.left - 1 || q.right > R.right + 1 || q.top < R.top - 1 || q.bottom > R.bottom + 1) fuori.push(c.dataset.k);
+    else if (q.top < alto - 1 || q.bottom > basso + 1) fuoriVisibile.push(c.dataset.k); }
+  const b = document.getElementById('du-br'), s = document.getElementById('du-br-chiudi');
+  const B = b ? b.getBoundingClientRect() : null, Sx = s ? s.getBoundingClientRect() : null;
+  const m = document.getElementById('du-vp-mondo');
+  return { vp: [R.left, R.top, R.width, R.height, R.right, R.bottom], n: v.querySelectorAll('.du-nc[data-k]').length, fuori, fuoriVisibile,
+    margini: [l - R.left, R.right - r], scala: v.dataset.scala, sy: window.scrollY, pos: getComputedStyle(v).position,
+    br: B ? [B.left, B.top, B.width, B.height, B.right, B.bottom] : null, striscia: Sx ? Sx.top : null, mondo: m ? m.style.transform : '' }; }"""
+
+
+def tela(p):
+    return p.evaluate(TELA)
+
+
+def revisione_da_capo(b, w, hh):
+    """La Revisione a w × hh come la apre chi arriva: la pagina ricaricata (nessuna scelta sul browser), con la bozza."""
+    p = b.page
+    p.set_viewport_size({"width": w, "height": hh})
+    revisione(b)
+    b.apri()
+    b.passo("revisione")
+    expect(p.locator("#du-vp .du-nc[data-k]").first).to_be_visible(timeout=T_LUNGO)
+    p.evaluate("window.scrollTo(0, 0)")
+    p.wait_for_timeout(500)
+
+
+@prova("BR8", "il browser sta SOPRA l'organigramma, largo quanto la tela; a 1600 × 1000 l'albero si apre intero; aprire e chiudere non fa saltare la pagina e la vista si riadatta")
+def br8(b):
+    p = b.page
+    try:
+        revisione_da_capo(b, 1600, 1000)
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false")
+        m0 = tela(p)
+        print("      1600x1000 all'apertura: %r" % {k: m0[k] for k in ("vp", "scala", "fuori", "fuoriVisibile", "br")})
+        verifica(m0["n"] >= 6 and not m0["fuori"] and not m0["fuoriVisibile"], "a 1600 × 1000 l'organigramma non si apre intero: %r" % m0)
+        # richiuso, il browser è una linguetta nell'angolo in alto a sinistra della tela: non le toglie altezza
+        verifica(abs(m0["br"][0] - m0["vp"][0]) <= 1 and abs(m0["br"][1] - m0["vp"][1]) <= 1 and m0["br"][3] <= 40 and m0["br"][2] < m0["vp"][2] / 2,
+                 "la linguetta del browser non sta nell'angolo della tela: %r" % m0)
+        # aperto: sopra la tela, largo quanto lei; la pagina e la striscia non si spostano, la tela non cambia larghezza
+        p.click("#du-br-chiudi")
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_BREVE)
+        expect(p.locator("#du-br-albero .du-br-riga").first).to_be_visible(timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        m1 = tela(p)
+        print("      aperto: %r" % {k: m1[k] for k in ("vp", "scala", "br", "sy")})
+        verifica(m1["br"][3] >= 200, "il browser aperto è troppo basso: %r" % m1["br"])
+        verifica(m1["br"][5] <= m1["vp"][1] + 1, "il browser aperto non sta sopra la tela: %r / %r" % (m1["br"], m1["vp"]))
+        verifica(abs(m1["br"][0] - m1["vp"][0]) <= 1 and abs(m1["br"][2] - m1["vp"][2]) <= 1, "il browser non è largo quanto la tela: %r / %r" % (m1["br"], m1["vp"]))
+        verifica(abs(m1["vp"][2] - m0["vp"][2]) <= 1, "aprendo il browser la tela ha cambiato larghezza: %r → %r" % (m0["vp"][2], m1["vp"][2]))
+        verifica(abs(m1["sy"] - m0["sy"]) <= 1 and abs(m1["striscia"] - m0["striscia"]) <= 1, "aprendo il browser la pagina è saltata: %r → %r" % ((m0["sy"], m0["striscia"]), (m1["sy"], m1["striscia"])))
+        verifica(abs(m1["br"][1] - m0["vp"][1]) <= 1, "il browser aperto non comincia dove cominciava la tela: %r / %r" % (m1["br"], m0["vp"]))
+        verifica(not m1["fuori"], "aperto il browser, schede fuori dalla tela: %r" % m1["fuori"])
+        senza_scorrimento_orizzontale(p, "browser sopra 1600")
+        b.foto("BR8_1600x1000_aperto.png")
+        # richiuso: di nuovo la vista di partenza (riadattata), niente salti
+        p.click("#du-br-chiudi")
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        m2 = tela(p)
+        verifica(abs(m2["sy"] - m0["sy"]) <= 1 and abs(m2["striscia"] - m0["striscia"]) <= 1 and abs(m2["vp"][1] - m0["vp"][1]) <= 1,
+                 "richiudendo il browser la pagina è saltata: %r → %r" % (m0, m2))
+        verifica(not m2["fuori"] and not m2["fuoriVisibile"] and abs(int(m2["scala"]) - int(m0["scala"])) <= 1,
+                 "richiuso il browser la vista non è tornata intera: %r (all'apertura %r)" % (m2, m0))
+        # a 1366 × 768: aperto, sopra e largo quanto la tela, niente scorrimento di lato
+        revisione_da_capo(b, 1366, 768)
+        p.click("#du-br-chiudi")
+        expect(p.locator("#du-br-corpo")).to_be_visible(timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        m3 = tela(p)
+        verifica(m3["br"][5] <= m3["vp"][1] + 1 and abs(m3["br"][2] - m3["vp"][2]) <= 1, "a 1366 × 768 il browser non sta sopra la tela: %r" % m3)
+        verifica(not m3["fuori"], "a 1366 × 768, aperto il browser, schede fuori dalla tela: %r" % m3["fuori"])
+        senza_scorrimento_orizzontale(p, "browser sopra 1366")
+        b.foto("BR8_1366x768_aperto.png")
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("BR9", "«Mostra tutto»: dopo uno spostamento e uno zoom, l'albero torna intero e al centro della tela (anche col tasto 0), senza scorrere la pagina")
+def br9(b):
+    p = b.page
+    try:
+        revisione_da_capo(b, 1600, 1000)
+        expect(p.locator("#du-zoom-adatta")).to_have_text("Mostra tutto")
+        v = p.locator("#du-vp").bounding_box()
+        p.mouse.move(v["x"] + 40, v["y"] + 40)
+        p.mouse.down()
+        p.mouse.move(v["x"] + 340, v["y"] + 240, steps=6)
+        p.mouse.up()
+        p.click("#du-zoom-piu")
+        p.click("#du-zoom-piu")
+        p.wait_for_timeout(300)
+        m0 = tela(p)
+        verifica(m0["fuori"], "lo spostamento non ha portato fuori nessuna scheda: la prova non prova niente")
+        p.click("#du-zoom-adatta")
+        p.wait_for_timeout(300)
+        m1 = tela(p)
+        print("      Mostra tutto: %r" % {k: m1[k] for k in ("scala", "fuori", "fuoriVisibile", "margini")})
+        verifica(not m1["fuori"] and not m1["fuoriVisibile"], "«Mostra tutto» lascia schede fuori: %r" % m1)
+        verifica(abs(m1["margini"][0] - m1["margini"][1]) <= 4, "«Mostra tutto» non centra l'albero: margini %r" % m1["margini"])
+        verifica(abs(m1["sy"] - m0["sy"]) <= 1, "«Mostra tutto» ha fatto scorrere la pagina")
+        # il tasto 0 sulla tela fa lo stesso
+        p.click("#du-zoom-piu")
+        # il tasto 0 con la tela a fuoco (senza far scorrere la pagina, come in C3)
+        p.locator("#du-vp").evaluate("(v) => { v.focus({ preventScroll: true }); v.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true })); }")
+        p.wait_for_timeout(200)
+        m2 = tela(p)
+        verifica(m2["mondo"] == m1["mondo"], "il tasto 0 non dà la stessa vista di «Mostra tutto»: %r / %r" % (m2["mondo"], m1["mondo"]))
+        # e col browser aperto sopra: tutte le schede dentro la tela
+        p.click("#du-br-chiudi")
+        p.wait_for_timeout(300)
+        p.click("#du-zoom-adatta")
+        p.wait_for_timeout(300)
+        m3 = tela(p)
+        verifica(not m3["fuori"], "col browser aperto «Mostra tutto» lascia schede fuori: %r" % m3["fuori"])
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("BR10", "schermo intero: si apre sopra la pagina, cerca e centra, evidenzia padri/figli/documenti, il clic sceglie il pezzo, Esc torna esattamente dov'era; nessuna richiesta")
+def br10(b):
+    p = b.page
+    try:
+        revisione_da_capo(b, 1600, 1000)
+        # una scelta di partenza e la pagina scorsa un poco
+        p.locator("#du-vp .du-nc[data-k]").nth(2).click()
+        p.wait_for_timeout(300)
+        k0 = p.evaluate("() => (document.querySelector('#du-vp .du-nc--scelto') || {}).dataset.k")
+        verifica(k0, "nessuna scheda scelta per la partenza")
+        p.evaluate("window.scrollTo(0, 140)")
+        p.wait_for_timeout(300)
+        m0 = tela(p)
+        i = b.segna()
+        # Esc senza fare niente: tutto come prima
+        p.click("#du-zoom-schermo")
+        expect(p.locator("#du-fs-barra")).to_be_visible(timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        p.keyboard.press("Escape")
+        expect(p.locator("#du-fs-barra")).to_have_count(0, timeout=T_BREVE)
+        p.wait_for_timeout(200)
+        m1 = tela(p)
+        verifica(abs(m1["sy"] - m0["sy"]) <= 1 and abs(m1["vp"][1] - m0["vp"][1]) <= 1 and m1["mondo"] == m0["mondo"] and m1["pos"] != "fixed",
+                 "Esc non ha rimesso la pagina dov'era: %r → %r" % (m0, m1))
+        verifica(p.evaluate("() => (document.querySelector('#du-vp .du-nc--scelto') || {}).dataset.k") == k0, "Esc ha cambiato la scelta")
+        verifica(p.evaluate("() => document.activeElement && document.activeElement.id") == "du-zoom-schermo", "il fuoco non torna su «Schermo intero»")
+        # di nuovo, e questa volta si cerca e si sceglie
+        p.click("#du-zoom-schermo")
+        expect(p.locator("#du-fs-barra")).to_be_visible(timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        f = tela(p)
+        vw, vh = p.viewport_size["width"], p.viewport_size["height"]
+        print("      schermo intero: %r" % {k: f[k] for k in ("vp", "scala", "fuori", "pos")})
+        verifica(f["pos"] == "fixed" and f["vp"][0] <= 1 and abs(f["vp"][2] - vw) <= 2 and abs(f["vp"][5] - vh) <= 2 and f["vp"][1] <= 80,
+                 "la tela non è a tutta finestra: %r" % f["vp"])
+        verifica(not f["fuori"], "all'apertura dello schermo intero l'albero non è intero: %r" % f["fuori"])
+        verifica(p.evaluate("() => document.activeElement && document.activeElement.id") == "du-fs-cerca", "il fuoco non è sulla ricerca")
+        # la ricerca: evidenzia e centra; Invio va al seguente
+        p.fill("#du-fs-cerca", "ACM-11")
+        expect(p.locator("#du-fs-conto")).to_have_text(re.compile(r"^1 di [2-9]$"), timeout=T_BREVE)
+        tro = p.evaluate("""() => { const c = document.querySelector('#du-vp .du-nc--trovato-att'), v = document.getElementById('du-vp').getBoundingClientRect();
+            if (!c) return null; const q = c.getBoundingClientRect(); return { k: c.dataset.k, dx: q.left + q.width / 2 - (v.left + v.width / 2), dy: q.top + q.height / 2 - (v.top + v.height / 2),
+            n: document.querySelectorAll('#du-vp .du-nc--trovato').length }; }""")
+        verifica(tro and abs(tro["dx"]) <= 30 and abs(tro["dy"]) <= 30 and tro["n"] >= 2, "il pezzo trovato non è evidenziato e al centro: %r" % tro)
+        b.foto("BR10_cerca.png")
+        p.keyboard.press("Enter")
+        expect(p.locator("#du-fs-conto")).to_have_text(re.compile(r"^2 di "), timeout=T_BREVE)
+        k2 = p.evaluate("() => document.querySelector('#du-vp .du-nc--trovato-att').dataset.k")
+        verifica(k2 != tro["k"], "Invio non passa al risultato seguente")
+        p.fill("#du-fs-cerca", "zzzz")
+        expect(p.locator("#du-fs-conto")).to_have_text("Nessun pezzo trovato", timeout=T_BREVE)
+        p.fill("#du-fs-cerca", "")
+        expect(p.locator("#du-fs-conto")).to_have_text("", timeout=T_BREVE)
+        # «Mostra tutto» dello schermo intero: di nuovo l'albero intero
+        p.click("#du-fs-tutto")
+        p.wait_for_timeout(200)
+        verifica(not tela(p)["fuori"], "«Mostra tutto» nello schermo intero lascia schede fuori")
+        # il clic su una scheda con padre, figli e documenti: la sceglie ed evidenzia i collegamenti
+        kc = p.evaluate("""() => { for (const c of document.querySelectorAll('#du-vp .du-nc[data-k]')) if ((c.innerText || '').indexOf('ACM-1400') >= 0) return c.dataset.k; return null; }""")
+        verifica(kc, "la scheda di ACM-1400 non c'è")
+        p.locator("#nc-" + sid(kc)).click(position={"x": 30, "y": 60})
+        expect(p.locator("#du-fs-coll")).to_be_visible(timeout=T_BREVE)
+        # l'attenuazione ha una transizione d'opacità (sobria, 120-180 ms): si misura a transizione finita
+        p.wait_for_timeout(450)
+        testo = p.locator("#du-fs-coll").inner_text()
+        print("      collegamenti: %s" % testo.replace("\n", " | "))
+        verifica("ACM-1400" in testo and re.search(r"Padri \(1\)", testo, re.I) and re.search(r"Figli \([1-9]", testo, re.I) and re.search(r"Documenti \([1-9]", testo, re.I) and "ACM-1400_A.pdf" in testo,
+                 "il riquadro dei collegamenti non dice padri, figli e documenti: %r" % testo)
+        ev = p.evaluate("""(k) => { const v = document.getElementById('du-vp'); const st = (e) => +getComputedStyle(e).opacity;
+            const coll = Array.from(v.querySelectorAll('.du-nc--coll'), c => c.dataset.k), altri = Array.from(v.querySelectorAll('.du-nc[data-k]:not(.du-nc--coll)'));
+            return { fuoco: v.classList.contains('du-vp--fuoco'), coll, scelta: (v.querySelector('.du-nc--fuoco') || {}).dataset.k,
+              attenuati: altri.filter(c => st(c) < 0.5).length, altri: altri.length, tratti: v.querySelectorAll('.du-ar--coll').length }; }""", kc)
+        verifica(ev["fuoco"] and ev["scelta"] == kc and len(ev["coll"]) >= 3 and ev["tratti"] >= 2 and ev["altri"] >= 1 and ev["attenuati"] == ev["altri"],
+                 "l'evidenza dei collegamenti non va: %r" % ev)
+        verifica(p.evaluate("() => (document.querySelector('#du-vp .du-nc--scelto') || {}).dataset.k") == kc, "il clic nello schermo intero non sceglie il pezzo come la tela")
+        b.foto("BR10_collegamenti.png")
+        # un clic su un figlio nel riquadro: lo sceglie e lo centra
+        p.locator("#du-fs-figli .du-fs-voce").first.click()
+        p.wait_for_timeout(300)
+        verifica(p.evaluate("() => (document.querySelector('#du-vp .du-nc--fuoco') || {}).dataset.k") != kc, "il clic su un figlio nel riquadro non lo sceglie")
+        # Esc: la pagina torna dov'era (scorrimento, posizione della tela, vista), la scelta resta quella fatta
+        kf = p.evaluate("() => (document.querySelector('#du-vp .du-nc--fuoco') || {}).dataset.k")
+        p.keyboard.press("Escape")
+        expect(p.locator("#du-fs-barra")).to_have_count(0, timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        m2 = tela(p)
+        verifica(abs(m2["sy"] - m0["sy"]) <= 1 and abs(m2["vp"][1] - m0["vp"][1]) <= 1 and abs(m2["striscia"] - m0["striscia"]) <= 1 and m2["pos"] != "fixed",
+                 "uscendo dallo schermo intero la pagina non è tornata dov'era: %r → %r" % (m0, m2))
+        verifica(p.locator("#du-vp.du-vp--fuoco, #du-vp .du-nc--coll, .du-vp-posto").count() == 0, "dopo l'uscita restano evidenze o segnaposti")
+        verifica(p.evaluate("() => (document.querySelector('#du-vp .du-nc--scelto') || {}).dataset.k") == kf, "uscendo si è persa la scelta fatta nello schermo intero")
+        richieste = b.richieste_da(i)
+        verifica(not richieste, "lo schermo intero ha fatto richieste: %s" % ["%s %s" % (x["metodo"], x["path"]) for x in richieste])
+    finally:
+        if p.locator("#du-fs-barra").count():
+            p.keyboard.press("Escape")
+        p.set_viewport_size({"width": 1440, "height": 900})
+
 
 def main():
     ap = argparse.ArgumentParser()
