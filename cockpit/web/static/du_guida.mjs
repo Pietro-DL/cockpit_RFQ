@@ -85,6 +85,14 @@ export const AIUTI = [
     s: "La bozza disegnata come un albero di schede: il prodotto in alto, sotto i suoi assiemi e pezzi, con le quantità sui legami." },
   { k: "vista-elenco", sel: "#du-vista-elenco", t: "Elenco",
     s: "La stessa bozza come tabella: utile per cercare, filtrare e accettare le proposte una riga alla volta." },
+  { k: "br", sel: "#du-br-chiudi", t: "Browser della distinta",
+    s: "L'albero compatto di assiemi, pezzi e documenti, come il browser degli assiemi di un CAD. Un clic qui lo apre o lo richiude; la scelta resta per tutta la visita." },
+  { k: "br-espandi", sel: "#du-br-espandi", t: "Espandi e comprimi",
+    s: "«Espandi tutto» apre tutti i rami dell'albero, «Comprimi tutto» li richiude. Cambia solo il browser, non la bozza." },
+  { k: "br-filtro", sel: "#du-br-filtro", t: "Filtra il browser",
+    s: "Scrivi parte del codice o della descrizione: restano le righe che corrispondono e i loro padri. Esc cancella il filtro." },
+  { k: "br-albero", sel: "#du-br-albero", t: "Righe del browser",
+    s: "Ogni riga è un pezzo, con icona del tipo, codice, descrizione, quantità e stato; sotto ci sono i suoi file. Clic per sceglierlo nel pannello del nodo, doppio clic o Invio per centrarlo sull'organigramma. Frecce per muoversi, destra e sinistra per aprire e chiudere." },
   { k: "proposta-step", sel: "#du-proposta-step", t: "Proposta dello STEP",
     s: "Confronta la bozza con la struttura letta nello STEP sorgente. «Importa dalla proposta…» prende solo gli elementi che scegli; «Riparti dalla proposta…» crea una bozza nuova da capo." },
   { k: "nuovo", sel: "#du-nuovo-ass", t: "Aggiungi un pezzo",
@@ -201,6 +209,9 @@ const PASSI = {
       s: "Questa è l'ultima BOM confermata, in sola lettura. Per cambiarla, «Modifica la BOM confermata» apre una bozza nuova che parte da lei." },
     { sel: ["#du-vista-org", "#du-vista-elenco"], t: "Organigramma o Elenco",
       s: "Due modi di guardare la stessa bozza: l'albero di schede o la tabella con filtri e ricerca. Il pannello del nodo resta lo stesso." },
+    { sel: ["#du-br"], t: "Il browser della distinta",
+      s: "A sinistra dell'organigramma, l'albero compatto di tutta la distinta: assiemi e sottoassiemi annidati, pezzi, quantità e, sotto ogni pezzo, i suoi file PDF, DXF e STEP. Clic su una riga per scegliere il pezzo; se è richiuso, la linguetta «Browser» lo apre.",
+      manca: "Il browser compare nell'Organigramma, con una bozza o una BOM confermata." },
     { sel: ["#du-proposta-step"], t: "La proposta dello STEP",
       s: "Dice se la bozza e la struttura letta nello STEP sono diverse. Puoi importare solo alcuni elementi o ripartire da capo.",
       manca: "Il riquadro compare con una bozza nata da uno STEP sorgente." },
@@ -697,7 +708,8 @@ function testata() {
   else testa.append(box);
 }
 
-// avviaGuida: la chiama distinta_unica.mjs all'avvio, con #du nella pagina. Niente rete, niente stato della pagina.
+// avviaGuida: parte da sola quando il template carica questo modulo, dopo la pagina (i moduli girano nell'ordine del
+// documento, quindi la testata della pagina c'è già). Niente rete, niente stato della pagina.
 export function avviaGuida() {
   if (!document.getElementById("du") || A.strato) return;
   A.attivi = leggiMemoria() !== "0";
@@ -709,3 +721,5 @@ export function avviaGuida() {
   });
   pianifica();
 }
+
+avviaGuida();

@@ -1,7 +1,7 @@
 //go:build integrazione && browser
 
 // Browser, richiesta del 22/10 (frontend): il browser ad albero della Revisione, come quello degli assiemi di SolidWorks
-// o di Fusion 360, prima dell'organigramma (web/static/du_browser.mjs). Lo script e2e/distinta_unica_browser.py
+// o di Fusion 360, prima dell'organigramma (distinta_unica.mjs, blocco «browser ad albero»). Lo script e2e/distinta_unica_browser.py
 // (python -I) fa le prove DU-BR0…BR6 in sequenza sul banco finto di distinta_unica_banco_test.go (nuovoBancoDU):
 //
 //	COCKPIT_BROWSER_CANALE=msedge go test -tags "integrazione browser" -count=1 -run TestDistintaUnicaBrowserAlberoNelBrowser ./internal/transport/web/

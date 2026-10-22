@@ -12,7 +12,7 @@ Usa il Banco e gli aiuti di e2e/distinta_unica.py (stessa cartella). Le prove, i
      torna indietro, dice che cosa serve quando l'elemento non c'è, un clic sulla pagina velata non fa niente, Esc la
      chiude e il fuoco torna su «Guida»; nessuna richiesta al server mentre è aperta
   G4 «Mostra aiuti (?)» spento resta spento dopo una ricarica (memoria della scheda), e riacceso torna
-  G5 Revisione con la bozza: le icone sulla tela, sul pannello del nodo, sulla barra; il fumetto giusto; la pagina
+  G5 Revisione con la bozza: le icone sulla tela, sul browser ad albero, sul pannello del nodo, sulla barra; il fumetto giusto; la pagina
      scorsa non si sposta con gli aiuti e con i fumetti
   G6 la guida della Revisione: tutti i passi fino a «Fine», l'evidenziazione degli elementi che ci sono, la pagina che
      torna dov'era alla chiusura; nessuna richiesta al server
@@ -188,8 +188,16 @@ def g1(b):
     icona_accanto(b, "sg-c-step", "#du-sg-c-step")
     icona_accanto(b, "sg-aggiungi", "#du-sg-aggiungi")
     icona_accanto(b, "vai-revisione", "#du-vai-revisione")
-    for k in ("prodotti", "sg-riga", "st-candidata", "guarda", "conferma-sorgente", "altri", "scarta", "sg-dettaglio", "sg-c-tutti", "aggiorna", "menu-rfq"):
+    for k in ("prodotti", "sg-riga", "st-candidata", "guarda", "conferma-sorgente", "altri", "scarta", "sg-dettaglio", "aggiorna", "menu-rfq"):
         attendi_icona(b, k)
+    # «Tutti» è l'ultima cartella: con le voci più ariose del restyling, a 1440 × 900 sta sotto il bordo del riquadro delle
+    # cartelle, che scorre per conto suo, e un'icona compare solo sugli elementi in vista. Si scorre il riquadro (non la
+    # pagina), si cerca l'icona e si torna in cima
+    p.evaluate("() => { const a = document.querySelector('#du-sg-albero'); a.scrollTop = a.scrollHeight; }")
+    p.wait_for_timeout(300)
+    attendi_icona(b, "sg-c-tutti")
+    p.evaluate("() => { document.querySelector('#du-sg-albero').scrollTop = 0; }")
+    p.wait_for_timeout(300)
     # le icone non hanno testo e stanno fuori da #du: i testi e i nomi della pagina restano quelli
     verifica(p.locator("#du .du-aiuto").count() == 0, "icone «(?)» dentro la pagina")
     verifica(p.evaluate("() => [...document.querySelectorAll('.du-aiuto')].every((x) => x.textContent === '')"), "un'icona «(?)» ha del testo")
@@ -357,7 +365,7 @@ def g4(b):
     attendi_icona(b, "sg-cerca")
 
 
-@prova("G5", "Revisione con la bozza: icone su viste, tela, scheda, pannello del nodo e barra; fumetti giusti; con la pagina scorsa aiuti e fumetti non spostano niente")
+@prova("G5", "Revisione con la bozza: icone su viste, browser ad albero, tela, scheda, pannello del nodo e barra; fumetti giusti; con la pagina scorsa aiuti e fumetti non spostano niente")
 def g5(b):
     p = b.page
     du.x_bozza(b)
@@ -370,6 +378,22 @@ def g5(b):
     nessuna_copre(p)
     fumetto_al_mouse(b, "vista-org", "Organigramma", "albero")
     fumetto_al_mouse(b, "tela", "Organigramma della bozza", "pannello del nodo")
+    # il browser ad albero (integrazione frontend): l'aiuto sulla linguetta; aperto, gli aiuti su gesti, filtro e righe;
+    # poi si richiude com'era
+    attendi_icona(b, "br")
+    fumetto_al_mouse(b, "br", "Browser della distinta", "browser degli assiemi")
+    era_chiuso = p.locator("#du-br-chiudi").get_attribute("aria-expanded") == "false"
+    if era_chiuso:
+        p.locator("#du-br-chiudi").evaluate("(e) => e.click()")
+    expect(p.locator("#du-br-albero")).to_be_visible(timeout=T_BREVE)
+    p.wait_for_timeout(300)
+    for k in ("br-espandi", "br-filtro", "br-albero"):
+        attendi_icona(b, k)
+    fumetto_al_mouse(b, "br-filtro", "Filtra il browser", "Esc")
+    fumetto_al_fuoco(b, "br-albero", "Righe del browser")
+    if era_chiuso:
+        p.locator("#du-br-chiudi").evaluate("(e) => e.click()")
+        p.wait_for_timeout(300)
     # la barra e i gesti del nodo: si portano in vista scorrendo la pagina
     p.locator("#du-cta-bom").scroll_into_view_if_needed()
     p.wait_for_timeout(300)

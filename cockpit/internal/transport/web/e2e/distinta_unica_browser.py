@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """Browser, richiesta del 22/10 (frontend): il browser ad albero della Revisione, come quello degli assiemi di SolidWorks o
-di Fusion 360, prima dell'organigramma (web/static/du_browser.mjs).
+di Fusion 360, prima dell'organigramma (in distinta_unica.mjs, blocco «browser ad albero»).
 
 Lo lancia TestDistintaUnicaBrowserAlberoNelBrowser (distinta_unica_browser_albero_browser_test.go, tag `integrazione
 browser`) sul banco finto di distinta_unica_banco_test.go, con `python -I`. Riusa gli aiuti di distinta_unica.py (la
 classe Banco).
 
 Che cosa prova:
-  BR0  senza una scelta nella sessione il browser parte richiuso sotto i 1600 px di larghezza, aperto da lì in su
+  BR0  senza una scelta nella pagina il browser parte richiuso sotto i 1600 px di larghezza, aperto da lì in su
   BR1  le righe annidate: il prodotto, i suoi figli, sotto i pezzi i loro documenti come foglie (PDF, STEP…), con
        l'icona del tipo, il codice, la quantità del legame e lo stato; ruoli ARIA tree/treeitem con aria-level e
        aria-expanded; nessuna chiave interna (k-…), UUID o nome tecnico a schermo
@@ -17,9 +17,12 @@ Che cosa prova:
   BR4  il clic su una riga sceglie il pezzo come la tela: il pannello del nodo lo mostra, la riga è evidenziata, la
        pagina non si sposta (scrollY uguale ±1 px), la tela non si muove, il riquadro del browser non torna in cima e il
        fuoco resta sulla riga; il doppio clic centra il pezzo sulla tela
-  BR5  il pannello si richiude e si riapre, e la scelta resta dopo un ricaricamento della pagina (nella sessione)
+  BR5  il pannello si richiude e si riapre; la scelta resta passando a Sorgente e tornando (la pagina si ridisegna),
+       e dopo un ricaricamento si riparte dalla scelta di partenza (la pagina non usa la memoria del browser)
   BR6  le schermate a 1600 × 1000 e 1366 × 768: il browser e la tela stanno nella finestra, nessuno scorrimento
        orizzontale della pagina
+  BR7  le schermate dell'insieme a 1600 × 1000 e 1366 × 768 (Sorgente, anteprima, Revisione con il browser, aiuto «(?)»,
+       guida al passo del browser, elenco, wizard), senza scorrimento orizzontale
 
 Codici e nomi dei file inventati (ACME, ACM-xxxx), quelli del banco. Le schermate vanno nella cartella --foto.
 """
@@ -90,7 +93,7 @@ def testo_browser(p):
     return p.locator("#du-br").inner_text()
 
 
-@prova("BR0", "senza una scelta nella sessione: richiuso sotto i 1600 px (la tela larga come prima), aperto da 1600 px in su")
+@prova("BR0", "senza una scelta nella pagina: richiuso sotto i 1600 px (la tela larga come prima), aperto da 1600 px in su")
 def br0(b):
     p = b.page
     p.evaluate("() => { try { sessionStorage.removeItem('du-br-chiuso'); } catch (e) {} }")
@@ -262,7 +265,7 @@ def br4(b):
     print("      doppio clic: tela %r → %r" % (cam0, p.evaluate("() => document.querySelector('#du-vp-mondo').style.transform")))
 
 
-@prova("BR5", "il pannello si richiude e si riapre; la scelta resta dopo un ricaricamento (sessione)")
+@prova("BR5", "il pannello si richiude e si riapre; la scelta resta fra Sorgente e Revisione; ricaricando si riparte da capo")
 def br5(b):
     p = b.page
     revisione(b)
@@ -273,8 +276,18 @@ def br5(b):
     w1 = p.evaluate("() => document.querySelector('#du-vp').getBoundingClientRect().width")
     verifica(w1 >= w0 - 1, "richiuso il browser, la tela non si allarga: %r → %r" % (w0, w1))
     b.foto("BR5_chiuso.png")
+    b.passo("sorgente")
+    b.passo("revisione")
+    expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_LUNGO)
+    expect(p.locator("#du-br-corpo")).to_be_hidden(timeout=T_BREVE)
+    # aperto, resta aperto fra le schede; ricaricando, si riparte dalla scelta di partenza (richiuso sotto i 1600 px)
+    p.click("#du-br-chiudi")
+    b.passo("sorgente")
+    b.passo("revisione")
+    expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_LUNGO)
     p.reload()
     b.pronta()
+    b.passo("revisione")
     expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_LUNGO)
     p.click("#du-br-chiudi")
     expect(p.locator("#du-br-corpo")).to_be_visible(timeout=T_BREVE)
@@ -298,6 +311,65 @@ def br6(b):
         b.foto("BR6_%dx%d.png" % (w, hh))
     p.set_viewport_size({"width": 1440, "height": 900})
 
+
+
+def senza_scorrimento_orizzontale(p, cosa):
+    m = p.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
+    verifica(m[0] <= m[1] + 1, "scorrimento orizzontale in %s: %r" % (cosa, m))
+
+
+@prova("BR7", "l'insieme a 1600 × 1000 e 1366 × 768: Sorgente, anteprima, Revisione con il browser, elenco, aiuto «(?)», guida, wizard")
+def br7(b):
+    """Le schermate dell'insieme (integrazione frontend del 22/10) per chi rivede il lavoro: con --foto le salva; in ogni
+    vista controlla che la pagina non scorra di lato."""
+    p = b.page
+    for w, hh in ((1600, 1000), (1366, 768)):
+        p.set_viewport_size({"width": w, "height": hh})
+        n = "%dx%d" % (w, hh)
+        revisione(b)
+        b.passo("sorgente")
+        p.wait_for_timeout(400)
+        senza_scorrimento_orizzontale(p, "Sorgente " + n)
+        b.foto("BR7_%s_1_sorgente.png" % n)
+        b.guarda(b.al["ACM-1000_assieme.stp"])
+        p.wait_for_timeout(800)
+        senza_scorrimento_orizzontale(p, "anteprima " + n)
+        b.foto("BR7_%s_2_anteprima.png" % n)
+        revisione(b)
+        p.click("#du-br-espandi")
+        r = p.locator("#du-br-albero .du-br-riga--pezzo[aria-level='2']").first
+        r.click()
+        p.wait_for_timeout(500)
+        senza_scorrimento_orizzontale(p, "Revisione " + n)
+        b.foto("BR7_%s_3_revisione_browser.png" % n)
+        ic = p.locator('.du-aiuto[data-aiuto="br-filtro"]')
+        if ic.count() and ic.is_visible():
+            ic.hover()
+            expect(p.locator("#du-aiuto-fumetto")).to_be_visible(timeout=T_BREVE)
+            b.foto("BR7_%s_4_aiuto.png" % n)
+            p.mouse.move(5, hh - 5)
+        p.click("#du-guida-apri")
+        expect(p.locator(".du-guida")).to_be_visible(timeout=T_BREVE)
+        for _ in range(8):
+            if "browser" in p.locator(".du-guida-t").inner_text().lower():
+                break
+            p.keyboard.press("ArrowRight")
+            p.wait_for_timeout(250)
+        b.foto("BR7_%s_5_guida_browser.png" % n)
+        p.keyboard.press("Escape")
+        expect(p.locator(".du-guida")).to_have_count(0, timeout=T_BREVE)
+        b.vista("elenco")
+        p.wait_for_timeout(400)
+        senza_scorrimento_orizzontale(p, "elenco " + n)
+        b.foto("BR7_%s_6_elenco.png" % n)
+        b.vista("org")
+        b.apri_wizard()
+        p.wait_for_timeout(400)
+        b.foto("BR7_%s_7_wizard.png" % n)
+        p.keyboard.press("Escape")
+        p.wait_for_timeout(300)
+    p.set_viewport_size({"width": 1440, "height": 900})
+    b.apri()
 
 def main():
     ap = argparse.ArgumentParser()
