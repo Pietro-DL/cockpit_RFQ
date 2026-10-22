@@ -16,6 +16,10 @@ Usa il Banco e gli aiuti di e2e/distinta_unica.py (stessa cartella). Le prove, i
      scorsa non si sposta con gli aiuti e con i fumetti
   G6 la guida della Revisione: tutti i passi fino a «Fine», l'evidenziazione degli elementi che ci sono, la pagina che
      torna dov'era alla chiusura; nessuna richiesta al server
+  G7 (seconda richiesta del 22/10 [U]) gli aiuti in sovrimpressione: il fumetto dei (?) è piccolo (al più 320 px), sta
+     accanto all'icona, con la freccia, dentro la finestra e senza coprire l'elemento spiegato; la guida non vela la
+     pagina (solo il contorno luminoso), il suo fumetto compatto sta accanto all'elemento evidenziato e non sopra, con
+     Esci, Indietro e Avanti su una riga; a 1600 × 1000 e a 1366 × 768
 I codici e i nomi dei file sono inventati (ACM-xxxx), come nel banco.
 """
 import argparse
@@ -474,6 +478,87 @@ def g6(b):
     richieste = b.richieste_da(i)
     verifica(not richieste, "la guida ha fatto richieste: %s" % ["%s %s" % (x["metodo"], x["path"]) for x in richieste])
     print("         passi della Revisione: %s" % " | ".join(titoli))
+
+
+
+# ---- seconda richiesta del 22/10 [U] (Stefano): aiuti in sovrimpressione, piccoli e accanto a quello che spiegano
+
+FUMETTO = r"""(arg) => { const f = document.getElementById(arg.f); const t = arg.t ? document.querySelector(arg.t) : null; const ic = arg.k ? document.querySelector('.du-aiuto[data-aiuto="' + arg.k + '"]') : null;
+  if (!f) return null; const r = f.getBoundingClientRect(); const q = t ? t.getBoundingClientRect() : null; const i = ic ? ic.getBoundingClientRect() : null;
+  const inter = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  const dist = (a, b) => Math.hypot(Math.max(a.left - b.right, 0, b.left - a.right), Math.max(a.top - b.bottom, 0, b.top - a.bottom));
+  return { w: r.width, h: r.height, l: r.left, t: r.top, r: r.right, b: r.bottom, vw: document.documentElement.clientWidth, vh: innerHeight,
+    copre: q ? inter(r, q) : 0, area: r.width * r.height, distIcona: i ? dist(r, i) : null, distElem: q ? dist(r, q) : null,
+    freccia: !!f.querySelector('.du-freccia'), lato: f.dataset.lato || '' }; }"""
+
+AIUTI_G7 = (("aggiorna", "#du-aggiorna", "Aggiorna"), ("vista-org", "#du-vista-org", "Organigramma"), ("zoom", "#du-zoom-adatta", "Mostra tutto"),
+            ("schermo", "#du-zoom-schermo", "Schermo intero"), ("br-filtro", "#du-br-filtro", "Filtra il browser"))
+
+
+@prova("G7", "aiuti in sovrimpressione: il fumetto dei (?) è piccolo, accanto all'icona e non copre l'elemento; la guida non vela la pagina e il suo fumetto compatto sta accanto all'elemento, con i pulsanti su una riga")
+def g7(b):
+    p = b.page
+    try:
+        for w, hh in ((1600, 1000), (1366, 768)):
+            p.set_viewport_size({"width": w, "height": hh})
+            b.apri()
+            du.x_bozza(b)
+            if p.locator("#du-br-chiudi").get_attribute("aria-expanded") == "false":
+                p.click("#du-br-chiudi")
+            scorri(p, "cima")
+            p.wait_for_timeout(400)
+            for k, sel, titolo in AIUTI_G7:
+                if icona(p, k) is None:
+                    # l'elemento può stare sotto la piega a 768 px: lo si porta in vista senza aiuti (la prova misura il fumetto, non lo scorrimento)
+                    p.locator(sel).scroll_into_view_if_needed()
+                    p.wait_for_timeout(300)
+                attendi_icona(b, k)
+                p.locator('.du-aiuto[data-aiuto="%s"]' % k).hover()
+                expect(fumetto(p)).to_be_visible(timeout=T_BREVE)
+                verifica(titolo in fumetto(p).inner_text(), "il fumetto di «%s» non dice «%s»" % (k, titolo))
+                m = p.evaluate(FUMETTO, {"f": "du-aiuto-fumetto", "t": sel, "k": k})
+                print("      %dx%d (?) %-10s %r" % (w, hh, k, {x: round(m[x]) if isinstance(m[x], float) else m[x] for x in ("w", "h", "copre", "distIcona", "lato")}))
+                verifica(m["w"] <= 320 and m["h"] <= 200, "il fumetto di «%s» è troppo grande: %r" % (k, m))
+                verifica(m["l"] >= 0 and m["t"] >= 0 and m["r"] <= m["vw"] and m["b"] <= m["vh"], "il fumetto di «%s» esce dalla finestra: %r" % (k, m))
+                verifica(m["copre"] <= 0.05 * m["area"], "il fumetto di «%s» copre l'elemento che spiega: %r" % (k, m))
+                # accanto: a filo dell'elemento spiegato (o della sua icona) e vicino all'icona sotto il mouse
+                verifica(m["distIcona"] is not None and m["distIcona"] <= 60 and min(m["distIcona"], m["distElem"]) <= 24, "il fumetto di «%s» non sta accanto all'icona: %r" % (k, m))
+                verifica(m["freccia"] and m["lato"] in ("sotto", "sopra", "destra", "sinistra"), "il fumetto di «%s» non ha la freccia verso l'elemento: %r" % (k, m))
+                if k == "zoom":
+                    b.foto("G7_%dx%d_aiuto.png" % (w, hh))
+                p.mouse.move(2, hh - 2)
+                expect(fumetto(p)).to_be_hidden(timeout=T_BREVE)
+            # la guida: niente velo, contorno luminoso, fumetto compatto accanto e non sopra, pulsanti su una riga
+            scorri(p, "cima")
+            p.wait_for_timeout(300)
+            apri_guida(b)
+            n, tot = passo_guida(p)
+            velo = p.evaluate("""() => { const b = document.querySelector('.du-guida-blocco'), a = document.getElementById('du-guida-anello');
+                return { fondo: getComputedStyle(b).backgroundColor, ombra: a ? getComputedStyle(a).boxShadow : '' }; }""")
+            verifica(velo["fondo"] in ("rgba(0, 0, 0, 0)", "transparent") and "9999" not in velo["ombra"], "la guida vela ancora la pagina: %r" % velo)
+            for _ in range(tot):
+                ev = p.locator("#du-guida").get_attribute("data-evidenzia") == "1"
+                m = p.evaluate(FUMETTO, {"f": "du-guida-fumetto", "t": "#du-guida-anello" if ev else "", "k": ""})
+                riga = p.evaluate("() => Array.from(document.querySelectorAll('#du-guida-fumetto .du-guida-piede button'), x => Math.round(x.getBoundingClientRect().top))")
+                anello = p.evaluate(RETT, "#du-guida-anello") if ev else None
+                grande = anello and (anello["w"] > 0.55 * m["vw"] and anello["h"] > 0.5 * m["vh"])
+                verifica(m["w"] <= 320, "passo %d: il fumetto della guida è largo %s px" % (n, m["w"]))
+                verifica(m["l"] >= 0 and m["t"] >= 0 and m["r"] <= m["vw"] and m["b"] <= m["vh"], "passo %d: il fumetto esce dalla finestra: %r" % (n, m))
+                verifica(len(riga) == 3 and max(riga) - min(riga) <= 2, "passo %d: Esci, Indietro e Avanti non stanno su una riga: %r" % (n, riga))
+                if ev and not grande:
+                    verifica(m["copre"] <= 0.05 * m["area"], "passo %d: il fumetto copre l'elemento evidenziato: %r / %r" % (n, m, anello))
+                    verifica(m["distElem"] is not None and m["distElem"] <= 24, "passo %d: il fumetto non sta accanto all'elemento: %r" % (n, m))
+                if n == 3:
+                    b.foto("G7_%dx%d_guida_passo3.png" % (w, hh))
+                if n == tot:
+                    break
+                p.click("#du-guida-avanti")
+                p.wait_for_timeout(250)
+                n, _ = passo_guida(p)
+            p.keyboard.press("Escape")
+            expect(p.locator("#du-guida")).to_have_count(0, timeout=T_BREVE)
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
 
 
 def main():

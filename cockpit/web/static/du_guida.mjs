@@ -8,8 +8,9 @@
 //    della pagina. Si ricalcolano dopo ogni ridisegno (MutationObserver), allo scorrimento e al ridimensionamento;
 //    l'interruttore «Mostra aiuti (?)» nella testata le spegne, e la scelta resta nella scheda del browser;
 //  - la «Guida»: un percorso a passi (uno per la Sorgente, uno per la Revisione, secondo la scheda aperta) che evidenzia
-//    l'elemento vero con un riquadro sopra la pagina velata e lo spiega; se l'elemento in quello stato non c'è, il passo
-//    dice che cosa serve per vederlo.
+//    l'elemento vero con un contorno luminoso e lo spiega in un fumetto compatto accanto a lui; la pagina non si vela e
+//    resta leggibile intorno (seconda richiesta del 22/10 [U]); se l'elemento in quello stato non c'è, il passo dice che
+//    cosa serve per vederlo.
 //
 // Regole: nessuna chiamata al server (niente ponte, niente fetch), nessun gesto della pagina, nessuno stato della pagina
 // letto o scritto se non dal DOM; i testi dicono che cosa fa davvero la pagina, senza chiavi interne né gergo. Tutto il
@@ -218,7 +219,7 @@ const PASSI = {
     { sel: ["#du-nuovo-ass", "#du-zoom-centra"], t: "Gli strumenti",
       s: "Aggiungi un assieme, un particolare o un commerciale; confronta con la proposta; apri i nodi segnalati; regola lo zoom.",
       manca: "Gli strumenti compaiono nell'Organigramma, con una bozza aperta." },
-    { sel: ["#du-vp", "#du-elenco"], t: "La bozza",
+    { sel: ["#du-vp", "#du-elenco"], t: "La bozza", scorri: true,
       s: "Ogni scheda è un pezzo: codice, revisione, miniatura del disegno. Clic su una scheda per sceglierla; trascina lo sfondo per spostarti.",
       manca: "La bozza compare quando il prodotto ne ha una." },
     { sel: ["#du-pannello"], t: "Il pannello del nodo", scorri: true,
@@ -299,7 +300,7 @@ function inVista(e, r) {
 
 // ---------------------------------------------------------------- le icone «(?)» e il fumetto
 
-const A = { attivi: true, strato: null, fumetto: null, icone: new Map(), corrente: null, rif: 0, oss: null };
+const A = { attivi: true, strato: null, fumetto: null, icone: new Map(), corrente: null, voce: null, rif: 0, oss: null };
 
 function creaStrato() {
   const s = el("div", "du-aiuti");
@@ -340,26 +341,58 @@ function icona(voce) {
 }
 function mostraFumetto(voce, b) {
   const f = A.fumetto;
-  f.replaceChildren(el("strong", "du-aiuto-fumetto-t", voce.t), el("span", "du-aiuto-fumetto-s", voce.s));
+  f.replaceChildren(el("strong", "du-aiuto-fumetto-t", voce.t), el("span", "du-aiuto-fumetto-s", voce.s), el("span", "du-freccia"));
   f.dataset.aiuto = voce.k;
   f.hidden = false;
   A.corrente = b;
+  A.voce = voce;
   posizionaFumetto(b);
+}
+// accanto: dove mettere un fumetto di w × hgt accanto al rettangolo r (l'elemento spiegato) senza coprirlo, dentro la
+// finestra, con la freccia verso il punto (ax, ay). L'ordine dei lati è quello di «ordine»; se nessun lato ha posto, il
+// fumetto va sotto il punto (e copre una parte dell'elemento: succede solo con gli elementi grandi quasi quanto la
+// finestra). Torna {x, y, lato, fx, fy}.
+function accanto(r, w, hgt, ax, ay, ordine) {
+  const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  const M = 8, D = 10;
+  const cx = (x) => Math.max(M, Math.min(x, vw - w - M));
+  const cy = (y) => Math.max(M, Math.min(y, vh - hgt - M));
+  const prove = {
+    sotto: () => (r.bottom + D + hgt <= vh - M ? { x: cx(ax - w / 2), y: r.bottom + D, lato: "sotto" } : null),
+    sopra: () => (r.top - D - hgt >= M ? { x: cx(ax - w / 2), y: r.top - D - hgt, lato: "sopra" } : null),
+    destra: () => (r.right + D + w <= vw - M ? { x: r.right + D, y: cy(ay - 22), lato: "destra" } : null),
+    sinistra: () => (r.left - D - w >= M ? { x: r.left - D - w, y: cy(ay - 22), lato: "sinistra" } : null),
+  };
+  let p = null;
+  for (const l of ordine) {
+    p = prove[l]();
+    if (p) break;
+  }
+  if (!p) p = { x: cx(ax - w / 2), y: cy(ay + 14), lato: "sotto" };
+  p.fx = Math.max(12, Math.min(ax - p.x, w - 12));
+  p.fy = Math.max(12, Math.min(ay - p.y, hgt - 12));
+  return p;
 }
 function posizionaFumetto(b) {
   const f = A.fumetto;
   if (f.hidden || !b) return;
-  const r = b.getBoundingClientRect();
-  const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  const ri = b.getBoundingClientRect();
+  // l'elemento spiegato e l'icona insieme: il fumetto non copre né l'uno né l'altra
+  const t = A.voce ? trova(A.voce) : null;
+  const rt = t ? t.getBoundingClientRect() : ri;
+  const vh = window.innerHeight, vw = document.documentElement.clientWidth;
+  // un elemento molto grande (la tela, un elenco) non si aggira: il fumetto sta accanto all'icona
+  const grande = rt.width > vw * 0.6 || rt.height > vh * 0.5;
+  const r = grande ? ri : { left: Math.min(rt.left, ri.left), top: Math.min(rt.top, ri.top), right: Math.max(rt.right, ri.right), bottom: Math.max(rt.bottom, ri.bottom) };
   f.style.left = "0px";
   f.style.top = "0px";
   const w = f.offsetWidth, hgt = f.offsetHeight;
-  let x = r.left + r.width / 2 - w / 2;
-  x = Math.max(8, Math.min(x, vw - w - 8));
-  let y = r.bottom + 8;
-  if (y + hgt > vh - 8) y = Math.max(8, r.top - hgt - 8);
-  f.style.left = Math.round(x) + "px";
-  f.style.top = Math.round(y) + "px";
+  const p = accanto(r, w, hgt, ri.left + ri.width / 2, ri.top + ri.height / 2, ["sotto", "sopra", "destra", "sinistra"]);
+  f.dataset.lato = p.lato;
+  f.style.setProperty("--du-fx", Math.round(p.fx) + "px");
+  f.style.setProperty("--du-fy", Math.round(p.fy) + "px");
+  f.style.left = Math.round(p.x) + "px";
+  f.style.top = Math.round(p.y) + "px";
 }
 function nascondiFumetto(b) {
   if (b && A.corrente !== b) return;
@@ -608,11 +641,11 @@ function mostraPasso(scorri) {
   avanti.type = "button";
   avanti.id = "du-guida-avanti";
   avanti.addEventListener("click", () => vai(1));
-  const punti = el("span", "du-guida-punti");
-  punti.setAttribute("aria-hidden", "true");
-  for (let i = 0; i < tot; i++) punti.append(el("span", "du-guida-punto" + (i === G.i ? " du-guida-punto--att" : "")));
-  piede.append(esci, punti, indietro, avanti);
-  f.replaceChildren(conta, titolo, testo, nota || "", piede);
+  // «Esci» a sinistra, «Indietro» e «Avanti» insieme a destra, su una riga sola
+  const destra = el("span", "du-guida-piede-d");
+  destra.append(indietro, avanti);
+  piede.append(esci, destra);
+  f.replaceChildren(conta, titolo, testo, nota || "", piede, el("span", "du-freccia"));
   f.dataset.passo = String(G.i + 1);
   G.box.dataset.evidenzia = lista.length ? "1" : "0";
   posizionaGuida();
@@ -640,30 +673,20 @@ function posizionaGuida() {
     a.style.height = Math.round(r.bottom - r.top) + "px";
   } else a.hidden = true;
   const w = f.offsetWidth, hgt = f.offsetHeight;
-  let x, y;
-  if (!r) {
-    x = (vw - w) / 2;
-    y = (vh - hgt) / 2;
-  } else if (r.bottom + 12 + hgt <= vh - 8) {
-    y = r.bottom + 12;
-    x = r.left;
-  } else if (r.top - 12 - hgt >= 8) {
-    y = r.top - 12 - hgt;
-    x = r.left;
-  } else if (r.right + 12 + w <= vw - 8) {
-    x = r.right + 12;
-    y = r.top;
-  } else if (r.left - 12 - w >= 8) {
-    x = r.left - 12 - w;
-    y = r.top;
-  } else {
-    x = (vw - w) / 2;
-    y = vh - hgt - 16;
+  // accanto all'elemento, non sopra (seconda richiesta del 22/10 [U]): prima a destra o a sinistra, poi sotto o sopra;
+  // senza elemento il fumetto sta in basso al centro, senza freccia
+  let pz;
+  if (!r) pz = { x: (vw - w) / 2, y: vh - hgt - 24, lato: "no", fx: 0, fy: 0 };
+  else {
+    const ax = (r.left + r.right) / 2, ay = (Math.max(r.top, 0) + Math.min(r.bottom, vh)) / 2;
+    const largo = r.right - r.left > vw * 0.55;
+    pz = accanto(r, w, hgt, largo ? Math.min(r.left + 160, ax) : ax, largo ? ay : Math.min(ay, r.top + 24), largo ? ["sotto", "sopra", "destra", "sinistra"] : ["destra", "sinistra", "sotto", "sopra"]);
   }
-  x = Math.max(8, Math.min(x, vw - w - 8));
-  y = Math.max(8, Math.min(y, vh - hgt - 8));
-  f.style.left = Math.round(x) + "px";
-  f.style.top = Math.round(y) + "px";
+  f.dataset.lato = pz.lato;
+  f.style.setProperty("--du-fx", Math.round(pz.fx) + "px");
+  f.style.setProperty("--du-fy", Math.round(pz.fy) + "px");
+  f.style.left = Math.round(pz.x) + "px";
+  f.style.top = Math.round(pz.y) + "px";
 }
 export function chiudiGuida() {
   if (!G.aperta) return;

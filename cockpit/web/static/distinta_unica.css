@@ -674,38 +674,49 @@
 .du-aiuto::before { content: "?"; }
 .du-aiuto[hidden] { display: none; }
 .du-aiuto:hover, .du-aiuto:focus-visible { opacity: 1; background: var(--du-g-acc); color: #FFFFFF; border-color: var(--du-g-acc); box-shadow: 0 0 0 3px var(--du-g-glow); outline: none; }
-.du-aiuto-fumetto { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; display: grid; gap: 4px; box-sizing: border-box;
-  width: max-content; max-width: min(320px, calc(100vw - 16px)); padding: 10px 12px; border-radius: var(--du-r2);
+.du-aiuto-fumetto { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; display: grid; gap: 3px; box-sizing: border-box;
+  width: max-content; max-width: min(300px, calc(100vw - 16px)); padding: 8px 11px; border-radius: var(--du-r2);
   background: linear-gradient(160deg, var(--du-ink) 0%, #0B3440 100%); color: #EAF6F9; border: 1px solid var(--du-acc-line);
   box-shadow: 0 10px 30px rgba(10, 20, 28, .32), 0 0 0 1px rgba(255, 255, 255, .04) inset; font: 400 12.5px/1.45 var(--du-g-f); }
 .du-aiuto-fumetto[hidden] { display: none; }
 .du-aiuto-fumetto .du-aiuto-fumetto-t { font: 700 12.5px/1.3 var(--du-g-fc); letter-spacing: .02em; color: #FFFFFF; }
 .du-guida { position: fixed; inset: 0; z-index: 100; font: 400 14px/1.5 var(--du-g-f); color: var(--du-g-ink); }
+/* seconda richiesta del 22/10 [U]: niente velo sulla pagina, che resta visibile e leggibile intorno; solo un contorno
+   luminoso attorno all'elemento spiegato. Lo strato trasparente resta: un clic sulla pagina durante la guida non fa niente */
 .du-guida-blocco { position: absolute; inset: 0; background: transparent; }
-.du-guida[data-evidenzia="0"] .du-guida-blocco { background: var(--du-g-scrim); }
-.du-guida-anello { position: fixed; box-sizing: border-box; pointer-events: none; border-radius: var(--du-r2); border: 2px solid var(--du-acc-line);
-  box-shadow: 0 0 0 9999px var(--du-g-scrim), 0 0 0 4px var(--du-g-glow), 0 0 24px 6px var(--du-g-glow); }
+.du-guida-anello { position: fixed; box-sizing: border-box; pointer-events: none; border-radius: var(--du-r2); border: 2px solid var(--du-acc);
+  box-shadow: 0 0 0 4px var(--du-g-glow), 0 0 18px 4px var(--du-g-glow); }
 .du-guida-anello[hidden] { display: none; }
-.du-guida-fumetto { position: fixed; left: 0; top: 0; box-sizing: border-box; width: min(380px, calc(100vw - 16px)); display: grid; gap: 8px;
-  padding: var(--du-s4) var(--du-s5) var(--du-s3); border-radius: var(--du-r3); background: var(--du-g-surf); border: 1px solid var(--du-g-line);
-  box-shadow: var(--du-sh2); }
+/* il fumetto della guida: compatto (300 px), accanto all'elemento evidenziato e non sopra, con la freccia verso di lui */
+.du-guida-fumetto { position: fixed; left: 0; top: 0; box-sizing: border-box; width: min(300px, calc(100vw - 16px)); display: grid; gap: 5px;
+  padding: 11px 13px 9px; border-radius: var(--du-r2); background: var(--du-g-surf); border: 1px solid var(--du-g-line);
+  box-shadow: var(--du-sh2); font-size: 13px; line-height: 1.45; }
 .du-guida-fumetto::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; border-radius: var(--du-r3) var(--du-r3) 0 0; background: linear-gradient(90deg, var(--du-g-acc), var(--du-acc-line)); }
 .du-guida-conta { font: 600 11px/1.3 var(--du-g-fc); letter-spacing: .08em; text-transform: uppercase; color: var(--du-g-acc2); }
-.du-guida-t { margin: 0; font: 700 17px/1.3 var(--du-g-fc); color: var(--du-g-ink); }
+.du-guida-t { margin: 0; font: 700 15px/1.3 var(--du-g-fc); color: var(--du-g-ink); }
 .du-guida-s { margin: 0; color: var(--du-g-ink2); }
-.du-guida-manca { margin: 0; padding: 8px 12px; border-radius: var(--du-r1); background: var(--du-ver-soft); border: 1px solid var(--du-ver-line); color: var(--du-ver); font-size: 13px; }
-.du-guida-piede { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
-.du-guida-punti { display: inline-flex; gap: 4px; margin-right: auto; margin-left: 4px; }
-.du-guida-punto { width: 6px; height: 6px; border-radius: 999px; background: var(--du-g-line); }
-.du-guida-punto--att { width: 16px; background: var(--du-g-acc2); }
-.du-guida-btn { min-height: 32px; padding: 4px 14px; border-radius: 8px; box-shadow: var(--du-sh1); border: 1px solid var(--du-g-line); background: var(--du-g-surf); color: var(--du-g-ink);
-  font: 600 13px/1.2 var(--du-g-f); cursor: pointer; }
+.du-guida-manca { margin: 0; padding: 6px 10px; border-radius: var(--du-r1); background: var(--du-ver-soft); border: 1px solid var(--du-ver-line); color: var(--du-ver); font-size: 12.5px; }
+/* il piede su una riga sola: «Esci» a sinistra, «Indietro» e «Avanti» insieme a destra (revisione di design: «Avanti»
+   andava a capo); i puntini dei passi non ci sono più, il contatore in alto dice già a che passo si è */
+.du-guida-piede { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; margin-top: 3px; }
+.du-guida-piede-d { display: inline-flex; flex-wrap: nowrap; gap: 6px; margin-left: auto; }
+.du-guida-btn { min-height: 28px; padding: 3px 11px; border-radius: 8px; box-shadow: var(--du-sh1); border: 1px solid var(--du-g-line); background: var(--du-g-surf); color: var(--du-g-ink);
+  font: 600 12.5px/1.2 var(--du-g-f); cursor: pointer; white-space: nowrap; }
 .du-guida-btn:hover:not(:disabled) { border-color: var(--du-g-acc2); }
 .du-guida-btn:disabled { opacity: .45; cursor: default; }
 .du-guida-btn:focus-visible { outline: 2px solid var(--du-acc); outline-offset: 2px; box-shadow: 0 0 0 5px var(--du-acc-halo); }
 .du-guida-btn--pri { background: var(--du-g-acc); border-color: var(--du-g-acc); color: #FFFFFF; }
 .du-guida-btn--pri:hover:not(:disabled) { background: var(--du-acc-hover); border-color: var(--du-acc-hover); }
 .du-guida-btn--ghost { border-color: transparent; color: var(--du-g-ink2); }
+/* la freccia dei fumetti (aiuti e guida) verso l'elemento: un quadrato ruotato col colore e il bordo del fumetto, sul
+   lato indicato da data-lato; la posizione lungo il lato la mette il codice (--du-fx / --du-fy) */
+.du-freccia { position: absolute; width: 10px; height: 10px; box-sizing: border-box; background: inherit; border: inherit; transform: rotate(45deg); pointer-events: none; }
+.du-aiuto-fumetto[data-lato="sotto"] > .du-freccia, .du-guida-fumetto[data-lato="sotto"] > .du-freccia { top: -6px; left: calc(var(--du-fx, 20px) - 5px); border-right: 0; border-bottom: 0; }
+.du-aiuto-fumetto[data-lato="sopra"] > .du-freccia, .du-guida-fumetto[data-lato="sopra"] > .du-freccia { bottom: -6px; left: calc(var(--du-fx, 20px) - 5px); border-left: 0; border-top: 0; }
+.du-aiuto-fumetto[data-lato="destra"] > .du-freccia, .du-guida-fumetto[data-lato="destra"] > .du-freccia { left: -6px; top: calc(var(--du-fy, 20px) - 5px); border-right: 0; border-top: 0; }
+.du-aiuto-fumetto[data-lato="sinistra"] > .du-freccia, .du-guida-fumetto[data-lato="sinistra"] > .du-freccia { right: -6px; top: calc(var(--du-fy, 20px) - 5px); border-left: 0; border-bottom: 0; }
+.du-aiuto-fumetto[data-lato="no"] > .du-freccia, .du-guida-fumetto[data-lato="no"] > .du-freccia { display: none; }
+.du-aiuto-fumetto > .du-freccia { background: #0D2A34; }
 @media (prefers-reduced-motion: no-preference) {
   .du-aiuto { transition: background-color .12s, color .12s, box-shadow .12s, opacity .12s; }
   .du-guida-anello { transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease; }
