@@ -7,14 +7,16 @@ import (
 )
 
 // L1 — il campo stessa_parte_di di una forma (KN-01, stessa_parte.go): la relazione della stessa parte fra due letture
-// di un nome di file. Valida accetta un elenco di famiglie della stessa grammatica, di un altro namespace, su una forma
-// che legge solo nome_file; ogni altro uso è un errore con il suo percorso. Senza il campo, canonico e hash di prima.
+// di un nome di file. Valida accetta un elenco di famiglie della stessa grammatica, di un altro namespace e con almeno
+// una forma sul nome del file, su una forma che legge solo nome_file; ogni altro uso è un errore con il suo percorso.
+// Senza il campo, canonico e hash di prima.
 
 // conRelazione: la grammatica ACME con acme-documento in un namespace a sé e la sua forma del nome che dichiara la
 // relazione verso le famiglie date.
 func conRelazione(t *testing.T, namespace string, cambia func(*FormaCodice)) []string {
 	t.Helper()
 	ds := mutata(t, func(g *Grammatica) {
+		conNomeFile(g)
 		for i := range g.Famiglie {
 			if g.Famiglie[i].ID != "acme-documento" {
 				continue
@@ -28,6 +30,20 @@ func conRelazione(t *testing.T, namespace string, cambia func(*FormaCodice)) []s
 		out = append(out, d.Codice+" "+d.Percorso)
 	}
 	return out
+}
+
+// conNomeFile: acme-etichetta, che nella grammatica ACME legge solo corpo e oggetto, con la forma e l'etichetta anche sul
+// nome del file, perché possa essere il codice della parte di una relazione (le famiglie elencate devono leggere il
+// nome).
+func conNomeFile(g *Grammatica) {
+	for i := range g.Famiglie {
+		f := &g.Famiglie[i]
+		if f.ID != "acme-etichetta" {
+			continue
+		}
+		f.Forme[0].Selettori = append(f.Forme[0].Selettori, "nome_file")
+		f.Etichette[0].Selettori = append(f.Etichette[0].Selettori, "nome_file")
+	}
 }
 
 func TestStessaParteDiValida(t *testing.T) {
@@ -44,6 +60,7 @@ func TestStessaParteDiValida(t *testing.T) {
 		{"famiglia assente", "acme-doc", func(f *FormaCodice) { f.StessaParteDi = []string{"acme-nessuna"} }, CodiceRiferimentoPendente + " " + p + "[0]"},
 		{"la famiglia della forma", "acme-doc", func(f *FormaCodice) { f.StessaParteDi = []string{"acme-documento"} }, CodiceEnumIgnoto + " " + p + "[0]"},
 		{"lo stesso namespace", "acme", func(f *FormaCodice) { f.StessaParteDi = []string{"acme-prefisso"} }, CodiceEnumIgnoto + " " + p + "[0]"},
+		{"una famiglia che non legge il nome del file", "acme-doc", func(f *FormaCodice) { f.StessaParteDi = []string{"acme-punti"} }, CodiceEnumIgnoto + " " + p + "[0]"},
 		{"un ID vuoto", "acme-doc", func(f *FormaCodice) { f.StessaParteDi = []string{" "} }, CodiceCampoObbligatorio + " " + p + "[0]"},
 		{"una ripetizione", "acme-doc", func(f *FormaCodice) { f.StessaParteDi = []string{"acme-prefisso", "acme-prefisso"} }, CodiceInsiemeConDuplicati + " " + p + "[1]"},
 		{"fuori dal nome del file", "acme-doc", func(f *FormaCodice) {
@@ -76,6 +93,7 @@ func TestStessaParteDiNelCanonico(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	conNomeFile(&g)
 	for i := range g.Famiglie {
 		if g.Famiglie[i].ID == "acme-documento" {
 			g.Famiglie[i].Namespace = "acme-doc"

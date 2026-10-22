@@ -108,8 +108,8 @@ markmap:
 - **`stessa_parte.go`** — responsabilità (KN-01, decisione dell'utente del 22/10):
   - il campo facoltativo `stessa_parte_di` di una forma: le famiglie (della stessa grammatica, di un altro namespace)
     il cui codice, letto nello stesso nome di file, è la stessa parte del documento letto dalla forma. Solo su una
-    forma che legge soltanto `nome_file`; mai la famiglia della forma, mai lo stesso namespace; un ID che non c'è è un
-    riferimento pendente. Senza il campo, canonico e hash di prima (omitempty, come i campi di GP-1); un binario
+    forma che legge soltanto `nome_file`; mai la famiglia della forma, mai lo stesso namespace, mai una famiglia senza
+    forme sul nome del file (la relazione non scatterebbe mai); un ID che non c'è è un riferimento pendente. Senza il campo, canonico e hash di prima (omitempty, come i campi di GP-1); un binario
     anteriore rifiuta la grammatica che lo usa (chiave sconosciuta) e scarta solo quel cliente.
   - Il motore A copia il campo nella lettura (`LetturaForma.StessaParteDi`) e l'ancoraggio ne fa l'equivalenza
     proposta (`equivalenze.go`): il codice Go non sa quale cliente, quali etichette o quali nomi la usano.

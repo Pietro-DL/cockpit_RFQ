@@ -241,8 +241,8 @@ func TestLaRelazioneDelNomeContraddetta(t *testing.T) {
 	}
 	d := conCodice(e.Diagnostiche, ancoraggio.CodiceEquivalenzaCartiglioContesa)
 	if len(d) == 0 || !contiene(d[0].Rif, "identita:acme-doc:101000002_01::") || !contiene(d[0].Rif, "identita:acme:210000003::") ||
-		!contiene(d[0].Rif, "identita:acme:210000002::") {
-		t.Errorf("l'avviso della contesa, con le identità: %+v", d)
+		!contiene(d[0].Rif, "identita:acme:210000002::") || !strings.Contains(d[0].Messaggio, "nomi dei file") {
+		t.Errorf("l'avviso della contesa, con le identità e il testo che dice anche i nomi dei file: %+v", d)
 	}
 
 	doppio := stepPezzo(t, m, 0xb08, "210000002_T3_101000002_01 210000003.stp", "101000002_01")
@@ -256,8 +256,10 @@ func TestLaRelazioneDelNomeContraddetta(t *testing.T) {
 }
 
 // TestLaRelazioneDelNomeSoloConLaForma: un nome senza l'etichetta (il documento letto dalla forma «nudo», che non
-// dichiara la relazione) non lega niente; e con la grammatica senza stessa_parte_di nemmeno il nome con l'etichetta: i
-// nodi non hanno il codice della parte, il 2D letto solo come materiale resta com'era, nessuna diagnostica nuova.
+// dichiara la relazione) non lega niente; e con la forma del 3D senza stessa_parte_di nemmeno il nome con l'etichetta
+// T3. La famiglia del 2D lo dichiara ancora: la seconda metà prova anche che la coppia del 2D (codice e documento 2D,
+// un altro namespace) non finisce mai sui nodi dello STEP, che hanno l'identità del documento 3D. I nodi non hanno il
+// codice della parte, il 2D letto solo come materiale resta non determinabile, nessuna diagnostica nuova.
 func TestLaRelazioneDelNomeSoloConLaForma(t *testing.T) {
 	m := motoreNome(t, true)
 	step, ctx, tg := scenaNome(t, m)
@@ -283,7 +285,7 @@ func TestLaRelazioneDelNomeSoloConLaForma(t *testing.T) {
 		}
 	}
 	if got := nodiConEquivalente(e); len(got) != 0 {
-		t.Errorf("senza stessa_parte_di sulla forma del 3D nessun nodo ha il codice della parte: %v", got)
+		t.Errorf("senza stessa_parte_di sulla forma del 3D nessun nodo ha il codice della parte, e la coppia del 2D non tocca il namespace del 3D: %v", got)
 	}
 	if got := collocazioneEq(t, e, disegno.AllegatoID); got != "non_determinabile [namespace_non_confrontabile]" {
 		t.Errorf("senza la relazione del 3D, il 2D del pezzo: %s", got)

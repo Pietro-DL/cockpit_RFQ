@@ -142,6 +142,11 @@ markmap:
     (`CodiceEquivalente.Fonte`) dice `cartiglio`, `nome_file` o `nome_file_relazione`. Senza il campo nella grammatica
     non cambia niente: `VersioneServizio` resta `ancoraggio-3` (gli esiti di ogni grammatica senza il campo hanno gli
     stessi byte; una grammatica con il campo ha un hash diverso, che entra già negli ingressi).
+    Scelta [T]: la relazione non guarda **dove** stanno le due letture nel nome (nessun vincolo di adiacenza); basta
+    che il nome abbia una lettura del documento con la forma dichiarata e una delle famiglie dichiarate. Quale nome
+    dice la relazione lo stringe la forma del documento nella grammatica (etichetta obbligatoria, separatori); due
+    codici della parte nello stesso nome sono una contesa con l'avviso, non una scelta. Gli avvisi di contesa dicono
+    «cartigli o nomi dei file» quando fra le prove c'è un nome; con i soli cartigli il testo è quello di K4.
 - In B4 (commit P6b, fase 3) c'è **la riconciliazione fra lo STEP e il cartiglio** (6.0.6; workflow, passo 10 e il
   caso del §4; contratto §0 punto 4, §1.4, §2.2, §2.5, §2.6), dentro `ProponiAncoraggi`, dopo gli ancoraggi:
   - per ogni nodo con un **2D associato** (un file che valutazione segna come disegno, `FileInterpretato.Disegno`,

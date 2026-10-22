@@ -96,7 +96,8 @@ func (c *CodiceEquivalente) Fonte() string {
 	return FonteEquivalenzaNomeFileRelazione
 }
 
-// Disegni: quanti file distinti portano le prove (il PDF e il DXF dello stesso disegno sono due file).
+// Disegni: quanti file distinti portano le prove (il PDF e il DXF dello stesso disegno sono due file). Con le prove dal
+// nome (KN-01) conta anche il file 3D il cui nome dice la coppia: il nome resta quello di K4, il conto è dei file.
 func (c *CodiceEquivalente) Disegni() int {
 	visti := map[uuid.UUID]bool{}
 	for _, p := range c.Prove {
@@ -360,6 +361,7 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 		altri = unici(altri)
 		r := []string{rifEquivalenza(k)}
 		var allegati []string
+		relazione := false
 		for _, a := range altri {
 			r = append(r, rifEquivalenza(a))
 			kk := k + "\x01" + a
@@ -368,9 +370,19 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 			}
 			for _, p := range coppie[kk].prove {
 				allegati = append(allegati, idFonteAllegato(p.AllegatoID))
+				relazione = relazione || p.Fonte == FonteEquivalenzaNomeFileRelazione
 			}
 		}
 		r = append(r, unici(allegati)...)
+		if relazione {
+			// KN-01: fra le prove c'è un nome di file, non solo i cartigli; il testo lo dice (con i soli cartigli, quello di K4)
+			cosa = "un codice della parte è legato, nei cartigli o nei nomi dei file del thread, a %d documenti diversi dello stesso namespace"
+			if lato == "riferimento" {
+				cosa = "un documento è legato, nei cartigli o nei nomi dei file del thread, a %d codici della parte diversi"
+			}
+			diag = append(diag, diagnosticaContesa(fmt.Sprintf(cosa+" (i Rif): nessuna equivalenza si propone per le coppie coinvolte", len(altri)), r))
+			continue
+		}
 		diag = append(diag, diagnosticaContesa(fmt.Sprintf(cosa+" (i Rif): nessuna equivalenza del cartiglio si propone per le coppie coinvolte", len(altri)), r))
 	}
 
@@ -384,11 +396,17 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 		if contesoInEntita["codice\x02"+kt] || contesoInEntita["riferimento\x02"+c.riferimento] {
 			r := []string{rifEquivalenza(c.codice), rifEquivalenza(c.riferimento)}
 			var allegati []string
+			relazione := false
 			for _, p := range c.prove {
 				allegati = append(allegati, idFonteAllegato(p.AllegatoID))
+				relazione = relazione || p.Fonte == FonteEquivalenzaNomeFileRelazione
 			}
 			r = append(r, unici(allegati)...)
-			diag = append(diag, diagnosticaContesa("un codice della parte e un riferimento 3D scritti insieme (i Rif) hanno una chiave in un cartiglio conteso del thread: l'equivalenza non si propone", r))
+			msg := "un codice della parte e un riferimento 3D scritti insieme (i Rif) hanno una chiave in un cartiglio conteso del thread: l'equivalenza non si propone"
+			if relazione {
+				msg = "un codice della parte e un documento detti insieme (i Rif) hanno una chiave in un cartiglio o in un nome di file conteso del thread: l'equivalenza non si propone"
+			}
+			diag = append(diag, diagnosticaContesa(msg, r))
 			continue
 		}
 		sort.SliceStable(c.prove, func(i, j int) bool { return chiaveProva(c.prove[i]) < chiaveProva(c.prove[j]) })

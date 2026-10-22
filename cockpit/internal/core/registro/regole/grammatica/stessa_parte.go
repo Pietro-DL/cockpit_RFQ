@@ -22,7 +22,8 @@ import (
 //   - solo su una forma che legge soltanto nome_file: la relazione è fra due letture dello stesso nome;
 //   - un elenco di ID di famiglie della stessa grammatica, senza vuoti né ripetizioni;
 //   - mai la famiglia della forma, mai una famiglia dello stesso namespace: due letture dello stesso namespace sono
-//     due identità confrontabili, non un'equivalenza.
+//     due identità confrontabili, non un'equivalenza;
+//   - la famiglia elencata deve avere almeno una forma su nome_file: senza, la relazione non scatterebbe mai.
 
 // stessaParte controlla il campo stessa_parte_di di una forma della famiglia f (KN-01).
 func (v *validatore) stessaParte(fo FormaCodice, f FamigliaCodice, p string) {
@@ -55,6 +56,22 @@ func (v *validatore) stessaParte(fo FormaCodice, f FamigliaCodice, p string) {
 		}
 		if g.Namespace == f.Namespace {
 			v.nonAmmesso(pi, fmt.Sprintf("la famiglia %q ha lo stesso namespace %q della forma: due letture dello stesso namespace si confrontano, non sono un'equivalenza", id, g.Namespace))
+			continue
+		}
+		if !leggeNomeFile(*g) {
+			v.nonAmmesso(pi, fmt.Sprintf("la famiglia %q non ha forme sul nome del file: nello stesso nome non c'è mai un suo codice, e la relazione non scatterebbe mai", id))
 		}
 	}
+}
+
+// leggeNomeFile: la famiglia ha almeno una forma che legge il nome del file.
+func leggeNomeFile(f FamigliaCodice) bool {
+	for _, fo := range f.Forme {
+		for _, s := range fo.Selettori {
+			if s == string(evidenze.ContestoNomeFile) {
+				return true
+			}
+		}
+	}
+	return false
 }
