@@ -14,11 +14,13 @@
     createElement e textContent, mai con HTML del server;
   - senza JavaScript la pagina lo dice e non mostra stati;
   - data-du-pdfjs e data-du-pdfjs-worker dicono gli statici di pdf.js (gli stessi della pagina vecchia): il visore dei
-    PDF li carica una volta e legge il PDF dall'indirizzo di S5 che costruisce il ponte (MAT FL-03, PN-04).
+    PDF li carica una volta e legge il PDF dall'indirizzo di S5 che costruisce il ponte (MAT FL-03, PN-04);
+  - data-du-tif e data-du-utif dicono il worker delle anteprime TIFF e UTIF.js (vendor-utif-3.1.0), che il worker carica
+    alla prima anteprima: i byte del TIFF li prende il ponte dalla stessa rotta S5 (richiesta del frontend del 22/10).
 */}}
 {{define "contenuto"}}{{$d := .Dati}}
 <link rel="stylesheet" href="{{statico "distinta_unica.css"}}">
-<section class="du" id="du" data-du-thread="{{$d.ThreadID}}" data-du-utente="{{$d.UtenteID}}" data-du-sigla="{{$d.Sigla}}" data-du-pdfjs="{{statico "pdfjs-6.3.289/pdf.min.mjs"}}" data-du-pdfjs-worker="{{statico "pdfjs-6.3.289/pdf.worker.min.mjs"}}" aria-labelledby="du-titolo">
+<section class="du" id="du" data-du-thread="{{$d.ThreadID}}" data-du-utente="{{$d.UtenteID}}" data-du-sigla="{{$d.Sigla}}" data-du-pdfjs="{{statico "pdfjs-6.3.289/pdf.min.mjs"}}" data-du-pdfjs-worker="{{statico "pdfjs-6.3.289/pdf.worker.min.mjs"}}" data-du-tif="{{statico "distinta_unica_tif.js"}}" data-du-utif="{{statico "vendor-utif-3.1.0/UTIF.js"}}" aria-labelledby="du-titolo">
   <header class="du-testa">
     <div class="du-testa-t">
       <h1 id="du-titolo">Distinta unica</h1>

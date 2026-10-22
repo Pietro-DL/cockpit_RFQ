@@ -92,7 +92,7 @@
 .du .du-btn--danger:hover:not([disabled]), .du-finestra .du-btn--danger:hover:not([disabled]), .du-wizard .du-btn--danger:hover:not([disabled]) { color: var(--du-ko); border-color: var(--du-ko); background: var(--du-ko-soft); }
 .du .du-btn--ghost:hover:not([disabled]), .du-finestra .du-btn--ghost:hover:not([disabled]), .du-wizard .du-btn--ghost:hover:not([disabled]) { background: var(--du-sunken); border-color: transparent; }
 .du .du-btn[disabled], .du-finestra .du-btn[disabled], .du-wizard .du-btn[disabled] { opacity: .5; cursor: not-allowed; box-shadow: none; filter: saturate(.6); }
-.du .du-btn[aria-pressed="true"] { background: var(--du-acc-soft); border-color: var(--du-acc); color: var(--du-acc); }
+.du .du-btn[aria-pressed="true"], .du-finestra .du-btn[aria-pressed="true"] { background: var(--du-acc-soft); border-color: var(--du-acc); color: var(--du-acc); }
 .du .du-perche, .du-finestra .du-perche, .du-wizard .du-perche { font-size: var(--du-t-xs); color: var(--du-ink3); max-width: 46ch; line-height: 1.3; }
 .du .du-st, .du-finestra .du-st, .du-wizard .du-st {
   display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px; border: 1px solid; border-radius: var(--du-r-pill);
@@ -357,9 +357,13 @@
 .du .du-linguette button[aria-selected="true"] { color: var(--du-acc); font-weight: 650; box-shadow: inset 0 -2px 0 var(--du-acc); }
 /* le azioni che V1 non ha: visibili e spente, con il motivo accanto (MAT §6.1) */
 .du .du-non-v1 { display: grid; gap: 4px; justify-items: start; }
-/* il visore dei PDF (MAT FL-03, PN-04): la pagina disegnata da pdf.js, mai più larga della finestra */
+/* il visore dei PDF (MAT FL-03, PN-04) e dei TIFF: la pagina disegnata da pdf.js o dal worker dei TIFF, mai più larga
+   della finestra; in «Dettaglio» il TIFF si scorre dentro la tela, che tiene il suo posto */
 .du-finestra .du-visore-tela { overflow: auto; max-height: 70vh; border: 1px solid var(--du-line); border-radius: var(--du-r2); background: var(--du-sunken); padding: 10px; }
 .du-finestra .du-visore-tela canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: var(--du-carta-2d); }
+.du-finestra .du-visore-tela--dettaglio canvas { max-width: none; margin: 0; }
+.du-finestra .du-visore-tela canvas[data-du-tif] { border-radius: var(--du-r1); box-shadow: var(--du-sh1); }
+.du-finestra #du-visore-pagina { font-family: var(--du-f-mono); font-variant-numeric: tabular-nums; color: var(--du-ink2); }
 .du .du-nodo-cod { font: 600 var(--du-t-lg)/1.2 var(--du-f-mono); font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .du .du-sez { border-top: 1px solid var(--du-line); padding-top: var(--du-s3); display: grid; gap: var(--du-s2); min-width: 0; }
 .du .du-sez > h3 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -626,6 +630,7 @@
 .du .du-br-file--pdf b { background: var(--du-ko-soft); color: var(--du-ko); }
 .du .du-br-file--dxf b { background: var(--du-info-soft); color: var(--du-info); }
 .du .du-br-file--step b { background: var(--du-ok-soft); color: var(--du-ok); }
+.du .du-br-file--tiff b { background: var(--du-acc-soft); color: var(--du-acc); }
 .du .du-br-riga--gruppo { color: var(--du-ink2); font-weight: 600; margin-top: 6px; border-top: 1px solid var(--du-line); padding-top: 4px; cursor: pointer; }
 .du .du-br-riga--gruppo .du-br-q--neu { background: var(--du-sunken); }
 @media (prefers-reduced-motion: no-preference) {
@@ -775,6 +780,8 @@
   .du .du-sg .du-strumenti { padding: 5px 8px; gap: 6px 8px; }
   .du .du-sg .du-zoom button { min-height: 28px; }
   .du .du-sg .du-zoom .du-z { line-height: 24px; }
+  /* il visore dei PDF e dei TIFF: la finestra intera resta nello schermo, anche a 768 px */
+  .du-finestra .du-visore-tela { max-height: 62vh; padding: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .du *, .du-finestra *, .du-wizard * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }

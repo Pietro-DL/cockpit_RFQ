@@ -124,6 +124,7 @@ type bancoDU struct {
 	srv              *httptest.Server
 	mu               sync.Mutex
 	file             []*fileBanco
+	byteFile         map[string][]byte // allegato → i byte veri che S5 dà (le TIF delle anteprime: aggiungiTif)
 	bozze            map[string]*bozzaBanco
 	conferme         map[string][]m
 	intenti          map[string]intentoBanco
@@ -2489,6 +2490,14 @@ func (b *bancoDU) s5(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	// un file con i suoi byte (le TIF sintetiche delle anteprime, aggiungiTif): come sul server, un formato che non è un
+	// PDF è un allegato application/octet-stream, anche in anteprima
+	if dati, ok := b.byteFile[f.ID]; ok {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+f.Nome+"\"")
+		_, _ = w.Write(dati)
+		return
+	}
 	// un PDF in anteprima: application/pdf inline, per il visore pdf.js della pagina (EM §10.9, S5); il contenuto è un
 	// PDF sintetico di una pagina, uguale per tutti i PDF del banco
 	if f.Est == "pdf" && r.URL.Query().Get("modo") != "scarica" {

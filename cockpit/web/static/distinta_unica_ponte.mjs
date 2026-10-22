@@ -385,8 +385,9 @@ function motivoDi(r) {
 }
 
 // chiama: la richiesta di una funzione dedicata. → {login} oppure {stato, json, testo}; json = l'oggetto della risposta
-// se è application/json e si legge, altrimenti null. Una rete che non risponde lancia (lo decide chi chiama).
-async function chiama(nome, u, query, corpo, extra) {
+// se è application/json e si legge, altrimenti null. Una rete che non risponde lancia (lo decide chi chiama). «binario»
+// (solo byteContenuto): una risposta 2xx si legge come byte (byte: ArrayBuffer, testo vuoto); le altre come sempre.
+async function chiama(nome, u, query, corpo, extra, binario) {
   const conCorpo = corpo !== undefined;
   const intest = { Accept: "application/json" };
   if (conCorpo && !(corpo instanceof FormData)) intest["Content-Type"] = "application/json";
@@ -399,6 +400,7 @@ async function chiama(nome, u, query, corpo, extra) {
   });
   const login = rimandoAlLogin(risp);
   if (login) return { login };
+  if (binario && risp.ok) return { stato: risp.status, json: null, testo: "", byte: await risp.arrayBuffer(), motivo: risp.headers.get("X-Motivo") || "" };
   const testo = await risp.text();
   let json = null;
   if ((risp.headers.get("Content-Type") || "").toLowerCase().indexOf("json") >= 0) {
@@ -550,6 +552,25 @@ export async function motivoContenuto(allegato) {
   } catch (err) {
     return { stato: 0, motivo: "" };
   }
+}
+
+// byteContenuto: i byte di un file da S5 (GET …/contenuto?modo=anteprima, la stessa rotta di urlContenuto e di
+// motivoContenuto: nessuna rotta nuova), per l'anteprima dei TIFF, che il browser non sa disegnare da solo e che la
+// pagina decodifica (distinta_unica_tif.js). Sola lettura. Torna un ArrayBuffer; altrimenti lancia un errore con
+// stato e motivo come quelli di motivoContenuto (X-Motivo o il codice della busta; SESSIONE_SCADUTA per il login, senza
+// lasciare la pagina: è un'anteprima, non un gesto).
+export async function byteContenuto(allegato) {
+  if (!RFQ || !uuid(allegato)) throw Object.assign(erroreDedicata("PONTE_ARGOMENTO", 0, "L'allegato non è un UUID della RFQ."), { motivo: "" });
+  let r;
+  try {
+    r = await chiama("urlContenuto", allegato, "?modo=anteprima", undefined, undefined, true);
+  } catch (err) {
+    throw Object.assign(erroreDedicata("PONTE_RETE", 0, "La richiesta non è arrivata al server, o la risposta non si legge: " + messaggio(err)), { motivo: "" });
+  }
+  if (r.login) throw Object.assign(erroreDedicata("SESSIONE_SCADUTA", 401, SESSIONE), { motivo: "SESSIONE_SCADUTA" });
+  if (r.byte) return r.byte;
+  const motivo = r.motivo || codiceDi(r);
+  throw Object.assign(erroreDedicata(motivo || "PONTE_ERRORE_" + r.stato, r.stato, testoDi(r)), { motivo });
 }
 
 // riepilogoBom: R4, POST di sola lettura …/motore-a/bom/riepilogo[?avvisi_motore=1] con la bozza formato 3 (EM §9.4).
