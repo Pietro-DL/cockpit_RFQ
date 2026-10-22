@@ -719,7 +719,7 @@
 .du-aiuti[hidden] { display: none; }
 .du-aiuto { position: fixed; left: 0; top: 0; width: 16px; height: 16px; box-sizing: border-box; pointer-events: auto; cursor: help;
   display: grid; place-items: center; border-radius: 999px; border: 1px solid var(--du-g-acc2); background: var(--du-g-surf); color: var(--du-g-acc);
-  box-shadow: var(--du-sh1); font: 700 10px/1 var(--du-g-f); opacity: .82; }
+  box-shadow: var(--du-sh1); font: 700 10px/1 var(--du-g-f); opacity: .6; }
 .du-aiuto::before { content: "?"; }
 .du-aiuto[hidden] { display: none; }
 .du-aiuto:hover, .du-aiuto:focus-visible { opacity: 1; background: var(--du-g-acc); color: #FFFFFF; border-color: var(--du-g-acc); box-shadow: 0 0 0 3px var(--du-g-glow); outline: none; }

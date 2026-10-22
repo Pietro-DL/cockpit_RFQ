@@ -54,13 +54,13 @@ export const AIUTI = [
     s: "L'elenco completo dei file attivi della RFQ, in qualunque stato." },
   { k: "sg-riga", sel: "#du-sg-elenco [role=row][id^='du-file-'], #du-sg-elenco li[id^='du-step-']", t: "Riga di un file",
     s: "Un clic apre il dettaglio a destra; la casella a sinistra lo spunta per un gesto su più file insieme. Le etichette colorate dicono lo stato." },
-  { k: "st-candidata", sel: "#du .du-st", testo: /candidata per/i, t: "STEP candidato",
+  { k: "st-candidata", sel: "#du-corpo .du-st", testo: /candidata per/i, t: "STEP candidato",
     s: "Il sistema propone questo STEP come possibile sorgente del prodotto indicato. È solo una proposta: decidi tu dopo aver guardato l'anteprima." },
-  { k: "st-proposto", sel: "#du .du-st", testo: /^\W*proposto\b/i, t: "Proposto",
+  { k: "st-proposto", sel: "#du-corpo .du-st", testo: /^\W*proposto\b/i, t: "Proposto",
     s: "Il sistema propone dove va questo file (a quale pezzo). Non è ancora nella bozza: lo diventa quando lo salvi o lo accetti." },
-  { k: "st-preassociato", sel: "#du .du-st", testo: /salvato nella bozza|preassociato/i, t: "Preassociato",
+  { k: "st-preassociato", sel: "#du-corpo .du-st", testo: /salvato nella bozza|preassociato/i, t: "Preassociato",
     s: "Il file è collegato a un pezzo nella bozza. Diventa definitivo solo quando la BOM viene confermata." },
-  { k: "st-confermato", sel: "#du .du-st", testo: /sorgente confermata|^\W*confermat[oa]\b|già registrato/i, t: "Confermato",
+  { k: "st-confermato", sel: "#du-corpo .du-st", testo: /sorgente confermata|^\W*confermat[oa]\b|già registrato/i, t: "Confermato",
     s: "Una decisione già registrata: la sorgente confermata del prodotto o un legame già presente nella BOM confermata." },
   { k: "guarda", sel: "[id^='du-guarda-']", testo: /Guarda l.anteprima/, t: "Guarda l'anteprima",
     s: "Mostra la struttura che il sistema legge in questo STEP per quel prodotto (assiemi, pezzi, quantità), prima di sceglierlo. Guardare non cambia niente." },
@@ -161,7 +161,7 @@ export const AIUTI = [
   { k: "wz-fase2", sel: "#du-wz-fase2", t: "Fase 2 · Gerarchie, quantità e tipi",
     s: "Controlla chi sta sotto chi, le quantità, i tipi e i pezzi non inclusi, prima della conferma." },
   { k: "wz-conferma", sel: "#du-wz-conferma", t: "Conferma BOM",
-    s: "Registra la BOM del prodotto (Conferma BOM, R5). Se qualcosa la blocca, il pulsante resta spento e il motivo è scritto accanto." },
+    s: "Registra la BOM del prodotto («Conferma BOM»). Se qualcosa la blocca, il pulsante resta spento e il motivo è scritto accanto." },
   { k: "working", sel: "#du-working-testa", t: "BOM confermata",
     s: "L'ultima BOM confermata del prodotto, in sola lettura: è la BOM di lavoro. Per cambiarla si apre una bozza nuova." },
   { k: "da-conferma", sel: "#du-da-conferma", t: "Modifica la BOM confermata",
@@ -452,12 +452,28 @@ const CLICCABILI = "button, input, select, textarea, a[href], summary, label, [r
 const LATO = 16;
 function posto(t, r, vw, vh) {
   const cand = [[r.right - LATO / 2, r.top - LATO / 2], [r.left - LATO / 2, r.top - LATO / 2], [r.right + 2, r.top + r.height / 2 - LATO / 2]];
+  const clip = ritaglio(t);
   for (const c of cand) {
     const x = Math.round(Math.max(2, Math.min(c[0], vw - LATO - 2)));
     const y = Math.round(Math.max(2, Math.min(c[1], vh - LATO - 2)));
+    // il centro dell'icona dentro la parte visibile dei riquadri che tagliano l'elemento (la tela, un elenco che scorre)
+    const mx = x + LATO / 2, my = y + LATO / 2;
+    if (clip && (mx < clip.left || mx > clip.right || my < clip.top || my > clip.bottom)) continue;
     if (libero(t, x, y)) return [x, y];
   }
   return null;
+}
+// ritaglio: il rettangolo visibile dei riquadri antenati di t che tagliano il contenuto (overflow diverso da visible),
+// allargato di un'icona perché l'icona può stare sul bordo del riquadro; null se nessuno taglia
+function ritaglio(t) {
+  let q = null;
+  for (let e = t.parentElement; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
+    const cs = getComputedStyle(e);
+    if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+    const r = e.getBoundingClientRect();
+    q = q ? { left: Math.max(q.left, r.left), top: Math.max(q.top, r.top), right: Math.min(q.right, r.right), bottom: Math.min(q.bottom, r.bottom) } : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  }
+  return q ? { left: q.left - LATO / 2, top: q.top - LATO / 2, right: q.right + LATO / 2, bottom: q.bottom + LATO / 2 } : null;
 }
 function libero(t, x, y) {
   const punti = [[x + LATO / 2, y + LATO / 2], [x + 1, y + 1], [x + LATO - 1, y + 1], [x + 1, y + LATO - 1], [x + LATO - 1, y + LATO - 1]];

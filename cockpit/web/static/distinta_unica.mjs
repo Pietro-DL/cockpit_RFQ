@@ -7771,6 +7771,14 @@ function testoQualificatore(q) {
   if (!ogg(q)) return "";
   return typeof q.originale === "string" && q.originale ? q.originale : typeof q.valore === "string" ? q.valore : "";
 }
+// parolaWizard: l'azione e l'esito dell'identità nella fase 1 del wizard come parole, non come valori grezzi del server
+// («crea · da_assegnare» compariva così: revisione di design del 22/10); un valore che non si conosce perde almeno i
+// trattini bassi
+const PAROLE_WIZARD = { da_assegnare: "codice da assegnare" };
+function parolaWizard(x) {
+  if (x === null || x === undefined || x === "") return "";
+  return PAROLE_WIZARD[x] || String(x).replace(/_/g, " ");
+}
 // l'emittente in parole: il namespace della grammatica del cliente è un identificativo, non si mostra (collaudo UI46)
 function parolaEmittente(em, ns) {
   if (typeof em !== "string" || !em) return "";
@@ -10493,7 +10501,7 @@ function faseIdentita(w) {
     const tr = [h("tr", { class: collisioni.has(x.chiave_bozza) ? "du-r-blocco" : null, "data-k": x.chiave_bozza || "" },
       h("td", {}, h("span", { class: "du-mono" }, codice || "(senza codice)"), x.rev && x.rev.dopo ? " rev " + x.rev.dopo : ""),
       h("td", {}, x.tipo && x.tipo.dopo ? TIPI[x.tipo.dopo] || x.tipo.dopo : ""),
-      h("td", {}, x.azione || "", x.esito_identita ? " · " + x.esito_identita : ""),
+      h("td", {}, parolaWizard(x.azione), x.esito_identita ? " · " + parolaWizard(x.esito_identita) : ""),
       h("td", {}, segnoEmittente(d)),
       h("td", {}, h("span", { class: "du-azioni" }, btn(aperto ? "Nascondi" : "Dettagli", () => {
         if (aperto) w.dettagli.delete(x.chiave_bozza);
