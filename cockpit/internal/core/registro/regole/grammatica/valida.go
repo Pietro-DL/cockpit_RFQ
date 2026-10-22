@@ -638,6 +638,7 @@ func (v *validatore) forma(fo FormaCodice, f FamigliaCodice, r regoleFamiglia, p
 		ammessi = statiFormaEmittente // un emittente è sempre condizionato dal contesto: «contestuale» non dice niente in più
 	}
 	v.estensioniEFunzione(fo, p)
+	v.stessaParte(fo, f, p)
 	if v.enum(p+".stato", "stato della forma", fo.Stato, ammessi) {
 		if fo.Stato == StatoRiservata {
 			attiva = false

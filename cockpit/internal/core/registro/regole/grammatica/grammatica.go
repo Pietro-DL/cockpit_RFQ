@@ -141,6 +141,7 @@ type FormaCodice struct {
 	Estensioni       []string       `json:"estensioni,omitempty"`       // GP-1: solo su nome_file, i nomi con queste estensioni (senza il punto, maiuscole indifferenti)
 	FunzioneMassima  string         `json:"funzione_massima,omitempty"` // GP-1 (G-7): la funzione del router non la supera
 	SuffissiIgnoti   string         `json:"suffissi_ignoti,omitempty"`  // GP-1 (G-5): «segnala»: un suffisso attaccato e non letto toglie la completezza
+	StessaParteDi    []string       `json:"stessa_parte_di,omitempty"`  // KN-01: solo su nome_file, le famiglie del codice della stessa parte (stessa_parte.go)
 }
 
 // Parte: un pezzo di una forma, nell'ordine in cui compare nel testo.

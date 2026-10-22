@@ -45,6 +45,9 @@ type pianoForma struct {
 	estensioni      []string   // il filtro facoltativo su nome_file
 	funzioneMassima Funzione   // G-7: vuota = nessun tetto
 	segnalaSuffissi bool       // G-5: un suffisso attaccato e non letto toglie la completezza
+
+	// KN-01: le famiglie del codice della stessa parte nello stesso nome (grammatica.FormaCodice.StessaParteDi)
+	stessaParteDi []string
 }
 
 // tabellaClassi: la tabella delle classi di una famiglia abbassata (grammatica.TabellaClassi, 14/10): il segmento e le
@@ -320,6 +323,7 @@ func compilaForma(r regoleFamiglia, fo grammatica.FormaCodice) (*pianoForma, err
 		estensioni:      fo.Estensioni,
 		funzioneMassima: Funzione(fo.FunzioneMassima),
 		segnalaSuffissi: fo.SuffissiIgnoti == grammatica.SuffissiIgnotiSegnala,
+		stessaParteDi:   fo.StessaParteDi,
 	}
 	if fo.ConfinePrima != nil {
 		p.confinePrima = *fo.ConfinePrima

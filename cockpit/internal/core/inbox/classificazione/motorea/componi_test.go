@@ -357,7 +357,8 @@ func TestComponiNessunCampoCambiatoNelleLetture(t *testing.T) {
 	attesi := map[string][]string{
 		"LetturaForma": {"Famiglia", "Namespace", "Forma", "Selettore", "Originale", "Intervallo", "CodiceRichiesto", "Base",
 			"Marcatore", "Token", "Etichetta", "Affissi", "Revisione", "Decorazioni", "Ripetizioni", "Categorie", "Stato", "Classe",
-			"Emittente", "HashEmittente"}, // GP-1 (16/10): omitempty, una lettura del cliente ha il JSON di prima
+			"Emittente", "HashEmittente", // GP-1 (16/10): omitempty, una lettura del cliente ha il JSON di prima
+			"StessaParteDi"}, // KN-01 (22/10): dalla forma della grammatica, omitempty: senza il campo, il JSON di prima
 		"LetturaCodice": {"ID", "UnitaID", "AltreUnita", "Occorrenza", "Assoluto", "Forma", "Funzione", "Uso", "OrigineUso",
 			"RuoliCandidati", "MotivoRuoli", "Categorie", "Trasformazioni", "Qualita", "Motivi", "Ruolo"}, // GP-1: omitempty
 		"CodiceComposto": {"Testo", "Famiglia", "Forma", "Motivo"},

@@ -894,5 +894,8 @@ func copiaLetturaForma(f motorea.LetturaForma) motorea.LetturaForma {
 		c := *f.Classe // la voce della tabella delle classi (14/10): solo stringhe, la copia basta
 		f.Classe = &c
 	}
+	if f.StessaParteDi != nil {
+		f.StessaParteDi = append([]string(nil), f.StessaParteDi...) // KN-01: le famiglie della stessa parte
+	}
 	return f
 }

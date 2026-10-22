@@ -19,15 +19,28 @@ import (
 // namespace della coppia vengono dalle letture, non da una configurazione. L'equivalenza non diventa mai un'identità
 // del file, né un namespace che si confronta (la guardia L8 resta com'è: la tabella è parziale): dà soltanto un
 // candidato proposto a livello componente, con il motivo equivalenza_cartiglio e le sue prove (ancora, secondo giro).
+//
+// Il nome del file (KN-01, decisione dell'utente del 22/10, RK-02 A): una forma del nome può dichiarare nella
+// grammatica che la sua lettura è un documento della stessa parte che lo stesso nome dice con il codice di altre
+// famiglie (grammatica.FormaCodice.StessaParteDi, copiato nella lettura come LetturaForma.StessaParteDi). Le due
+// letture dello stesso nome danno allora la stessa coppia del cartiglio, con la fonte nome_file_relazione: lo stesso
+// candidato proposto, le stesse contese, e due file (o un cartiglio e un nome) che dicono la stessa coppia sono una
+// coppia sola con più prove. Il motore non sa quali nomi dicono la relazione, né di quale cliente: lo dice la
+// grammatica compilata; senza il campo nella grammatica non cambia niente. Le coppie hanno la chiave del codice e del
+// namespace del documento: lo stesso codice accanto a un documento 3D e a un documento 2D (namespace diversi) sono due
+// coppie, non una contesa; due documenti dello stesso namespace per lo stesso codice lo sono.
 
 // campoCartiglioRiferimento3D: il campo del cartiglio con il documento 3D della stessa parte (evidenze, K4).
 const campoCartiglioRiferimento3D = "riferimento_3d"
 
 // Le fonti di una prova di equivalenza (ProvaEquivalenza.Fonte): il codice della parte letto nel cartiglio, accanto al
-// riferimento 3D, o, quando il cartiglio non ne legge uno, il nome dello stesso file.
+// riferimento 3D, o, quando il cartiglio non ne legge uno, il nome dello stesso file; oppure (KN-01) le due letture
+// dello stesso nome di file, il documento e il codice della parte, legate dalla forma del documento nella grammatica
+// (stessa_parte_di), senza cartiglio.
 const (
-	FonteEquivalenzaCartiglio = "cartiglio"
-	FonteEquivalenzaNomeFile  = "nome_file"
+	FonteEquivalenzaCartiglio         = "cartiglio"
+	FonteEquivalenzaNomeFile          = "nome_file"
+	FonteEquivalenzaNomeFileRelazione = "nome_file_relazione"
 )
 
 // ProvaEquivalenza: da dove viene un'equivalenza del cartiglio (K4): l'allegato, l'entità del cartiglio che porta il
@@ -63,16 +76,24 @@ type CodiceEquivalente struct {
 	Prove     []ProvaEquivalenza `json:"prove"`
 }
 
-// Fonte: FonteEquivalenzaCartiglio se almeno una prova legge il codice della parte nel cartiglio, altrimenti
-// FonteEquivalenzaNomeFile (il codice viene solo dal nome dei file il cui cartiglio scrive il riferimento 3D). Serve
-// alla pagina, che deve dire da dove viene il P/N.
+// Fonte: FonteEquivalenzaCartiglio se almeno una prova legge il codice della parte nel cartiglio; altrimenti
+// FonteEquivalenzaNomeFile se almeno una prova viene dal nome di un file il cui cartiglio scrive il riferimento 3D;
+// altrimenti FonteEquivalenzaNomeFileRelazione (KN-01: solo i nomi dei file dicono la coppia). Serve alla pagina, che
+// deve dire da dove viene il P/N.
 func (c *CodiceEquivalente) Fonte() string {
+	nome := false
 	for _, p := range c.Prove {
-		if p.Fonte == FonteEquivalenzaCartiglio {
+		switch p.Fonte {
+		case FonteEquivalenzaCartiglio:
 			return FonteEquivalenzaCartiglio
+		case FonteEquivalenzaNomeFile:
+			nome = true
 		}
 	}
-	return FonteEquivalenzaNomeFile
+	if nome || len(c.Prove) == 0 {
+		return FonteEquivalenzaNomeFile
+	}
+	return FonteEquivalenzaNomeFileRelazione
 }
 
 // Disegni: quanti file distinti portano le prove (il PDF e il DXF dello stesso disegno sono due file).
@@ -134,6 +155,20 @@ func chiaveEquivalenza(f motorea.LetturaForma) string {
 	return f.Namespace + "\x00" + f.Base.Normalizzata + "\x00" + marcatoreDi(f)
 }
 
+// chiaveTabella: la chiave della tabella delle equivalenze del thread (KN-01), il codice della parte e il namespace del
+// documento: lo stesso codice ha al più un documento per namespace (altrimenti è una contesa), e un documento 3D e uno
+// 2D dello stesso codice stanno accanto. Con i soli riferimenti 3D del cartiglio (K4, un namespace) vale come la sola
+// chiave del codice.
+func chiaveTabella(codice, namespaceRiferimento string) string {
+	return codice + "\x03" + namespaceRiferimento
+}
+
+// namespaceDellaChiave: il namespace di una chiave di chiaveEquivalenza.
+func namespaceDellaChiave(k string) string {
+	ns, _, _ := strings.Cut(k, "\x00")
+	return ns
+}
+
 // rifEquivalenza: il riferimento di una chiave per le diagnostiche (RifIdentita, senza revisione).
 func rifEquivalenza(k string) string {
 	p := strings.SplitN(k, "\x00", 3)
@@ -158,7 +193,8 @@ func baseCompleta(f motorea.LetturaForma) bool {
 }
 
 // equivalenzeDelThread: la tabella delle equivalenze del cartiglio dei file del thread (già in ordine di allegato), per
-// chiave del codice della parte, e le diagnostiche delle contese. Per ogni file e ogni entità del cartiglio (in ordine):
+// chiave del codice della parte e namespace del documento (chiaveTabella), e le diagnostiche delle contese. Per ogni
+// file e ogni entità del cartiglio (in ordine):
 //   - i riferimenti: le letture su cartiglio.riferimento_3d dell'entità; senza, niente;
 //   - i codici: le letture d'identità su cartiglio.codice della stessa entità (fonte cartiglio); solo se l'entità non
 //     ne ha, le letture d'identità del nome del file (fonte nome_file) fuori dai namespace dei riferimenti
@@ -167,7 +203,11 @@ func baseCompleta(f motorea.LetturaForma) bool {
 //     cartiglio, nessuna coppia e la diagnostica; con più chiavi nel nome del file, una base non completa o lo stesso
 //     namespace, nessuna coppia (non è una contesa).
 //
-// Poi, a livello di thread: uno stesso riferimento con due codici, o uno stesso codice con due riferimenti, toglie
+// Poi, per ogni file, le relazioni dichiarate del nome (KN-01, relazioniDelNome): con la stessa regola di un'entità del
+// cartiglio, il nome è un'entità a sé; una relazione con più chiavi in un lato è una contesa del nome, con la diagnostica.
+//
+// Poi, a livello di thread: uno stesso riferimento con due codici, o uno stesso codice con due riferimenti dello stesso
+// namespace, toglie
 // tutte le coppie coinvolte, con una diagnostica per chiave contesa; e così una coppia che ha una chiave in un cartiglio
 // conteso in sé (più codici o più riferimenti nella stessa entità), con la sua diagnostica. Le mappe servono solo a
 // cercare.
@@ -206,6 +246,36 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 				riferimenti[u.EntitaID] = append(riferimenti[u.EntitaID], l)
 			}
 		}
+		// conteso: segna le chiavi di un'entità contesa in sé, il codice per ogni namespace dei suoi riferimenti
+		conteso := func(kc, kr []string) {
+			for _, k := range kc {
+				for _, r := range kr {
+					contesoInEntita["codice\x02"+chiaveTabella(k, namespaceDellaChiave(r))] = true
+				}
+			}
+			for _, k := range kr {
+				contesoInEntita["riferimento\x02"+k] = true
+			}
+		}
+		// aggiungi: la coppia di un'entità (un cartiglio o il nome), con le sue prove; due letture dello stesso namespace
+		// non sono un'equivalenza
+		aggiungi := func(kc, kr string, cod, rif []motorea.LetturaCodice, entita, fonte string) {
+			if cod[0].Forma.Namespace == rif[0].Forma.Namespace {
+				return
+			}
+			k := kc + "\x01" + kr
+			c, ok := coppie[k]
+			if !ok {
+				c = &equivalenza{codice: kc, riferimento: kr, forma: rif[0].Forma, formaCodice: cod[0].Forma}
+				coppie[k] = c
+				ordine = append(ordine, k)
+			}
+			for _, lc := range cod {
+				for _, lr := range rif {
+					c.prove = append(c.prove, ProvaEquivalenza{AllegatoID: f.AllegatoID, Entita: entita, LetturaCodice: lc.ID, LetturaRiferimento: lr.ID, Fonte: fonte})
+				}
+			}
+		}
 		sort.Strings(entita)
 		for _, e := range entita {
 			rif := riferimenti[e]
@@ -216,11 +286,8 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 			if len(cod) == 0 {
 				continue
 			}
-			kc, kr, completa := chiaviDi(cod), chiaviDi(rif), true
-			for _, l := range append(append([]motorea.LetturaCodice(nil), cod...), rif...) {
-				completa = completa && baseCompleta(l.Forma)
-			}
-			if !completa {
+			kc, kr := chiaviDi(cod), chiaviDi(rif)
+			if !tutteComplete(cod, rif) {
 				continue
 			}
 			if fonte == FonteEquivalenzaNomeFile && len(kc) != 1 {
@@ -235,37 +302,37 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 				}
 				diag = append(diag, diagnosticaContesa(fmt.Sprintf("il cartiglio %q dà %d codici della parte (fonte %s) e %d riferimenti 3D: l'equivalenza vuole uno e uno, e non si propone",
 					e, len(kc), fonte, len(kr)), r))
-				for _, k := range kc {
-					contesoInEntita["codice\x02"+k] = true
-				}
-				for _, k := range kr {
-					contesoInEntita["riferimento\x02"+k] = true
-				}
+				conteso(kc, kr)
 				continue
 			}
-			if cod[0].Forma.Namespace == rif[0].Forma.Namespace {
+			aggiungi(kc[0], kr[0], cod, rif, e, fonte)
+		}
+		// KN-01: le relazioni dichiarate del nome del file, con la stessa regola di un'entità del cartiglio
+		for _, rn := range relazioniDelNome(nome) {
+			kc, kr := chiaviDi(rn.codici), chiaviDi(rn.riferimenti)
+			if len(kc) == 0 || !tutteComplete(rn.codici, rn.riferimenti) {
 				continue
 			}
-			k := kc[0] + "\x01" + kr[0]
-			c, ok := coppie[k]
-			if !ok {
-				c = &equivalenza{codice: kc[0], riferimento: kr[0], forma: rif[0].Forma, formaCodice: cod[0].Forma}
-				coppie[k] = c
-				ordine = append(ordine, k)
-			}
-			for _, lc := range cod {
-				for _, lr := range rif {
-					c.prove = append(c.prove, ProvaEquivalenza{AllegatoID: f.AllegatoID, Entita: e, LetturaCodice: lc.ID, LetturaRiferimento: lr.ID, Fonte: fonte})
+			if len(kc) != 1 || len(kr) != 1 {
+				r := []string{idFonteAllegato(f.AllegatoID)}
+				for _, k := range append(append([]string(nil), kc...), kr...) {
+					r = append(r, rifEquivalenza(k))
 				}
+				diag = append(diag, diagnosticaContesa(fmt.Sprintf("il nome del file dà %d codici della parte e %d documenti del namespace %q nella relazione che la grammatica dichiara (fonte %s): l'equivalenza vuole uno e uno, e non si propone",
+					len(kc), len(kr), rn.namespace, FonteEquivalenzaNomeFileRelazione), r))
+				conteso(kc, kr)
+				continue
 			}
+			aggiungi(kc[0], kr[0], rn.codici, rn.riferimenti, rn.unita, FonteEquivalenzaNomeFileRelazione)
 		}
 	}
 
-	// Le contese del thread: un codice con più riferimenti, un riferimento con più codici.
+	// Le contese del thread: un codice con più riferimenti dello stesso namespace, un riferimento con più codici.
 	perCodice, perRiferimento := map[string][]string{}, map[string][]string{}
 	for _, k := range ordine {
 		c := coppie[k]
-		perCodice[c.codice] = append(perCodice[c.codice], c.riferimento)
+		kt := chiaveTabella(c.codice, namespaceDellaChiave(c.riferimento))
+		perCodice[kt] = append(perCodice[kt], c.riferimento)
 		perRiferimento[c.riferimento] = append(perRiferimento[c.riferimento], c.codice)
 	}
 	conteso := map[string]bool{}
@@ -289,6 +356,7 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 		if lato == "riferimento" {
 			altri, cosa = perRiferimento[k], "un riferimento 3D è scritto nei cartigli del thread accanto a %d codici della parte diversi"
 		}
+		k, _, _ = strings.Cut(k, "\x03") // per il lato del codice, la chiave della tabella senza il namespace del documento
 		altri = unici(altri)
 		r := []string{rifEquivalenza(k)}
 		var allegati []string
@@ -309,10 +377,11 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 	out := map[string]*equivalenza{}
 	for _, k := range ordine {
 		c := coppie[k]
-		if conteso["codice\x02"+c.codice] || conteso["riferimento\x02"+c.riferimento] {
+		kt := chiaveTabella(c.codice, namespaceDellaChiave(c.riferimento))
+		if conteso["codice\x02"+kt] || conteso["riferimento\x02"+c.riferimento] {
 			continue
 		}
-		if contesoInEntita["codice\x02"+c.codice] || contesoInEntita["riferimento\x02"+c.riferimento] {
+		if contesoInEntita["codice\x02"+kt] || contesoInEntita["riferimento\x02"+c.riferimento] {
 			r := []string{rifEquivalenza(c.codice), rifEquivalenza(c.riferimento)}
 			var allegati []string
 			for _, p := range c.prove {
@@ -331,9 +400,66 @@ func equivalenzeDelThread(files []FileInterpretato) (map[string]*equivalenza, []
 			prove = append(prove, p)
 		}
 		c.prove = prove
-		out[c.codice] = c
+		out[kt] = c
 	}
 	return out, diag
+}
+
+// tutteComplete: le letture dei due lati hanno tutte la base completa (baseCompleta).
+func tutteComplete(cod, rif []motorea.LetturaCodice) bool {
+	for _, l := range append(append([]motorea.LetturaCodice(nil), cod...), rif...) {
+		if !baseCompleta(l.Forma) {
+			return false
+		}
+	}
+	return true
+}
+
+// relazioneDelNome: una relazione dichiarata dalla grammatica fra le letture di uno stesso nome di file (KN-01): i
+// documenti di un namespace, le letture del codice della parte, l'unità del nome (l'entità delle prove).
+type relazioneDelNome struct {
+	namespace           string
+	riferimenti, codici []motorea.LetturaCodice
+	unita               string
+}
+
+// relazioniDelNome: le relazioni dichiarate del nome di un file (KN-01), dalle sue letture d'identità (in ordine di
+// ID). I documenti sono le letture con LetturaForma.StessaParteDi, raggruppati per namespace (in ordine); i codici di un
+// gruppo sono le letture dello stesso nome delle famiglie che i suoi documenti dichiarano, dello stesso emittente e
+// di un altro namespace. Una lettura senza il campo non dà niente: senza grammatiche che lo dichiarano, nessuna
+// relazione.
+func relazioniDelNome(nome []motorea.LetturaCodice) []relazioneDelNome {
+	per := map[string]*relazioneDelNome{}
+	var ordine []string
+	famiglie := map[string]map[string]bool{}
+	for _, l := range nome {
+		if len(l.Forma.StessaParteDi) == 0 {
+			continue
+		}
+		ns := l.Forma.Namespace
+		r, ok := per[ns]
+		if !ok {
+			r = &relazioneDelNome{namespace: ns, unita: l.UnitaID}
+			per[ns], famiglie[ns] = r, map[string]bool{}
+			ordine = append(ordine, ns)
+		}
+		r.riferimenti = append(r.riferimenti, l)
+		for _, id := range l.Forma.StessaParteDi {
+			famiglie[ns][l.Forma.Emittente+"\x00"+id] = true
+		}
+	}
+	sort.Strings(ordine)
+	out := make([]relazioneDelNome, 0, len(ordine))
+	for _, ns := range ordine {
+		r := per[ns]
+		for _, l := range nome {
+			if l.Forma.Namespace != ns && famiglie[ns][l.Forma.Emittente+"\x00"+l.Forma.Famiglia] {
+				r.codici = append(r.codici, l)
+			}
+		}
+		out = append(out, *r)
+	}
+	return out
 }
 
 // nomeFuoriDaiRiferimenti: le letture d'identità del nome del file per il ripiego, senza quelle nel namespace di un
@@ -386,7 +512,7 @@ func (a *ancoratore) sostegniPerEquivalenza(g *identitaRaggiungibile, ident []mo
 		if !haRuolo(l.RuoliCandidati, grammatica.RuoloComponente) || !baseCompleta(l.Forma) {
 			continue
 		}
-		e, ok := a.equivalenze[chiaveEquivalenza(l.Forma)]
+		e, ok := a.equivalenze[chiaveTabella(chiaveEquivalenza(l.Forma), g.namespace)]
 		if !ok || e.forma.Namespace != g.namespace || (eq != nil && e != eq) {
 			continue
 		}

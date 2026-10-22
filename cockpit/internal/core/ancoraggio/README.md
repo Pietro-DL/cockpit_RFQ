@@ -131,6 +131,17 @@ markmap:
     della parte in `CatenaCodice.Equivalente` (`CodiceEquivalente`: namespace, base, marcatore, prove; `omitempty`).
     È una proposta: l'identità del nodo resta quella dello STEP, niente si decide; la pagina del Motore A lo mostra
     come codice della casella, col 3D accanto.
+  - dal 22/10 (KN-01, decisione dell'utente: il nome del file nelle equivalenze) **anche il nome del file**: una forma
+    della grammatica che dichiara `stessa_parte_di` (grammatica, `stessa_parte.go`; nella lettura
+    `LetturaForma.StessaParteDi`) lega, nello stesso nome, il documento che legge al codice della parte letto dalle
+    famiglie dichiarate (`relazioniDelNome`). Il nome è un'entità come un cartiglio: stesse regole (basi complete, una
+    chiave per lato, namespace diversi), stessa contesa con l'avviso, fonte `nome_file_relazione` nelle prove; un
+    cartiglio e un nome che dicono la stessa coppia sono una coppia con due prove. La tabella ha la chiave del codice e
+    del namespace del documento (`chiaveTabella`): lo stesso codice accanto a un documento 3D e a un documento 2D sono
+    due coppie, non una contesa. Il candidato ha il motivo di K4 (`equivalenza_cartiglio`); la fonte del P/N
+    (`CodiceEquivalente.Fonte`) dice `cartiglio`, `nome_file` o `nome_file_relazione`. Senza il campo nella grammatica
+    non cambia niente: `VersioneServizio` resta `ancoraggio-3` (gli esiti di ogni grammatica senza il campo hanno gli
+    stessi byte; una grammatica con il campo ha un hash diverso, che entra già negli ingressi).
 - In B4 (commit P6b, fase 3) c'è **la riconciliazione fra lo STEP e il cartiglio** (6.0.6; workflow, passo 10 e il
   caso del §4; contratto §0 punto 4, §1.4, §2.2, §2.5, §2.6), dentro `ProponiAncoraggi`, dopo gli ancoraggi:
   - per ogni nodo con un **2D associato** (un file che valutazione segna come disegno, `FileInterpretato.Disegno`,

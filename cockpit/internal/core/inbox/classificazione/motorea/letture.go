@@ -35,6 +35,12 @@ type LetturaForma struct {
 	// Classe: una lettura del cliente resta byte per byte quella di prima.
 	Emittente     string `json:"Emittente,omitempty"`
 	HashEmittente string `json:"HashEmittente,omitempty"`
+
+	// KN-01: le famiglie che la forma dichiara come codice della stessa parte nello stesso nome di file
+	// (grammatica.FormaCodice.StessaParteDi): la lettura è un documento di quella parte, e l'ancoraggio ne propone
+	// l'equivalenza. È un dato della grammatica, copiato com'è; con omitempty, una lettura di una forma senza il campo
+	// resta byte per byte quella di prima.
+	StessaParteDi []string `json:"StessaParteDi,omitempty"`
 }
 
 // ClasseLetta: la voce della tabella delle classi della famiglia (grammatica.TabellaClassi; decisione dell'utente del
@@ -143,6 +149,9 @@ func (p *pianoForma) lettura(sel evidenze.Selettore, testo string, inizio int, l
 	}
 	if p.condizione == condPartner || p.condizione == condSoloLegame && p.emittente != "" {
 		l.Emittente, l.HashEmittente = p.emittente, p.hashEmittente
+	}
+	if len(p.stessaParteDi) > 0 {
+		l.StessaParteDi = append([]string(nil), p.stessaParteDi...)
 	}
 	m := match{testo: testo, inizio: inizio, loc: loc}
 	var codice []string
