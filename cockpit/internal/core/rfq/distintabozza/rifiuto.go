@@ -10,6 +10,10 @@ package distintabozza
 // finito della RFQ → la conferma e' l'ultima valida del prodotto, formato 3 con il suo registro → l'impronta dichiarata e'
 // quella di adesso (409 ANTEPRIMA_SUPERATA, proposta_step) e diversa da quella della conferma (422: niente da rifiutare) →
 // proposta_aggiornata_rifiuto ed esito_intento (gesto rifiuta_proposta) → COMMIT.
+//
+// Messaggio 46 [U] (21/10): il motivo non si chiede piu' all'utente. proposta_aggiornata_rifiuto.motivo e' NOT NULL
+// (ck_par_motivo): senza il motivo del corpo lo scrive il server come traccia del gesto (TracciaRifiutoR15). Se un client
+// di prima manda il motivo, vale il suo. L'impronta resta quella del corpo mandato.
 
 import (
 	"context"
@@ -23,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/core/rfq/confermabom"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
@@ -79,11 +84,12 @@ func LeggiRichiestaR15(raw []byte) (RichiestaR15, string, error) {
 		return r, "", corpo("gruppo", "il gruppo e' obbligatorio, al piu' %d caratteri", MaxGruppo)
 	case in.ImprontaContenuto == nil || !reSha256.MatchString(*in.ImprontaContenuto):
 		return r, "", corpo("impronta_contenuto", "l'impronta del contenuto e' di 64 cifre esadecimali minuscole")
-	case in.Motivo == nil || strings.TrimSpace(nfc(*in.Motivo)) == "":
-		return r, "", &Errore{Codice: CodiceMotivoObbligatorio, Campo: "motivo", Messaggio: "il rifiuto della proposta aggiornata vuole un motivo"}
 	}
-	motivo := strings.TrimSpace(nfc(*in.Motivo))
-	if !testoLibero(motivo, MaxMotivo) {
+	motivo := ""
+	if in.Motivo != nil {
+		motivo = strings.TrimSpace(nfc(*in.Motivo))
+	}
+	if motivo != "" && !testoLibero(motivo, MaxMotivo) {
 		return r, "", corpo("motivo", "il motivo sta in %d caratteri, senza caratteri di controllo", MaxMotivo)
 	}
 	r = RichiestaR15{ChiaveIdempotenza: *in.ChiaveIdempotenza, ProdottoID: *in.ProdottoID, ConfermaID: *in.ConfermaID, Gruppo: *in.Gruppo,
@@ -93,6 +99,15 @@ func LeggiRichiestaR15(raw []byte) (RichiestaR15, string, error) {
 		return r, "", corpo("corpo", "il corpo non ha una forma canonica: %v", err)
 	}
 	return r, jsoncanonico.Impronta(can), nil
+}
+
+// WidgetRifiutoR15: il gesto della pagina che la traccia di R15 nomina.
+const WidgetRifiutoR15 = "Rifiuta la proposta aggiornata"
+
+// TracciaRifiutoR15: la traccia del rifiuto senza il motivo dell'utente (messaggio 46 [U]), per esempio «gesto di PS da
+// «Rifiuta la proposta aggiornata»: la BOM confermata di ACME-1 (conferma n. 2) resta com'è».
+func TracciaRifiutoR15(sigla, codiceProdotto string, numero int) string {
+	return traccia.Gesto(MaxMotivo, sigla, WidgetRifiutoR15, fmt.Sprintf("la BOM confermata di %s (conferma n. %d) resta com'è", strings.TrimSpace(codiceProdotto), numero))
 }
 
 // PropostaDiAdesso: la proposta di adesso del gruppo dichiarato, calcolata da chi chiama prima della transazione (il
@@ -147,7 +162,8 @@ func RifiutaPropostaAggiornata(ctx context.Context, pool Avviatore, thread, uten
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return out, err
 	}
-	if _, err := prodottoDellaRfq(ctx, q, thread, r.ProdottoID, false); err != nil {
+	prodotto, err := prodottoDellaRfq(ctx, q, thread, r.ProdottoID, false)
+	if err != nil {
 		return out, err
 	}
 	if b, err := q.IngressiBozza(ctx, db.IngressiBozzaParams{ThreadID: thread, ProdottoID: r.ProdottoID}); err != nil {
@@ -190,8 +206,16 @@ func RifiutaPropostaAggiornata(ctx context.Context, pool Avviatore, thread, uten
 	if len(diff) == 0 || string(diff) == "null" {
 		diff = json.RawMessage(`{}`)
 	}
+	motivo := r.Motivo
+	if motivo == "" {
+		sigla, err := traccia.Sigla(ctx, q, utente)
+		if err != nil {
+			return out, err
+		}
+		motivo = TracciaRifiutoR15(sigla, prodotto.Codice, int(c.Numero))
+	}
 	riga, err := q.InsertPropostaAggiornataRifiuto(ctx, db.InsertPropostaAggiornataRifiutoParams{ThreadID: thread, ProdottoID: r.ProdottoID,
-		ConfermaID: r.ConfermaID, Gruppo: r.Gruppo, ImprontaContenuto: r.ImprontaContenuto, Differenze: diff, Motivo: r.Motivo, AutoreID: utente,
+		ConfermaID: r.ConfermaID, Gruppo: r.Gruppo, ImprontaContenuto: r.ImprontaContenuto, Differenze: diff, Motivo: motivo, AutoreID: utente,
 		ChiaveIdempotenza: r.ChiaveIdempotenza})
 	if err != nil {
 		return out, erroreDiScrittura(err, "corpo")

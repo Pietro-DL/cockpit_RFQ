@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 )
@@ -30,6 +31,14 @@ func (s *Servizio) Scarta(ctx context.Context, thread, allegato, utente uuid.UUI
 		if reg != nil {
 			esito = reg
 			return nil
+		}
+		// messaggio 46 [U]: senza il motivo dell'utente, la traccia del gesto (ck_fre_coerente vuole il motivo dello scarto)
+		if g.corpo.Motivo == nil {
+			sigla, err := traccia.Sigla(ctx, q, g.utente)
+			if err != nil {
+				return err
+			}
+			g.traccia = TracciaScarta(sigla, pr.occ.NomeFile)
 		}
 		esito, err = s.tempo1(ctx, q, g, pr)
 		return err
@@ -71,7 +80,7 @@ func (s *Servizio) tempo1(ctx context.Context, q *db.Queries, g gesto, pr *prepa
 			if n > 0 {
 				if _, err := q.InsertAssociazioneEvento(ctx, db.InsertAssociazioneEventoParams{ThreadID: g.thread,
 					PropostaID: uid(o.PropostaID.UUID), Azione: "scarta", Origine: OriginePonte, ChiaveIdempotenza: uid(g.it.chiave),
-					AutoreID: g.utente, Motivo: testo(g.corpo.motivo())}); err != nil {
+					AutoreID: g.utente, Motivo: testo(g.motivoDelGesto())}); err != nil {
 					return nil, err
 				}
 			}
@@ -104,7 +113,7 @@ func (s *Servizio) tempo1(ctx context.Context, q *db.Queries, g gesto, pr *prepa
 			prima = StatoAttivo
 		}
 		evID, err := scriviEvento(ctx, q, g.thread, evento{o: o, azione: "scarta", prima: prima, dopo: StatoScartato,
-			motivo: g.corpo.motivo(), fotografia: fotografia(o), dipendenze: dipendenzeDellOccorrenza(pr.el, o.AllegatoID, per),
+			motivo: g.motivoDelGesto(), fotografia: fotografia(o), dipendenze: dipendenzeDellOccorrenza(pr.el, o.AllegatoID, per),
 			origine: OriginePonte, autore: uid(g.utente), chiave: uid(g.it.chiave)})
 		if err != nil {
 			return nil, err

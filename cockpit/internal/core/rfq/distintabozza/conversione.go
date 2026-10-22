@@ -178,11 +178,10 @@ type tracciaConversione struct {
 // Converti converte una bozza formato 2 aperta (commento di testa).
 func Converti(ctx context.Context, pool Avviatore, c Conversione3) (Convertita, error) {
 	var out Convertita
+	// il motivo e' facoltativo dal messaggio 46 [U]: le colonne che lo ricevono (l'evento bozza_aperta, la chiusura della
+	// bozza formato 2) lo ammettono NULL
 	motivo := strings.TrimSpace(nfc(c.Motivo))
-	if motivo == "" {
-		return out, &Errore{Codice: CodiceMotivoObbligatorio, Campo: "converti_da.motivo", Messaggio: "la conversione vuole il motivo"}
-	}
-	if !testoLibero(motivo, MaxMotivo) {
+	if motivo != "" && !testoLibero(motivo, MaxMotivo) {
 		return out, corpo("converti_da.motivo", "il motivo sta in %d caratteri, senza caratteri di controllo", MaxMotivo)
 	}
 	if c.ChiaveSalvataggio.Version() != 4 || !reSha256.MatchString(c.ImprontaRichiesta) {

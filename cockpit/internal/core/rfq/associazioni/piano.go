@@ -18,7 +18,11 @@ package associazioni
 //     PD35 INC-G18; il punto 5 di trg_fra_nasce per la copia legacy); documento_senza_componente (D-AR06 A [T-39]);
 //     documento_confermato_altrove (D-AR07 A [T-39]); codice_non_letto (D-1 A [T-39]); codice_diverso (il codice, o la
 //     revisione se il file e il nodo ne hanno una, del file diverso da quello deciso per il nodo: MAT §4.2);
-//   - in_attesa_codice: il nodo non ha ancora un codice (insieme a CODICE_DA_ASSEGNARE);
+//     codice_non_letto e codice_diverso non valgono per una PB del motore rimasta intatta (VocePB.DalMotore: D-48-01 A
+//     [T], preparata in attesa della risposta): il confronto usa la lettura generica del nome del file (documento_proposta,
+//     senza la grammatica del cliente), mentre il motore ha legato file e nodo con la grammatica (segmenti, cartiglio K4,
+//     riferimento del partner); le PB manuali e corrette restano confrontate (D-48-02 aperta);
+//   - in_attesa_codice: il nodo non ha ancora un codice (insieme a CODICE_DA_ASSEGNARE), anche per una PB del motore;
 //   - gia_applicata: la stessa coppia ha gia' una AR attiva (nessuna riga nuova: la AR tiene la sua conferma d'origine);
 //   - sostituzione: la bozza porta lo svincolo della AR attiva dello stesso allegato verso un componente di questo prodotto;
 //   - applicabile.
@@ -138,6 +142,10 @@ type VocePB struct {
 	NonRichiesta bool
 	// Svincolata: la bozza porta lo svincolo della AR attiva di questo allegato
 	Svincolata bool
+	// DalMotore: una PB proposta dal motore e rimasta intatta (provenienza motore sul nodo e con l'identita' che il registro
+	// propone, componente non ricodificato): non passa per il confronto del codice letto (D-48-01 A [T]); lo decide chi
+	// chiama (distintabozza, documenti di R4)
+	DalMotore bool
 }
 
 // VoceSvincolo: uno svincolo della bozza (scollega_documento).
@@ -318,6 +326,12 @@ func esitoPB(v VocePB, f FattiPiano) EsitoPB {
 	}
 	if strings.TrimSpace(v.Codice) == "" {
 		e.Esito = EsitoInAttesaCodice
+		return e
+	}
+	if v.DalMotore && v.Provenienza == ProvenienzaMotore {
+		// D-48-01 A [T]: la PB del motore intatta non si riconfronta con la lettura generica del nome del file (il flag su
+		// una PB manuale o corretta non conta: D-48-02 aperta)
+		e.Esito = esito
 		return e
 	}
 	if !occ.ConProposta || occ.TipoProposto == TipoDaDeterminare || strings.TrimSpace(occ.CodiceLetto) == "" {

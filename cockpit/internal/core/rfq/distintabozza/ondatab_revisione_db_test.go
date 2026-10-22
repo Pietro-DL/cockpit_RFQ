@@ -695,13 +695,14 @@ func TestV1Rev2ConversioneIRifiutiPropri(t *testing.T) {
 	b = bozza2DB(t, p, s.thread, s.altroFinito, s.utente, senza)
 	codice3(t, conv(b, s.altroFinito), CodiceCorpoNonValido, MotivoConversioneSenzaOccorrenza)
 	aperta(b)
-	// una decisione del formato 2 che non ha la forma del formato 3 (escludi senza motivo)
+	// una decisione del formato 2 che non ha la forma del formato 3 (escludi con la chiave_bozza, che il suo tipo non ha;
+	// escludi senza motivo e' una forma valida dal messaggio 46 [U])
 	fin := idDi("finito-decisioni")
 	esegui3(t, p, `INSERT INTO componente (componente_id, thread_id, codice, tipo, origine, confermato_da) VALUES ($1, $2, 'ACM-6700', 'finito', 'manuale', $3)`,
 		fin, s.thread, s.utente)
 	dec := Snapshot{Formato: FormatoSnapshot, ProdottoID: fin, VersioneBomBase: &VersioneBomBase{}, FirmaBase: firmaProva,
 		Nodi:      []Nodo{radice(fin, "ACM-6700")},
-		Decisioni: []json.RawMessage{json.RawMessage(`{"id":"ex-1","tipo":"escludi","componente_id":"` + idDi("k-p1-1").String() + `"}`)},
+		Decisioni: []json.RawMessage{json.RawMessage(`{"id":"ex-1","tipo":"escludi","componente_id":"` + idDi("k-p1-1").String() + `","chiave_bozza":"k-1"}`)},
 	}
 	b = bozza2DB(t, p, s.thread, fin, s.utente, dec)
 	e := codice3(t, conv(b, fin), CodiceCorpoNonValido, MotivoConversioneDecisione)

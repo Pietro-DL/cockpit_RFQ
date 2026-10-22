@@ -147,13 +147,13 @@ func LeggiRichiestaR4(raw []byte) (RichiestaR4, error) {
 		return out, e
 	}
 	if m == nil {
-		return out, corpo("richiesta", "il corpo e' un oggetto JSON con la bozza formato 3")
+		return out, corpo("richiesta", "il corpo è un oggetto JSON con la bozza formato 3")
 	}
 	if f, ok := m["formato"]; ok {
 		var n int
 		if json.Unmarshal(f, &n) == nil && n == FormatoSnapshot {
 			return out, corpoMotivo("formato", MotivoFormatoDaConvertire,
-				"la bozza e' formato 2: si converte con converti_da (R2) prima del riepilogo")
+				"la bozza è formato 2: si converte con converti_da (R2) prima del riepilogo")
 		}
 	}
 	if b, ok := m["bozza_id"]; ok {
@@ -161,7 +161,7 @@ func LeggiRichiestaR4(raw []byte) (RichiestaR4, error) {
 		if presenteValore(b) {
 			var id uuid.UUID
 			if json.Unmarshal(b, &id) != nil || id == uuid.Nil {
-				return out, corpo("bozza_id", "bozza_id e' un UUID")
+				return out, corpo("bozza_id", "bozza_id è un UUID")
 			}
 			out.BozzaID = &id
 		}
@@ -171,7 +171,7 @@ func LeggiRichiestaR4(raw []byte) (RichiestaR4, error) {
 		if presenteValore(v) {
 			var n int
 			if json.Unmarshal(v, &n) != nil || n < 1 {
-				return out, corpo("bozza_versione", "bozza_versione e' un intero da 1")
+				return out, corpo("bozza_versione", "bozza_versione è un intero da 1")
 			}
 			out.BozzaVersione = n
 		}
@@ -181,7 +181,7 @@ func LeggiRichiestaR4(raw []byte) (RichiestaR4, error) {
 		if presenteValore(k) {
 			var id uuid.UUID
 			if json.Unmarshal(k, &id) != nil || id == uuid.Nil {
-				return out, corpo("chiave_idempotenza", "chiave_idempotenza e' un UUID")
+				return out, corpo("chiave_idempotenza", "chiave_idempotenza è un UUID")
 			}
 			out.ChiaveIdempotenza = &id
 		}

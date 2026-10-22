@@ -91,8 +91,11 @@ type paginaDistintaUnica struct {
 type datiDistintaUnica struct {
 	ThreadID uuid.UUID
 	UtenteID string
-	Testata  testataDistintaUnica
-	Errore   string
+	// Sigla: la sigla dell'utente (data-du-sigla), per la traccia del gesto che la pagina scrive nelle decisioni
+	// non_includere al posto del motivo dell'utente (messaggio 46 [U]; corsia MOTIVO)
+	Sigla   string
+	Testata testataDistintaUnica
+	Errore  string
 }
 
 // registraPaginaDistintaUnica monta il guscio e la sua riga gemella. Stessa catena delle rotte di motore-a: prima il
@@ -183,6 +186,7 @@ func (p *paginaDistintaUnica) servi(w http.ResponseWriter, r *http.Request) {
 	u := utenteDa(r.Context())
 	if u != nil {
 		d.UtenteID = u.UtenteID.String()
+		d.Sigla = u.Sigla
 	}
 	v := vista{Utente: u, Titolo: titoloDistintaUnica, Dati: d}
 	v.Admin = almeno(u, db.RuoloUtenteAdmin)

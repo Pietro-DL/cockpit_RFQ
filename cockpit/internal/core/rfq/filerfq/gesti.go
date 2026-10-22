@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/rfq/associazioni"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -22,6 +23,14 @@ type gesto struct {
 	utente   uuid.UUID
 	corpo    CorpoGesto
 	it       intento
+	// traccia: il motivo scritto dal server quando il corpo non lo porta e il gesto lo deve registrare (messaggio 46 [U];
+	// «Scarta»). Non e' del corpo: l'impronta dell'intento resta quella del corpo mandato
+	traccia string
+}
+
+// motivoDelGesto: il motivo dell'utente (i client di prima) o la traccia del server.
+func (g gesto) motivoDelGesto() string {
+	return traccia.DellUtente(g.corpo.motivo(), g.traccia)
 }
 
 func nuovoGesto(nome string, thread, allegato, utente uuid.UUID, c CorpoGesto) (gesto, error) {

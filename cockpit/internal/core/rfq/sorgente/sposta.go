@@ -14,9 +14,12 @@ package sorgente
 //   - lo STEP e' la sorgente S8 valida di ‹A›, non usata da una R5: serve il gesto «Sposta la sorgente su questo prodotto»
 //     (sposta_da = ‹A› nel corpo di S8); senza, STEP_SORGENTE_DI_ALTRO_PRODOTTO motivo sorgente_spostabile con altro_prodotto;
 //   - lo STEP e' solo un documento di ‹A› (legacy, legame storico, o sorgente S8 gia' revocata), senza S8 valida: si
-//     riassocia con il motivo scritto (RV3-32), anche con sposta_da; senza, MOTIVO_OBBLIGATORIO motivo riassociazione;
+//     riassocia con il gesto esplicito «Riassocia a ‹B›» (sposta_da = ‹A› nel corpo; RV3-32); senza, 422
+//     STEP_SORGENTE_DI_ALTRO_PRODOTTO motivo riassociazione con altro_prodotto. Dal messaggio 46 [U] il motivo scritto
+//     dall'utente non serve piu': il gesto e' sposta_da, e la traccia del server lo dice (TracciaS8, «lo STEP lascia ‹A›»).
+//     Un client di prima che manda il motivo senza sposta_da riassocia ancora, come prima;
 //   - lo STEP non e' un documento ma ha la copia P1 (documento_proposta.componente_id di una proposta aperta, senza AR) su un
-//     altro componente: come il documento, si riassocia con il motivo (prima S8 lasciava la copia dov'era).
+//     altro componente: come il documento, si riassocia con «Riassocia a ‹B›» (prima S8 lasciava la copia dov'era).
 // Restano rifiuti prudenti (GIA_DOCUMENTO): il documento che e' la revisione di un altro documento di ‹A› (la catena
 // sostituito_da resta del suo componente), lo STEP autorizzato dallo Smistamento a proporre i figli di ‹A› e il documento
 // gia' sostituito nella storia di ‹A› (motivo sostituito_in_altro_prodotto, s8.go): dopo la revisione di ‹A› lo STEP
@@ -193,9 +196,9 @@ func valutaAltroProdotto(ctx context.Context, q *db.Queries, thread uuid.UUID, r
 		}
 		return sp, nil
 	}
-	if r.Motivo == "" {
-		return nil, &distintabozza.Errore{Codice: distintabozza.CodiceMotivoObbligatorio, Motivo: MotivoRiassociazione, Campo: "motivo", AltroProdotto: &altro,
-			Messaggio: fmt.Sprintf("Questo STEP è un documento di %s, non confermato come sua sorgente: per riassociarlo a %s scrivi il motivo. Lascerà %s.", a.Codice, p.Codice, a.Codice)}
+	if !riassociazioneEsplicita(r, altro) {
+		return nil, &distintabozza.Errore{Codice: CodiceStepSorgenteDiAltroProdotto, Motivo: MotivoRiassociazione, Campo: "sposta_da", AltroProdotto: &altro,
+			Messaggio: fmt.Sprintf("Questo STEP è un documento di %s, non confermato come sua sorgente: per riassociarlo a %s usa «Riassocia a %s». Lascerà %s.", a.Codice, p.Codice, p.Codice, a.Codice)}
 	}
 	return sp, nil
 }
@@ -220,12 +223,19 @@ func valutaCopiaP1(ctx context.Context, q *db.Queries, allegato uuid.UUID, r Ric
 	if r.SpostaDa != nil && *r.SpostaDa != altro {
 		return nil, errCorpo("sposta_da", "", "lo STEP e' pre-assegnato a %s, non al prodotto indicato in sposta_da: rileggi la pagina", a.Codice)
 	}
-	if r.Motivo == "" {
-		return nil, &distintabozza.Errore{Codice: distintabozza.CodiceMotivoObbligatorio, Motivo: MotivoRiassociazione, Campo: "motivo", AltroProdotto: &altro,
-			Messaggio: fmt.Sprintf("Questo STEP è pre-assegnato a %s dalle pagine di prima: per riassociarlo a %s scrivi il motivo. Lascerà %s.", a.Codice, p.Codice, a.Codice)}
+	if !riassociazioneEsplicita(r, altro) {
+		return nil, &distintabozza.Errore{Codice: CodiceStepSorgenteDiAltroProdotto, Motivo: MotivoRiassociazione, Campo: "sposta_da", AltroProdotto: &altro,
+			Messaggio: fmt.Sprintf("Questo STEP è pre-assegnato a %s dalle pagine di prima: per riassociarlo a %s usa «Riassocia a %s». Lascerà %s.", a.Codice, p.Codice, p.Codice, a.Codice)}
 	}
 	pc := pr
 	return &Spostamento{Caso: CasoCopiaP1, Da: a, Proposta: &pc}, nil
+}
+
+// riassociazioneEsplicita: il corpo chiede la riassociazione dello STEP dall'altro prodotto: con il gesto «Riassocia a
+// ‹B›» (sposta_da = l'altro prodotto; messaggio 46 [U]: il gesto, non un testo, e' la decisione) oppure, per i client di
+// prima, con un motivo scritto.
+func riassociazioneEsplicita(r RichiestaS8, altro uuid.UUID) bool {
+	return (r.SpostaDa != nil && *r.SpostaDa == altro) || r.Motivo != ""
 }
 
 // notaSpostamento: il motivo registrato sull'altro prodotto (revoca, abbandono della bozza, nota dello sgancio della copia).

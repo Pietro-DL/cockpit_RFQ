@@ -62,11 +62,11 @@ func bdGruppoPB(prov string, verificata bool) (gruppo, elenco string) {
 // testi del gate (distintabozza.testiGate)
 var bdTestiGate = map[string]string{
 	"senza_sorgente": "La bozza non ha uno STEP confermato come sorgente: confermalo dalla Sorgente («Conferma questo STEP come sorgente»), poi conferma la BOM.",
-	"non_confermata": "Lo STEP della bozza non e' confermato come sorgente da S8: confermalo dalla Sorgente, poi conferma la BOM.",
-	"revocata":       "La sorgente della bozza e' stata revocata: conferma di nuovo uno STEP come sorgente dalla Sorgente.",
-	"rifiutata":      "La sorgente della bozza e' stata rifiutata: conferma uno STEP come sorgente dalla Sorgente.",
-	"superata":       "La conferma della sorgente e' superata da quella di un altro STEP: riconferma lo STEP della bozza o cambia la sorgente.",
-	"non_coerente":   "Lo STEP della bozza non corrisponde piu' al documento confermato: riconfermalo dalla Sorgente.",
+	"non_confermata": "Lo STEP della bozza non è confermato come sorgente da S8: confermalo dalla Sorgente, poi conferma la BOM.",
+	"revocata":       "La sorgente della bozza è stata revocata: conferma di nuovo uno STEP come sorgente dalla Sorgente.",
+	"rifiutata":      "La sorgente della bozza è stata rifiutata: conferma uno STEP come sorgente dalla Sorgente.",
+	"superata":       "La conferma della sorgente è superata da quella di un altro STEP: riconferma lo STEP della bozza o cambia la sorgente.",
+	"non_coerente":   "Lo STEP della bozza non corrisponde più al documento confermato: riconfermalo dalla Sorgente.",
 }
 
 // gateSorgenteR4: lo stato della sorgente della versione (SorgenteR4) e il blocco firmato, se scatta.
@@ -131,6 +131,25 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		padri[bdStr(a["figlio"])]++
 	}
 	nodoDelComp := map[string]string{}
+	// l'identita' e le voci del registro delle caselle sulla fonte del registro, per la PB del motore intatta (D-48-01 A [T])
+	fonteReg := ""
+	if reg != nil {
+		if fo, _ := reg["proposta"].(m)["fonte"].(m); fo != nil {
+			fonteReg = bdStr(fo["allegato_id"])
+		}
+	}
+	idNodo, vociDi := map[string]m{}, map[string][]m{}
+	for _, x := range nodi {
+		n := x.(m)
+		k := bdStr(n["chiave_bozza"])
+		idNodo[k], _ = n["identita"].(m)
+		for _, y := range bdElenco(n["caselle"]) {
+			c := y.(m)
+			if v := voci["n:"+bdStr(c["allegato_id"])+":"+bdStr(c["rif"])]; v != nil && fonteReg != "" && strings.EqualFold(bdStr(c["allegato_id"]), fonteReg) {
+				vociDi[k] = append(vociDi[k], v)
+			}
+		}
+	}
 	for _, x := range nodi {
 		n := x.(m)
 		k := bdStr(n["chiave_bozza"])
@@ -225,7 +244,7 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		}
 		if c := registrati[strings.ToUpper(codice)]; c != "" && opDi[k] == "crea" && riusa[k] != c {
 			blocchi = append(blocchi, m{"codice": "CREA_SU_ESISTENTE", "chiave_bozza": k, "componente_id": c, "chiave_working": strings.ToUpper(codice),
-				"testo":  "Il codice di " + codice + " e' gia' di un componente registrato (" + codice + "): riusalo, oppure cambia il codice.",
+				"testo":  "Il codice di " + codice + " è già di un componente registrato (" + codice + "): riusalo, oppure cambia il codice.",
 				"rimedi": []any{"«Riusa i componenti con lo stesso codice» (riusa_esistente)", "cambia il codice del nodo, con il motivo"}})
 		}
 	}
@@ -337,6 +356,69 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		}
 		archi = append(archi, m{"padre": estremo(p), "figlio": estremo(f), "qta_precedente": nil, "qta_voluta": a["qta"], "azione": "aggiunto", "origine": a["origine"]})
 	}
+	// la PB del motore intatta (D-48-01 A [T], distintabozza.pbDalMotore): provenienza motore, componente non ricodificato, la
+	// voce di una casella del nodo propone il file ed e' l'unica del registro a proporlo, e il nodo ha l'identita' di quella
+	// voce (proposta: emittente, namespace, codice e rev proposti; registrato: il componente della decisione_esistente, il
+	// prodotto per la voce della radice)
+	ricodificati := map[string]bool{}
+	for _, x := range decisioni {
+		if d := x.(m); bdStr(d["tipo"]) == "ricodifica" {
+			ricodificati[strings.ToLower(bdStr(d["componente_id"]))] = true
+		}
+	}
+	radice := ""
+	if reg != nil {
+		if g, _ := reg["gruppo"].(m); g != nil {
+			radice = bdStr(g["radice"])
+		}
+	}
+	propone := func(v m, aid string) bool {
+		for _, y := range bdElenco(v["associazioni_proposte"]) {
+			if strings.EqualFold(bdStr(y.(m)["allegato_id"]), aid) {
+				return true
+			}
+		}
+		return false
+	}
+	destinazioni := func(aid string) int {
+		rif := map[string]bool{}
+		for _, v := range voci {
+			if propone(v, aid) {
+				o, _ := v["origine"].(m)
+				rif[bdStr(o["rif"])] = true
+			}
+		}
+		return len(rif)
+	}
+	dalMotore := func(prov, k, aid string) bool {
+		if prov != "motore" || ricodificati[strings.ToLower(compDi[k])] || destinazioni(aid) != 1 {
+			return false
+		}
+		id := idNodo[k]
+		for _, v := range vociDi[k] {
+			if !propone(v, aid) {
+				continue
+			}
+			switch bdStr(id["modo"]) {
+			case "proposta":
+				ip, _ := v["identita_proposta"].(m)
+				return ip != nil && bdStr(v["codice_proposto"]) != "" && bdStr(id["emittente"]) == bdStr(ip["emittente"]) &&
+					bdStr(id["namespace"]) == bdStr(ip["namespace"]) && bdStr(id["codice"]) == bdStr(v["codice_proposto"]) &&
+					bdStr(id["rev"]) == bdStr(v["rev_proposta"])
+			case "registrato":
+				atteso := ""
+				if de, _ := v["decisione_esistente"].(m); de != nil {
+					atteso = bdStr(de["componente_id"])
+				}
+				if o, _ := v["origine"].(m); o != nil && radice != "" && bdStr(o["rif"]) == radice {
+					atteso = prod
+				}
+				return atteso != "" && strings.EqualFold(atteso, compDi[k])
+			}
+			return false
+		}
+		return false
+	}
 	// il Piano semplificato delle PB (associazioni.Piano)
 	pre := []any{}
 	for _, x := range preSnap {
@@ -417,6 +499,8 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 			esito, motivo = "in_conflitto", "documento_confermato_altrove"
 		case codiceDi[k] == "":
 			esito = "in_attesa_codice"
+		case dalMotore(prov, k, aid):
+			// D-48-01 A [T] (associazioni.VocePB.DalMotore): la PB del motore intatta non si riconfronta con il codice letto
 		case f.Codice == "":
 			esito, motivo = "in_conflitto", "codice_non_letto"
 		case norm(f.Codice) != norm(codiceDi[k]) || (f.Rev != "" && revDi[k] != "" && norm(f.Rev) != norm(revDi[k])):
@@ -429,9 +513,9 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		if variante != "" {
 			e["variante"] = variante
 		}
-		e["effetto"] = map[string]string{"applicabile": "associazione registrata con la conferma (non e' la conferma del documento)", "gia_applicata": "gia' registrata: nessuna riga nuova",
-			"sostituzione": "l'associazione di prima si chiude e la nuova si registra con la conferma", "non_richiesta": "non si applica: il documento non e' richiesto per questo nodo",
-			"in_attesa_codice": "in attesa del codice del nodo", "in_conflitto": "non si applica finche' il conflitto non e' risolto"}[esito]
+		e["effetto"] = map[string]string{"applicabile": "associazione registrata con la conferma (non è la conferma del documento)", "gia_applicata": "già registrata: nessuna riga nuova",
+			"sostituzione": "l'associazione di prima si chiude e la nuova si registra con la conferma", "non_richiesta": "non si applica: il documento non è richiesto per questo nodo",
+			"in_attesa_codice": "in attesa del codice del nodo", "in_conflitto": "non si applica finché il conflitto non è risolto"}[esito]
 		pre = append(pre, e)
 		g := m{"allegato_id": aid, "chiave_bozza": k, "esito": esito}
 		if motivo != "" {
@@ -442,9 +526,9 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		}
 		aggiungi(elenco, g)
 		if esito == "in_conflitto" {
-			testi := map[string]string{"file_non_attivo": "non e' piu' un file attivo della RFQ (Altri file o scartato)", "legato_come_sorgente": "e' lo STEP legato come sorgente di un prodotto finito: non e' un documento da associare",
-				"legacy_da_verificare": "viene da una pre-assegnazione delle pagine di prima: va verificata (riconoscila, toglila o rifalla a mano)", "gia_associata_altrove": "e' gia' associato a un altro componente",
-				"documento_confermato_altrove": "e' gia' un documento confermato di un altro componente", "codice_non_letto": "non ha un codice letto",
+			testi := map[string]string{"file_non_attivo": "non è più un file attivo della RFQ (Altri file o scartato)", "legato_come_sorgente": "è lo STEP legato come sorgente di un prodotto finito: non è un documento da associare",
+				"legacy_da_verificare": "viene da una pre-assegnazione delle pagine di prima: va verificata (riconoscila, toglila o rifalla a mano)", "gia_associata_altrove": "è già associato a un altro componente",
+				"documento_confermato_altrove": "è già un documento confermato di un altro componente", "codice_non_letto": "non ha un codice letto",
 				"codice_diverso": "ha un codice o una revisione diversi da quelli del pezzo"}
 			rimedi := []any{"togli la preassociazione"}
 			switch motivo {
@@ -532,7 +616,7 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 				"testo": "La voce dello STEP ha un equivalente (K4-0099) diverso dal codice che va nella BOM: adottalo o rifiutalo con il motivo."})
 		}
 		blocchi = append(blocchi, m{"codice": "RICODIFICA_FILE_NAS", "motivo": "documento_confermato", "componente_id": bdC40,
-			"testo":  "ACM-1400 ha 1 documenti gia' confermati: la ricodifica ne cambierebbe il codice e la cartella (non e' in V1).",
+			"testo":  "ACM-1400 ha 1 documenti già confermati: la ricodifica ne cambierebbe il codice e la cartella (non è in V1).",
 			"rimedi": []any{"togli la ricodifica dalla bozza", "correggi il codice dalla scheda del componente, che porta anche i documenti"}})
 	}
 	// la sorgente, la riga «legato come sorgente» e l'effetto sulla fonte (direttiva 39 §2, §5)
@@ -565,10 +649,10 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 		l := m{"allegato_id": aid, "sha256": s["sha256"], "nome_file": nome, "confermata": sorg["valida"] == true}
 		if sorg["valida"] == true {
 			l["documento_id"] = sorg["documento_id"]
-			l["testo"] = "Legato come sorgente del prodotto (confermato da S8): non e' un documento da associare, e la conferma non ne registra l'associazione."
+			l["testo"] = "Legato come sorgente del prodotto (confermato da S8): non è un documento da associare, e la conferma non ne registra l'associazione."
 		} else {
 			l["motivo"] = sorg["motivo"]
-			l["testo"] = "Sorgente della bozza, non ancora confermata validamente da S8: non e' un documento da associare."
+			l["testo"] = "Sorgente della bozza, non ancora confermata validamente da S8: non è un documento da associare."
 		}
 		o["sorgente_legata"] = l
 	}
@@ -600,7 +684,7 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 			if c := bdStr(n["componente_id"]); c != "" && c != prod {
 				o["condivisione"] = []any{m{"prodotto_id": bdP2, "codice": "ACM-2000", "conferma_valida_prima": true,
 					"elementi":    []any{m{"tipo": "componente", "componente_id": c, "codice": codiceDi[bdStr(n["chiave_bozza"])], "effetto": "le sue associazioni e i suoi archi cambiano con questa conferma"}},
-					"conseguenza": "Le variazioni vengono dalla conferma di ACM-1000 e sono attribuite a chi la conferma; ACM-2000 non e' confermato per implicazione. La sua ultima conferma puo' non valere piu' per la working cambiata."}}
+					"conseguenza": "Le variazioni vengono dalla conferma di ACM-1000 e sono attribuite a chi la conferma; ACM-2000 non è confermato per implicazione. La sua ultima conferma può non valere più per la working cambiata."}}
 				avvisi = append(avvisi, m{"codice": "PRODOTTI_TOCCATI", "testo": "La conferma tocca anche ACM-2000.", "prodotti": []any{bdP2}})
 				o["avvisi"] = avvisi
 				break
@@ -618,13 +702,13 @@ func (b *bancoDU) riepilogo(prod string, snap m, versione int, motore bool) m {
 	calcolati := false
 	if motore {
 		if b.modo("motore") == "ko" {
-			o["avvisi_motore_errore"] = m{"codice": "CALCOLO_OCCUPATO", "testo": "Il motore e' occupato o non pronto: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
+			o["avvisi_motore_errore"] = m{"codice": "CALCOLO_OCCUPATO", "testo": "Il motore è occupato o non pronto: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
 		} else {
 			calcolati = true
 			o["avvisi_motore_calcolati"] = true
 			if b.r4Completo {
 				o["avvisi_motore"] = []any{m{"codice": "PROPOSTA_CAMBIATA", "motivo": "contenuto", "differenze": m{"nodi": 2, "archi": 1},
-					"testo": "La proposta del motore sullo STEP della bozza e' cambiata dopo l'apertura: 2 nodi e 1 legame diversi. «Aggiorna proposta» dalla Sorgente per vederla."}}
+					"testo": "La proposta del motore sullo STEP della bozza è cambiata dopo l'apertura: 2 nodi e 1 legame diversi. «Aggiorna proposta» dalla Sorgente per vederla."}}
 				o["conflitti_motore"] = []any{"nomenclatura"}
 			}
 		}

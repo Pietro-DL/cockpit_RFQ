@@ -18,7 +18,7 @@
 */}}
 {{define "contenuto"}}{{$d := .Dati}}
 <link rel="stylesheet" href="{{statico "distinta_unica.css"}}">
-<section class="du" id="du" data-du-thread="{{$d.ThreadID}}" data-du-utente="{{$d.UtenteID}}" data-du-pdfjs="{{statico "pdfjs-6.3.289/pdf.min.mjs"}}" data-du-pdfjs-worker="{{statico "pdfjs-6.3.289/pdf.worker.min.mjs"}}" aria-labelledby="du-titolo">
+<section class="du" id="du" data-du-thread="{{$d.ThreadID}}" data-du-utente="{{$d.UtenteID}}" data-du-sigla="{{$d.Sigla}}" data-du-pdfjs="{{statico "pdfjs-6.3.289/pdf.min.mjs"}}" data-du-pdfjs-worker="{{statico "pdfjs-6.3.289/pdf.worker.min.mjs"}}" aria-labelledby="du-titolo">
   <header class="du-testa">
     <div class="du-testa-t">
       <h1 id="du-titolo">Distinta unica</h1>

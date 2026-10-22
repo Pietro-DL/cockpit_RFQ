@@ -42,8 +42,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"promatec/cockpit/internal/core/propostabom"
 	"promatec/cockpit/internal/core/rfq/confermabom"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -152,6 +154,11 @@ func CreaFormato3(ctx context.Context, pool Avviatore, c Creazione3) (Creata, er
 	}
 	in, err := ingressoPartenza(ctx, q, c.ThreadID, c.Comune.ProdottoID)
 	if err != nil {
+		return out, err
+	}
+	// messaggio 46 [U]: la scelta della fonte non chiede piu' il motivo all'utente; dove lo vuole (il codice della radice
+	// dello STEP che non coincide con quello del prodotto, la partenza solo_prodotto) lo scrive il server
+	if c.Crea.Motivo, err = motivoDellaCreazione(ctx, q, c, in); err != nil {
 		return out, err
 	}
 	var (
@@ -362,6 +369,37 @@ func preparaPartenzaStep(ctx context.Context, q *db.Queries, c Creazione3, in In
 		return nil, err
 	}
 	return &passoStep{registro: reg, snapshot: snap, traccia: tr}, nil
+}
+
+// WidgetRipartenza, WidgetCreazione: i gesti della pagina che la traccia della scelta della fonte nomina.
+const (
+	WidgetRipartenza = "Riparti dalla proposta"
+	WidgetCreazione  = "Crea la bozza"
+)
+
+// motivoDellaCreazione: il motivo della scelta della fonte di crea: quello del corpo; senza, la traccia del gesto
+// (messaggio 46 [U]) quando la scelta ne vuole uno (la partenza solo_prodotto; la partenza step con il codice della radice
+// dello STEP che non coincide con quello del prodotto, propostabom.MotivoFonteObbligatorio); altrimenti vuoto.
+func motivoDellaCreazione(ctx context.Context, q *db.Queries, c Creazione3, in IngressoPartenza) (string, error) {
+	if m := strings.TrimSpace(c.Crea.Motivo); m != "" {
+		return c.Crea.Motivo, nil
+	}
+	prodotto, _ := in.Stato.Componente(c.Comune.ProdottoID)
+	var cosa string
+	switch {
+	case c.Crea.Partenza == PartenzaSoloProdotto:
+		cosa = "la bozza di " + prodotto.CodiceLetterale + " parte dal solo prodotto"
+	case c.Crea.Partenza == PartenzaStep && c.Proposta != nil && propostabom.MotivoFonteObbligatorio(c.Proposta.Registro.Contenuto, prodotto.CodiceLetterale):
+		cosa = "la bozza di " + prodotto.CodiceLetterale + " nasce dalla proposta dello STEP; codice della radice " +
+			strings.ReplaceAll(propostabom.ConfrontoDelCodice(c.Proposta.Registro.Contenuto, prodotto.CodiceLetterale), "_", " ")
+	default:
+		return "", nil
+	}
+	w := WidgetCreazione
+	if c.Crea.Abbandona != nil {
+		w = WidgetRipartenza
+	}
+	return traccia.DelGesto(ctx, q, c.UtenteID, MaxMotivo, w, cosa)
 }
 
 // scriviFonteScelta: dopo bozza_aperta, l'evento sorgente_scelta del server (dopo = la sorgente della versione 1, il motivo

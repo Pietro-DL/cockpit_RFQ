@@ -16,6 +16,7 @@ import (
 	"promatec/cockpit/internal/core/rfq/associazioni"
 	"promatec/cockpit/internal/core/rfq/confermabom"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
@@ -62,7 +63,7 @@ func calcolaR4(in *ingressiR4) (RiepilogoR4, error) {
 	// la base e la sorgente (gate)
 	if in.base.Stato == BaseSuperata {
 		a.blocca(Rilievo{Codice: BloccoBaseSuperata, Motivi: append([]string(nil), in.base.Motivi...),
-			Testo:  "La base della bozza non e' piu' quella di adesso: riallineala con un rebase esplicito (la bozza non si perde).",
+			Testo:  "La base della bozza non è più quella di adesso: riallineala con un rebase esplicito (la bozza non si perde).",
 			Rimedi: []string{"rebase della base (R2)"}})
 	}
 	a.gate()
@@ -80,7 +81,7 @@ func calcolaR4(in *ingressiR4) (RiepilogoR4, error) {
 	a.nonInclusi()
 	a.origineTroppoGrande()
 	if in.congelata {
-		a.blocca(Rilievo{Codice: BloccoCongelata, Testo: "La BOM di lavoro e' congelata: la conferma non la cambia (D-AR08: niente associazioni nuove).",
+		a.blocca(Rilievo{Codice: BloccoCongelata, Testo: "La BOM di lavoro è congelata: la conferma non la cambia (D-AR08: niente associazioni nuove).",
 			Rimedi: []string{"apri una revisione della BOM"}})
 	}
 	// i documenti (Piano)
@@ -240,11 +241,11 @@ func uid(u uuid.UUID) *uuid.UUID { return &u }
 // testiGate: il testo del blocco per motivo.
 var testiGate = map[string]string{
 	SorgenteMotivoSenzaSorgente: "La bozza non ha uno STEP sorgente confermato: la conferma lo vuole. Conferma lo STEP del prodotto come sorgente (S8).",
-	SorgenteMotivoNonConfermata: "Lo STEP della bozza non e' confermato come sorgente da S8: confermalo come sorgente del prodotto prima della conferma.",
-	SorgenteMotivoRevocata:      "La conferma dello STEP come sorgente e' stata revocata: conferma di nuovo una sorgente valida (S8).",
-	SorgenteMotivoRifiutata:     "Lo STEP della bozza e' stato rifiutato come fonte: conferma una sorgente valida (S8).",
-	SorgenteMotivoSuperata:      "La conferma dello STEP della bozza e' superata (un altro STEP confermato, o il documento sostituito): conferma la sorgente giusta (S8).",
-	SorgenteMotivoNonCoerente:   "Lo STEP della bozza non corrisponde al documento confermato o non e' un'occorrenza attiva della RFQ: conferma di nuovo la sorgente (S8).",
+	SorgenteMotivoNonConfermata: "Lo STEP della bozza non è confermato come sorgente da S8: confermalo come sorgente del prodotto prima della conferma.",
+	SorgenteMotivoRevocata:      "La conferma dello STEP come sorgente è stata revocata: conferma di nuovo una sorgente valida (S8).",
+	SorgenteMotivoRifiutata:     "Lo STEP della bozza è stato rifiutato come fonte: conferma una sorgente valida (S8).",
+	SorgenteMotivoSuperata:      "La conferma dello STEP della bozza è superata (un altro STEP confermato, o il documento sostituito): conferma la sorgente giusta (S8).",
+	SorgenteMotivoNonCoerente:   "Lo STEP della bozza non corrisponde al documento confermato o non è un'occorrenza attiva della RFQ: conferma di nuovo la sorgente (S8).",
 }
 
 // gate: il blocco firmato STEP_SORGENTE_NON_CONFERMATA (EM §8.1 riga 31, App. I.3; forma [T-39 corsia contratto]). Porta
@@ -264,7 +265,7 @@ func (a *analisiR4) gate() {
 		r.Testo = testiGate[SorgenteMotivoNonConfermata]
 	}
 	if sg.Motivo == SorgenteMotivoNonConfermata && sg.LegameStorico {
-		r.Testo = "Lo STEP della bozza e' collegato al prodotto solo dalle pagine di prima (legame storico): riconfermalo come sorgente da S8."
+		r.Testo = "Lo STEP della bozza è collegato al prodotto solo dalle pagine di prima (legame storico): riconfermalo come sorgente da S8."
 	}
 	a.blocca(r)
 }
@@ -283,7 +284,7 @@ func (a *analisiR4) sorgenteLegata() (*SorgenteLegataR4, []LegameStoricoR4) {
 	}
 	if d, ok := confermabom.LegameStoricoUnivoco(docs, len(a.in.shaS8) > 0); ok {
 		storici = append(storici, LegameStoricoR4{DocumentoID: d.DocumentoID, Sha256: d.Sha256, NomeFile: d.NomeFile,
-			Testo: "STEP del prodotto confermato dalle pagine di prima: e' un legame storico e non vale come sorgente della conferma finche' non lo riconfermi da S8."})
+			Testo: "STEP del prodotto confermato dalle pagine di prima: è un legame storico e non vale come sorgente della conferma finché non lo riconfermi da S8."})
 	}
 	if sg.AllegatoID == nil {
 		return nil, storici
@@ -291,9 +292,9 @@ func (a *analisiR4) sorgenteLegata() (*SorgenteLegataR4, []LegameStoricoR4) {
 	l := &SorgenteLegataR4{AllegatoID: *sg.AllegatoID, Sha256: sg.Sha256, NomeFile: a.in.nomeFonte, DocumentoID: sg.DocumentoID, Confermata: sg.Valida,
 		Motivo: sg.Motivo}
 	if sg.Valida {
-		l.Testo = "Legato come sorgente del prodotto (confermato da S8): non e' un documento da associare, e la conferma non ne registra l'associazione."
+		l.Testo = "Legato come sorgente del prodotto (confermato da S8): non è un documento da associare, e la conferma non ne registra l'associazione."
 	} else {
-		l.Testo = "Sorgente della bozza, non ancora confermata validamente da S8: non e' un documento da associare."
+		l.Testo = "Sorgente della bozza, non ancora confermata validamente da S8: non è un documento da associare."
 	}
 	return l, storici
 }
@@ -317,7 +318,7 @@ func (a *analisiR4) effettoSullaFonte() EffettoFonteR4 {
 	e.StepDopo, e.ShaDopo = sg.DocumentoID, sg.Sha256
 	switch {
 	case fa != nil && fa.DocumentoID == *sg.DocumentoID:
-		e.Testo = "Lo STEP sorgente della bozza e' gia' lo STEP strutturale del prodotto."
+		e.Testo = "Lo STEP sorgente della bozza è già lo STEP strutturale del prodotto."
 	case fa != nil:
 		e.Promozione = true
 		d := fa.DocumentoID
@@ -367,11 +368,11 @@ func (a *analisiR4) prodottoProtetto() {
 		}
 	}
 	if len(a.padri[a.radice]) > 0 {
-		r("Il prodotto finito non e' figlio di un altro nodo.")
+		r("Il prodotto finito non è figlio di un altro nodo.")
 	}
 	for _, k := range a.chiavi {
 		if k != a.radice && a.incluso(k) && a.nodi[k].Tipo == string(db.TipoComponenteFinito) {
-			a.blocca(Rilievo{Codice: BloccoProdottoProtetto, ChiaveBozza: k, Testo: a.nome(k) + " e' un altro finito: nella BOM di un prodotto c'e' un finito solo."})
+			a.blocca(Rilievo{Codice: BloccoProdottoProtetto, ChiaveBozza: k, Testo: a.nome(k) + " è un altro finito: nella BOM di un prodotto c'è un finito solo."})
 		}
 	}
 }
@@ -421,24 +422,24 @@ func (a *analisiR4) struttura() {
 		switch {
 		case k != a.radice && t == string(db.TipoComponenteSottoassieme) && nf == 0:
 			a.blocca(Rilievo{Codice: BloccoD1UltimoFiglio, ChiaveBozza: k, ComponenteID: n.ComponenteID,
-				Testo:  a.nome(k) + " e' un assieme senza figli: diventa un particolare, oppure dagli un figlio.",
+				Testo:  a.nome(k) + " è un assieme senza figli: diventa un particolare, oppure dagli un figlio.",
 				Rimedi: []string{"«Diventa particolare» (d1_a_particolare)", "aggiungi un figlio"}})
 		case t == string(db.TipoComponenteSciolto) && nf > 0:
 			a.blocca(Rilievo{Codice: BloccoD1ParticolareConFigli, ChiaveBozza: k, ComponenteID: n.ComponenteID,
-				Testo: a.nome(k) + " e' un particolare con figli: diventa un assieme, oppure togli i figli.", Rimedi: []string{"«Diventa assieme» (d1_a_sottoassieme)"}})
+				Testo: a.nome(k) + " è un particolare con figli: diventa un assieme, oppure togli i figli.", Rimedi: []string{"«Diventa assieme» (d1_a_sottoassieme)"}})
 		case db.TipoComponente(t) == db.TipoComponenteCommerciale && nf > 0:
 			a.blocca(Rilievo{Codice: BloccoE37NonContenitore, ChiaveBozza: k, ComponenteID: n.ComponenteID,
-				Testo: a.nome(k) + " e' un commerciale: non ha figli.", Rimedi: []string{"togli i figli", "cambia il tipo, con l'effetto mostrato"}})
+				Testo: a.nome(k) + " è un commerciale: non ha figli.", Rimedi: []string{"togli i figli", "cambia il tipo, con l'effetto mostrato"}})
 		}
 		if n.Op == OpCrea && a.riusa[k] == uuid.Nil && (strings.TrimSpace(n.Identita.Codice) == "" || n.Identita.Modo == ModoDaDecidere) {
 			a.blocca(Rilievo{Codice: BloccoCodiceDaAssegnare, ChiaveBozza: k,
 				Testo:  "Il pezzo «" + strings.TrimSpace(n.Descrizione+" "+k) + "» non ha un codice: assegnalo prima di confermare.",
-				Rimedi: []string{"correggi il codice del pezzo, con il motivo", "non includerlo, se non e' un articolo"}})
+				Rimedi: []string{"correggi il codice del pezzo, con il motivo", "non includerlo, se non è un articolo"}})
 		}
 	}
 	if a.mono != nil && a.radice != "" && len(a.figli[a.radice]) > 0 {
 		a.blocca(Rilievo{Codice: BloccoMonoPezzoConFigli, ChiaveBozza: a.radice, MonoPezzo: true,
-			Testo: "Il prodotto e' dichiarato pezzo unico ma ha figli nella bozza: togli la dichiarazione o i figli."})
+			Testo: "Il prodotto è dichiarato pezzo unico ma ha figli nella bozza: togli la dichiarazione o i figli."})
 	}
 	coppie := map[[2]string][]string{}
 	var ordine [][2]string
@@ -480,7 +481,7 @@ func (a *analisiR4) assenze() {
 			continue
 		}
 		a.blocca(Rilievo{Codice: BloccoAssenzaNonDecisa, ComponenteID: uid(c.ID), Motivo: "componente",
-			Testo:  c.CodiceLetterale + " e' nella BOM registrata ma non nella bozza: decidi se escluderlo o rimetterlo (un'assenza non e' una cancellazione).",
+			Testo:  c.CodiceLetterale + " è nella BOM registrata ma non nella bozza: decidi se escluderlo o rimetterlo (un'assenza non è una cancellazione).",
 			Rimedi: []string{"«Escludi» con il motivo", "rimettilo nella bozza"}})
 	}
 	togli := map[[2]uuid.UUID]bool{}
@@ -526,7 +527,7 @@ func (a *analisiR4) assenze() {
 		}
 		for _, x := range mm {
 			a.blocca(Rilievo{Codice: BloccoAssenzaNonDecisa, Motivo: "arco", ComponenteID: uid(x.Figlio),
-				Testo:  fmt.Sprintf("L'arco %s → %s della BOM registrata non c'e' nella bozza: scollegalo esplicitamente o rimettilo.", a.codiceDi(x.Padre), a.codiceDi(x.Figlio)),
+				Testo:  fmt.Sprintf("L'arco %s → %s della BOM registrata non c'è nella bozza: scollegalo esplicitamente o rimettilo.", a.codiceDi(x.Padre), a.codiceDi(x.Figlio)),
 				Rimedi: []string{"«Scollega da un padre…» (togli_arco)", "rimetti l'arco"}})
 		}
 	}
@@ -601,7 +602,7 @@ func (a *analisiR4) ciclo() {
 		nomi = append(nomi, a.etichetta(id))
 	}
 	a.blocca(Rilievo{Codice: BloccoCiclo, Chiavi: nomi,
-		Testo:  "La struttura avrebbe un ciclo (" + strings.Join(append(nomi, nomi[0]), " → ") + "): un componente non puo' contenere se stesso.",
+		Testo:  "La struttura avrebbe un ciclo (" + strings.Join(append(nomi, nomi[0]), " → ") + "): un componente non può contenere se stesso.",
 		Rimedi: []string{"sposta o scollega uno degli archi del ciclo"}})
 }
 
@@ -733,8 +734,8 @@ func (a *analisiR4) identitaCollisioni() {
 					if !collisione {
 						collisione = true
 						a.blocca(Rilievo{Codice: BloccoCollisioneEmittenti, ChiaveWorking: w, Parti: []ParteIdentita{parteNodo(kk[i], x), parteNodo(kk[j], y)},
-							Testo: "Il codice " + w + " di due emittenti diversi finirebbe nello stesso componente: la distinta non puo' tenerli separati.",
-							Rimedi: []string{"decidi un'altra identita' per uno dei due nodi (decisione «identita», con motivo)", "togli il nodo o non includerlo",
+							Testo: "Il codice " + w + " di due emittenti diversi finirebbe nello stesso componente: la distinta non può tenerli separati.",
+							Rimedi: []string{"decidi un'altra identità per uno dei due nodi (decisione «identita», con motivo)", "togli il nodo o non includerlo",
 								"se sono lo stesso pezzo, usa lo stesso emittente per tutti e due (decisione «identita», con motivo)"}})
 					}
 				case !identicaR4(x.Identita, y.Identita):
@@ -742,8 +743,8 @@ func (a *analisiR4) identitaCollisioni() {
 						incompatibile = true
 						a.blocca(Rilievo{Codice: BloccoIdentitaIncompatibile, ChiaveWorking: w, Parti: []ParteIdentita{parteNodo(kk[i], x), parteNodo(kk[j], y)},
 							Differenze: differenzeIdentita(x.Identita, y.Identita),
-							Testo:      "I due nodi finirebbero nello stesso componente con due identita' diverse: uniformale prima di confermare.",
-							Rimedi:     []string{"dai a un nodo l'identita' dell'altro (decisione «identita», con motivo)", "togli uno dei due nodi o non includerlo"}})
+							Testo:      "I due nodi finirebbero nello stesso componente con due identità diverse: uniformale prima di confermare.",
+							Rimedi:     []string{"dai a un nodo l'identità dell'altro (decisione «identita», con motivo)", "togli uno dei due nodi o non includerlo"}})
 					}
 				case cx == nil && cy == nil:
 					if !dueCrea && (x.Identita.Rev != y.Identita.Rev || a.tipoEffettivo(kk[i]) != a.tipoEffettivo(kk[j]) || x.Descrizione != y.Descrizione) {
@@ -776,14 +777,14 @@ func (a *analisiR4) identitaCollisioni() {
 				switch {
 				case reg.Emittente != n.Identita.Emittente:
 					a.blocca(Rilievo{Codice: BloccoCollisioneEmittenti, ChiaveWorking: w, Parti: []ParteIdentita{parteNodo(k, n), parteRegistrata(c, reg)},
-						Testo: "Il codice " + w + " del nodo e il componente registrato con lo stesso codice hanno emittenti diversi: la distinta non puo' tenerli separati.",
-						Rimedi: []string{"decidi un'altra identita' per il nodo (decisione «identita», con motivo)", "togli il nodo o non includerlo",
-							"se il registrato e' presunto ed e' un codice del partner: «Fissa l'emittente»"}})
+						Testo: "Il codice " + w + " del nodo e il componente registrato con lo stesso codice hanno emittenti diversi: la distinta non può tenerli separati.",
+						Rimedi: []string{"decidi un'altra identità per il nodo (decisione «identita», con motivo)", "togli il nodo o non includerlo",
+							"se il registrato è presunto ed è un codice del partner: «Fissa l'emittente»"}})
 				case a.riusa[k] == c.ID:
 					if !identicaR4(n.Identita, reg) && n.Identita.Modo != ModoDecisione {
 						a.blocca(Rilievo{Codice: BloccoIdentitaIncompatibile, ChiaveWorking: w, Parti: []ParteIdentita{parteNodo(k, n), parteRegistrata(c, reg)},
 							Differenze: differenzeIdentita(n.Identita, reg),
-							Testo:      "Il nodo riusa il componente registrato con un'identita' diversa: uniformala prima di confermare."})
+							Testo:      "Il nodo riusa il componente registrato con un'identità diversa: uniformala prima di confermare."})
 					}
 				default:
 					a.creaSuEsistente(k, c.ID)
@@ -803,7 +804,7 @@ func (a *analisiR4) identitaCollisioni() {
 		}
 		if x, ok := a.in.cert[c.ID]; ok && !x.Valida && x.Emittente != "" {
 			a.avvisa(Rilievo{Codice: AvvisoEmittenteCertificatoSuperat, ChiaveBozza: k, ComponenteID: uid(c.ID),
-				Testo: c.CodiceLetterale + " e' stato ricodificato dopo l'ultima conferma: l'emittente certificato era di un altro codice, e il nodo vale come codice del cliente presunto."})
+				Testo: c.CodiceLetterale + " è stato ricodificato dopo l'ultima conferma: l'emittente certificato era di un altro codice, e il nodo vale come codice del cliente presunto."})
 		}
 		atteso := c.CodiceLetterale
 		if d, ric := a.ricod[c.ID]; ric {
@@ -816,7 +817,7 @@ func (a *analisiR4) identitaCollisioni() {
 				reg := IdentitaRegistrataDi(c, a.in.cert, a.in.cliente)
 				a.blocca(Rilievo{Codice: BloccoIdentitaIncompatibile, ChiaveBozza: k, ComponenteID: uid(c.ID), ChiaveWorking: strings.ToUpper(atteso),
 					Parti: []ParteIdentita{parteNodo(k, n), parteRegistrata(c, reg)}, Differenze: []string{"codice"},
-					Testo:  "Il codice deciso per il nodo (" + n.Identita.Codice + ") non e' quello di " + c.CodiceLetterale + ": per cambiarlo serve una ricodifica.",
+					Testo:  "Il codice deciso per il nodo (" + n.Identita.Codice + ") non è quello di " + c.CodiceLetterale + ": per cambiarlo serve una ricodifica.",
 					Rimedi: []string{"rimetti il codice del componente", "«Correggi codice» con la ricodifica, con il motivo"}})
 			}
 			continue
@@ -836,7 +837,7 @@ func (a *analisiR4) identitaCollisioni() {
 		}
 		if len(diff) > 0 {
 			a.blocca(Rilievo{Codice: BloccoRiusoIncompatibile, ChiaveBozza: k, ComponenteID: uid(c.ID), Differenze: diff,
-				Testo: c.CodiceLetterale + " e' riusato con dati diversi da quelli registrati (" + strings.Join(diff, ", ") + "): modificalo esplicitamente o rimetti i dati registrati."})
+				Testo: c.CodiceLetterale + " è riusato con dati diversi da quelli registrati (" + strings.Join(diff, ", ") + "): modificalo esplicitamente o rimetti i dati registrati."})
 			continue
 		}
 		if n.Identita.Modo == ModoDecisione || n.Identita.Modo == ModoFormato2 {
@@ -847,7 +848,7 @@ func (a *analisiR4) identitaCollisioni() {
 			a.blocca(Rilievo{Codice: BloccoIdentitaIncompatibile, ChiaveWorking: strings.ToUpper(c.CodiceLetterale),
 				Parti:      []ParteIdentita{parteNodo(k, n), parteRegistrata(c, reg)},
 				Differenze: differenzeIdentita(n.Identita, reg),
-				Testo:      c.CodiceLetterale + " e' riusato con un'identita' diversa da quella registrata: uniformala (decisione «identita», con motivo)."})
+				Testo:      c.CodiceLetterale + " è riusato con un'identità diversa da quella registrata: uniformala (decisione «identita», con motivo)."})
 		}
 	}
 }
@@ -865,7 +866,7 @@ func (a *analisiR4) stessoComponente(x, y string, c uuid.UUID, w string) {
 	case !identicaR4(nx.Identita, ny.Identita):
 		a.blocca(Rilievo{Codice: BloccoIdentitaIncompatibile, ChiaveWorking: w, ComponenteID: uid(c), Parti: []ParteIdentita{parteNodo(x, nx), parteNodo(y, ny)},
 			Differenze: differenzeIdentita(nx.Identita, ny.Identita),
-			Testo:      "Due nodi dello stesso componente " + a.codiceDi(c) + " hanno identita' diverse: uniformale prima di confermare."})
+			Testo:      "Due nodi dello stesso componente " + a.codiceDi(c) + " hanno identità diverse: uniformale prima di confermare."})
 	default:
 		reg, _ := a.in.stato.Componente(c)
 		descr := func(n Nodo3) string {
@@ -906,7 +907,7 @@ func (a *analisiR4) componenteDi(k string) *uuid.UUID {
 
 func (a *analisiR4) creaSuEsistente(k string, c uuid.UUID) {
 	a.blocca(Rilievo{Codice: BloccoCreaSuEsistente, ChiaveBozza: k, ComponenteID: uid(c), ChiaveWorking: a.chiaveWorking(k),
-		Testo:  "Il codice di " + a.nome(k) + " e' gia' di un componente registrato (" + a.codiceDi(c) + "): riusalo, oppure cambia il codice.",
+		Testo:  "Il codice di " + a.nome(k) + " è già di un componente registrato (" + a.codiceDi(c) + "): riusalo, oppure cambia il codice.",
 		Rimedi: []string{"«Riusa i componenti con lo stesso codice» (riusa_esistente)", "cambia il codice del nodo, con il motivo"}})
 }
 
@@ -956,7 +957,7 @@ func (a *analisiR4) registratiDaApplicare() {
 		}
 		if c.Archiviato && a.in.dichiarati[c.ID] {
 			a.blocca(Rilievo{Codice: BloccoRiusoIncompatibile, Motivo: MotivoArchiviatoConAutorizzazione, ChiaveBozza: k, ComponenteID: id,
-				Testo:  c.CodiceLetterale + " e' archiviato e ha un'autorizzazione STEP: il ripristino la riaccende, e la conferma della BOM non lo fa.",
+				Testo:  c.CodiceLetterale + " è archiviato e ha un'autorizzazione STEP: il ripristino la riaccende, e la conferma della BOM non lo fa.",
 				Rimedi: []string{"ripristina il componente dalla scheda, poi riallinea la bozza", "usa un pezzo nuovo con un altro codice"}})
 		}
 	}
@@ -975,7 +976,7 @@ func (a *analisiR4) decisioniConIlDatabase() {
 		for _, c := range a.in.stato.Componenti {
 			if c.ID != *d.ComponenteID && strings.ToUpper(c.CodiceLetterale) == w {
 				a.blocca(Rilievo{Codice: BloccoRicodificaCollide, ComponenteID: d.ComponenteID, ChiaveWorking: w,
-					Testo: "La ricodifica di " + a.codiceDi(*d.ComponenteID) + " in " + d.CodiceDopo + " va su un codice gia' usato da un altro componente della RFQ."})
+					Testo: "La ricodifica di " + a.codiceDi(*d.ComponenteID) + " in " + d.CodiceDopo + " va su un codice già usato da un altro componente della RFQ."})
 			}
 		}
 		for _, k := range a.chiavi {
@@ -991,11 +992,11 @@ func (a *analisiR4) decisioniConIlDatabase() {
 		switch {
 		case a.in.scrittiNAS[*d.ComponenteID] > 0:
 			a.blocca(Rilievo{Codice: BloccoRicodificaFileNAS, Motivo: MotivoRicodificaScrittoSulNAS, ComponenteID: d.ComponenteID,
-				Testo: fmt.Sprintf("%s ha %d documenti gia' scritti sul NAS: la ricodifica cambierebbe la loro cartella (lo spostamento non e' in V1).",
+				Testo: fmt.Sprintf("%s ha %d documenti già scritti sul NAS: la ricodifica cambierebbe la loro cartella (lo spostamento non è in V1).",
 					a.codiceDi(*d.ComponenteID), a.in.scrittiNAS[*d.ComponenteID])})
 		case a.in.confermati[*d.ComponenteID] > 0:
 			a.blocca(Rilievo{Codice: BloccoRicodificaFileNAS, Motivo: MotivoRicodificaDocumentoConfermato, ComponenteID: d.ComponenteID,
-				Testo: fmt.Sprintf("%s ha %d documenti gia' confermati: la ricodifica ne cambierebbe il codice e la cartella (non e' in V1).",
+				Testo: fmt.Sprintf("%s ha %d documenti già confermati: la ricodifica ne cambierebbe il codice e la cartella (non è in V1).",
 					a.codiceDi(*d.ComponenteID), a.in.confermati[*d.ComponenteID]),
 				Rimedi: []string{"togli la ricodifica dalla bozza", "correggi il codice dalla scheda del componente, che porta anche i documenti"}})
 		}
@@ -1004,7 +1005,7 @@ func (a *analisiR4) decisioniConIlDatabase() {
 		f, ok := a.in.effettiTipo[d.ComponenteID.String()+"|"+d.TipoNuovo]
 		if !ok || f == "" || f != d.FirmaEffetto {
 			a.blocca(Rilievo{Codice: BloccoTipoEffettoCambiato, ComponenteID: d.ComponenteID,
-				Testo: "L'effetto del cambio di tipo di " + a.codiceDi(*d.ComponenteID) + " non e' piu' quello visto: rileggilo e decidi di nuovo."})
+				Testo: "L'effetto del cambio di tipo di " + a.codiceDi(*d.ComponenteID) + " non è più quello visto: rileggilo e decidi di nuovo."})
 		}
 	}
 	// ARCO_CONDIVISO_QTA: una quantita' cambiata su un arco che un altro prodotto con una conferma valida raggiunge
@@ -1039,8 +1040,8 @@ func (a *analisiR4) decisioniConIlDatabase() {
 			continue
 		}
 		a.blocca(Rilievo{Codice: BloccoArcoCondivisoQta, Chiavi: []string{x.Padre, x.Figlio}, Prodotti: toccati,
-			Testo:  fmt.Sprintf("La quantita' di %s sotto %s cambia (%d → %d) su un arco che anche altri prodotti confermati usano: la working ha una quantita' sola.", a.nome(x.Figlio), a.nome(x.Padre), q, x.Qta),
-			Rimedi: []string{"«Arco condiviso»: la stessa quantita' per tutti i prodotti (arco_condiviso)", "rimetti la quantita' di prima"}})
+			Testo:  fmt.Sprintf("La quantità di %s sotto %s cambia (%d → %d) su un arco che anche altri prodotti confermati usano: la working ha una quantità sola.", a.nome(x.Figlio), a.nome(x.Padre), q, x.Qta),
+			Rimedi: []string{"«Arco condiviso»: la stessa quantità per tutti i prodotti (arco_condiviso)", "rimetti la quantità di prima"}})
 	}
 	var dv []string
 	for _, d := range a.dec[DecisioneDaValutare] {
@@ -1093,7 +1094,7 @@ func (a *analisiR4) nonInclusi() {
 		if reg := a.in.registro; reg != nil {
 			if v, ok := reg.Contenuto.VocePerRif(c.AllegatoID, c.Rif); ok && conComponente(v.DecisioneEsistente) {
 				a.blocca(Rilievo{Codice: BloccoNonInclusoHaComponente, AllegatoID: uid(c.AllegatoID), Chiavi: []string{c.Rif},
-					Testo:  "Il nodo non incluso e' gia' un componente registrato: escludi il componente o scollegalo, non «non includere».",
+					Testo:  "Il nodo non incluso è già un componente registrato: escludi il componente o scollegalo, non «non includere».",
 					Rimedi: []string{"«Escludi» il componente", "«Scollega da un padre…»"}})
 			}
 			var orfani []string
@@ -1139,6 +1140,65 @@ func (a *analisiR4) nonInclusi() {
 	}
 }
 
+// pbDalMotore: la PB e' del motore e intatta (associazioni.VocePB.DalMotore; D-48-01 A [T], preparata in attesa della
+// risposta): provenienza motore (la decide il server: provenienza3.go), componente del nodo non ricodificato (D-ASS-01
+// [U]: la PB si confronta con l'identita' nuova) e nodo con l'identita' che il registro della versione propone per la sua
+// casella: in modo proposta l'identita' proposta della voce (emittente, namespace, codice, rev: la regola di R2); in modo
+// registrato il componente della decisione_esistente della voce (il prodotto per la voce della radice). La voce di quella
+// casella deve anche proporre proprio questo allegato, e solo lei nel registro (PropostaNelRegistro e destinazioneUnica:
+// la regola con cui R2 da' la provenienza motore): una PB del motore che porta il registro d'origine di prima (D-PB03 A)
+// su un nodo dove il registro della versione non propone piu' il file (un cambio della fonte, recepito o no) non e'
+// intatta. Un nodo in un altro modo (manuale, decisione, da_decidere), senza la casella del registro, con un altro
+// componente o la cui voce non propone il file torna al confronto.
+func (a *analisiR4) pbDalMotore(p Preassociazione3, n Nodo3, comp *uuid.UUID) bool {
+	if p.Provenienza != ProvenienzaMotore || a.in.registro == nil {
+		return false
+	}
+	if comp != nil {
+		if _, ok := a.ricod[*comp]; ok {
+			return false
+		}
+	}
+	c := &a.in.registro.Contenuto
+	if destinazioneUnica(*c, p.AllegatoID) == "" {
+		return false // nessuna proposta del file nel registro della versione, o ambigua (D-PB01 A)
+	}
+	for _, x := range n.Caselle {
+		if x.AllegatoID.String() != c.Proposta.Fonte.AllegatoID {
+			continue
+		}
+		v, ok := c.VocePerRif(x.AllegatoID, x.Rif)
+		if !ok || !proponeAllegato(v, p.AllegatoID) {
+			continue
+		}
+		switch n.Identita.Modo {
+		case ModoProposta:
+			atteso, ok, err := IdentitaDellaProposta(v)
+			id := n.Identita
+			return err == nil && ok && id.Emittente == atteso.Emittente && id.Namespace == atteso.Namespace && id.Codice == atteso.Codice &&
+				id.Rev == atteso.Rev
+		case ModoRegistrato:
+			atteso, ok := decisioneEsistente(v)
+			if c.EVoceDellaRadice(v) {
+				atteso, ok = a.s.ProdottoID, true
+			}
+			return ok && n.ComponenteID != nil && *n.ComponenteID == atteso
+		}
+		return false
+	}
+	return false
+}
+
+// proponeAllegato: la voce del registro propone l'allegato (associazioni_proposte[]).
+func proponeAllegato(v importazione.Voce, allegato uuid.UUID) bool {
+	for _, a := range allegatiProposti(v) {
+		if a == allegato {
+			return true
+		}
+	}
+	return false
+}
+
 // conComponente: decisione_esistente di una voce del registro indica un componente.
 func conComponente(raw json.RawMessage) bool {
 	if nullo(raw) {
@@ -1171,7 +1231,7 @@ func (a *analisiR4) origineTroppoGrande() {
 	b, err := jsoncanonico.Codifica(tutte)
 	if err == nil && len(b) > MaxOrigine {
 		a.blocca(Rilievo{Codice: BloccoOrigineTroppoGrande,
-			Testo: fmt.Sprintf("Le evidenze degli archi pesano %d byte, oltre i %d che la conferma puo' tenere: togline qualcuna.", len(b), MaxOrigine)})
+			Testo: fmt.Sprintf("Le evidenze degli archi pesano %d byte, oltre i %d che la conferma può tenere: togline qualcuna.", len(b), MaxOrigine)})
 	}
 }
 
@@ -1204,6 +1264,7 @@ func (a *analisiR4) documenti() (associazioni.EsitiPiano, []PreassociazioneR4) {
 		if ar, ok := a.in.fatti.Attive[p.AllegatoID]; ok {
 			v.Svincolata = svincolate[[2]uuid.UUID{p.AllegatoID, ar.Componente}]
 		}
+		v.DalMotore = a.pbDalMotore(p, n, v.Componente)
 		voci = append(voci, v)
 	}
 	var uscite []associazioni.Uscita
@@ -1283,32 +1344,32 @@ func gruppoDi(provenienza string, verificata bool) string {
 func effettoPB(e associazioni.EsitoPB) string {
 	switch e.Esito {
 	case associazioni.EsitoApplicabile:
-		return "associazione registrata con la conferma (non e' la conferma del documento)"
+		return "associazione registrata con la conferma (non è la conferma del documento)"
 	case associazioni.EsitoGiaApplicata:
-		return "gia' registrata: nessuna riga nuova"
+		return "già registrata: nessuna riga nuova"
 	case associazioni.EsitoSostituzione:
 		return "l'associazione di prima si chiude e la nuova si registra con la conferma"
 	case associazioni.EsitoNonRichiesta:
-		return "non si applica: il documento non e' richiesto per questo nodo"
+		return "non si applica: il documento non è richiesto per questo nodo"
 	case associazioni.EsitoInAttesaCodice:
 		return "in attesa del codice del nodo"
 	default:
-		return "non si applica finche' il conflitto non e' risolto"
+		return "non si applica finché il conflitto non è risolto"
 	}
 }
 
 var testiPB = map[string]string{
-	associazioni.MotivoNaturaNonPreassociabile:   "non e' un file che si associa (contenitore o archivio)",
-	associazioni.MotivoLegatoComeSorgente:        "e' lo STEP legato come sorgente di un prodotto finito: non e' un documento da associare",
-	associazioni.MotivoStepCandidatoDelFinito:    "e' lo STEP candidato sorgente di un prodotto finito: si conferma come sorgente (S8), non si associa come documento",
-	associazioni.MotivoFileNonAttivo:             "non e' piu' un file attivo della RFQ (Altri file o scartato)",
+	associazioni.MotivoNaturaNonPreassociabile:   "non è un file che si associa (contenitore o archivio)",
+	associazioni.MotivoLegatoComeSorgente:        "è lo STEP legato come sorgente di un prodotto finito: non è un documento da associare",
+	associazioni.MotivoStepCandidatoDelFinito:    "è lo STEP candidato sorgente di un prodotto finito: si conferma come sorgente (S8), non si associa come documento",
+	associazioni.MotivoFileNonAttivo:             "non è più un file attivo della RFQ (Altri file o scartato)",
 	associazioni.MotivoLegacyDaVerificare:        "viene da una pre-assegnazione delle pagine di prima: va verificata (riconoscila, toglila o rifalla a mano)",
-	associazioni.MotivoGiaAssociataAltrove:       "e' gia' associato a un altro componente",
-	associazioni.MotivoDocumentoSenzaComponente:  "e' gia' un documento confermato come documentazione generale",
-	associazioni.MotivoDocumentoConfermatoAltrui: "e' gia' un documento confermato di un altro componente",
+	associazioni.MotivoGiaAssociataAltrove:       "è già associato a un altro componente",
+	associazioni.MotivoDocumentoSenzaComponente:  "è già un documento confermato come documentazione generale",
+	associazioni.MotivoDocumentoConfermatoAltrui: "è già un documento confermato di un altro componente",
 	associazioni.MotivoCodiceNonLetto:            "non ha un codice letto",
 	associazioni.MotivoCodiceDiverso:             "ha un codice o una revisione diversi da quelli del pezzo",
-	associazioni.MotivoFuoriRFQ:                  "non e' un file di questa RFQ",
+	associazioni.MotivoFuoriRFQ:                  "non è un file di questa RFQ",
 }
 
 func testoPB(e associazioni.EsitoPB, nome string) string {
@@ -1350,9 +1411,9 @@ func rimediPB(e associazioni.EsitoPB) []string {
 func testoSvincolo(e associazioni.EsitoSvincolo) string {
 	switch e.Motivo {
 	case associazioni.MotivoSvincoloSuDocumento:
-		return "Il file e' un documento confermato di quel componente: non si scollega da qui (serve una revisione documentale, non in V1)."
+		return "Il file è un documento confermato di quel componente: non si scollega da qui (serve una revisione documentale, non in V1)."
 	case associazioni.MotivoSvincoloComponenteDiverso:
-		return "Il file e' associato a un altro componente: lo svincolo non corrisponde all'associazione registrata."
+		return "Il file è associato a un altro componente: lo svincolo non corrisponde all'associazione registrata."
 	default:
 		return "Il file non ha un'associazione registrata con quel componente: lo svincolo non si applica."
 	}
@@ -1429,7 +1490,7 @@ func (a *analisiR4) effettiDocumentali(piano associazioni.EsitiPiano, pre []Prea
 	for _, u := range piano.Uscite {
 		if u.Esito == associazioni.EsitoMantenuta {
 			out.ARInvariate = append(out.ARInvariate, ARInvariataR4{AllegatoID: u.Allegato, ComponenteID: u.Componente, Associazione: u.Associazione,
-				Motivo: "escluso_mantieni", Testo: "Il componente esce dalla BOM e l'associazione resta registrata (storica) finche' non la scolleghi."})
+				Motivo: "escluso_mantieni", Testo: "Il componente esce dalla BOM e l'associazione resta registrata (storica) finché non la scolleghi."})
 		}
 	}
 	svincolate := map[[2]uuid.UUID]bool{}
@@ -1500,7 +1561,7 @@ func (a *analisiR4) toccati() (map[uuid.UUID][]string, []uuid.UUID) {
 		case !ok:
 			add(*cp, "nuovo figlio "+a.nome(x.Figlio))
 		case int(q) != x.Qta:
-			add(*cp, fmt.Sprintf("quantita' di %s da %d a %d", a.nome(x.Figlio), q, x.Qta))
+			add(*cp, fmt.Sprintf("quantità di %s da %d a %d", a.nome(x.Figlio), q, x.Qta))
 		}
 	}
 	for k := range working {
@@ -1593,7 +1654,7 @@ func (a *analisiR4) condivisione(piano associazioni.EsitiPiano, pre []Preassocia
 				continue
 			}
 			el = append(el, ElementoCondiviso{Tipo: "documento", ComponenteID: uid(id), Codice: a.codiceDi(id),
-				Effetto: strings.Join(effDoc[id], "; ") + " (l'associazione e' del componente e vale anche per " + a.codiceDi(p2) + ")"})
+				Effetto: strings.Join(effDoc[id], "; ") + " (l'associazione è del componente e vale anche per " + a.codiceDi(p2) + ")"})
 		}
 		if len(el) == 0 {
 			continue
@@ -1601,9 +1662,9 @@ func (a *analisiR4) condivisione(piano associazioni.EsitiPiano, pre []Preassocia
 		_, v, ok, _ := a.in.stato.ValiditaUltima(p2)
 		c := CondivisioneR4{ProdottoID: p2, Codice: a.codiceDi(p2), Elementi: el, ConfermaValida: ok && v.Valida,
 			Conseguenza: "Le variazioni vengono dalla conferma di " + nomeProd + " e sono attribuite a chi la conferma; " + a.codiceDi(p2) +
-				" non e' confermato per implicazione."}
+				" non è confermato per implicazione."}
 		if ok && v.Valida && strutturali > 0 {
-			c.Conseguenza += " La sua ultima conferma puo' non valere piu' per la working cambiata."
+			c.Conseguenza += " La sua ultima conferma può non valere più per la working cambiata."
 		}
 		out = append(out, c)
 	}
@@ -1615,9 +1676,9 @@ func (a *analisiR4) condivisione(piano associazioni.EsitiPiano, pre []Preassocia
 func (a *analisiR4) avvisiFinali(out RiepilogoR4) {
 	a.avvisa(Rilievo{Codice: AvvisoVerificaDopoCommit, Testo: "La verifica della BOM si calcola sulla struttura confermata, dopo il commit."})
 	if a.radice != "" && len(a.figli[a.radice]) == 0 {
-		t := "Il prodotto non ha figli nella bozza: una BOM vuota non e' verificata per implicazione; dichiara mono_pezzo con il motivo o costruisci la BOM."
+		t := "Il prodotto non ha figli nella bozza: una BOM vuota non è verificata per implicazione; dichiara mono_pezzo con il motivo o costruisci la BOM."
 		if a.mono != nil {
-			t = "Il prodotto e' dichiarato pezzo unico: la dichiarazione vale solo con lo STEP del prodotto confermato come sorgente."
+			t = "Il prodotto è dichiarato pezzo unico: la dichiarazione vale solo con lo STEP del prodotto confermato come sorgente."
 		}
 		a.avvisa(Rilievo{Codice: AvvisoProdottoSenzaFigli, ChiaveBozza: a.radice, MonoPezzo: a.mono != nil, Testo: t})
 	}
@@ -1647,7 +1708,7 @@ func (a *analisiR4) avvisiFinali(out RiepilogoR4) {
 		}
 		if len(prodotti) > 0 {
 			a.avvisa(Rilievo{Codice: AvvisoFileContesoFraProdotti, AllegatoID: uid(p.Allegato), ChiaveBozza: p.ChiaveBozza, Prodotti: prodotti,
-				Testo: "Il file «" + p.NomeFile + "» e' preassociato anche nella bozza di un altro prodotto a un altro componente: la prima conferma lo registra, la seconda trovera' il conflitto."})
+				Testo: "Il file «" + p.NomeFile + "» è preassociato anche nella bozza di un altro prodotto a un altro componente: la prima conferma lo registra, la seconda troverà il conflitto."})
 		}
 	}
 	if sg := a.in.sorgente; sg.Valida {
@@ -1673,7 +1734,7 @@ func (a *analisiR4) avvisiFinali(out RiepilogoR4) {
 	}
 	if len(toccati) > 0 {
 		a.avvisa(Rilievo{Codice: AvvisoProdottiToccati, Prodotti: toccati,
-			Testo: "La conferma cambia componenti condivisi con altri prodotti confermati: la loro ultima conferma puo' non valere piu'."})
+			Testo: "La conferma cambia componenti condivisi con altri prodotti confermati: la loro ultima conferma può non valere più."})
 	}
 	n := 0
 	for _, e := range out.Esclusi {
@@ -2033,10 +2094,10 @@ func (a *analisiR4) registro() []VoceRegistroR4 {
 		switch n.Op {
 		case OpCrea:
 			out = append(out, VoceRegistroR4{Voce: "i:" + k, OrigineVoce: "identita", Tipo: OpCrea, Rimando: rim, AutoreID: chi(),
-				Effetto: "nuova identita' " + n.Identita.Codice + " (" + a.tipoEffettivo(k) + ")"})
+				Effetto: "nuova identità " + n.Identita.Codice + " (" + a.tipoEffettivo(k) + ")"})
 		case OpModifica:
 			out = append(out, VoceRegistroR4{Voce: "i:" + k, OrigineVoce: "identita", Tipo: OpModifica, Rimando: rim, AutoreID: chi(),
-				Effetto: "identita' " + n.Identita.Codice + " modificata"})
+				Effetto: "identità " + n.Identita.Codice + " modificata"})
 		}
 		if n.Identita.Modo == ModoProposta {
 			r := map[string]any{"chiave_bozza": k}
@@ -2044,7 +2105,7 @@ func (a *analisiR4) registro() []VoceRegistroR4 {
 				r["casella"] = n.Caselle[0]
 			}
 			out = append(out, VoceRegistroR4{Voce: "p:" + k, OrigineVoce: "identita", Tipo: "accetta_proposta", Rimando: canonico(r), AutoreID: chi(),
-				Importazione: a.importazioneDellaVersione(), Effetto: "identita' proposta " + n.Identita.Codice + " accettata con la conferma"})
+				Importazione: a.importazioneDellaVersione(), Effetto: "identità proposta " + n.Identita.Codice + " accettata con la conferma"})
 		}
 	}
 	for _, e := range a.esclusiLegacyEdEreditati(map[string]bool{}) {
@@ -2110,7 +2171,9 @@ func (a *analisiR4) verifica(c CriterioR4, blocchi bool) confermabom.VerificaPri
 		in.Criterio = c.Criterio
 	}
 	if a.mono != nil {
-		in.MotivoMonoPezzo = a.mono.Motivo
+		// messaggio 46 [U]: la dichiarazione e' il gesto; senza il motivo dell'utente R5 scrive la traccia
+		// (conferma3_scritture.go), e la prima istanza non la tratta come una dichiarazione senza motivo
+		in.MotivoMonoPezzo = traccia.DellUtente(a.mono.Motivo, MotivoMonoPezzoDelGesto)
 	}
 	valida := a.in.sorgente.Valida
 	in.FonteConfermata, in.FonteAutorizzata, in.SorgenteUgualeAllaFonte = valida, valida, valida

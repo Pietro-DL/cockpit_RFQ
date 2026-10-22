@@ -73,13 +73,15 @@ const (
 )
 
 // Le classi di confine (D-05). La _punto_cifra vale solo a destra. La _o_trattino è la quinta, dal 17/10
-// (LS-03 A, addendum D-05): vale ai due lati, come le prime tre.
+// (LS-03 A, addendum D-05): vale ai due lati, come le prime tre. La parola_ascii_spazio_o_trattino è la sesta,
+// dal 21/10 (D-G48-01 B, addendum D-05): vale ai due lati.
 const (
-	ConfineAlnumASCII             ClasseConfine = "alnum_ascii"
-	ConfineParolaASCII            ClasseConfine = "parola_ascii"
-	ConfineAlnumASCIIOSpazio      ClasseConfine = "alnum_ascii_o_spazio"
-	ConfineParolaASCIIOPuntoCifra ClasseConfine = "parola_ascii_o_punto_cifra"
-	ConfineAlnumASCIIOTrattino    ClasseConfine = "alnum_ascii_o_trattino"
+	ConfineAlnumASCII                 ClasseConfine = "alnum_ascii"
+	ConfineParolaASCII                ClasseConfine = "parola_ascii"
+	ConfineAlnumASCIIOSpazio          ClasseConfine = "alnum_ascii_o_spazio"
+	ConfineParolaASCIIOPuntoCifra     ClasseConfine = "parola_ascii_o_punto_cifra"
+	ConfineAlnumASCIIOTrattino        ClasseConfine = "alnum_ascii_o_trattino"
+	ConfineParolaASCIISpazioOTrattino ClasseConfine = "parola_ascii_spazio_o_trattino"
 )
 
 // Maiuscole e normalizzazione della base; significato dei segmenti di revisione (D4); origine degli esempi
@@ -122,7 +124,7 @@ var (
 	fasi               = []string{FasePrototipo, FaseCampionatura, FasePreserie, FaseSerie}
 	destinazioni       = []string{DestinazioneRicambio}
 	classiConfine      = []string{string(ConfineAlnumASCII), string(ConfineParolaASCII), string(ConfineAlnumASCIIOSpazio),
-		string(ConfineParolaASCIIOPuntoCifra), string(ConfineAlnumASCIIOTrattino)}
+		string(ConfineParolaASCIIOPuntoCifra), string(ConfineAlnumASCIIOTrattino), string(ConfineParolaASCIISpazioOTrattino)}
 	maiuscole       = []string{MaiuscoleEsatte, MaiuscoleIndifferentiASCII}
 	normalizzazioni = []string{NormalizzaNessuna, NormalizzaMaiuscolo}
 	significati     = []string{SignificatoForte, SignificatoDebole, SignificatoNessuno}

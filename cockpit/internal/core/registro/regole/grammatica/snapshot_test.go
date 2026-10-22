@@ -153,6 +153,51 @@ func TestA1aSNPLimitiFuoriDallHash(t *testing.T) {
 	}
 }
 
+// TestA1aSNPConfineParolaASCIISpazioOTrattino (addendum D-05 del 21/10, D-G48-01 B): la sesta classe di
+// confine entra nel canonico così com'è scritta, ai due lati e nella base come nella forma; il canonico si
+// rilegge con la porta stretta e dà lo stesso hash; l'hash è diverso da quello della stessa grammatica con
+// un'altra classe. Una grammatica che non la usa ha l'hash di prima (lo stesso calcolato con il codice di A1a):
+// la classe nuova non cambia il canonico dei file esistenti.
+func TestA1aSNPConfineParolaASCIISpazioOTrattino(t *testing.T) {
+	if h := snapshotDi(t, []byte(grammaticaACME), limitiACME()).Hash; h != hashACMEDiA1a {
+		t.Fatalf("la grammatica ACME, che non usa la classe nuova, ha l'hash %s; prima era %s", h, hashACMEDiA1a)
+	}
+	const nuova = "parola_ascii_spazio_o_trattino"
+	varianti := []struct {
+		nome string
+		sost []string
+	}{
+		{"base a sinistra", []string{`"confine_prima": "parola_ascii"`, `"confine_prima": "` + nuova + `"`}},
+		{"base a destra", []string{`"confine_dopo": "parola_ascii"}`, `"confine_dopo": "` + nuova + `"}`}},
+		{"forma ai due lati", []string{`"confine_dopo": "parola_ascii_o_punto_cifra"`,
+			`"confine_prima": "` + nuova + `", "confine_dopo": "` + nuova + `"`}},
+	}
+	visti := map[string]string{hashACMEDiA1a: "ACME"}
+	for _, v := range varianti {
+		t.Run(v.nome, func(t *testing.T) {
+			s := snapshotDi(t, variante(t, v.sost...), limitiACME())
+			if !bytes.Contains(s.Canonico, []byte(`"`+nuova+`"`)) {
+				t.Fatal("la classe nuova non è nel canonico")
+			}
+			if h := snapshotDi(t, s.Canonico, limitiACME()).Hash; h != s.Hash {
+				t.Fatalf("il canonico riletto cambia hash: %s, %s", h, s.Hash)
+			}
+			if altro, ok := visti[s.Hash]; ok {
+				t.Fatalf("stesso hash di %s: la classe non entra nell'hash", altro)
+			}
+			visti[s.Hash] = v.nome
+			// La stessa sostituzione con la quinta classe dà un altro hash.
+			con5 := make([]string, len(v.sost))
+			for i, x := range v.sost {
+				con5[i] = strings.ReplaceAll(x, nuova, string(ConfineAlnumASCIIOTrattino))
+			}
+			if h := snapshotDi(t, variante(t, con5...), limitiACME()).Hash; h == s.Hash {
+				t.Fatal("parola_ascii_spazio_o_trattino e alnum_ascii_o_trattino danno lo stesso hash")
+			}
+		})
+	}
+}
+
 // TestA1aSNPNormalizzaNonCambiaLIngresso: Normalizza lavora su una copia; due chiamate danno gli stessi byte.
 func TestA1aSNPNormalizzaNonCambiaLIngresso(t *testing.T) {
 	g, err := Decodifica(permuta(t, func(g *Grammatica) { rovescia(g.Famiglie) }))

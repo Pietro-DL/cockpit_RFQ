@@ -348,7 +348,7 @@ func TestV1S8LaRipresaEIlRifiutoDelPasso3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if esito, copia, sp, err := passo2(ctx, p, s.thread, s.stepA, s.utente, r, candidaturaDelMotore{}); err != nil || esito != EsitoFatto || copia != "in_coda" || sp != nil {
+	if esito, copia, sp, err := passo2(ctx, p, s.thread, s.stepA, s.utente, r); err != nil || esito != EsitoFatto || copia != "in_coda" || sp != nil {
 		t.Fatalf("passo 2 da solo: %s %s %v", esito, copia, err)
 	}
 	if n := conta(t, p, `SELECT count(*) FROM distinta_bozza`); n != 0 {
@@ -449,10 +449,8 @@ func TestV1S8IRifiutiDelPasso0(t *testing.T) {
 	// V-7: l'impronta del contenuto non e' quella del registro calcolato adesso
 	_, err = s8(t, p, s, s.stepA, corpoStep(t, s, uuid.New(), regA, map[string]any{"impronta_contenuto": strings.Repeat("0", 64)}), prep)
 	codiceDi(t, err, distintabozza.CodiceAnteprimaSuperata, "")
-	// il codice della radice diverso da quello del prodotto vuole il motivo
-	regX := registroRadice(t, s, s.stepA, s.shaA, "ACM-1999")
-	_, err = s8(t, p, s, s.stepA, corpoStep(t, s, uuid.New(), regX, nil), Preparazione{Proposta: &distintabozza.PropostaCalcolata{Registro: regX}})
-	codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, "")
+	// il codice della radice diverso da quello del prodotto non chiede piu' il motivo (messaggio 46 [U]):
+	// TestV1M46S8LaRadiceDiversaSenzaMotivo
 	// «sostituisci» e' solo una presa d'atto {conferma: true}; un altro valore e' 422
 	_, err = s8(t, p, s, s.stepA, corpoStep(t, s, uuid.New(), regA, map[string]any{"sostituisci": map[string]any{"conferma": false}}), prep)
 	codiceDi(t, err, distintabozza.CodiceCorpoNonValido, "")
@@ -468,14 +466,15 @@ func TestV1S8IRifiutiDelPasso0(t *testing.T) {
 		t.Fatalf("il rifiuto della bozza manuale ha scritto: %s -> %s", c1, c2)
 	}
 	// il caso (g): lo stesso contenuto e' il documento di un altro finito, senza S8: dal giro G39 (G39-03 [U], RV3-32 [U])
-	// si riassocia con il motivo; senza motivo MOTIVO_OBBLIGATORIO riassociazione con l'altro prodotto, niente scritto (le
-	// riassociazioni e gli spostamenti veri sono in s8_sposta_db_test.go)
+	// si riassocia con «Riassocia a ‹P›» (sposta_da; messaggio 46 [U]: senza motivo); senza, STEP_SORGENTE_DI_ALTRO_PRODOTTO
+	// riassociazione con l'altro prodotto, niente scritto (le riassociazioni e gli spostamenti veri sono in
+	// s8_sposta_db_test.go)
 	esegui(t, p, `INSERT INTO documento (thread_id, componente_id, tipo, codice, nome_file, estensione, sha256, path_relativo, confermato_da)
 		VALUES ($1, $2, 'cad_3d', 'ACM-6000', 'ACM-1000_revB.stp', 'stp', $3, '3D/ACM-6000.stp', $4)`, s.thread, s.altroFinito, s.shaB, s.utente)
 	regB := registroRadice(t, s, s.stepB, s.shaB, "ACM-1000")
 	_, err = s8(t, p, s, s.stepB, corpoStep(t, s, uuid.New(), regB, nil), Preparazione{Proposta: &distintabozza.PropostaCalcolata{Registro: regB}})
-	if e := codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, MotivoRiassociazione); e.AltroProdotto == nil || *e.AltroProdotto != s.altroFinito {
-		t.Fatalf("la riassociazione senza motivo: %+v", e)
+	if e := codiceDi(t, err, CodiceStepSorgenteDiAltroProdotto, MotivoRiassociazione); e.AltroProdotto == nil || *e.AltroProdotto != s.altroFinito {
+		t.Fatalf("la riassociazione senza «Riassocia»: %+v", e)
 	}
 	if dopo := fotoVietate(t, p); dopo != prima {
 		t.Fatalf("i rifiuti hanno toccato la working: %s -> %s", prima, dopo)
@@ -487,8 +486,9 @@ func TestV1S8IRifiutiDelPasso0(t *testing.T) {
 func TestV1S8SoloProdottoSenzaRegistro(t *testing.T) {
 	p, s := preparaS8(t)
 	corpo := func(chiave uuid.UUID, extra map[string]any) []byte {
+		// messaggio 46 [U]: senza il motivo dell'utente (lo scrive il server, TracciaS8)
 		c := map[string]any{"chiave_idempotenza": chiave, "prodotto_id": s.prodotto, "partenza": "solo_prodotto", "stato_analisi": "in_analisi",
-			"presa_d_atto": true, "motivo": "lo STEP e' ancora in analisi: si parte dal solo prodotto"}
+			"presa_d_atto": true}
 		for k, v := range extra {
 			if v == nil {
 				delete(c, k)
@@ -501,11 +501,10 @@ func TestV1S8SoloProdottoSenzaRegistro(t *testing.T) {
 	}
 	prep := Preparazione{StatoAnalisi: AnalisiInCorso}
 	prima := fotoVietate(t, p)
-	// senza presa d'atto; senza motivo; con una struttura importabile adesso; con lo stato dell'analisi cambiato
+	// senza presa d'atto; con una struttura importabile adesso; con lo stato dell'analisi cambiato (senza motivo passa:
+	// messaggio 46 [U])
 	_, err := s8(t, p, s, s.stepC, corpo(uuid.New(), map[string]any{"presa_d_atto": nil}), prep)
 	codiceDi(t, err, distintabozza.CodiceCorpoNonValido, MotivoPresaDAttoMancante)
-	_, err = s8(t, p, s, s.stepC, corpo(uuid.New(), map[string]any{"motivo": nil}), prep)
-	codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, "")
 	_, err = s8(t, p, s, s.stepC, corpo(uuid.New(), nil), Preparazione{StatoAnalisi: AnalisiPronta, Importabile: true})
 	codiceDi(t, err, distintabozza.CodiceAnteprimaSuperata, "")
 	_, err = s8(t, p, s, s.stepC, corpo(uuid.New(), nil), Preparazione{StatoAnalisi: AnalisiErrore})
@@ -535,6 +534,11 @@ func TestV1S8SoloProdottoSenzaRegistro(t *testing.T) {
 	}
 	if n := conta(t, p, `SELECT count(*) FROM fonte_step_evento WHERE azione = 'scelta' AND gruppo = 'solo_prodotto' AND allegato_id = $1`, s.stepC); n != 1 {
 		t.Fatalf("la scelta con il gruppo riservato: %d", n)
+	}
+	// la traccia del gesto nella riga di S8 e nella scelta della fonte (messaggio 46 [U])
+	tracciaSolo := "gesto di S8P da «Conferma la sorgente»: lo STEP «ACM-1000_senza.stp» è la sorgente di ACM-1000; partenza dal solo prodotto (analisi: in_analisi)"
+	if n := conta(t, p, `SELECT count(*) FROM fonte_step_evento WHERE azione IN ('conferma_documento', 'scelta') AND allegato_id = $1 AND motivo = $2`, s.stepC, tracciaSolo); n != 2 {
+		t.Fatalf("la traccia del gesto nelle righe della fonte: %d", n)
 	}
 	if n := conta(t, p, `SELECT count(*) FROM fonte_step_evento WHERE gruppo = 'senza'`); n != 0 {
 		t.Fatal("una riga con il gruppo «senza»")
@@ -679,17 +683,20 @@ func TestV1S8LaRevoca(t *testing.T) {
 	prima := fotoVietate(t, p)
 	versioni := conta(t, p, `SELECT count(*) FROM distinta_bozza_versione`)
 	revoca := func(chiave uuid.UUID, motivo string) (EsitoRevoca, error) {
-		raw, _ := json.Marshal(map[string]any{"chiave_idempotenza": chiave, "prodotto_id": s.prodotto, "motivo": motivo})
+		c := map[string]any{"chiave_idempotenza": chiave, "prodotto_id": s.prodotto}
+		if motivo != "" {
+			c["motivo"] = motivo
+		}
+		raw, _ := json.Marshal(c)
 		r, imp, err := LeggiRichiestaRevoca(raw)
 		if err != nil {
 			return EsitoRevoca{}, err
 		}
 		return Revoca(ctx, p, s.thread, s.stepA, s.utente, r, imp)
 	}
-	_, err = revoca(uuid.New(), "  ")
-	codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, "")
+	// messaggio 46 [U]: la revoca senza motivo; il motivo della riga e' la traccia del gesto
 	chiave := uuid.New()
-	rv, err := revoca(chiave, "STEP scelto per errore")
+	rv, err := revoca(chiave, "")
 	if err != nil || rv.Riproposto || rv.BozzaID == nil || *rv.BozzaID != es.Bozza.BozzaID || rv.DocumentoID == uuid.Nil ||
 		rv.BozzaAbbandonata == nil || *rv.BozzaAbbandonata != es.Bozza.BozzaID || rv.UsataDaConferma {
 		t.Fatalf("revoca: %+v %v", rv, err)
@@ -708,11 +715,12 @@ func TestV1S8LaRevoca(t *testing.T) {
 	if n := conta(t, p, `SELECT count(*) FROM distinta_bozza_versione`); n != versioni {
 		t.Fatalf("la revoca ha cambiato le versioni della bozza (la storia resta): %d -> %d", versioni, n)
 	}
-	if n := conta(t, p, `SELECT count(*) FROM fonte_step_evento WHERE azione = 'revoca_sorgente' AND chiave_idempotenza = $1 AND motivo = 'STEP scelto per errore'`, chiave); n != 1 {
-		t.Fatalf("la riga della revoca: %d", n)
+	tracciaRevoca := "gesto di S8P da «Revoca come sorgente»: lo STEP «ACM-1000.stp» non è più la sorgente confermata di ACM-1000"
+	if n := conta(t, p, `SELECT count(*) FROM fonte_step_evento WHERE azione = 'revoca_sorgente' AND chiave_idempotenza = $1 AND motivo = $2`, chiave, tracciaRevoca); n != 1 || rv.Motivo != tracciaRevoca {
+		t.Fatalf("la riga della revoca: %d %q", n, rv.Motivo)
 	}
-	// reinvio; la stessa chiave con un altro motivo; una seconda revoca senza niente da revocare
-	if rv2, err := revoca(chiave, "STEP scelto per errore"); err != nil || !rv2.Riproposto {
+	// reinvio; la stessa chiave con un motivo (un altro corpo); una seconda revoca senza niente da revocare
+	if rv2, err := revoca(chiave, ""); err != nil || !rv2.Riproposto || rv2.Motivo != tracciaRevoca {
 		t.Fatalf("reinvio della revoca: %+v %v", rv2, err)
 	}
 	_, err = revoca(chiave, "un altro motivo")

@@ -127,7 +127,7 @@ func (b *bancoDU) s9(w http.ResponseWriter) {
 		p := m{"prodotto_id": prod, "codice": cod, "fonte": b.fonteS9(prod), "calcolo": m{"stato": "pronto", "file_in_analisi": inAnalisi},
 			"righe": []any{}, "in_attesa_sorgente": []any{}, "conti": m{"proposti": 0, "salvati": 0, "registrati": 0, "in_conflitto": 0, "nodi_senza_file": 0}}
 		if prod == bdP1 {
-			p["identificativo_cliente"] = "ACM-1000/C"
+			p["identificativo_cliente"] = m{"testo": "ACM-1000/C"} // la forma del server: propostabom.IdentificativoCliente {testo, motivo} (messaggio 46, D12)
 		}
 		bz := b.bozze[prod]
 		aperta := bz != nil && bz.Stato == "aperta"
@@ -204,7 +204,7 @@ func (b *bancoDU) s9(w http.ResponseWriter) {
 			o := m{"allegato_id": f.ID, "proposta_id": f.Proposta, "destinazione": dest, "codice_mostrato": codice, "rev_mostrata": rev, "stato": stato, "origine": origine,
 				"condiviso_con": []any{}, "azioni": az}
 			if cid != "" {
-				o["identificativo_cliente"] = cid
+				o["identificativo_cliente"] = m{"testo": cid} // la forma del server, {testo, motivo} (messaggio 46, D12)
 			}
 			if f.Proposta == "" {
 				// come S9 vero: proposta_id c'è solo se il file ha una proposta di documento aperta (omitempty)

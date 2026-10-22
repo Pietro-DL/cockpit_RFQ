@@ -225,7 +225,7 @@ func TestDistintaUnicaG39SpostaLaSorgente(t *testing.T) {
 		t.Error("la candidatura con sorgente_di non offre «Sposta la sorgente su ‹P›…» (o la spegne ancora)")
 	}
 	s8 := duFunzione(t, src, "async function apriConfermaSorgente(")
-	for _, v := range []string{"if (sposta) corpo.sposta_da = sposta;", "corpo.correzione_sorgente = true", `id: "f-correzione"`, "!!sposta || solo", `"f-sposta"`} {
+	for _, v := range []string{"if (sposta) corpo.sposta_da = sposta;", "corpo.correzione_sorgente = true", `id: "f-correzione"`, `"f-sposta"`} {
 		if !strings.Contains(s8, v) {
 			t.Errorf("il dialogo di S8 non ha %s", v)
 		}
@@ -314,11 +314,12 @@ func TestBancoDistintaUnicaG39Sposta(t *testing.T) {
 	if e["bozza_abbandonata"] != bz.ID || bz.Stato != "abbandonata" || e["motivo"] != "sorgente_errata: m" {
 		t.Errorf("revoca: %v (bozza %s)", e, bz.Stato)
 	}
-	// lo STEP ora è un documento del primo prodotto senza S8 valida: S8 sul secondo vuole il motivo (riassociazione)
+	// lo STEP ora è un documento del primo prodotto senza S8 valida: S8 sul secondo vuole il gesto «Riassocia a ‹P›»
+	// (sposta_da; messaggio 46 [U]: non un motivo scritto)
 	b.s8[bdP1]["spostato_a"] = nil
 	ss := m{"chiave_idempotenza": k(6), "prodotto_id": bdP2, "partenza": "solo_prodotto", "stato_analisi": "letto", "presa_d_atto": true}
-	if e := b.bdChiedi(t, "POST", url, ss, 422); e["codice"] != "MOTIVO_OBBLIGATORIO" || e["motivo"] != "riassociazione" || e["altro_prodotto"] != bdP1 {
-		t.Errorf("S8 di un documento dell'altro prodotto senza motivo: %v", e)
+	if e := b.bdChiedi(t, "POST", url, ss, 422); e["codice"] != "STEP_SORGENTE_DI_ALTRO_PRODOTTO" || e["motivo"] != "riassociazione" || e["altro_prodotto"] != bdP1 {
+		t.Errorf("S8 di un documento dell'altro prodotto senza «Riassocia»: %v", e)
 	}
 }
 

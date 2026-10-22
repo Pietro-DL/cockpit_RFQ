@@ -134,9 +134,6 @@ func TestV1R15RifiutoDellaPropostaAggiornata(t *testing.T) {
 	_, err = rifiuta(uuid.New(), sc.reg.Contenuto.ImprontaContenuto, "non serve",
 		PropostaDiAdesso{Disponibile: true, ImprontaContenuto: sc.reg.Contenuto.ImprontaContenuto})
 	codice3(t, err, CodiceCorpoNonValido, MotivoNessunaPropostaAggiornata)
-	// senza motivo: MOTIVO_OBBLIGATORIO
-	_, err = rifiuta(uuid.New(), nuova, "  ", adesso)
-	codice3(t, err, CodiceMotivoObbligatorio, "")
 	if conta3(t, sc.p, `SELECT count(*) FROM proposta_aggiornata_rifiuto`) != 0 || conta3(t, sc.p, `SELECT count(*) FROM esito_intento`) != 0 {
 		t.Fatal("un rifiuto non riuscito ha scritto")
 	}
@@ -181,4 +178,31 @@ func TestV1R15RifiutoDellaPropostaAggiornata(t *testing.T) {
 	}
 	_, err = RifiutaPropostaAggiornata(ctx, sc.p, sc.thread, sc.utente, r, imp, adesso)
 	codice3(t, err, CodiceAnteprimaSuperata, MotivoConfermaNonCorrente)
+
+	// messaggio 46 [U] (21/10), corsia MOTIVO: senza motivo il rifiuto passa, e la riga (motivo NOT NULL, ck_par_motivo)
+	// porta la traccia del gesto scritta dal server; lo stesso reinvio e' riproposto (anche con il motivo di soli spazi,
+	// che e' come assente), lo stesso tentativo con un motivo e' CHIAVE_RIUSATA
+	var codice string
+	var numero int
+	if err := sc.p.QueryRow(ctx, `SELECT c.codice, s.numero FROM componente c JOIN conferma_strutturale s ON s.prodotto_id = c.componente_id
+		WHERE s.conferma_id = $1`, conferma).Scan(&codice, &numero); err != nil {
+		t.Fatal(err)
+	}
+	traccia := TracciaRifiutoR15("DBZ", codice, numero)
+	if !strings.HasPrefix(traccia, "gesto di DBZ da «Rifiuta la proposta aggiornata»: la BOM confermata di "+codice) {
+		t.Fatalf("la traccia di R15: %q", traccia)
+	}
+	k := uuid.New()
+	e5, err := rifiuta(k, nuova, "", adesso)
+	if err != nil || e5.Riproposto {
+		t.Fatalf("rifiuto senza motivo: %+v %v", e5, err)
+	}
+	if conta3(t, sc.p, `SELECT count(*) FROM proposta_aggiornata_rifiuto WHERE rifiuto_id = $1 AND motivo = $2 AND autore_id = $3`, e5.RifiutoID, traccia, sc.utente) != 1 {
+		t.Fatal("la riga del rifiuto senza motivo non porta la traccia del gesto")
+	}
+	if e6, err := rifiuta(k, nuova, "   ", adesso); err != nil || !e6.Riproposto || e6.RifiutoID != e5.RifiutoID {
+		t.Fatalf("reinvio senza motivo: %+v %v", e6, err)
+	}
+	_, err = rifiuta(k, nuova, "scritto da un client di prima", adesso)
+	codice3(t, err, CodiceChiaveRiusata, "")
 }

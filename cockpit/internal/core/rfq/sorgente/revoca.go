@@ -18,6 +18,11 @@ package sorgente
 // motivo registrato (confermabom.MotivoConCausa) e, se lo STEP revocato era entrato in una conferma della BOM del prodotto
 // (dopo R5), fa della S8 successiva di un altro STEP una correzione (confermabom.SorgenteValida, Correzione); prima di R5 no. Il corpo puo' dichiarare la bozza che la pagina mostrava (bozza: bozza_id,
 // versione_attesa): se non e' piu' quella, 409 BOZZA_VERSIONE e niente scritto [T-39].
+//
+// Messaggio 46 [U] (21/10): il motivo scritto dall'utente si toglie da ogni widget. Il corpo non lo chiede piu': se manca,
+// il motivo della riga (ck_fonte_motivo lo vuole per la revoca) e' la traccia del gesto scritta dal server (core/rfq/traccia,
+// TracciaRevoca), con la causa sorgente_errata in testa se il corpo la dice. Se un client di prima manda un motivo, vale
+// il suo. L'impronta resta quella del corpo mandato: la traccia non la cambia.
 
 import (
 	"context"
@@ -32,6 +37,7 @@ import (
 
 	"promatec/cockpit/internal/core/rfq/confermabom"
 	"promatec/cockpit/internal/core/rfq/distintabozza"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
@@ -48,19 +54,34 @@ const AzioneRevocaSorgente = confermabom.AzioneRevocaSorgente
 type RichiestaRevoca struct {
 	ChiaveIdempotenza uuid.UUID `json:"chiave_idempotenza"`
 	ProdottoID        uuid.UUID `json:"prodotto_id"`
-	Motivo            string    `json:"motivo"`
+	// Motivo: facoltativo dal messaggio 46 [U] (i client di prima lo mandano ancora); senza, la traccia del server
+	Motivo string `json:"motivo,omitempty"`
 	// SorgenteErrata: la causa sorgente_errata in testa al motivo registrato (G39-03; [T-39])
 	SorgenteErrata bool `json:"sorgente_errata,omitempty"`
 	// Bozza: la bozza aperta che la pagina mostrava (facoltativa); se c'e' deve essere ancora quella, alla stessa versione
 	Bozza *BozzaS8 `json:"bozza,omitempty"`
+	// traccia: il motivo scritto dal server quando il corpo non ne porta uno (messaggio 46 [U]); non e' del corpo
+	traccia string
 }
 
-// motivoRegistrato: il motivo della riga della revoca, con la causa sorgente_errata in testa se il corpo la dice.
+// WidgetRevoca: il gesto della pagina che la traccia della revoca nomina.
+const WidgetRevoca = "Revoca come sorgente"
+
+// TracciaRevoca: la traccia della revoca senza il motivo dell'utente (messaggio 46 [U]), per esempio «gesto di PS da
+// «Revoca come sorgente»: lo STEP «ACME-1.stp» non e' piu' la sorgente confermata di ACME-1».
+func TracciaRevoca(sigla, nomeFile, codiceProdotto string) string {
+	return traccia.Gesto(distintabozza.MaxMotivo, sigla, WidgetRevoca,
+		"lo STEP «"+strings.TrimSpace(nomeFile)+"» non è più la sorgente confermata di "+strings.TrimSpace(codiceProdotto))
+}
+
+// motivoRegistrato: il motivo della riga della revoca (quello dell'utente o la traccia), con la causa sorgente_errata in
+// testa se il corpo la dice.
 func (r RichiestaRevoca) motivoRegistrato() string {
+	m := traccia.DellUtente(r.Motivo, r.traccia)
 	if r.SorgenteErrata {
-		return confermabom.MotivoConCausa(confermabom.CausaSorgenteErrata, r.Motivo)
+		return confermabom.MotivoConCausa(confermabom.CausaSorgenteErrata, m)
 	}
-	return r.Motivo
+	return m
 }
 
 // EsitoRevoca: la risposta 200 della revoca.
@@ -102,10 +123,8 @@ func LeggiRichiestaRevoca(raw []byte) (RichiestaRevoca, string, error) {
 	if r.ProdottoID == uuid.Nil {
 		return r, "", errCorpo("prodotto_id", "", "manca il prodotto")
 	}
+	// il motivo non e' piu' obbligatorio (messaggio 46 [U]): senza, la traccia del server (Revoca)
 	r.Motivo = strings.TrimSpace(r.Motivo)
-	if r.Motivo == "" {
-		return r, "", &distintabozza.Errore{Codice: distintabozza.CodiceMotivoObbligatorio, Campo: "motivo", Messaggio: "la revoca della sorgente vuole il motivo"}
-	}
 	if len([]rune(r.motivoRegistrato())) > 1000 {
 		return r, "", errCorpo("motivo", "", "il motivo sta in 1000 caratteri")
 	}
@@ -166,6 +185,13 @@ func Revoca(ctx context.Context, pool distintabozza.Avviatore, thread, allegato,
 		return out, errCorpo("allegato", MotivoNessunaSorgente, "lo STEP non e' una sorgente confermata da S8 e valida per %s: non c'e' niente da revocare", p.Codice)
 	}
 	out.DocumentoID = st.Documento
+	if r.Motivo == "" {
+		sigla, err := traccia.Sigla(ctx, q, utente)
+		if err != nil {
+			return out, err
+		}
+		r.traccia = TracciaRevoca(sigla, a.NomeFile, p.Codice)
+	}
 	out.Motivo = r.motivoRegistrato()
 	ins := db.InsertFonteStepEventoParams{ThreadID: thread, ProdottoID: r.ProdottoID, Ruolo: "prodotto", Azione: AzioneRevocaSorgente, AllegatoID: allegato,
 		Sha256: sha, DocumentoID: uuid.NullUUID{UUID: st.Documento, Valid: true}, Motivo: pgtype.Text{String: out.Motivo, Valid: true},
@@ -200,18 +226,19 @@ func Revoca(ctx context.Context, pool distintabozza.Avviatore, thread, allegato,
 	if out.UsataDaConferma, err = usataDaConferma(ctx, q, thread, r.ProdottoID, sha, st.Documento); err != nil {
 		return out, err
 	}
-	out.Testo = "Sorgente revocata per " + p.Codice + ": la working non cambia; la conferma della BOM aspetta una sorgente confermata di nuovo (S8)."
+	// i testi parlano all'ingegnere, senza i nomi delle rotte né «working» (messaggio 46 dell'utente, difetto D46 [T])
+	out.Testo = "Sorgente revocata per " + p.Codice + ". Per confermare la BOM serve di nuovo uno STEP confermato come sorgente."
 	switch {
 	case out.UsataDaConferma:
-		out.Testo = "Sorgente revocata per " + p.Codice + ": lo STEP è nella BOM confermata, quindi la working e la bozza non cambiano. " +
-			"Il cambio di sorgente è una revisione interna: conferma la sorgente giusta (S8), poi rivedi e conferma la BOM."
+		out.Testo = "Sorgente revocata per " + p.Codice + ". Lo STEP è nella BOM confermata: la BOM e la bozza restano come sono. " +
+			"Il cambio di sorgente è una revisione interna: conferma lo STEP giusto come sorgente, poi rivedi e conferma la BOM."
 	case out.BozzaID != nil:
 		if out.BozzaAbbandonata, err = abbandonaBozzaDellaSorgente(ctx, q, thread, r.ProdottoID, utente, sha, "sorgente revocata: "+out.Motivo); err != nil {
 			return out, err
 		}
 		if out.BozzaAbbandonata != nil {
-			out.Testo = "Sorgente revocata per " + p.Codice + ": la bozza nata da questo STEP è annullata (la sua storia resta); la working non cambia. " +
-				"Conferma la sorgente giusta (S8): la bozza nuova nasce da lì."
+			out.Testo = "Sorgente revocata per " + p.Codice + ". La bozza nata da questo STEP è annullata (resta nella storia). " +
+				"Conferma lo STEP giusto come sorgente: la bozza nuova nasce da lì."
 		}
 	}
 	raw, err := json.Marshal(out)

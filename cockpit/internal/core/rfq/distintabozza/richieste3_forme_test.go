@@ -108,8 +108,6 @@ func TestV1C3LeFormeDelServerIRifiuti(t *testing.T) {
 			CodiceCorpoNonValido, "crea.sorgente.sha256", ""},
 		{"registrato con la sorgente", FormaCrea, map[string]any{"partenza": "registrato", "sorgente": sorgenteProva()}, nil, CodiceCorpoNonValido,
 			"crea.sorgente", ""},
-		{"ripartenza senza motivo", FormaCrea, map[string]any{"partenza": "vuota", "abbandona": map[string]any{
-			"bozza_id": "00000000-0000-4000-8000-0000000b0002", "versione_attesa": 1}}, nil, CodiceMotivoObbligatorio, "crea.abbandona.motivo", ""},
 		{"ripartenza senza versione", FormaCrea, map[string]any{"partenza": "vuota", "abbandona": map[string]any{
 			"bozza_id": "00000000-0000-4000-8000-0000000b0002", "motivo": "x"}}, nil, CodiceCorpoNonValido, "crea.abbandona.versione_attesa", ""},
 		{"campo sconosciuto in crea", FormaCrea, map[string]any{"partenza": "vuota", "importazione": imp}, nil, CodiceCorpoNonValido, "crea", ""},
@@ -117,14 +115,10 @@ func TestV1C3LeFormeDelServerIRifiuti(t *testing.T) {
 			func(m map[string]any) { delete(m, "bozza_id") }, CodiceCorpoNonValido, "bozza_id", ""},
 		{"cambia_sorgente con versione 0", FormaCambiaSorgente, map[string]any{"sorgente": sorgenteProva(), "impronta_contenuto": imp, "motivo": "x"},
 			func(m map[string]any) { m["versione_attesa"] = 0 }, CodiceCorpoNonValido, "versione_attesa", ""},
-		{"cambia_sorgente senza motivo", FormaCambiaSorgente, map[string]any{"sorgente": sorgenteProva(), "impronta_contenuto": imp, "motivo": "  "},
-			nil, CodiceMotivoObbligatorio, "cambia_sorgente.motivo", ""},
 		{"cambia_sorgente con togli", FormaCambiaSorgente, map[string]any{"sorgente": sorgenteProva(), "impronta_contenuto": imp, "motivo": "x",
 			"scelte": []any{map[string]any{"chiave_bozza": "k-1", "scelta": "togli"}}}, nil, CodiceCorpoNonValido, "cambia_sorgente.scelte[0].scelta", ""},
 		{"riallinea senza impronta", FormaRiallineaProposta, map[string]any{"motivo": "x"}, nil, CodiceCorpoNonValido,
 			"riallinea_proposta.impronta_contenuto", ""},
-		{"riallinea senza motivo", FormaRiallineaProposta, map[string]any{"impronta_contenuto": imp}, nil, CodiceMotivoObbligatorio,
-			"riallinea_proposta.motivo", ""},
 		{"scelta sconosciuta", FormaRiallineaProposta, map[string]any{"impronta_contenuto": imp, "motivo": "x",
 			"scelte": []any{map[string]any{"chiave_bozza": "k-1", "scelta": "lascia"}}}, nil, CodiceCorpoNonValido, "riallinea_proposta.scelte[0].scelta", ""},
 		{"scelta con nodo e decisione", FormaRiallineaProposta, map[string]any{"impronta_contenuto": imp, "motivo": "x",
@@ -136,8 +130,6 @@ func TestV1C3LeFormeDelServerIRifiuti(t *testing.T) {
 		{"due scelte per lo stesso nodo", FormaRiallineaProposta, map[string]any{"impronta_contenuto": imp, "motivo": "x",
 			"scelte": []any{map[string]any{"chiave_bozza": "k-1", "scelta": "togli"}, map[string]any{"chiave_bozza": "k-1", "scelta": "recepisci"}}}, nil,
 			CodiceCorpoNonValido, "riallinea_proposta.scelte[1]", ""},
-		{"converti senza motivo", FormaConvertiDa, map[string]any{"bozza_id": "00000000-0000-4000-8000-0000000b0003", "versione_attesa": 2}, nil,
-			CodiceMotivoObbligatorio, "converti_da.motivo", ""},
 		{"converti senza bozza", FormaConvertiDa, map[string]any{"versione_attesa": 2, "motivo": "x"}, nil, CodiceCorpoNonValido, "converti_da.bozza_id", ""},
 		{"converti con la versione di primo livello", FormaConvertiDa, map[string]any{"bozza_id": "00000000-0000-4000-8000-0000000b0003",
 			"versione_attesa": 2, "motivo": "x"}, func(m map[string]any) { m["versione_attesa"] = 2 }, CodiceCorpoNonValido, "versione_attesa", ""},
@@ -152,6 +144,42 @@ func TestV1C3LeFormeDelServerIRifiuti(t *testing.T) {
 			e := errore3(t, err)
 			if e.Codice != c.codice || e.Campo != c.campo || e.Motivo != c.motivo {
 				t.Fatalf("errore %+v (atteso %s su %s, motivo %q)", e, c.codice, c.campo, c.motivo)
+			}
+		})
+	}
+}
+
+// Messaggio 46 [U] (21/10), corsia MOTIVO: le forme costruite dal server non vogliono piu' il motivo nel corpo (la
+// ripartenza, il cambio della fonte, il riallineamento, la conversione); un motivo di soli spazi e' come assente. Dove lo
+// schema vuole un motivo lo scrive il server (la traccia del gesto: prove L4).
+func TestV1M46LeFormeDelServerSenzaMotivo(t *testing.T) {
+	imp := strings.Repeat("a", 64)
+	casi := []struct {
+		nome  string
+		forma string
+		corpo map[string]any
+	}{
+		{"ripartenza senza motivo", FormaCrea, map[string]any{"partenza": "vuota", "abbandona": map[string]any{
+			"bozza_id": "00000000-0000-4000-8000-0000000b0002", "versione_attesa": 1}}},
+		{"cambia_sorgente con il motivo di soli spazi", FormaCambiaSorgente, map[string]any{"sorgente": sorgenteProva(), "impronta_contenuto": imp, "motivo": "  "}},
+		{"riallinea senza motivo", FormaRiallineaProposta, map[string]any{"impronta_contenuto": imp}},
+		{"converti senza motivo", FormaConvertiDa, map[string]any{"bozza_id": "00000000-0000-4000-8000-0000000b0003", "versione_attesa": 2}},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			r, err := LeggiRichiestaR2(corpoR2(t, formaProva(c.forma, c.corpo)))
+			if err != nil {
+				t.Fatalf("rifiutata: %v", err)
+			}
+			switch {
+			case r.Crea != nil && (r.Crea.Abbandona == nil || r.Crea.Abbandona.Motivo != ""):
+				t.Fatalf("ripartenza: %+v", r.Crea.Abbandona)
+			case r.CambiaSorgente != nil && r.CambiaSorgente.Motivo != "":
+				t.Fatalf("cambia_sorgente: %q", r.CambiaSorgente.Motivo)
+			case r.Riallinea != nil && r.Riallinea.Motivo != "":
+				t.Fatalf("riallinea: %q", r.Riallinea.Motivo)
+			case r.Converti != nil && r.Converti.Motivo != "":
+				t.Fatalf("converti: %q", r.Converti.Motivo)
 			}
 		})
 	}

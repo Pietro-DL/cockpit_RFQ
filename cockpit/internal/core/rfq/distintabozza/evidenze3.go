@@ -237,9 +237,8 @@ func (d *Decisione3) validaCategoria(campo string) *Errore {
 	default:
 		return corpo(campo+".origine_categoria", "origine %q: classe_grammatica, normativa o manuale", d.OrigineCategoria)
 	}
-	if d.Motivo == "" && (d.OrigineCategoria != OrigineCategoriaClasse || d.Esito == EsitoCategoriaRifiuto) {
-		return corpo(campo+".motivo", "il motivo e' obbligatorio con l'origine %s o con il rifiuto", d.OrigineCategoria)
-	}
+	// il motivo non e' piu' obbligatorio con l'origine normativa o manuale o con il rifiuto (messaggio 46 [U]): la
+	// decisione e' il gesto, con il suo autore nel giornale della bozza
 	if c := d.ClasseProposta; c != nil {
 		if !CategoriaAmmessa(c.Categoria) {
 			return corpoMotivo(campo+".classe_proposta.categoria", MotivoCategoriaNonAmmessa, "categoria proposta %q fuori dal vocabolario", c.Categoria)

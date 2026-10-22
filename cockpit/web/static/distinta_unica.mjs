@@ -89,16 +89,23 @@ function btn(testo, fai, o) {
   return o.no && o.perche !== false ? h("span", { class: "du-gesto" }, b, h("span", { class: "du-perche" }, o.no)) : b;
 }
 
+// «Aggiorna proposta…» e «Vedi le differenze» (R1 ?confronto=1) finché il server non calcola il confronto con la proposta di
+// oggi (R1 confronto_disponibile false): spenti con il perché invece di offrirli e fallire (collaudo UI46, giro 3, F3-I1 [T])
+const CONFRONTO_NON_V1 = "il confronto con la proposta di oggi non è ancora disponibile: arriva con l'adattatore del Motore A";
+function perchéNoAggiorna() {
+  return S.confrontoNo ? CONFRONTO_NON_V1 : perchéNoModifica();
+}
+
 // I motivi delle azioni che V1 non ha (MAT §6.1): restano visibili e spente, con il motivo scritto accanto (D23:294).
 const NON_V1 = {
-  documento: "I documenti si confermano solo con «Rivedi e conferma fascicolo» (V3)",
-  r10: "La correzione di un file arriva con R10 (V4); in V1 vale solo per lo STEP del prodotto",
+  documento: "I documenti si confermano con «Rivedi e conferma fascicolo», non da questa pagina",
+  r10: "La correzione di un file non è in questa pagina: qui vale solo per lo STEP del prodotto",
   deroga: "Le deroghe non sono in questa pagina",
-  sostituisci: "La sostituzione dei documenti non è in V1",
+  sostituisci: "La sostituzione dei documenti non è in questa pagina",
   revisione: "Revisione e congelamento non sono in questa pagina",
   relazioni: "Le relazioni restano proposte: la loro ratifica arriva in una tappa dopo",
-  candidata: "Il rifiuto motivato di una candidata arriva in V5: intanto si sceglie un altro STEP",
-  fascicolo: "Arriva in V3: i documenti si confermano con il lotto, dopo una BOM confermata e verificata",
+  candidata: "Il rifiuto di una candidata non è in questa pagina: intanto si sceglie un altro STEP",
+  fascicolo: "I documenti si confermano con il lotto, dopo una BOM confermata e verificata: non ancora in questa pagina",
 };
 
 // ---------------------------------------------------------------- stato della pagina
@@ -121,12 +128,14 @@ const S = {
   anteprima: null, // S6
   anteprimaAllegato: "",
   anteprimaGruppo: "",
+  anteprimaPasso: "", // il passo da cui è stata chiesta l'anteprima (collaudo UI46, giro 2: dalla Revisione si mostra lì)
   erroreAnteprima: "",
   bozza: null, // R1
   erroreBozza: "",
   registri: {}, // impronta → contenuto del registro d'importazione
   storico: null, // R7
   erroreStorico: "",
+  working: null, // la BOM confermata nella Revisione senza bozza (R7 &conferma=; messaggio 47): {chiave, stato, d, errore}
   salvato: null, // lo snapshot salvato (quello di R1 o dell'ultimo R2 riuscito)
   invio: null, // {voci, azioni, snapshot, corpo}: il salvataggio in volo o da rimandare
   coda: [], // voci non ancora inviate: {etichetta, inviare, locali}
@@ -154,19 +163,40 @@ const S = {
   daParte: null,
   daRileggere: "", // un gesto registrato dopo il quale la pagina non si è riletta (MAT §1.3, §5.2: «↻ Rileggi»)
   linguettaNodo: "dettaglio", // la linguetta del pannello del nodo: "dettaglio" | "documenti" (MAT PN-02)
+  barraAltezza: null, // { larga, alta }: l'altezza più grande della barra in fondo a questa larghezza (renderBarraDentro)
   verifiche: new Set(), // le chiavi che la pagina sta verificando da sola con R6 (MAT §5.5 n. 2)
+  avvisoDi: null, // il legame della striscia dell'esito: {legame: "anteprima" | "prodotto", prodotto} (avvisa)
+  sezioni: {}, // le sezioni del pannello del nodo aperte o chiuse da chi guarda (messaggio 46: sezioni richiudibili)
 };
 let L = null; // la tela in vista: {lay, chiave, vp, mondo, g}
 
 // ---------------------------------------------------------------- avvisi, strisce
 
-function avvisa(esito, testo) {
+// avvisa: la striscia dell'esito in testa. legame (messaggio 46 [U], difetti D22 e D24 [T]): «anteprima» per un testo che
+// parla dell'anteprima di uno STEP (sparisce quando l'anteprima si chiude o si lascia la Sorgente), «prodotto» per un
+// esito di un gesto sulla sorgente di un prodotto (sparisce quando si passa a un altro prodotto). Senza legame resta
+// finché un altro esito non lo sostituisce.
+function avvisa(esito, testo, legame) {
   const el = $("#du-avviso");
   if (!el) return;
   el.textContent = "";
   el.textContent = testo || "";
   el.setAttribute("data-esito", esito);
   el.hidden = !testo;
+  // ogni striscia parla del prodotto in vista quando è nata: cambiando prodotto se ne va (collaudo UI46, I5)
+  S.avvisoDi = testo ? { legame: legame || "prodotto", prodotto: S.prodotto } : null;
+}
+// avvisoScaduto: la striscia legata che non vale più per quello che si vede (render e cambio di prodotto)
+function avvisoScaduto() {
+  const el = $("#du-avviso");
+  const a = S.avvisoDi;
+  if (!el || el.hidden || !a) return;
+  const via = (a.legame === "anteprima" && (!S.anteprima || (S.passo !== "sorgente" && !anteprimaInRevisione()))) || (a.prodotto && a.prodotto !== S.prodotto);
+  if (via) {
+    el.hidden = true;
+    el.textContent = "";
+    S.avvisoDi = null;
+  }
 }
 
 // ---------------------------------------------------------------- indirizzo (la scelta di chi guarda, mai uno stato del server)
@@ -208,7 +238,8 @@ export function modelloDa(j) {
   const prodotti = arr(th.prodotti_valutati)
     .filter((p) => p && typeof p.componente_id === "string" && RE_UUID.test(p.componente_id))
     .map((p) => ({ rif: p.rif || "", id: p.componente_id.toLowerCase(), codice: p.codice_richiesto || "", descrizione: p.descrizione || "",
-      verificatoOggi: !!(p.bom && p.bom.verificata === true), criterioOggi: (p.bom && p.bom.criterio) || "", motivi: arr(p.motivi) }));
+      verificatoOggi: !!(p.bom && p.bom.verificata === true), criterioOggi: (p.bom && p.bom.criterio) || "", motivi: arr(p.motivi), disegni: disegniDelProdotto(p),
+      registrati: registratiSottoIlProdotto(p) }));
   return {
     errore: typeof j.errore === "string" ? j.errore : "",
     testa: ogg(j.testa) ? j.testa : {},
@@ -227,7 +258,59 @@ export function modelloDa(j) {
     confermaCorrente: ogg(j.conferma_corrente) ? j.conferma_corrente : null,
     strutturaCondivisa: ogg(j.struttura_condivisa) ? j.struttura_condivisa : null,
     calcolato: j.calcolato || "",
+    radiciStep: radiciLetteDegliStep(th),
   };
+}
+// radiciLetteDegliStep: il codice letto dalla radice di ogni STEP dell'esito (file[].documento.unita[], selettore
+// radice_step.id, se no radice_step.nome), per allegato. Solo da mostrare: lo STEP la cui radice non è il prodotto dice
+// quale radice ha (collaudo UI46, giro 3, F3-I4 [T]); nessuna regola, il confronto lo fa il motore.
+function radiciLetteDegliStep(th) {
+  const out = {};
+  for (const f of arr(th && th.file)) {
+    const aid = ogg(f) && typeof f.allegato_id === "string" ? f.allegato_id.toLowerCase() : "";
+    const un = aid && ogg(f.documento) ? arr(f.documento.unita) : [];
+    const di = (sel) => un.find((u) => ogg(u) && u.selettore === sel && typeof u.testo === "string" && u.testo.trim());
+    const u = di("radice_step.id") || di("radice_step.nome");
+    if (u) out[aid] = u.testo.trim();
+  }
+  return out;
+}
+// radiceLettaDiversa: il codice letto dalla radice dello STEP quando non è il codice del prodotto (maiuscole, spazi e
+// separatori a parte), "" altrimenti o se il modello non lo dà
+function radiceLettaDiversa(allegato, codice) {
+  const r = S.modello && S.modello.radiciStep ? S.modello.radiciStep[String(allegato || "").toLowerCase()] || "" : "";
+  const n = (x) => String(x || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return r && codice && n(r) !== n(codice) ? r : "";
+}
+// registratiSottoIlProdotto: i componenti registrati del perimetro del prodotto, la radice esclusa, che il motore espone
+// fuori dalla BOM di lavoro (confermati_senza_step: senza uno STEP sono tutti). Serve solo a non offrire «Parti dalla BOM
+// registrata» a un prodotto che non ne ha una (collaudo UI46, I6/D41 [T]).
+function registratiSottoIlProdotto(p) {
+  const radice = "componente:" + String(p.componente_id).toLowerCase();
+  return arr(p.confermati_senza_step).filter((n) => ogg(n) && ogg(n.nodo) && typeof n.nodo.rif === "string" && n.nodo.rif.toLowerCase() !== radice).length;
+}
+// disegniDelProdotto: il 2D primario di ogni nodo del prodotto valutato, come lo sceglie il motore per l'organigramma
+// della pagina di prima (valutazione.NodoBOM.disegni.primario, con l'anteprima: solo un PDF che si apre, LD-03), dalla
+// BOM di lavoro (nodi), dalle strutture candidate e dai confermati senza STEP. Messaggio 46 [U]: le anteprime dei 2D nei
+// nodi. La chiave è «r:<rif del nodo>» (lo stesso rif della casella della bozza: nodo:<sha>:<chiave>) e, per un nodo con
+// un componente deciso, «c:<componente_id>». Solo presentazione: nessuna regola, il primario lo sceglie il server.
+function disegniDelProdotto(p) {
+  const out = {};
+  const metti = (n) => {
+    if (!ogg(n) || !ogg(n.nodo)) return;
+    const pr = n.disegni && n.disegni.primario;
+    const an = pr && pr.anteprima;
+    if (!ogg(an) || an.disponibile !== true || typeof an.allegato_id !== "string" || !RE_UUID.test(an.allegato_id)) return;
+    const x = { aid: an.allegato_id.toLowerCase(), nome: (pr && pr.nome_file) || "" };
+    const rif = typeof n.nodo.rif === "string" ? n.nodo.rif : "";
+    if (rif && !out["r:" + rif]) out["r:" + rif] = x;
+    const cid = (ogg(n.nodo.decisione) && n.nodo.decisione.componente_id) || (rif.indexOf("componente:") === 0 ? rif.slice(11) : "");
+    if (typeof cid === "string" && RE_UUID.test(cid) && !out["c:" + cid.toLowerCase()]) out["c:" + cid.toLowerCase()] = x;
+  };
+  arr(p && p.nodi).forEach(metti);
+  arr(p && p.strutture_candidate).forEach((s) => arr(s && s.nodi).forEach(metti));
+  arr(p && p.confermati_senza_step).forEach(metti);
+  return out;
 }
 // nodoDelModello: i campi per nodo di adesso che /dati dà per la voce di un gruppo (EM §9.9; PE-10, PE-28; B-3):
 // completezza {requisito, esito, deroga?}, diagnostiche[], decisione_esistente {componente_id, identita_registrata}. La
@@ -309,9 +392,19 @@ function programmaPoll() {
   if (!pollFine) pollFine = Date.now() + 10 * 60 * 1000;
   if (Date.now() > pollFine) return;
   pollSorgente = setTimeout(async () => {
+    // UI46 [U] (controllo di stabilità del 21/10, S1 bloccante): la rilettura ogni 5 s ridisegnava sempre tutto
+    // #du-corpo (l'elenco tornava in cima, la ricerca perdeva i tasti). Come la rilettura del wizard (firmaVistaWizard)
+    // [T]: si ridisegna solo se cambia quello che la Sorgente mostra (la firma di S1 o l'errore di lettura).
+    const prima = firmaVistaS1();
     await caricaSorgente();
-    if (S.passo === "sorgente") renderCorpo();
+    if (S.passo === "sorgente" && firmaVistaS1() !== prima) renderCorpo();
   }, 5000);
+}
+// firmaVistaS1: quello di S1 che la Sorgente mostra. La firma del server cambia se e solo se cambia un campo mostrato
+// (U2 §2.3, firmaDellaSorgente); senza firma conta la risposta intera, senza l'ora del calcolo.
+function firmaVistaS1() {
+  const s = S.sorgente;
+  return JSON.stringify([S.erroreSorgente || "", s ? s.firma || Object.assign({}, s, { calcolato: "" }) : null]);
 }
 // caricaBozza: R1. Con modifiche non salvate (in coda o in volo) R1 non si rilegge: impostaBozza le butterebbe, e MAT
 // §3.9 e §5.1 vogliono che non si perdano finché la pagina è aperta. Chi deve rileggere con modifiche aperte le mette
@@ -422,6 +515,8 @@ function numeroEventi(j) {
 }
 function impostaBozza(j) {
   S.bozza = j;
+  // il server dice se calcola il confronto con la proposta di oggi (R1 confronto_disponibile; collaudo UI46, giro 3, F3-I1)
+  if (j && j.confronto_disponibile === false) S.confrontoNo = true;
   S.coda = [];
   S.invio = null;
   S.rifai = [];
@@ -696,7 +791,7 @@ function confermaFormato3(c) {
 function haConfermaFormato3() {
   return arr(S.storico && S.storico.conferme).some(confermaFormato3);
 }
-const PARTENZA_REGISTRATO_NO = "il prodotto ha già una conferma del formato 3: si parte da quella, con «Modifica la BOM confermata»";
+const PARTENZA_REGISTRATO_NO = "il prodotto ha già una BOM confermata: si parte da quella, con «Modifica la BOM confermata»";
 // nessunaModifica: la bozza è la conferma di base come l'ha aperta il server e dopo non è cambiato niente; allora «Rivedi
 // e conferma BOM» e «Conferma BOM» sono spenti con il motivo, perché una conferma n+1 uguale alla n sarebbe un atto in
 // più che non si toglie (MAT WZ-01; decisioni dell'ondata A, PE-23). r4: il riepilogo da guardare (quello del wizard);
@@ -802,6 +897,7 @@ function fai(etichetta, azioni, o) {
   ricalcola();
   S.salvataggio = Object.assign({}, S.salvataggio, { stato: "modifiche" });
   programmaSalvataggio(voce.rebase ? 0 : 1500);
+  avvisa("info", "Nella bozza: " + etichetta + ". Si salva da sola; «Annulla» la toglie.");
   render();
   return true;
 }
@@ -915,6 +1011,7 @@ async function invia() {
   if (!S.invio) return;
   S.salvataggio = Object.assign({}, S.salvataggio, { stato: "in_corso", testo: "" });
   renderBarra();
+  renderNav();
   const r = await P.salvaBozza(S.invio.corpo);
   esitoSalvataggio(r);
 }
@@ -948,6 +1045,9 @@ function esitoSalvataggio(r) {
     if (S.coda.length) programmaSalvataggio(300);
     programmaRiepilogo();
     renderBarra();
+    // la pillola della Revisione dice la versione salvata, come la barra (collaudo UI46, I1: restava una versione indietro
+    // con «1 da salvare» fino alla lettura dopo)
+    renderNav();
     // le righe dello smistamento (S9) cambiano con la bozza: si rilegge, raggruppato (U2 §2.3)
     caricaSmistamentoPoi();
     // dopo un rebase lo stato della base lo dice il server: R1 si rilegge (senza modifiche in coda, caricaBozza)
@@ -1044,8 +1144,31 @@ async function riepilogoSfondo() {
   }
   // la barra: i conti e il CTA, che segue uguale_alla_base di R4 quando c'è (PE-23)
   renderBarra();
-  // l'Elenco e la linguetta «Documenti del nodo» mostrano gli stati delle preassociazioni che dà R4: si ridisegnano
-  if (nuovo && S.passo === "revisione" && (S.vista === "elenco" || (S.nodo && S.linguettaNodo === "documenti"))) renderCorpo();
+  // l'Elenco e la linguetta «Documenti del nodo» mostrano gli stati delle preassociazioni che dà R4: si ridisegnano. Il
+  // pannello del nodo mostra l'id. cliente che dà R4: si ridisegna se quello a schermo non è più quello di R4 (UI46,
+  // controllo di stabilità del 21/10: dopo Correggi o Annulla restava l'id. cliente di prima)
+  if (nuovo && S.passo === "revisione" && (S.vista === "elenco" || (S.nodo && S.linguettaNodo === "documenti") || idcPannelloVecchio())) ridisegnaCorpoFermo();
+}
+// idcPannelloVecchio: il pannello del nodo in vista mostra un id. cliente diverso da quello che dà ora il riepilogo
+function idcPannelloVecchio() {
+  const p = S.passo === "revisione" && $("#du-pannello");
+  if (!p || !S.nodo || p.dataset.k !== S.nodo) return false;
+  // l'id. cliente sta nella sezione «Decisione dell'ingegnere», non per un pezzo non incluso
+  const sez = p.querySelector("#du-sez-decisione");
+  if (!sez || sez.querySelector("#du-noninc-deciso")) return false;
+  const e = sez.querySelector("[data-du-idc]");
+  const n = idClienteNodo(S.nodo);
+  return (e ? e.dataset.duIdc : null) !== (n ? n.dataset.duIdc : null);
+}
+// ridisegnaCorpoFermo: renderCorpo, ma non durante un trascinamento, un pan o un pinch della tela (lo rimanda a gesto finito)
+let timerCorpoFermo = null;
+function ridisegnaCorpoFermo() {
+  clearTimeout(timerCorpoFermo);
+  if (V.punti.size || V.drag || V.pan || V.pinch) {
+    timerCorpoFermo = setTimeout(ridisegnaCorpoFermo, 400);
+    return;
+  }
+  renderCorpo();
 }
 
 // ---------------------------------------------------------------- registro d'importazione, voci, caselle
@@ -1154,7 +1277,9 @@ function testoRimozione(f) {
 
 // ---------------------------------------------------------------- il grafo da disegnare (organigramma ed elenco)
 
-const CW = 236, CH = 84, MARGINE = 24, RG = 16, IND = 58, SPX = 20, GXC = 26, BUS1 = 22, BUS2 = 22, SH = 30, KMIN = 0.25, KMAX = 2.2;
+// La scheda porta l'anteprima del 2D (A3 orizzontale, 420/297) come nella pagina di prima (messaggio 46 [U]): CH è
+// l'altezza fissa che l'impaginazione usa; SW e SH sono la scheda «stesso pezzo» di un figlio sotto un secondo padre.
+const CW = 236, CH = 252, MARGINE = 24, GXC = 26, BUS1 = 18, BUS2 = 34, SW = 218, SH = 30, KMIN = 0.2, KMAX = 2.2;
 const TIPI = { finito: "Finito", sottoassieme: "Assieme", sciolto: "Particolare", commerciale: "Commerciale" };
 
 function emittenteParola(id) {
@@ -1211,8 +1336,8 @@ function grafoBozza() {
 }
 // grafoProposta: la proposta di uno STEP in vista (S6, in lettura): lo stato di partenza che la bozza avrebbe e il
 // registro del gruppo. Guardare non conferma niente (RAT05-FONTE-SOSTITUIBILE [U]).
-function grafoProposta() {
-  const a = S.anteprima;
+function grafoProposta(anteprima) {
+  const a = anteprima || S.anteprima;
   const pr = a && a.proposta;
   if (!pr) return null;
   const reg = pr.contenuto || null;
@@ -1288,9 +1413,13 @@ function compressiCorr() {
   const c = S.prodotto + ":" + S.passo;
   return (S.compressi[c] = S.compressi[c] || {});
 }
-function impagina(g, ap, modo, perRiga) {
-  const cw = CW;
-  const SW = cw - 18;
+// impagina: l'organigramma della pagina di prima (messaggio 46 [U], «preferivo la disposizione come era prima»): ogni padre
+// ha i suoi figli in una riga sola sotto di sé, con il padre centrato sopra di loro, a ogni livello; l'albero si allarga in
+// orizzontale e si guarda con il pan e lo zoom (prima con lo scorrimento). Le linee: il gambo del padre e la barra fra i
+// fratelli neutri, la caduta su ogni figlio con il tratto del suo legame (file, confermato, bozza). Un figlio che sta già
+// sotto un altro padre è una scheda «stesso pezzo». In fondo, i pezzi senza padre e i non inclusi, ognuno con il suo
+// sottoalbero. Solo presentazione: la parentela la dice la bozza.
+function impagina(g, ap) {
   const comp = compressiCorr();
   const pos = {}, stubs = [], tratti = [], pills = [], etichette = [];
   const ext = { X: 0, Y: 0 };
@@ -1298,146 +1427,74 @@ function impagina(g, ap, modo, perRiga) {
     ext.X = Math.max(ext.X, x2);
     ext.Y = Math.max(ext.Y, y2);
   };
-  const metti = (k, x, y) => {
-    pos[k] = { x, y };
-    cresci(x + cw, y + CH);
-  };
-  function colonna(k, x, y) {
-    metti(k, x, y);
-    let yy = y + CH;
-    const ch = comp[k] ? [] : ap.kids[k] || [];
-    const st = comp[k] ? [] : ap.rim[k] || [];
-    if (!ch.length && !st.length) return yy;
-    const sx = x + SPX;
-    let ult = null;
-    const seq = ch.map((a) => ({ a })).concat(st.map((r) => ({ r })));
-    seq.forEach((it) => {
-      if (it.a) {
-        const cy = yy + RG;
-        const fine = colonna(it.a.f, x + IND, cy);
-        const mid = cy + CH / 2;
-        tratti.push({ d: "M" + sx + " " + mid + " H" + (x + IND), a: it.a });
-        pills.push({ a: it.a, x: sx + (IND - SPX) / 2, y: mid });
-        ult = mid;
-        yy = fine;
-      } else {
-        const cy = yy + RG;
-        const mid = cy + SH / 2;
-        stubs.push({ a: it.r, x: x + IND, y: cy, w: SW });
-        cresci(x + IND + SW, cy + SH);
-        tratti.push({ d: "M" + sx + " " + mid + " H" + (x + IND), a: it.r, secondo: true });
-        pills.push({ a: it.r, x: sx + (IND - SPX) / 2, y: mid, secondo: true });
-        ult = mid;
-        yy = cy + SH;
-      }
-    });
-    tratti.push({ d: "M" + sx + " " + (y + CH) + " V" + ult, neutro: true });
-    return yy;
+  const voci = (k) => (comp[k] ? [] : (ap.kids[k] || []).map((a) => ({ a })).concat((ap.rim[k] || []).map((a) => ({ a, stub: true }))));
+  const larghezze = {};
+  const somma = (it) => it.reduce((w, x, i) => w + (i ? GXC : 0) + (x.stub ? SW : largh(x.a.f)), 0);
+  function largh(k) {
+    if (larghezze[k] === undefined) larghezze[k] = Math.max(CW, somma(voci(k)));
+    return larghezze[k];
   }
-  let yFondo = MARGINE;
-  if (g.radice) {
-    if (modo === "lista") {
-      yFondo = colonna(g.radice, MARGINE, MARGINE);
-    } else {
-      const r = g.radice;
-      const items = (comp[r] ? [] : ap.kids[r] || []).map((a) => ({ a })).concat((comp[r] ? [] : ap.rim[r] || []).map((a) => ({ a, stub: true })));
-      const righe = [];
-      for (let i = 0; i < items.length; i += perRiga) righe.push(items.slice(i, i + perRiga));
-      const piu = righe.length > 1;
-      const trunkX = MARGINE + 4;
-      const x0 = piu ? MARGINE + 18 : MARGINE;
-      let yRow = MARGINE + CH + BUS1 + BUS2;
-      const info = [];
-      righe.forEach((riga) => {
-        let x = x0;
-        let yMax = yRow;
-        const drops = [];
-        const yb = yRow - BUS2;
-        riga.forEach((it) => {
-          if (!it.stub) {
-            const X1 = ext.X;
-            ext.X = 0;
-            const fine = colonna(it.a.f, x, yRow);
-            const dx = x + cw / 2;
-            drops.push(dx);
-            tratti.push({ d: "M" + dx + " " + yb + " V" + yRow, a: it.a });
-            pills.push({ a: it.a, x: dx, y: yb + BUS2 / 2 });
-            const destra = Math.max(ext.X, x + cw);
-            ext.X = Math.max(X1, destra);
-            x = destra + GXC;
-            yMax = Math.max(yMax, fine);
-          } else {
-            stubs.push({ a: it.a, x, y: yRow, w: SW });
-            cresci(x + SW, yRow + SH);
-            const dx = x + SW / 2;
-            drops.push(dx);
-            tratti.push({ d: "M" + dx + " " + yb + " V" + yRow, a: it.a, secondo: true });
-            pills.push({ a: it.a, x: dx, y: yb + BUS2 / 2, secondo: true });
-            x += SW + GXC;
-            yMax = Math.max(yMax, yRow + SH);
-          }
-        });
-        info.push({ yb, drops });
-        yRow = yMax + 40 + BUS2;
-      });
-      const r1 = info[0];
-      const cx = r1 && r1.drops.length ? (r1.drops[0] + r1.drops[r1.drops.length - 1]) / 2 : MARGINE + cw / 2;
-      metti(r, Math.max(MARGINE, cx - cw / 2), MARGINE);
-      const rcx = pos[r].x + cw / 2;
-      const base = [];
-      if (r1 && r1.drops.length) base.push({ d: "M" + rcx + " " + (MARGINE + CH) + " V" + r1.yb, neutro: true });
-      info.forEach((ri, i) => {
-        if (!ri.drops.length) return;
-        let xa = Math.min.apply(null, ri.drops), xb = Math.max.apply(null, ri.drops);
-        if (i === 0) {
-          xa = Math.min(xa, rcx);
-          xb = Math.max(xb, rcx);
-        }
-        if (piu) xa = Math.min(xa, trunkX);
-        base.push({ d: "M" + xa + " " + ri.yb + " H" + xb, neutro: true });
-      });
-      if (piu) base.push({ d: "M" + trunkX + " " + info[0].yb + " V" + info[info.length - 1].yb, neutro: true });
-      tratti.unshift.apply(tratti, base);
-      yFondo = info.length ? yRow - 40 - BUS2 : MARGINE + CH;
+  // metti: il sottoalbero di k nella striscia [x0, x0 + largh(k)], con la scheda di k in cima a y; torna il fondo
+  function metti(k, x0, y) {
+    const it = voci(k);
+    if (!it.length) {
+      pos[k] = { x: x0 + (largh(k) - CW) / 2, y };
+      cresci(pos[k].x + CW, y + CH);
+      return y + CH;
     }
+    let x = x0 + (largh(k) - somma(it)) / 2;
+    const yb = y + CH + BUS1;
+    const yf = yb + BUS2;
+    let fondo = y + CH;
+    const cadute = [];
+    it.forEach((z) => {
+      if (z.stub) {
+        stubs.push({ a: z.a, x, y: yf, w: SW });
+        cresci(x + SW, yf + SH);
+        const dx = x + SW / 2;
+        cadute.push(dx);
+        tratti.push({ d: "M" + dx + " " + yb + " V" + yf, a: z.a, secondo: true });
+        pills.push({ a: z.a, x: dx, y: yf - BUS2 / 2, secondo: true });
+        fondo = Math.max(fondo, yf + SH);
+        x += SW + GXC;
+        return;
+      }
+      const w = largh(z.a.f);
+      fondo = Math.max(fondo, metti(z.a.f, x, yf));
+      const dx = pos[z.a.f].x + CW / 2;
+      cadute.push(dx);
+      tratti.push({ d: "M" + dx + " " + yb + " V" + yf, a: z.a });
+      pills.push({ a: z.a, x: dx, y: yf - BUS2 / 2 });
+      x += w + GXC;
+    });
+    const cx = (cadute[0] + cadute[cadute.length - 1]) / 2;
+    pos[k] = { x: cx - CW / 2, y };
+    cresci(pos[k].x + CW, y + CH);
+    tratti.push({ d: "M" + cx + " " + (y + CH) + " V" + yb, neutro: true });
+    if (cadute.length > 1) tratti.push({ d: "M" + cadute[0] + " " + yb + " H" + cadute[cadute.length - 1], neutro: true });
+    return fondo;
   }
+  let yE = MARGINE;
+  if (g.radice) yE = metti(g.radice, MARGINE, MARGINE);
   const fuori = [["Senza padre · da ricollocare", ap.altre], ["Non inclusi nella BOM (bozza)", g.nonInclusi]];
-  let yE = Math.max(yFondo, ext.Y);
   for (const [titolo, elenco] of fuori) {
     if (!elenco.length) continue;
-    yE += 40;
+    yE = Math.max(yE, ext.Y) + 40;
     etichette.push({ x: MARGINE, y: yE, t: titolo });
-    let x = MARGINE;
     const yC = yE + 28;
+    let x = MARGINE;
     let yMax = yC;
     elenco.forEach((k) => {
-      const X1 = ext.X;
-      ext.X = 0;
-      const fine = colonna(k, x, yC);
-      const destra = Math.max(ext.X, x + cw);
-      ext.X = Math.max(X1, destra);
-      x = destra + GXC;
-      yMax = Math.max(yMax, fine);
+      const w = largh(k);
+      yMax = Math.max(yMax, metti(k, x, yC));
+      x += w + GXC;
     });
-    yE = Math.max(yE, yMax);
+    yE = yMax;
   }
-  return { W: ext.X + MARGINE, H: Math.max(ext.Y, yE) + MARGINE, cw, pos, stubs, tratti, pills, etichette, kids: ap.kids, padrePrim: ap.padrePrim, modo };
+  return { W: ext.X + MARGINE, H: Math.max(ext.Y, yE) + MARGINE, cw: CW, pos, stubs, tratti, pills, etichette, kids: ap.kids, padrePrim: ap.padrePrim, modo: "albero" };
 }
-function layout(g, larghezza) {
-  const ap = alberoPrimario(g);
-  const n1 = g.radice ? (ap.kids[g.radice] || []).length + (ap.rim[g.radice] || []).length : 0;
-  if (larghezza < 560 || n1 < 2) return impagina(g, ap, "lista", 1);
-  let best = null, bk = -1;
-  const alt = Math.max(320, window.innerHeight - 300);
-  for (let per = n1; per >= 2; per--) {
-    const l = impagina(g, ap, "righe", per);
-    const k = Math.min((larghezza - 24) / l.W, (alt - 24) / l.H);
-    if (k > bk + 0.005) {
-      best = l;
-      bk = k;
-    }
-  }
-  return best;
+function layout(g) {
+  return impagina(g, alberoPrimario(g));
 }
 
 // ---------------------------------------------------------------- le schede e la tela
@@ -1460,7 +1517,7 @@ function segniScheda(g, v) {
   const out = [];
   const diff = g.modo === "bozza" && S.confronto ? diversaDallaProposta(v) : "";
   if (diff) out.push(h("span", { class: "du-segno du-segno--bozza", title: "Diverso dalla proposta importata: " + diff }, "≠ proposta"));
-  if (v.cad) out.push(h("span", { class: "du-segno du-segno--cad", title: "Segnale del motore (LS-02): possibile elemento CAD, non un articolo. È solo un segnale: il nodo resta e il suo 2D resta richiesto finché non decidi." }, "possibile elemento CAD"));
+  if (v.cad) out.push(h("span", { class: "du-segno du-segno--cad", title: "Segnale del motore: possibile elemento CAD, non un articolo. È solo un segnale: il nodo resta e il suo 2D resta richiesto finché non decidi." }, "possibile elemento CAD"));
   if (v.fornitore) out.push(h("span", { class: "du-segno du-segno--fornitore", title: "L'emittente del codice non è il cliente" }, "fornitore"));
   if (v.rivedere && v.rivedere.length) out.push(h("span", { class: "du-segno du-segno--rivedere", title: "Da rivedere: " + v.rivedere.join(", ") }, "da rivedere"));
   if (g.modo === "bozza" && !v.noninc && v.k !== g.radice && padriA(g, v.k).length === 0) out.push(h("span", { class: "du-segno du-segno--bozza", title: "Nessun padre: da ricollocare" }, "⤴ ricollocare"));
@@ -1475,6 +1532,21 @@ function selezionabile(g, v) {
   if (!casellaDi(v.nodo)) return { ok: false, motivo: "è un pezzo aggiunto a mano: usa «Non crearlo (togli)»" };
   return { ok: true, motivo: "" };
 }
+// tipoProposto: il tipo della scheda è quello proposto dal file e nessuno l'ha confermato o cambiato (la pagina di prima lo
+// scriveva «PARTICOLARE ?»). Un registrato, un pezzo aggiunto a mano e un tipo confermato o cambiato non lo sono.
+function tipoProposto(v) {
+  // la BOM confermata (working): il tipo è quello della conferma, mai «proposto» (collaudo UI46, giro 3, F3-I3 [T])
+  if (!v || v.nuovo || v.noninc || v.wk) return false;
+  const n = v.nodo;
+  if (n && (n.componente_id || n.tipo_confermato)) return false;
+  const tp = v.voce && v.voce.tipo_proposto && v.voce.tipo_proposto.valore;
+  return !!tp && tp === v.tipo;
+}
+function chipTipo(v) {
+  const prop = tipoProposto(v);
+  return h("span", { class: "du-tipo du-tipo--" + v.tipo + (prop ? " du-tipo--proposto" : ""), title: prop ? "tipo proposto dal file, non ancora confermato" : null },
+    (TIPI[v.tipo] || v.tipo) + (prop ? " ?" : ""));
+}
 function scheda(g, v, ps) {
   const cls = ["du-nc", "du-nc--" + v.tipo];
   if (v.nuovo) cls.push("du-nc--nuovo");
@@ -1484,12 +1556,14 @@ function scheda(g, v, ps) {
   if (S.selezione.has(v.k)) cls.push("du-nc--selezionato");
   const lungo = String(v.cod || "").length + (v.rev ? 4 + String(v.rev).length : 0);
   const card = h("div", { class: cls.join(" "), id: "nc-" + sid(v.k), "data-k": v.k, "data-du-stato": v.stato.t, style: "left:" + ps.x + "px;top:" + ps.y + "px;width:" + CW + "px;height:" + CH + "px",
-    title: (v.cod || "(senza codice)") + (v.rev ? " rev " + v.rev : "") + " · " + (v.desc || "") });
+    title: (v.cod || "(senza codice)") + (v.rev ? " rev " + v.rev : "") + (v.desc ? " · " + v.desc : "") });
+  card.append(h("div", { class: "du-nc-chips" }, chipTipo(v), h("span", { class: "du-nc-st du-nc-st--" + v.stato.c }, v.stato.t)));
   card.append(h("button", { type: "button", class: "du-nc-cod" + (lungo > 17 ? " du-nc-cod--l" : ""), id: "oc-" + sid(v.k),
-    "aria-label": (TIPI[v.tipo] || v.tipo) + " " + (v.cod || "senza codice") + (v.rev ? " rev " + v.rev : "") + ", " + v.stato.t + ". Invio: apri nel pannello", "aria-current": S.nodo === v.k ? "true" : null },
+    "aria-label": (TIPI[v.tipo] || v.tipo) + " " + (v.cod || "senza codice") + (v.rev ? " rev " + v.rev : "") + ", " + v.stato.t + ". Invio: apri nel pannello; menu contestuale: i gesti del pezzo", "aria-current": S.nodo === v.k ? "true" : null },
   h("span", { class: "du-nc-c" }, v.cod || "(senza codice)"), v.rev ? h("span", { class: "du-nc-rev" }, "rev " + v.rev) : null));
-  card.append(h("span", { class: "du-nc-desc" }, v.desc || "—"));
-  card.append(h("div", { class: "du-nc-chips" }, h("span", { class: "du-tipo du-tipo--" + v.tipo }, TIPI[v.tipo] || v.tipo), h("span", { class: "du-nc-st du-nc-st--" + v.stato.c }, v.stato.t)));
+  // senza descrizione la riga resta vuota: un «—» sembrava un dato vuoto (messaggio 46, D07)
+  card.append(h("span", { class: "du-nc-desc" }, v.desc || ""));
+  card.append(miniatura(v));
   card.append(h("div", { class: "du-nc-piede" }, segniScheda(g, v)));
   const sel = selezionabile(g, v);
   if (g.modo === "bozza" && sel.ok) {
@@ -1499,8 +1573,8 @@ function scheda(g, v, ps) {
         cambiaSelezione(v.k, e.target.checked);
       } }));
   } else if (g.modo === "bozza" && !v.noninc && sel.motivo) {
-    // un nodo che non si può selezionare: la casella c'è, spenta, con il motivo (MAT NI-06); sulla scheda (236 × 84) il
-    // motivo sta nel suggerimento e nell'etichetta accessibile, nel cassetto «Nodi segnalati» è scritto accanto
+    // un nodo che non si può selezionare: la casella c'è, spenta, con il motivo (MAT NI-06); sulla scheda il motivo sta nel
+    // suggerimento e nell'etichetta accessibile, nel cassetto «Nodi segnalati» è scritto accanto
     card.append(h("input", { type: "checkbox", class: "du-nc-sel", id: "sel-" + sid(v.k), disabled: true, title: "Non selezionabile: " + sel.motivo,
       "aria-label": "Non selezionabile per «Non includere»: " + sel.motivo, "data-du-motivo": sel.motivo }));
   }
@@ -1513,6 +1587,19 @@ function scheda(g, v, ps) {
     }
     scegli(v.k);
   });
+  // il menu del nodo (messaggio 46, D38): il clic destro, il tasto del menu o Maiusc+F10 aprono i gesti del pezzo, non il
+  // menu del browser
+  card.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    apriMenuNodo(v.k, e.clientX, e.clientY);
+  });
+  card.addEventListener("keydown", (e) => {
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+    e.preventDefault();
+    const r = card.getBoundingClientRect();
+    apriMenuNodo(v.k, r.left + 24, r.top + 24);
+  });
   return card;
 }
 function cambiaSelezione(k, si) {
@@ -1521,16 +1608,26 @@ function cambiaSelezione(k, si) {
   render();
 }
 function scegli(k) {
+  // la stessa scheda già scelta e già nel pannello: niente da ridisegnare (UI46, controllo di stabilità del 21/10), se
+  // il pannello mostra già quello che dà il riepilogo (l'id. cliente)
+  if (k === S.nodo && S.zona === "nodo" && !idcPannelloVecchio()) return;
+  // il fuoco su un gesto del pannello di un altro nodo non passa al gesto con lo stesso id del nodo nuovo: va sulla scheda
+  const zn = $(".du-zona--nodo");
+  const dalPannello = k !== S.nodo && zn && zn.contains(document.activeElement);
   S.nodo = k;
   S.zona = "nodo";
   scriviIndirizzo();
   render();
+  const c = dalPannello && document.getElementById("oc-" + sid(k));
+  if (c && (document.activeElement === document.body || !document.activeElement)) c.focus({ preventScroll: true });
 }
+// qPill: la quantità del legame con le parole della pagina di prima (messaggio 46, D07): «×q dal file» e «da confermare»
+// per un legame proposto dallo STEP, «✎×q in bozza» per uno deciso nella bozza, «✓×q confermata» per uno registrato.
 function qPill(a, g) {
-  if (g.modo === "proposta") return h("span", { class: "du-q du-q--prop" }, "×" + a.qta);
-  if (a.kind === "bozza") return h("span", { class: "du-q du-q--bozza" }, "✎×" + a.qta);
-  if (a.kind === "conf") return h("span", { class: "du-q du-q--conf" }, "✓×" + a.qta);
-  return h("span", { class: "du-q du-q--prop" }, "×" + a.qta);
+  if (g.modo === "proposta") return h("span", { class: "du-q du-q--prop" }, "×" + a.qta + " dal file");
+  if (a.kind === "bozza") return h("span", { class: "du-q du-q--bozza" }, "✎×" + a.qta + " in bozza");
+  if (a.kind === "conf") return h("span", { class: "du-q du-q--conf" }, "✓×" + a.qta + " confermata");
+  return [h("span", { class: "du-q du-q--prop" }, "×" + a.qta + " dal file"), h("span", { class: "du-q du-q--da" }, "da confermare")];
 }
 function titoloQta(a, g) {
   const cod = (k) => (g.nodi[k] && (g.nodi[k].cod || g.nodi[k].desc)) || k;
@@ -1541,11 +1638,10 @@ function titoloQta(a, g) {
 // La tela: viewport con pan e zoom, senza scrollbar (mockup v3 §4.4); la camera per prodotto, passo e vista.
 const V = { punti: new Map(), pan: null, pinch: null, drag: null, target: null, ultimoMov: 0 };
 function chiaveCamera() {
-  return S.prodotto + ":" + S.passo + ":" + (S.passo === "sorgente" ? S.anteprimaAllegato + "|" + S.anteprimaGruppo : "bozza");
+  return S.prodotto + ":" + S.passo + ":" + (S.passo === "sorgente" || anteprimaInRevisione() ? S.anteprimaAllegato + "|" + S.anteprimaGruppo : "bozza");
 }
 function organigramma(g) {
-  const larghezza = Math.max(260, ($("#du-corpo") ? $("#du-corpo").getBoundingClientRect().width : 900) - (window.innerWidth >= 900 ? 340 : 30));
-  const lay = layout(g, larghezza);
+  const lay = layout(g);
   const vp = h("div", { class: "du-vp", id: "du-vp", tabindex: "0", role: "region", "data-modo": lay.modo,
     "aria-label": "Organigramma " + (g.modo === "proposta" ? "della proposta" : "della BOM di lavoro") + ". Frecce: sposta la vista; più e meno: zoom; 0: adatta" });
   const mondo = h("div", { class: "du-vp-mondo", id: "du-vp-mondo", style: "width:" + lay.W + "px;height:" + lay.H + "px" });
@@ -1558,7 +1654,7 @@ function organigramma(g) {
   Object.keys(lay.pos).forEach((k) => mondo.append(scheda(g, g.nodi[k], lay.pos[k])));
   lay.stubs.forEach((s) => {
     const v = g.nodi[s.a.f];
-    mondo.append(h("button", { type: "button", class: "du-nc du-nc--" + v.tipo, style: "left:" + s.x + "px;top:" + s.y + "px;width:" + s.w + "px;height:" + SH + "px;display:flex;align-items:center;gap:6px",
+    mondo.append(h("button", { type: "button", class: "du-nc du-nc--stub du-nc--" + v.tipo, style: "left:" + s.x + "px;top:" + s.y + "px;width:" + s.w + "px;height:" + SH + "px",
       title: "Stesso componente della scheda sotto il primo padre", onclick: () => scegli(v.k) }, "↗ ", h("span", { class: "du-mono" }, v.cod || "(senza codice)"), " stesso pezzo"));
   });
   lay.pills.forEach((pl) => {
@@ -1578,6 +1674,19 @@ function organigramma(g) {
   vp.addEventListener("wheel", vpWheel, { passive: false });
   vp.addEventListener("keydown", vpKey);
   return vp;
+}
+// legendaOrg: la legenda sotto l'organigramma, come nella pagina di prima (messaggio 46, D07): i tratti dei legami, le
+// schede, i segni e il trascinamento.
+function legendaOrg(g) {
+  const linea = (c) => h("i", { class: "du-leg-linea du-leg-linea--" + c, "aria-hidden": "true" });
+  return h("div", { class: "du-legenda", id: "du-legenda", role: "group", "aria-label": "Legenda dell'organigramma" },
+    h("span", {}, linea("prop"), "legame del file (da confermare)"),
+    h("span", {}, linea("conf"), "legame confermato"),
+    g.modo === "bozza" ? h("span", {}, linea("bozza"), "legame deciso nella bozza") : null,
+    h("span", {}, h("i", { class: "du-leg-box du-leg-box--tratt", "aria-hidden": "true" }), "scheda tratteggiata: proposta dal file"),
+    h("span", {}, h("b", {}, "?"), " tipo proposto, non confermato"),
+    h("span", {}, h("b", {}, "↗"), " stesso pezzo sotto un altro padre"),
+    g.modo === "bozza" ? h("span", { class: "du-muto" }, "trascina un pezzo sulla scheda del nuovo padre per spostarlo · clic destro su una scheda: i gesti del pezzo") : null);
 }
 function cam() {
   return L ? S.camere[L.chiave] : null;
@@ -1599,24 +1708,51 @@ function applicaCam() {
 function setCam(c) {
   if (!L || !c) return;
   c.k = clamp(c.k, KMIN, KMAX);
+  // messaggio 46 (D37): l'albero non esce dal riquadro: ne resta in vista almeno metà, o copre almeno metà del riquadro
+  // (in larghezza e in altezza); si sposta, ma non si perde
+  const d = vpDim();
+  const dentro = (t, lato, vista) => {
+    const m = Math.min(lato, vista) / 2;
+    return clamp(t, m - lato, vista - m);
+  };
+  c.tx = dentro(c.tx, L.lay.W * c.k, d.w);
+  c.ty = dentro(c.ty, L.lay.H * c.k, d.h);
   S.camere[L.chiave] = c;
   applicaCam();
+}
+// altoVisibile: quanta tela si vede adesso in altezza, fra il suo bordo alto e il fondo della finestra (o la barra in fondo,
+// se la copre): la tela della Revisione è alta 100vh - 300 px e comincia sotto testata, linguette e strumenti, quindi una
+// parte resta sotto la piega. «Adatta» e l'apertura adattano l'albero alla parte che si vede (collaudo UI46, giro 3,
+// F3-I5: il terzo livello restava sotto il bordo finché non si premeva «Adatta») [T]. Almeno 200 px: sotto, la tela intera.
+function altoVisibile(d) {
+  const r = L.vp.getBoundingClientRect();
+  // la barra della bozza è appiccicata in fondo (.du-salva, sticky): copre la tela che le sta dietro
+  const barra = $("#du-barra .du-salva") || $("#du-barra");
+  const rb = barra ? barra.getBoundingClientRect() : null;
+  let fondo = rb && rb.height && rb.top < window.innerHeight && rb.top > r.top ? rb.top : window.innerHeight;
+  // l'anteprima nella Sorgente sta nel riquadro del dettaglio, che scorre: si vede fino al suo bordo
+  const riq = L.vp.closest("#du-sg-dettaglio");
+  if (riq) fondo = Math.min(fondo, riq.getBoundingClientRect().bottom);
+  const vis = Math.min(r.bottom, fondo) - Math.max(r.top, 0);
+  return vis >= 200 && vis < d.h ? vis : d.h;
 }
 function vistaAdatta() {
   const d = vpDim();
   const l = L.lay;
-  const k = clamp(Math.min((d.w - 24) / l.W, (d.h - 24) / l.H), KMIN, 1);
-  return { k, tx: (d.w - l.W * k) / 2, ty: Math.max(12, (d.h - l.H * k) / 2) };
+  const hv = altoVisibile(d);
+  const k = clamp(Math.min((d.w - 24) / l.W, (hv - 24) / l.H), KMIN, 1);
+  // in alto, come la pagina di prima (il prodotto sempre in vista, anche in un riquadro più alto della parte visibile)
+  return { k, tx: (d.w - l.W * k) / 2, ty: 12 };
 }
+// vistaIniziale: all'apertura l'albero adattato al riquadro che si vede (F3-I5 [T]); solo un albero così grande che
+// adattato non si leggerebbe più (sotto il 35 %) si apre al 60 % sul prodotto, come prima
 function vistaIniziale() {
   const a = vistaAdatta();
-  if (a.k >= 0.7) return { k: a.k, tx: a.tx, ty: 12 };
+  if (a.k >= 0.35) return { k: a.k, tx: a.tx, ty: 12 };
   const d = vpDim();
-  const l = L.lay;
-  const k = clamp(Math.min(1, Math.max(0.75, (d.w - 24) / l.W)), KMIN, 1);
-  const r = l.pos[L.g.radice] || { x: 0 };
-  const tx = l.W * k <= d.w - 24 ? (d.w - l.W * k) / 2 : Math.min(12, d.w - 12 - (r.x + l.cw) * k);
-  return { k, tx, ty: 12 };
+  const k = 0.6;
+  const r = L.lay.pos[L.g.radice] || { x: 0 };
+  return { k, tx: d.w / 2 - (r.x + CW / 2) * k, ty: 12 };
 }
 function zoomA(k2, cx, cy) {
   const c = cam();
@@ -1655,10 +1791,17 @@ function vpDown(e) {
   const card = e.target.closest(".du-nc");
   if (card && e.pointerType === "mouse") {
     if (e.target.closest(".du-nc-sel")) return;
-    if (puoTrascinare(card.dataset.k)) V.drag = { k: card.dataset.k, x0: e.clientX, y0: e.clientY, attivo: false, card };
+    if (puoTrascinare(card.dataset.k)) {
+      // niente selezione del testo della pagina mentre si trascina (il clic resta: lo dà il browser dopo pointerup)
+      e.preventDefault();
+      V.drag = { k: card.dataset.k, x0: e.clientX, y0: e.clientY, attivo: false, card };
+    }
     return;
   }
   if (!card && e.target.closest("button, input, select, a")) return;
+  // trascinare lo sfondo non seleziona il testo della pagina; la tela prende il fuoco per i tasti (frecce, più, meno, 0)
+  e.preventDefault();
+  L.vp.focus({ preventScroll: true });
   V.pan = { x0: e.clientX, y0: e.clientY, c0: Object.assign({}, cam()), mosso: false };
   L.vp.classList.add("du-vp--pan");
 }
@@ -1689,16 +1832,54 @@ function vpMove(e) {
       d.card.classList.add("du-nc--trascinato");
     }
     if (!d.attivo) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const t = el && el.closest ? el.closest(".du-vp .du-nc[data-k]") : null;
+    const t = schedaVicina(e.clientX, e.clientY, d.k);
     if (V.target && V.target !== t) V.target.classList.remove("du-nc--drop", "du-nc--nodrop");
-    V.target = t && t.dataset.k !== d.k ? t : null;
+    V.target = t;
+    const no = V.target ? vietatoSotto(d.k, V.target.dataset.k) : "";
     if (V.target) {
-      const no = vietatoSotto(d.k, V.target.dataset.k);
       V.target.classList.toggle("du-nc--drop", !no);
       V.target.classList.toggle("du-nc--nodrop", !!no);
     }
+    fantasma(d, e, V.target ? (no ? "Non qui: " + no : "Sposta sotto " + nomeScheda(V.target.dataset.k)) : "Sposta " + nomeScheda(d.k) + ": rilascia sulla scheda del nuovo padre");
   }
+}
+// schedaVicina: la scheda sotto il puntatore durante un trascinamento, con un margine attorno al bordo (messaggio 46, D36:
+// il rilascio sul bordo della scheda andava a vuoto); se le schede vicine sono più d'una, la più vicina. Le posizioni sono
+// quelle dell'impaginazione, nella camera di adesso.
+const TOLLERANZA = 24;
+function schedaVicina(cx, cy, escludi) {
+  if (!L || !cam()) return null;
+  const c = cam();
+  const r = L.vp.getBoundingClientRect();
+  if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return null;
+  const wx = (cx - r.left - c.tx) / c.k, wy = (cy - r.top - c.ty) / c.k;
+  const tol = TOLLERANZA / c.k;
+  let scelta = "", distanza = Infinity;
+  for (const k of Object.keys(L.lay.pos)) {
+    if (k === escludi) continue;
+    const p = L.lay.pos[k];
+    const d = Math.hypot(Math.max(p.x - wx, 0, wx - p.x - CW), Math.max(p.y - wy, 0, wy - p.y - CH));
+    if (d <= tol && d < distanza) {
+      scelta = k;
+      distanza = d;
+    }
+  }
+  return scelta ? document.getElementById("nc-" + sid(scelta)) : null;
+}
+function nomeScheda(k) {
+  const v = L && L.g.nodi[k];
+  return (v && (v.cod || v.desc)) || "il pezzo";
+}
+// fantasma: l'etichetta che segue il puntatore durante il trascinamento: che cosa succede se si rilascia lì
+function fantasma(d, e, testo) {
+  if (!d.fantasma) {
+    d.fantasma = h("div", { class: "du-fantasma", id: "du-fantasma", "aria-hidden": "true" });
+    const radice = $("#du");
+    if (radice) radice.append(d.fantasma);
+  }
+  d.fantasma.textContent = testo;
+  d.fantasma.style.left = e.clientX + 16 + "px";
+  d.fantasma.style.top = e.clientY + 14 + "px";
 }
 function vpUp(e, annullato) {
   V.punti.delete(e.pointerId);
@@ -1718,12 +1899,13 @@ function vpUp(e, annullato) {
     const t = V.target;
     V.target = null;
     if (t) t.classList.remove("du-nc--drop", "du-nc--nodrop");
+    if (d.fantasma) d.fantasma.remove();
     if (!d.attivo || annullato) return;
     V.ultimoMov = Date.now();
-    if (!t) return avvisa("no", "Rilasciato fuori da una scheda: nessuna modifica alla bozza.");
+    if (!t) return avvisa("no", "Per spostare un pezzo rilascialo sulla scheda del nuovo padre: niente è cambiato.");
     const no = vietatoSotto(d.k, t.dataset.k);
     if (no) return avvisa("no", "Lo spostamento non si fa: " + no);
-    apriSposta(d.k, t.dataset.k);
+    conRitorno("oc-" + sid(d.k), () => apriSposta(d.k, t.dataset.k));
   }
 }
 function vpWheel(e) {
@@ -1765,14 +1947,208 @@ function vietatoSotto(k, verso) {
   if (k === verso) return "è lo stesso pezzo.";
   if (k === g.radice) return "il prodotto della RFQ non va sotto un altro pezzo.";
   if (v.noninc || v.escluso) return "il pezzo di arrivo è fuori dalla BOM nella bozza.";
-  if (!contenitore(v)) return (v.cod || "il pezzo") + " è " + (v.tipo === "commerciale" ? "un commerciale" : "un particolare") + ": non ha figli (E37). Il tipo non cambia da solo.";
+  if (!contenitore(v)) return (v.cod || "il pezzo") + " è " + (v.tipo === "commerciale" ? "un commerciale" : "un particolare") + ": non ha figli. Se deve averne, cambia prima il suo tipo in Assieme.";
   if (discendenti(g, k).has(verso)) return (v.cod || "il pezzo") + " sta già sotto il pezzo che sposti (ciclo).";
   return "";
+}
+
+// ---------------------------------------------------------------- le anteprime dei 2D nei nodi (messaggio 46 [U])
+
+// disegnoDelNodo: il 2D da mostrare nella scheda e nel pannello del nodo, come nella pagina di prima (il primario del
+// motore, «nessun 2D associato» senza), con le decisioni della bozza davanti: il PDF preassociato al nodo nella bozza, poi
+// il primario del motore per la casella o per il componente (disegniDelProdotto, solo con l'anteprima disponibile), poi
+// il PDF associato al componente registrato, poi il PDF che il registro propone per la voce. Solo presentazione: quale
+// documento vale lo decide il server alla conferma. {aid, nome, chiuso} o null; null vuol dire che il pezzo un 2D non
+// ce l'ha.
+function disegnoDelNodo(v) {
+  if (!v) return null;
+  const d = primoDisegnoDelNodo(v);
+  if (!d) return null;
+  // i byte che S5 non darebbe (azioni.contenuto.disponibile = false di S1: scartato, non nello staging) non si chiedono;
+  // il 2D però c'è, e la scheda lo dice con il motivo di S1, mai «nessun 2D associato» (revisione della corsia ALBERO,
+  // rilievo 2 [T])
+  const f = fileDi(d.aid);
+  const ct = f && f.azioni && f.azioni.contenuto;
+  if (ct && ct.disponibile === false) d.chiuso = ct.motivo || "il contenuto del file non si apre su questo server";
+  return d;
+}
+function primoDisegnoDelNodo(v) {
+  const pdf = (aid) => {
+    const f = fileDi(aid);
+    return !!f && ePdf(f) && (!f.stato || f.stato === "attivo");
+  };
+  if (S.lavoro && v.nodo && !v.noninc) {
+    const pb = arr(S.lavoro.documenti_preassociati).find((d) => d.chiave_bozza === v.k && pdf(d.allegato_id));
+    if (pb) return { aid: String(pb.allegato_id).toLowerCase(), nome: nomeFile(pb.allegato_id) };
+  }
+  const p = prodottoScelto();
+  const m = (p && p.disegni) || {};
+  const c = v.nodo ? casellaDi(v.nodo) : v.decisione ? v.decisione.casella : null;
+  const cid = v.nodo && v.nodo.componente_id ? String(v.nodo.componente_id).toLowerCase() : "";
+  const dm = (c && m["r:" + c.rif]) || (cid && m["c:" + cid]);
+  // il primario del motore vale solo se il file è attivo nella Sorgente (o S1 non lo elenca): uno scartato o messo in
+  // Altri file non è più il 2D del pezzo, e lascia il posto al 2D attivo che viene dopo (seconda revisione della corsia
+  // ALBERO, rilievo A [T]); i byte non si controllano qui (lo fa disegnoDelNodo, «anteprima non disponibile»)
+  const fdm = dm ? fileDi(dm.aid) : null;
+  if (dm && (!fdm || !fdm.stato || fdm.stato === "attivo")) return { aid: dm.aid, nome: dm.nome || nomeFile(dm.aid) };
+  if (cid && S.lavoro) {
+    for (const [aid, ar] of associazioniRegistrate()) if (ar.componente_id === cid && pdf(aid)) return { aid: String(aid).toLowerCase(), nome: nomeFile(aid) };
+  }
+  for (const a of arr(v.voce && v.voce.associazioni_proposte)) if (pdf(a.allegato_id)) return { aid: String(a.allegato_id).toLowerCase(), nome: nomeFile(a.allegato_id) };
+  return null;
+}
+// miniatura: lo spazio dell'anteprima: la pagina 1 del PDF, disegnata da pdf.js dall'indirizzo di S5 che costruisce il
+// ponte (come il visore), una volta per file e tenuta in memoria per la pagina; «nessun 2D associato» senza un 2D.
+// «grande»: quella del pannello del nodo, che apre il visore.
+function miniatura(v, grande) {
+  const d = disegnoDelNodo(v);
+  const cls = "du-nc-mini" + (grande ? " du-nc-mini--grande" : "");
+  if (!d) return h("span", { class: cls + " du-nc-mini--na", id: grande ? "du-nodo-2d" : null, "data-du-stato": "nessuno" }, grande ? "nessun 2D associato al pezzo" : "nessun 2D associato");
+  // il 2D c'è ma i suoi byte su questo server non si aprono (S1): lo si dice con il nome del file e il motivo, che sta nel
+  // suggerimento della scheda e per intero nel pannello
+  if (d.chiuso) return h("span", { class: cls + " du-nc-mini--na du-nc-mini--chiuso", id: grande ? "du-nodo-2d" : null, "data-du-stato": "chiuso", "data-du-mini-chiuso": d.aid,
+    title: (d.nome || "2D") + ": anteprima non disponibile · " + d.chiuso },
+  h("span", { class: "du-nc-mini-nome" }, d.nome || "2D"), h("span", {}, grande ? "anteprima non disponibile: " + d.chiuso : "anteprima non disponibile"));
+  const el = h(grande ? "button" : "span", { class: cls, id: grande ? "du-nodo-2d" : null, type: grande ? "button" : null, "data-du-mini": d.aid,
+    title: (d.nome || "2D") + (grande ? ": apri nel visore" : ""), "aria-label": grande ? "Apri il 2D " + (d.nome || "") + " nel visore" : null, "aria-hidden": grande ? null : "true" });
+  if (grande) el.addEventListener("click", () => apriVisore(fileDi(d.aid) || { allegato_id: d.aid, nome_file: d.nome || "2D.pdf", estensione: "pdf" }));
+  riempiMini(el, d.aid);
+  return el;
+}
+const MINI = { cache: new Map(), fallite: new Map(), coda: [], inCorso: new Set(), attive: 0, lavoratore: null };
+function riempiMini(el, aid) {
+  const url = MINI.cache.get(aid);
+  if (url) {
+    el.classList.remove("du-nc-mini--na");
+    el.replaceChildren(h("img", { src: url, alt: "", draggable: "false" }));
+    el.dataset.duStato = "pronta";
+    return;
+  }
+  const ko = MINI.fallite.get(aid);
+  if (ko && Date.now() - ko.quando < 60000) {
+    el.classList.add("du-nc-mini--na");
+    el.textContent = "anteprima non disponibile";
+    el.title = ko.testo;
+    el.dataset.duStato = "errore";
+    return;
+  }
+  el.dataset.duStato = "attesa";
+  el.textContent = "anteprima…";
+  if (!MINI.coda.includes(aid) && !MINI.inCorso.has(aid)) MINI.coda.push(aid);
+  setTimeout(lavoraMini, 0);
+}
+// lavoraMini: al più due PDF insieme, nell'ordine in cui le schede li chiedono (dalla radice in giù)
+function lavoraMini() {
+  while (MINI.attive < 2 && MINI.coda.length) {
+    const aid = MINI.coda.shift();
+    if (MINI.cache.has(aid) || MINI.inCorso.has(aid)) continue;
+    if (!document.querySelector("[data-du-mini='" + aid + "']")) continue;
+    MINI.attive++;
+    MINI.inCorso.add(aid);
+    disegnaMini(aid).finally(() => {
+      MINI.inCorso.delete(aid);
+      MINI.attive--;
+      lavoraMini();
+    });
+  }
+}
+async function disegnaMini(aid) {
+  let task = null;
+  try {
+    const p = await pdfjs();
+    if (!p) throw new Error("il visore dei PDF non si carica");
+    if (!MINI.lavoratore) MINI.lavoratore = new p.lib.PDFWorker({ name: "du-miniature" });
+    task = p.lib.getDocument({ url: P.urlContenuto(aid, "anteprima"), worker: MINI.lavoratore, isEvalSupported: false, enableXfa: false, verbosity: 0, wasmUrl: p.cartella + "wasm/",
+      iccUrl: p.cartella + "iccs/", cMapUrl: p.cartella + "cmaps/", cMapPacked: true, standardFontDataUrl: p.cartella + "standard_fonts/" });
+    const doc = await task.promise;
+    const pag = await doc.getPage(1);
+    const v1 = pag.getViewport({ scale: 1 });
+    const viewport = pag.getViewport({ scale: Math.min(640 / v1.width, 452 / v1.height) });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await pag.render({ canvas, viewport, annotationMode: p.lib.AnnotationMode ? p.lib.AnnotationMode.DISABLE : undefined }).promise;
+    // un data: URL, non un blob: la pagina non fa richieste oltre a quelle del ponte e di pdf.js (DU-B34)
+    MINI.cache.set(aid, canvas.toDataURL("image/png"));
+  } catch (e) {
+    MINI.fallite.set(aid, { quando: Date.now(), testo: "anteprima non disponibile: " + testoErrore(e) });
+  } finally {
+    if (task) task.destroy().catch(() => {});
+  }
+  document.querySelectorAll("[data-du-mini='" + aid + "']").forEach((el) => riempiMini(el, aid));
+}
+
+// ---------------------------------------------------------------- il menu del nodo (messaggio 46, D38)
+
+// apriMenuNodo: il menu dei gesti del pezzo k, dove si è fatto clic destro: gli stessi gesti del pannello (vociGesti),
+// spenti con il motivo se oggi non si fanno, più «Apri il 2D». Sceglie il pezzo; si chiude con Esc, con un clic fuori o
+// con un gesto.
+function apriMenuNodo(k, x, y) {
+  chiudiMenuNodo();
+  if (S.nodo !== k) scegli(k);
+  const g = L ? L.g : null;
+  const v = g && g.nodi[k];
+  const radice = $("#du");
+  if (!v || !radice) return;
+  const voci = g.modo === "bozza" ? vociGesti(g, v) : [];
+  const d = disegnoDelNodo(v);
+  if (d && !d.chiuso) voci.unshift({ id: "du-menu-2d", testo: "Apri il 2D", fai: () => apriVisore(fileDi(d.aid) || { allegato_id: d.aid, nome_file: d.nome || "2D.pdf", estensione: "pdf" }) });
+  voci.unshift({ id: "du-menu-pannello", testo: "Mostra nel pannello", fai: () => {
+    S.zona = "nodo";
+    render();
+    const pn = $("#du-pannello");
+    if (pn) pn.scrollIntoView({ block: "nearest" });
+  } });
+  const menu = h("div", { class: "du-menu-nodo", id: "du-menu-nodo", role: "menu", "aria-label": "Gesti di " + (v.cod || v.desc || "il pezzo") },
+    h("div", { class: "du-menu-nodo-t", "aria-hidden": "true" }, v.cod || v.desc || "(senza codice)"),
+    voci.map((o) => h("button", { type: "button", role: "menuitem", class: "du-menu-voce" + (o.cls ? " " + o.cls : ""), id: o.id ? o.id + "-menu" : null, disabled: !!o.no, title: o.no || null,
+      onclick: () => {
+        chiudiMenuNodo();
+        conRitorno("oc-" + sid(k), o.fai);
+      } }, o.testo, o.no ? h("span", { class: "du-perche" }, o.no) : null)));
+  radice.append(menu);
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 8)) + "px";
+  menu.style.top = Math.max(4, Math.min(y, window.innerHeight - r.height - 8)) + "px";
+  const prima = menu.querySelector("button:not([disabled])");
+  if (prima) prima.focus();
+  menu.addEventListener("keydown", (e) => {
+    const tutte = [...menu.querySelectorAll("button:not([disabled])")];
+    const i = tutte.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const j = (i + (e.key === "ArrowDown" ? 1 : tutte.length - 1)) % tutte.length;
+      if (tutte[j]) tutte[j].focus();
+    } else if (e.key === "Escape" || e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      chiudiMenuNodo();
+      const c = document.getElementById("oc-" + sid(k));
+      if (c) c.focus({ preventScroll: true });
+    }
+  });
+  setTimeout(() => {
+    document.addEventListener("pointerdown", fuoriDalMenu, true);
+    window.addEventListener("resize", chiudiMenuNodo);
+    window.addEventListener("wheel", chiudiMenuNodo, { passive: true });
+  }, 0);
+}
+function fuoriDalMenu(e) {
+  const m = $("#du-menu-nodo");
+  if (m && !m.contains(e.target)) chiudiMenuNodo();
+}
+function chiudiMenuNodo() {
+  const m = $("#du-menu-nodo");
+  if (m) m.remove();
+  document.removeEventListener("pointerdown", fuoriDalMenu, true);
+  window.removeEventListener("resize", chiudiMenuNodo);
+  window.removeEventListener("wheel", chiudiMenuNodo);
 }
 
 // ---------------------------------------------------------------- render
 
 function render() {
+  avvisoScaduto();
   renderTestaAzioni();
   renderProdotti();
   renderNav();
@@ -1806,10 +2182,10 @@ function renderProdotti() {
   if (!S.modello || S.erroreModello) return;
   for (const p of S.modello.prodotti) {
     box.append(h("button", { type: "button", class: "du-ptab", "aria-current": p.id === S.prodotto ? "true" : "false", "data-prodotto": p.id,
-      onclick: () => scegliProdotto(p.id) }, h("span", { class: "du-mono" }, p.codice || p.rif), p.descrizione ? h("span", { class: "du-muto du-piccolo" }, p.descrizione) : null));
+      onclick: () => scegliProdotto(p.id, { daTab: true }) }, h("span", { class: "du-mono" }, p.codice || p.rif), p.descrizione ? h("span", { class: "du-muto du-piccolo" }, p.descrizione) : null));
   }
 }
-async function scegliProdotto(id) {
+async function scegliProdotto(id, o) {
   if (id === S.prodotto) return;
   // le modifiche tenute da parte valgono solo per il prodotto e la bozza su cui sono nate: la scelta si fa prima del
   // cambio di prodotto (decisioni dell'ondata A, §5 n. 2). Il prodotto non cambia finché non sono riapplicate o
@@ -1824,6 +2200,19 @@ async function scegliProdotto(id) {
   S.anteprima = null;
   S.anteprimaAllegato = "";
   S.anteprimaGruppo = "";
+  // il prodotto scelto dalle linguette in alto porta con sé la cartella del prodotto della Sorgente (messaggio 46, difetto
+  // D21 [T]): la testata e il corpo parlano dello stesso prodotto; una cartella di un altro prodotto (la sua sezione, i
+  // file che attendono la sua sorgente, i suoi file da ricollocare) passa a quella di questo
+  // Collaudo UI46, giro 2 (C2-I6): con il tab, anche da una cartella di tutti i file («Tutti i file», «STEP della
+  // RFQ»…) il corpo restava sull'altro prodotto (il dettaglio di un suo STEP, con «Revoca come sorgente di» quello). Il
+  // tab porta la Sorgente nella cartella del prodotto scelto: il dettaglio è un file di quel prodotto, o nessuno [T]. Una
+  // ricerca in corso resta (la cartella dei risultati vale per tutti i prodotti). Gli altri cambi di prodotto (un gesto su
+  // una candidatura, una cartella) restano dove sono, tranne le cartelle di un altro prodotto
+  const k = SG.cartella || "";
+  if (o && o.daTab && k !== "ris") SG.cartella = "p:" + id;
+  else if (k.indexOf("p:") === 0 && k.slice(2) !== id) SG.cartella = "p:" + id;
+  else if ((k.indexOf("dc-att:") === 0 && k.slice(7) !== id) || (k.indexOf("dc-ric:") === 0 && k.slice(7) !== id)) SG.cartella = "dc";
+  if (SG.cartella !== k) SG.torna = "";
   await caricaModello();
   await Promise.all([caricaBozza(), caricaStorico()]);
   render();
@@ -1858,18 +2247,23 @@ function chipSorgente() {
     pill(f.autorizzata ? "ok" : "neu", f.autorizzata ? "STEP della BOM confermata" : "nessuno STEP nella BOM confermata"));
 }
 // i motivi di una conferma di S8 che non vale più (confermabom.SorgenteValida; /dati.fonte.sorgente_s8.motivo)
-const MOTIVI_SORGENTE = { revocata: "revocata", rifiutata: "rifiutata", superata: "superata da un'altra conferma", non_coerente: "non coerente con il documento",
+const MOTIVI_SORGENTE = { revocata: "revocata", rifiutata: "rifiutata", superata: "superata", non_coerente: "non coerente con il documento",
   non_confermata: "non confermata", senza_sorgente: "assente" };
 function testoMotivoSorgente(m) {
   return MOTIVI_SORGENTE[m] || "non valida" + (m ? " (" + m + ")" : "");
 }
 function chipRevisione() {
   if (S.erroreBozza) return pill("ko", "bozza: lettura non riuscita");
-  if (!bozzaAperta()) return pill("neu", "nessuna bozza");
+  // senza bozza la Revisione mostra la BOM confermata, se c'è (messaggio 47 [U]): il chip dice quella, non «nessuna bozza»
+  if (!bozzaAperta()) {
+    const u = ultimaConferma();
+    return u ? pill(u.valida ? "ok" : "ver", "BOM confermata · v" + u.numero) : pill("neu", "nessuna bozza");
+  }
   if (bozzaDaConvertire()) return pill("ver", "bozza da convertire");
   const base = S.salvato && S.salvato.versione_bom_base;
   const n = S.coda.length + (S.invio ? S.invio.voci.length : 0);
-  return pill("bozza", "bozza " + (base && base.numero ? "su v" + base.numero : "senza conferma") + " · versione " + S.bozza.versione + (n ? " · " + n + " da salvare" : ""));
+  // una bozza da rivedere è lo stato atteso, non un errore: niente colore d'allarme (messaggio 46, D35)
+  return pill("info", "bozza " + (base && base.numero ? "su v" + base.numero : "da rivedere") + " · versione " + S.bozza.versione + (n ? " · " + n + " da salvare" : ""));
 }
 function renderNav() {
   const box = $("#du-nav");
@@ -1994,8 +2388,8 @@ function strisciaProposta() {
     const gr = S.modello.gruppi.find((x) => x.chiave === g.chiave);
     if (!gr || !gr.impronta_contenuto || gr.impronta_contenuto === b.importazione.impronta_contenuto) return null;
     return { tono: "ver", testo: "La proposta del Motore A è cambiata dopo l'importazione.",
-      extra: h("span", { class: "du-azioni" }, btn("Vedi le differenze", apriDifferenze, { cls: "du-btn--sm", id: "du-differenze", perche: false }),
-        btn("Aggiorna proposta…", apriRiallinea, { cls: "du-btn--sm", id: "du-riallinea", no: perchéNoModifica() })) };
+      extra: h("span", { class: "du-azioni" }, btn("Vedi le differenze", apriDifferenze, { cls: "du-btn--sm", id: "du-differenze", perche: false, no: S.confrontoNo ? CONFRONTO_NON_V1 : "" }),
+        btn("Aggiorna proposta…", apriRiallinea, { cls: "du-btn--sm", id: "du-riallinea", no: perchéNoAggiorna() })) };
   }
   if (g.come === "altra_occorrenza") {
     return { tono: "info", testo: "La BOM di lavoro di " + prodotto + " sta su un'altra copia dello stesso file (" + nomeFile(g.allegato_id) + "): la bozza resta valida sulla sua copia; per seguirla, «Usa nuovo STEP…».",
@@ -2020,15 +2414,130 @@ function strisciaProposta() {
   return null;
 }
 
+// UI46 [U] (controllo di stabilità del 21/10: «quando si clicca un box o bottone la UI fa dei refresh che spostano la
+// pagina»): renderCorpo ricrea tutto #du-corpo, e i riquadri che scorrono nascevano in cima, il fuoco finiva sul body,
+// i <details> aperti si chiudevano. Come nel wizard (vistaWizardPrima/Dopo) [T]: lo scorrimento di ogni riquadro si
+// conserva finché resta la stessa vista di quel riquadro (la chiave scritta in data-du-vista quando è nato: la
+// cartella e la ricerca per l'elenco, il file per il dettaglio, il nodo e la linguetta per il pannello del nodo); una
+// vista diversa (altra cartella, altro file, altro nodo, altra linguetta) riparte dall'inizio. Tornano il fuoco (con la
+// selezione del testo nei campi) e i <details> aperti che hanno un id. I gesti che spostano il fuoco di proposito
+// (fuocoSuRiga, l'esito di S8) lo fanno dopo renderCorpo e restano come sono. Oltre allo scorrimento si tiene ferma
+// un'ancora (la prima riga o sezione con un id in vista nel riquadro): se sopra compare o sparisce qualcosa (la barra
+// delle azioni di gruppo alla prima spunta, una striscia nel pannello dopo un salvataggio), l'ancora resta dov'era.
+const SCORREVOLI_CORPO = ["#du-sg-albero", "#du-sg-elenco", "#du-sg-dettaglio", ".du-zona--nodo", ".du-segnalati-c"];
+const ANCORE_CORPO = { "#du-sg-elenco": "[role=row][id]", "#du-sg-albero": "[id]", "#du-sg-dettaglio": "[id]", ".du-zona--nodo": "[id]", ".du-segnalati-c": "" };
+function ancoraIn(el, sel) {
+  if (!sel || !el.scrollTop) return null;
+  const b = el.getBoundingClientRect();
+  for (const x of el.querySelectorAll(sel)) {
+    const r = x.getBoundingClientRect();
+    if (r.height && r.top >= b.top - 1 && r.top < b.bottom) return { id: x.id, dy: r.top - b.top };
+  }
+  return null;
+}
+function chiaveScorrevole(sel) {
+  const sg = "sorgente|";
+  if (sel === "#du-sg-albero") return sg;
+  if (sel === "#du-sg-elenco") return sg + SG.cartella + "|" + SG.cerca;
+  if (sel === "#du-sg-dettaglio") return sg + SG.cartella + "|" + (SG.memo[SG.cartella] ? SG.memo[SG.cartella].file || "" : "") + "|" + (S.anteprima ? S.anteprimaAllegato + "|" + S.anteprimaGruppo + "|" + (SG.larga ? 1 : 0) : "");
+  if (sel === ".du-zona--nodo") return S.passo + "|" + S.vista + "|" + (S.nodo || "") + "|" + S.linguettaNodo + "|" + (S.passo === "sorgente" ? S.anteprimaAllegato + "|" + S.anteprimaGruppo : "");
+  return S.passo + "|" + S.vista;
+}
+function vistaCorpoPrima(box) {
+  const scorri = {};
+  for (const sel of SCORREVOLI_CORPO) {
+    const el = box.querySelector(sel);
+    if (el && el.dataset.duVista !== undefined) scorri[sel] = { chiave: el.dataset.duVista, top: el.scrollTop, ancora: ancoraIn(el, ANCORE_CORPO[sel]) };
+  }
+  const a = document.activeElement;
+  let fuoco = null;
+  // un <summary> senza id: si ricorda il <details> che lo contiene, se ha un id
+  const det = a && a.tagName === "SUMMARY" && !a.id && a.parentElement && a.parentElement.tagName === "DETAILS" && a.parentElement.id ? a.parentElement.id : "";
+  if (a && a !== box && box.contains(a) && (a.id || det)) {
+    fuoco = { id: a.id, summaryDi: det, valore: null, da: null, a: null, riquadro: "", chiave: "" };
+    // il riquadro con la sua vista: se la vista cambia (un altro nodo, un altro file) il fuoco non torna
+    for (const sel of SCORREVOLI_CORPO) {
+      const el = box.querySelector(sel);
+      if (el && el.contains(a) && el.dataset.duVista !== undefined) {
+        fuoco.riquadro = sel;
+        fuoco.chiave = el.dataset.duVista;
+        break;
+      }
+    }
+    if (a.tagName === "INPUT" || a.tagName === "TEXTAREA") {
+      fuoco.valore = a.value;
+      try {
+        fuoco.da = a.selectionStart;
+        fuoco.a = a.selectionEnd;
+      } catch (e) {
+        fuoco.da = null;
+      }
+    }
+  }
+  return { scorri, fuoco, aperti: Array.from(box.querySelectorAll("details[open][id]"), (d) => d.id) };
+}
+function vistaCorpoDopo(box, v) {
+  for (const id of v.aperti) {
+    const d = document.getElementById(id);
+    if (d && box.contains(d)) d.open = true;
+  }
+  // lo spazio di lavoro della Sorgente prende l'altezza subito (non al frame dopo): senza, i riquadri non scorrono ancora
+  if (S.passo === "sorgente" && $("#du-sg")) adattaAltezzaSg();
+  for (const sel of SCORREVOLI_CORPO) {
+    const el = box.querySelector(sel);
+    if (!el) continue;
+    const chiave = chiaveScorrevole(sel);
+    el.dataset.duVista = chiave;
+    const p = v.scorri[sel];
+    if (!p || p.chiave !== chiave || !p.top) continue;
+    el.scrollTop = p.top;
+    const x = p.ancora && document.getElementById(p.ancora.id);
+    if (x && el.contains(x)) {
+      const d = x.getBoundingClientRect().top - el.getBoundingClientRect().top - p.ancora.dy;
+      if (Math.abs(d) > 1) el.scrollTop += d;
+    }
+  }
+  const f = v.fuoco;
+  if (!f) return;
+  if (f.riquadro && chiaveScorrevole(f.riquadro) !== f.chiave) return;
+  const d = f.summaryDi && document.getElementById(f.summaryDi);
+  const el = f.summaryDi ? d && d.querySelector(":scope > summary") : document.getElementById(f.id);
+  if (!el || !box.contains(el) || el === document.activeElement) return;
+  // la ricerca della Sorgente: il testo scritto negli ultimi istanti non è ancora in SG.cerca (lo prende il debounce)
+  if (f.id === "du-sg-cerca" && f.valore !== null && el.value !== f.valore && f.valore !== SG.cerca) el.value = f.valore;
+  el.focus({ preventScroll: true });
+  if (f.da !== null && f.valore !== null && el.value === f.valore) {
+    try {
+      el.setSelectionRange(f.da, f.a);
+    } catch (e) {
+      // i campi senza selezione (numeri, caselle) non la ripristinano
+    }
+  }
+}
 function renderCorpo() {
   const box = $("#du-corpo");
   if (!box) return;
   box.removeAttribute("aria-busy");
+  // messaggio 46: dopo un gesto l'impaginazione cambia (un pezzo spostato, un tipo cambiato) e le schede si spostano; la
+  // vista resta ferma sul pezzo scelto (o sul prodotto), che rimane dov'era sullo schermo
+  let ancora = null;
+  if (L && L.lay && cam()) {
+    const k = S.nodo && L.lay.pos[S.nodo] ? S.nodo : L.g.radice;
+    const ps = k && L.lay.pos[k];
+    const c = cam();
+    if (ps) ancora = { chiave: L.chiave, k, sx: ps.x * c.k + c.tx, sy: ps.y * c.k + c.ty };
+  }
   L = null;
+  const vista = vistaCorpoPrima(box);
   box.replaceChildren(S.passo === "revisione" ? corpoRevisione() : corpoSorgente());
+  vistaCorpoDopo(box, vista);
+  // la tela dell'anteprima prende la sua altezza prima della camera, che la misura (C2-I4)
+  if (L && S.passo === "sorgente" && $("#du-sg-dettaglio #du-vp")) adattaAltezzaSg();
   if (L) {
     const c = cam();
+    const ps = ancora && ancora.chiave === L.chiave ? L.lay.pos[ancora.k] : null;
     if (!c) setCam(vistaIniziale());
+    else if (ps) setCam({ k: c.k, tx: ancora.sx - ps.x * c.k, ty: ancora.sy - ps.y * c.k });
     else applicaCam();
   }
 }
@@ -2137,6 +2646,42 @@ function stepSorgenteDelFinito(f) {
   }
   return false;
 }
+// ---- lo stato di uno STEP come sorgente dei prodotti finiti (messaggio 46 [U] punto 4; tabella degli stati [T])
+// Un solo stato per prodotto, detto allo stesso modo nella riga, nel dettaglio e nell'intestazione del prodotto; mai
+// «confermato» e «da confermare» (o «proposto») insieme:
+//   proposto      lo STEP è candidato o proposto dal motore e il prodotto non ha una sorgente confermata su di lui:
+//                 «◇ candidata per ‹P›» / il riquadro «STEP proposto come sorgente» con «Conferma questo STEP…»
+//   confermata    la conferma di S8 su questo STEP vale: «◆ sorgente di ‹P›», nessun «proposto», nessun «✓ confermato»
+//                 (il documento confermato è la conseguenza della sorgente, non un secondo stato)
+//   revocata      l'ultima conferma di S8 su questo STEP è revocata: «sorgente revocata per ‹P›», con «resta un documento
+//                 di ‹codice›» se il documento c'è; il riquadro dice la revoca e offre «Conferma di nuovo come sorgente»
+//   sostituita    l'ultima conferma su questo STEP è superata da un'altra: «sostituita come sorgente di ‹P›» (+ documento)
+//   non_valida    la conferma non vale per un altro motivo del server: «sorgente di ‹P› non valida (‹motivo›)»
+//   (documento ordinario: uno STEP o un file confermato come documento e mai sorgente: «✓ confermato», come prima)
+// statiSorgente: gli stati dello STEP per i prodotti che hanno su di lui l'ultima conferma di S8 (fonte.sorgente_s8)
+function statiSorgente(allegato) {
+  const a = String(allegato || "").toLowerCase();
+  const out = [];
+  if (!a) return out;
+  for (const p of prodottiSg()) {
+    const s8 = sorgenteS8(p.id);
+    if (!s8 || String(s8.allegato_id || "").toLowerCase() !== a) continue;
+    const stato = s8.valida ? "confermata" : s8.motivo === "revocata" ? "revocata" : s8.motivo === "superata" ? "sostituita" : "non_valida";
+    out.push({ pid: p.id, codice: p.codice, stato, s8 });
+  }
+  return out;
+}
+function statoSorgentePer(allegato, pid) {
+  return statiSorgente(allegato).find((x) => x.pid === pid) || null;
+}
+// pillStatoSorgente: la pillola dello stato (la tabella sopra); f per «resta un documento di ‹codice›»
+function pillStatoSorgente(x, f) {
+  const doc = f && f.documento ? pill("neu", "resta un documento di " + (f.documento.codice || x.codice), "il documento confermato non cambia con la revoca: cambia solo la sorgente della BOM") : null;
+  if (x.stato === "confermata") return pill("ok", "◆ sorgente di " + x.codice, x.s8.confermata_il ? "confermata il " + dataOra(x.s8.confermata_il) : "sorgente confermata");
+  if (x.stato === "revocata") return [pill("ver", "sorgente revocata per " + x.codice, "da confermare di nuovo, questo STEP o un altro"), doc];
+  if (x.stato === "sostituita") return [pill("neu", "sostituita come sorgente di " + x.codice), doc];
+  return [pill("ver", "sorgente di " + x.codice + " non valida" + (x.s8.motivo ? " (" + testoMotivoSorgente(x.s8.motivo) + ")" : "")), doc];
+}
 function inAnalisiF(f) {
   return IN_ANALISI.includes(f && f.analisi && f.analisi.stato);
 }
@@ -2179,7 +2724,7 @@ function fonteDi(id) {
 const STATI_RIGA = { proposto: ["◇", "proposto", "prop"], salvato_nella_bozza: ["◈", "salvato nella bozza", "bozza"], gia_registrato: ["●", "già registrato", "info"],
   da_scollegare: ["⊘", "da scollegare alla conferma", "ver"], in_conflitto: ["!", "in conflitto", "ko"], tolto: ["◇", "tolto dalla bozza (da rileggere)", "neu"],
   // direttiva 39 §5 (S9): lo STEP sorgente del finito in sola lettura, e il legame storico univoco da confermare con S8
-  da_ricollocare: ["↺", "da ricollocare", "ver"], legato_come_sorgente: ["◆", "legato come sorgente", "ok"], legame_storico: ["◇", "legame storico: da confermare come sorgente", "ver"] };
+  da_ricollocare: ["↺", "da ricollocare", "ver"], legato_come_sorgente: ["◆", "sorgente confermata", "ok"], legame_storico: ["◇", "legame storico: da confermare come sorgente", "ver"] };
 function statoRiga(r, id) {
   if (id !== S.prodotto || !bozzaLavorabile() || !S.lavoro) return r.stato;
   const k = r.destinazione && r.destinazione.chiave_bozza;
@@ -2294,11 +2839,11 @@ function stepProposto(id, allegato) {
 function etichettaSelettore(s) {
   const x = String(s || "");
   if (x === "struttura_candidata") return "radice di una struttura candidata";
-  if (x.indexOf("fonte.") === 0) return "candidato della fonte (" + x.slice(6) + ")";
+  if (x.indexOf("fonte.") === 0) return "candidato della fonte";
   if (x.indexOf("nome_file") === 0) return "codice letto dal nome del file";
   if (x.indexOf("archivio") >= 0) return "codice letto dalla voce d'archivio";
-  if (x.indexOf("step") >= 0 || x.indexOf("radice") >= 0) return "codice letto dallo STEP (" + x + ")";
-  return x ? "codice letto (" + x + ")" : "codice letto";
+  if (x.indexOf("step") >= 0 || x.indexOf("radice") >= 0) return "codice letto dallo STEP";
+  return "codice letto";
 }
 const ESITI_EVIDENZA = { uguale: "uguale", equivalente: "equivalente", compatibile: "compatibile", compatibile_parziale: "compatibile in parte", discordante: "diverso", assente: "assente",
   incerta: "incerta" };
@@ -2335,26 +2880,125 @@ function evidenzeProposta(sp, dove) {
 function boxStepProposto(id, dove, allegato) {
   const pp = allegato ? [stepProposto(id, allegato)].filter(Boolean) : proposteSorgente(id);
   if (!pp.length) return null;
-  const box = pp.map((sp, i) => riquadroStepProposto(id, sp, (dove ? "-" + dove : "") + (i ? "-" + (i + 1) : "")));
+  // lo STEP proposto che ha già su di sé la conferma di S8 di questo prodotto (revocata, sostituita): il riquadro dello
+  // stato, non la domanda «lo confermi?» (messaggio 46 punto 4, D10)
+  const box = pp.map((sp, i) => {
+    const suf = (dove ? "-" + dove : "") + (i ? "-" + (i + 1) : "");
+    const xs = statoSorgentePer(sp.c.allegato_id, id);
+    return xs ? riquadroStatoSorgente(xs, sp.f, suf) : riquadroStepProposto(id, sp, suf);
+  });
   return box.length === 1 ? box[0] : h("div", { style: "display:grid;gap:6px" }, box);
+}
+// sintesiProposta: la proposta in una riga (messaggio 46, D30): il codice letto, la compatibilità con il codice del
+// prodotto, la struttura; il dettaglio delle letture sta nel «Perché lo propone» ripiegato
+function sintesiProposta(sp) {
+  const leggibile = (e) => e.codice_letto && String(e.codice_letto).indexOf(":") < 0 && String(e.codice_letto)[0] !== "#";
+  const ev = sp.evidenze.find((e) => /step|radice/.test(String(e.selettore || "")) && leggibile(e)) || sp.evidenze.find(leggibile);
+  const compat = compatCodice(sp);
+  const st = ogg(sp.c.struttura) ? (sp.c.struttura.completa === false ? "struttura parziale" : "struttura completa") : "";
+  // la candidata «incerta»: il perché in una riga, al posto del codice letto e della sua compatibilità (che, letti dal nome
+  // del file, dicevano «marcatore uguale» accanto a «incerta»: collaudo UI46, giro 2, C2-I7) [T]
+  const inc = perchéIncerta(sp.c, sp.evidenze, sp.codice);
+  // F3-I4 (collaudo UI46, giro 3) [T]: il codice letto dal nome del file si dice tale, e lo STEP senza struttura per il
+  // prodotto dice la radice che ha davvero (la 9170099A di uno STEP chiamato 9170001A_1.stp)
+  const dal = ev && String(ev.selettore || "").indexOf("nome_file") === 0 ? "dal nome del file " : "";
+  const rd = !sp.c.gruppo ? radiceLettaDiversa(sp.c.allegato_id, sp.codice) : "";
+  const parti = [inc ? [h("span", { "data-du-incerta": sp.c.allegato_id || "" }, inc)] : ev ? ["codice letto " + dal, h("span", { class: "du-mono" }, codiceSenzaRev(ev)), compat ? " (" + compat + ")" : ""] : compat,
+    rd ? [h("span", { "data-du-radice-letta": rd }, "la radice dello STEP è ", h("span", { class: "du-mono" }, rd), ", non ", h("span", { class: "du-mono" }, sp.codice))] : "", st,
+    typeof sp.c.segnalati === "number" && sp.c.segnalati ? sp.c.segnalati + (sp.c.segnalati === 1 ? " pezzo da verificare" : " pezzi da verificare") : ""].filter((x) => x && x.length);
+  const out = [];
+  parti.forEach((x, i) => out.push(i ? " · " : "", x));
+  return out;
+}
+// codiceSenzaRev: il codice letto senza la revisione che il nome del file porta in coda («9150001A_1» → «9150001A»), solo
+// quando base e marcatore letti dal Motore A dicono che il resto è la revisione; altrimenti il codice com'è (C2-I7)
+function codiceSenzaRev(e) {
+  const cl = String((e && e.codice_letto) || "");
+  const norm = (x) => String(x || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const pre = norm(e && e.base_letta) + norm(e && e.marcatore_letto);
+  const m = cl.match(/^(.*?)[\s._-]+(?:rev\.?\s*)?[A-Za-z0-9]{1,3}$/i);
+  return pre && m && norm(m[1]) === pre && norm(cl) !== pre ? m[1] : cl;
+}
+// perchéIncerta: perché la candidatura di uno STEP è «incerta», in una frase per chi sceglie la sorgente: la radice dello
+// STEP non porta il codice del prodotto (o ne porta un altro) e, se è così, il codice lo dice solo il nome del file. ""
+// se la candidatura non è incerta (C2-I7) [T].
+function perchéIncerta(c, evidenze, codice) {
+  if (!c || c.compatibilita !== "incerta") return "";
+  const cod = codice || codiceDi(c.prodotto_id);
+  const rad = c.radice_letterale && c.radice_letterale.indexOf(":") < 0 && c.radice_letterale[0] !== "#" ? c.radice_letterale : "";
+  const ev = arr(evidenze).length ? arr(evidenze) : arr(c.evidenze);
+  const nome = ev.find((e) => ogg(e) && String(e.selettore || "").indexOf("nome_file") === 0 && e.codice_letto);
+  return "incerta: la radice dello STEP " + (rad && rad !== cod ? "dice " + rad + ", non " + cod : "non porta il codice di " + cod) +
+    (nome ? "; " + codiceSenzaRev(nome) + " lo dice solo il nome del file" : "") + ". Guarda l'anteprima prima di confermarlo.";
+}
+// riquadroStatoSorgente: lo STEP che ha su di sé l'ultima conferma di S8 del prodotto x.pid, con lo stato della tabella di
+// statiSorgente e il gesto che serve in quello stato (messaggio 46 punto 4): confermata (nessun gesto qui: «Vai alla
+// Revisione» e «Revoca come sorgente…» stanno fra le azioni del file), revocata («Conferma di nuovo come sorgente di ‹P›»
+// e l'anteprima), sostituita o non valida (l'anteprima).
+function riquadroStatoSorgente(x, f, suf) {
+  suf = suf === undefined ? "-" + sid(x.pid) : suf;
+  const cod = x.codice;
+  const a = f ? f.allegato_id : String(x.s8.allegato_id || "").toLowerCase();
+  const nome = (f && f.nome_file) || nomeFile(a);
+  const doc = f && f.documento ? " Il file resta un documento di " + (f.documento.codice || cod) + ": cambia solo la sorgente della BOM." : "";
+  const sp = stepProposto(x.pid, a);
+  const c = (sp && sp.c && sp.c.gruppo ? sp.c : null) || candidateDi(a).find((y) => y.prodotto_id === x.pid) || { allegato_id: a, prodotto_id: x.pid, gruppo: "" };
+  const az = azioniCandidatura(c);
+  const conf = az.find((y) => y.id.indexOf("conferma-") === 0);
+  const guarda = az.find((y) => y.id.indexOf("guarda-") === 0);
+  let titolo = "";
+  let testo = "";
+  const gesti = [];
+  if (x.stato === "confermata") {
+    titolo = "Sorgente di " + cod;
+    testo = "Confermata" + (x.s8.confermata_il ? " il " + dataOra(x.s8.confermata_il) : "") + (bomConfermataSu(x.pid, a) ? ". È lo STEP della BOM confermata." : ". Diventa lo STEP della BOM con «Conferma BOM».");
+    // l'anteprima e «Aggiorna proposta…» (la bozza già su questa sorgente) della sua candidatura, con gli id di prima
+    for (const y of az) gesti.push(bottoneAz(y, y.domId + "-d"));
+  } else if (x.stato === "revocata") {
+    titolo = "Sorgente revocata per " + cod;
+    testo = "Questo STEP non è più la sorgente di " + cod + "." + doc + " Se la revoca era un errore, confermalo di nuovo; altrimenti conferma lo STEP giusto.";
+    if (conf && c.gruppo) {
+      const b = bottoneAz(Object.assign({}, conf, { t: "Conferma di nuovo come sorgente di " + cod }), "du-riconferma" + suf);
+      if (!conf.no) (b.querySelector("button") || b).classList.add("du-btn--pri");
+      gesti.push(b);
+    }
+  } else if (x.stato === "sostituita") {
+    titolo = "Sostituita come sorgente di " + cod;
+    // il server dice «superata» sia per un altro STEP confermato sia per il documento sostituito (stesso valore): un testo
+    // che vale per tutti e due (rilievo della revisione della corsia)
+    testo = "Questo STEP non è più la sorgente valida di " + cod + ": la sua conferma è stata superata." + doc;
+  } else {
+    titolo = "Sorgente di " + cod + " non valida";
+    testo = "La conferma di questo STEP come sorgente non vale più (" + testoMotivoSorgente(x.s8.motivo) + ")." + doc;
+  }
+  if (x.stato !== "confermata" && guarda) gesti.push(bottoneAz(guarda, "du-guarda-stato" + suf));
+  return h("div", { class: "du-striscia du-striscia--" + (x.stato === "confermata" ? "ok" : "ver") + " du-stato-sorgente", id: "du-stato-sorgente" + suf, "data-stato": x.stato, "data-allegato": a, "data-prodotto": x.pid },
+    h("div", { style: "display:grid;gap:4px;min-width:0" }, h("span", {}, h("b", {}, titolo + ": "), h("span", { class: "du-mono" }, nome)), h("span", { class: "du-piccolo" }, testo)),
+    gesti.length ? h("div", { class: "du-azioni" }, gesti) : null);
 }
 function riquadroStepProposto(id, sp, suf) {
   const cod = codiceDi(id);
   const az = azioniCandidatura(sp.c);
   const conf = az.find((a) => a.id.indexOf("conferma-") === 0);
   const guarda = az.find((a) => a.id.indexOf("guarda-") === 0);
-  const bc = conf ? bottoneAz(conf, "du-conferma-proposto" + suf) : null;
+  // nella Revisione, con l'anteprima di questo STEP aperta sotto, la conferma è quella dell'anteprima: un pulsante solo
+  // (collaudo UI46, giro 3, minore) [T]
+  const doppio = suf.indexOf("-rev") === 0 && anteprimaInRevisione() && S.anteprimaAllegato === sp.c.allegato_id;
+  const bc = conf && !doppio ? bottoneAz(conf, "du-conferma-proposto" + suf) : null;
   if (bc && !conf.no) (bc.querySelector("button") || bc).classList.add("du-btn--pri");
   const domanda = sp.testo || "Il motore ha trovato che questo file è molto probabilmente lo STEP strutturale di " + cod + ": lo confermi come sorgente?";
   return h("div", { class: "du-striscia du-striscia--info du-step-proposto", id: "du-step-proposto" + suf, "data-allegato": sp.c.allegato_id, "data-prodotto": id, "data-sorgente-di": sp.altro || null },
     h("div", { style: "display:grid;gap:4px;min-width:0" },
       h("span", {}, h("b", {}, "STEP proposto come sorgente: "), h("span", { class: "du-mono" }, sp.f.nome_file || nomeFile(sp.c.allegato_id))),
       h("span", { id: "du-step-proposto-domanda" + suf }, domanda),
-      evidenzeProposta(sp, suf.slice(1)),
+      h("span", { class: "du-piccolo", id: "du-step-proposto-sintesi" + suf }, sintesiProposta(sp)),
+      h("details", { class: "du-ripiega du-piccolo", id: "du-step-proposto-perche" + suf }, h("summary", {}, "Perché lo propone"), evidenzeProposta(sp, suf.slice(1))),
       sp.altro ? h("span", { class: "du-esito du-esito--ver", id: "du-step-proposto-altro" + suf }, "Adesso è la sorgente confermata di " + codiceDi(sp.altro) +
-        ". Se quell'associazione è sbagliata, «Sposta la sorgente su " + cod + "…» la revoca là con il motivo «sorgente errata» e annulla la bozza di " + codiceDi(sp.altro) +
+        ". Se quell'associazione è sbagliata, «Sposta la sorgente su " + cod + "…» la revoca là come «sorgente errata» e annulla la bozza di " + codiceDi(sp.altro) +
         " nata da questo STEP (la sua storia resta). Se " + codiceDi(sp.altro) + " ha già confermato la BOM con questo STEP, lo spostamento non si fa: si apre la sua revisione.") : null,
-      h("span", { class: "du-nota" }, "Non è ancora una sorgente: lo diventa solo con la tua conferma, che crea la bozza dalla sua struttura. Senza uno STEP confermato non si arriva a «Conferma BOM».")),
+      // senza un gruppo importabile la bozza nasce dal solo prodotto (collaudo UI46, I3): il testo non promette una struttura
+      h("span", { class: "du-nota" }, "Non è ancora una sorgente: lo diventa solo con la tua conferma, che crea la bozza " + (sp.c.gruppo ? "dalla sua struttura" : "con il solo prodotto: il motore non ne ha letto una struttura") +
+        ". Senza uno STEP confermato non si arriva a «Conferma BOM».")),
     h("div", { class: "du-azioni" }, bc, guarda ? bottoneAz(guarda, "du-guarda-proposto" + suf) : null));
 }
 // avvisoStepProposto: nel dialogo di una partenza senza lo STEP (bozza manuale, «solo prodotto» da un altro STEP), lo STEP
@@ -2443,11 +3087,42 @@ function gruppiDelloStep(allegato) {
 // gli STEP della RFQ: S9 step[] (attivi e letti), o S1 step[]
 function stepDellaRfq() {
   const st = S.smist ? arr(S.smist.step) : arr(S.sorgente && S.sorgente.step);
-  const out = st.length ? st : fileSorgente().filter((f) => eStep(f) && eAttivo(f));
+  const out = (st.length ? st : fileSorgente().filter((f) => eStep(f) && eAttivo(f))).slice();
+  // gli STEP che il motore propone come sorgente (o che sono già la sorgente) di un prodotto senza un gruppo importabile:
+  // S9 step[] non li elenca, ma sono STEP della RFQ (collaudo UI46, I3: la stessa card diceva «STEP proposto» e «0 STEP»)
+  const visti = new Set(out.map((x) => String(x.allegato_id || "").toLowerCase()));
+  for (const a of stepSenzaGruppo()) if (!visti.has(a)) {
+    visti.add(a);
+    out.push({ allegato_id: a, nome_file: nomeFile(a), candidate: [] });
+  }
   return out.filter((s) => {
     const f = fileDi(s.allegato_id);
     return !f || eAttivo(f);
   });
+}
+// stepSenzaGruppo: gli STEP proposti come sorgente (fonte.proposte_sorgente) o già sorgente (fonte.sorgente_s8) di un
+// prodotto, da /dati e da S9, attivi; quelli con un gruppo del motore li dà già S9 step[]
+function stepSenzaGruppo() {
+  const out = [];
+  const visti = new Set();
+  const metti = (a) => {
+    const x = typeof a === "string" ? a.toLowerCase() : "";
+    const f = x ? fileDi(x) : null;
+    if (!x || visti.has(x) || !f || !eAttivo(f) || !eStep(f)) return;
+    visti.add(x);
+    out.push(x);
+  };
+  for (const p of prodottiSg()) for (const fo of [fonteDi(p.id), p.s9 && ogg(p.s9.fonte) ? p.s9.fonte : null]) {
+    if (!ogg(fo)) continue;
+    for (const x of arr(fo.proposte_sorgente)) if (ogg(x)) metti(x.allegato_id);
+    if (ogg(fo.sorgente_s8)) metti(fo.sorgente_s8.allegato_id);
+  }
+  return out;
+}
+// i prodotti per cui il motore propone uno STEP come sorgente (proposte_sorgente), anche senza un gruppo importabile
+function prodottiConProposta(allegato) {
+  const a = String(allegato || "").toLowerCase();
+  return prodottiSg().filter((p) => proposteSorgente(p.id).some((x) => x.c.allegato_id === a)).map((p) => p.id);
 }
 // lo STEP sorgente di un prodotto confermato da S8 e valido (direttiva 39 §2; la fonte di S9, o di /dati per il prodotto
 // scelto: sorgente_s8 {allegato_id, valida, motivo}). Il documento confermato da una pagina legacy (confermata) e il
@@ -2462,6 +3137,14 @@ function sorgenteDelProdotto(id) {
 }
 function sorgenteValida(id) {
   return !!sorgenteDelProdotto(id);
+}
+// bomConfermataSu: la BOM confermata del prodotto ha come STEP la sua sorgente (allegato, se dato): dopo «Conferma BOM» la
+// sorgente è lo STEP della BOM (fonte.autorizzata) e la bozza non c'è più; non manca niente (collaudo UI46, B3)
+function bomConfermataSu(id, allegato) {
+  const fo = fonteDi(id);
+  if (!fo || fo.autorizzata !== true) return false;
+  const a = sorgenteDelProdotto(id);
+  return !!a && (!allegato || a === String(allegato).toLowerCase());
 }
 // sorgenteDellaBozza: {allegato_id, gruppo} della sorgente della bozza aperta di un prodotto (R1 per il prodotto scelto,
 // S9 bozza.sorgente per gli altri), o null per una bozza senza STEP (partenza vuota, direttiva 39 §1). Il gruppo
@@ -2481,16 +3164,33 @@ function prodottiConSorgente(allegato) {
 }
 // la sintesi delle candidate di uno STEP per una riga (MAT SG-01): radice letta, compatibilità, struttura (LS-01) e
 // segnalati (LS-02), per prodotto. Solo presentazione: le dice il server.
+// La riga dice per ogni prodotto uno stato solo (messaggio 46, D47 e punto 4): lo stato della sorgente se il prodotto ha su
+// questo STEP la conferma di S8 (statiSorgente), altrimenti «◇ candidata per ‹P› · ‹compatibilità›»; la diagnostica del
+// motore (radice letta, struttura, segnalati) sta nel titolo e nel dettaglio, non nella riga.
 function sintesiCandidate(allegato) {
-  const cc = candidateDi(allegato);
-  if (!cc.length) return h("div", { class: "du-fr-meta du-piccolo", "data-du-candidate": "0" }, pill("neu", S.erroreSmist ? "candidate non lette" : "nessuna candidata"));
-  return h("div", { class: "du-fr-meta du-piccolo", "data-du-candidate": String(cc.length) }, cc.map((x) => {
-    const st = ogg(x.struttura) ? (x.struttura.completa === false ? "struttura non completa" + (x.struttura.motivo ? ": " + x.struttura.motivo : "") : "struttura completa") : "";
-    const di = x.sorgente_di && String(x.sorgente_di).toLowerCase() !== x.prodotto_id ? " · già sorgente di " + codiceDi(String(x.sorgente_di).toLowerCase()) : "";
-    return h("span", { class: "du-st du-st--wrap du-st--" + (x.compatibilita === "compatibile" ? "ok" : "ver"), title: x.gruppo || "" },
-      "candidata " + (x.radice_letterale || breve(x.gruppo || "", 24)) + (x.compatibilita ? " · " + x.compatibilita : "") + (st ? " · " + st : "") +
-      (typeof x.segnalati === "number" ? " · segnalati: " + x.segnalati : "") + " → " + codiceDi(x.prodotto_id) + di);
-  }));
+  const f = fileDi(allegato);
+  const ss = statiSorgente(allegato);
+  const cc = candidateDi(allegato).filter((c) => !ss.some((x) => x.pid === c.prodotto_id));
+  // lo stato della sorgente lo dicono le pillole del file (metaFile): qui solo le candidate per gli altri prodotti
+  if (!cc.length) {
+    if (ss.length) return null;
+    // lo STEP proposto come sorgente senza una struttura importabile (collaudo UI46, I3): lo dice, non «nessuna candidata»
+    const pp = prodottiConProposta(allegato);
+    if (pp.length) return h("div", { class: "du-fr-meta du-piccolo", "data-du-candidate": "0", "data-du-proposto": pp.join(" ") },
+      pp.map((id) => pill("prop", "◇ proposto come sorgente di " + codiceDi(id) + " · nessuna struttura importabile")));
+    return h("div", { class: "du-fr-meta du-piccolo", "data-du-candidate": "0" }, pill("neu", S.erroreSmist ? "candidate non lette" : "nessuna candidata"));
+  }
+  return h("div", { class: "du-fr-meta du-piccolo", "data-du-candidate": String(cc.length) }, cc.map((x) => pillCandidata(x, f)));
+}
+// pillCandidata: una candidata dello STEP per un prodotto, in breve, con la diagnostica nel titolo; null se il prodotto ha
+// su questo STEP la conferma di S8 (lo stato lo dicono le pillole del file)
+function pillCandidata(x, f) {
+  if (f && statoSorgentePer(f.allegato_id, x.prodotto_id)) return null;
+  const st = ogg(x.struttura) ? (x.struttura.completa === false ? "struttura non completa" + (x.struttura.motivo ? ": " + x.struttura.motivo : "") : "struttura completa") : "";
+  const di = x.sorgente_di && String(x.sorgente_di).toLowerCase() !== x.prodotto_id ? " · già sorgente di " + codiceDi(String(x.sorgente_di).toLowerCase()) : "";
+  const titolo = perchéIncerta(x, null, "") || ["radice letta " + (x.radice_letterale || "?"), x.compatibilita ? "compatibilità: " + x.compatibilita : "", st, typeof x.segnalati === "number" ? "nodi segnalati: " + x.segnalati : ""].filter(Boolean).join(" · ");
+  return h("span", { class: "du-st du-st--wrap du-st--" + (x.compatibilita === "compatibile" ? "ok" : "ver"), title: titolo, "data-du-candidata": x.prodotto_id, "data-du-radice": x.radice_letterale || "" },
+    "◇ candidata per " + codiceDi(x.prodotto_id) + (x.compatibilita ? " · " + x.compatibilita : "") + di);
 }
 
 // ---- le cartelle: chiave, nome, conto, seconda riga
@@ -2519,7 +3219,7 @@ const DEFINIZIONI = {
   step: "Gli STEP attivi e letti, con le loro candidature per prodotto. Guardare un'anteprima non scrive niente.",
   prodotti: "Tutti i collegamenti dei file, a sezioni per prodotto.",
   altri: "Cartella ALTRO della RFQ sul NAS. Nella stessa cartella stanno i documenti confermati di tipo \"altro\": che cosa è confermato e che cosa è solo conservato lo dice il database.",
-  scartati: "I file scartati, con la traccia: nome, SHA, origine, chi, quando e perché. Lo scarto è terminale.",
+  scartati: "I file scartati, con la traccia: nome, SHA, origine, chi e quando. Lo scarto è terminale.",
   tutti: "Ogni file una volta, per arrivo, con le voci sotto l'archivio.",
   ris: "I file che corrispondono alla ricerca, in tutte le cartelle.",
 };
@@ -2575,6 +3275,8 @@ function contenuto(k) {
     // appena scritte da «Conferma BOM», quando la bozza si è chiusa) [T-39]
     if (!haBozza(id)) {
       const cand = candidatePer(id).map((c) => ({ f: fileDi(c.allegato_id), c, pid: id, grp: "cand:" + id })).filter((y) => y.f);
+      // lo STEP proposto come sorgente senza gruppo sta fra le candidate del prodotto (collaudo UI46, I3)
+      for (const sp of proposteSorgente(id)) if (sp.f && !cand.some((y) => y.f.allegato_id === sp.c.allegato_id)) cand.push({ f: sp.f, c: sp.c, pid: id, grp: "cand:" + id });
       const visti = new Set(cand.map((y) => y.f.allegato_id));
       return cand.concat(righeDi(id).filter((x) => x.stato === "gia_registrato" && !visti.has(x.f.allegato_id)));
     }
@@ -2665,8 +3367,11 @@ function rigaStatoProdotto(id) {
     const perche = s8 ? "! sorgente " + testoMotivoSorgente(s8.motivo) : fo && ogg(fo.legame_storico) ? "○ legame storico da confermare" : "○ da confermare";
     if (haBozza(id)) return { t: perche + " · bozza " + v + " senza sorgente confermata", tono: "ver" };
     if (S.anteprima && S.prodotto === id && S.anteprimaAllegato) return { t: "◌ in anteprima · " + nomeFile(S.anteprimaAllegato), tono: "prop" };
-    return { t: perche + " · " + candidatePer(id).length + " STEP", tono: "ver" };
+    // gli STEP candidati e quelli proposti come sorgente senza gruppo, contati una volta (collaudo UI46, I3)
+    const nStep = new Set(candidatePer(id).map((c) => c.allegato_id).concat(proposteSorgente(id).map((x) => x.c.allegato_id))).size;
+    return { t: perche + " · " + nStep + " STEP", tono: "ver" };
   }
+  if (!haBozza(id) && bomConfermataSu(id)) return { t: "✓ sorgente · BOM confermata", tono: "ok" };
   if (!haBozza(id)) return { t: e && e.bozza409 ? "✓ sorgente · ! bozza non creata: proposta cambiata" : "✓ sorgente · ! bozza non creata", tono: "ver" };
   if (!p) return { t: "✓ sorgente · bozza · smistamento non letto", tono: "ver" };
   const calc = (p.calcolo && p.calcolo.stato) || "";
@@ -2723,9 +3428,26 @@ function annuncia(t) {
   const el = $("#du-sg-annuncio");
   if (el) el.textContent = t;
 }
+// fuocoSuRiga: il fuoco sulla riga, che si porta in vista solo se non lo è già (UI46, controllo di stabilità del 21/10
+// [T]: il focus() semplice arrivava prima che lo spazio di lavoro avesse l'altezza, e l'elenco ripartiva da capo)
 function fuocoSuRiga(allegato) {
   const el = (allegato && document.querySelector("#du-sg-elenco [role=row][data-allegato='" + allegato + "']")) || document.querySelector("#du-sg-elenco [role=row][tabindex='0']");
-  if (el) el.focus();
+  if (!el) return;
+  const sg = $("#du-sg");
+  if (sg && !sg.style.height) adattaAltezzaSg();
+  el.focus({ preventScroll: true });
+  const box = $("#du-sg-elenco");
+  if (!box) return;
+  const r = el.getBoundingClientRect();
+  const b = box.getBoundingClientRect();
+  const testa = box.querySelector(".du-sg-elenco-t");
+  const su = b.top + (testa ? testa.getBoundingClientRect().height : 0);
+  if (r.top < su || r.bottom > b.bottom) {
+    el.scrollIntoView({ block: "nearest" });
+    // la testata dell'elenco resta appiccicata in cima: la riga non ci finisce sotto
+    const r2 = el.getBoundingClientRect();
+    if (r2.top < su) box.scrollTop -= su - r2.top;
+  }
 }
 
 // ---- la matrice stato del file → azioni (LEGGIMI-v5 §4): una sola fonte per il dettaglio, il gesto in riga e le azioni
@@ -2754,7 +3476,7 @@ function srvAz(r, nome) {
   const a = r && r.azioni && r.azioni[nome];
   if (a === undefined || a === null) return "";
   if (typeof a === "boolean") return a ? "" : "non ammesso per questa riga";
-  return a.disponibile === false ? a.motivo || "non ammesso per questa riga" : "";
+  return a.disponibile === false ? senzaGergo(a.motivo) || "non ammesso per questa riga" : "";
 }
 // apriFile: «Apri» (MAT FL-03): un PDF nel visore della pagina; gli altri formati all'indirizzo di S5. Un indirizzo, mai
 // una fetch della pagina
@@ -2825,7 +3547,7 @@ function azioniFile(f, ctx) {
       // cambia con S8 o con la revoca, il legame storico si conferma con S8
       prinPer[id] = prinPer[id] || "apri";
     } else if (confermato) {
-      A.spente.push(azA("scollega" + suf, nomeConProdotto("Scollega alla conferma della BOM…", id, piu), null, "È un documento confermato: si sostituisce o si revisiona (non in V1).", { pid: id }));
+      A.spente.push(azA("scollega" + suf, nomeConProdotto("Scollega alla conferma della BOM…", id, piu), null, "È un documento confermato: si sostituisce o si revisiona, non da questa pagina.", { pid: id }));
       prinPer[id] = prinPer[id] || "apri";
     } else if (x.stato === "da_scollegare") {
       const u = azA("scollega" + suf, nomeConProdotto("Annulla lo scollegamento alla conferma", id, piu), () => conProdotto(id, () => annullaScollegamento(f, x)), modifica, { pid: id });
@@ -2872,17 +3594,19 @@ function azioniFile(f, ctx) {
     else A.prin = assoc;
   }
   // lo STEP sorgente confermato da S8 (direttiva 39 §2, §5): con la bozza «Vai alla Revisione di ‹P› →»; «Revoca come
-  // sorgente di ‹P›…» per uno STEP scelto per errore, con il motivo. Niente «Autorizza»: la fonte della working la
+  // sorgente di ‹P›…» per uno STEP scelto per errore. Niente «Autorizza»: la fonte della working la
   // promuove solo la conferma della BOM (R5; D-TAB-02 B rivista [T-39])
   for (const p of prodottiConSorgente(f.allegato_id)) {
     const corso = SG.inCorsoS8[p.id] ? "È in corso la conferma della sorgente di " + p.codice + "." : "";
     if (haBozza(p.id)) A.prin = azA("revisione", "Vai alla Revisione di " + p.codice + " →", () => conProdotto(p.id, () => vaiPasso("revisione")));
     A.altre.push(azA("revoca-sorgente", "Revoca come sorgente di " + p.codice + "…", () => conProdotto(p.id, () => apriRevocaSorgente(f)), corso,
-      { pericolo: true, sub: "per uno STEP scelto per errore: la working e la bozza non cambiano" }));
+      { pericolo: true, sub: "per uno STEP scelto per errore" }));
   }
   if (A.prin !== apri) A.altre.unshift(apri);
   const sorgenteDi = prodottiConSorgente(f.allegato_id);
-  const confNo = confermato || sorgenteDi.length ? "È un documento confermato: per toglierlo serve una revisione o una sostituzione (non in V1)." : "";
+  // messaggio 46 (D18, D29): il perché in parole dell'ingegnere, senza le versioni del progetto
+  const confNo = sorgenteDi.length ? "è la sorgente di " + sorgenteDi.map((p) => p.codice).join(", ") + ": prima revocala" :
+    confermato ? "è un documento confermato: si toglie solo con una revisione o una sostituzione, non da questa pagina" : "";
   if (!arch) A.altre.push(azA("altri", "Metti in Altri file…", () => apriAltriFile(f, ""), confNo || afNo, { g: "altri", sub: "la copia va nella cartella ALTRO della RFQ sul NAS" }));
   A.altre.push(azA("scarta", "Scarta…", () => apriScarta(f), confNo || (sc.ok ? "" : sc.motivo), { g: "scarta", pericolo: true, sub: arch ? "solo il contenitore: le voci estratte restano attive" : "toglie la copia gestita dal cockpit; resta la traccia" }));
   // la copia in Altri file in corso: tutto spento tranne «Apri»
@@ -2929,7 +3653,7 @@ function azioniCandidatura(c) {
   const suf = sid(c.allegato_id) + (id === S.prodotto ? "" : "-" + sid(id));
   const inVista = S.anteprima && S.prodotto === id && S.anteprimaAllegato === c.allegato_id;
   const bl = f && f.conservazione && f.conservazione.stato === "in_copia" ? "La copia in Altri file di questo STEP è in corso." : "";
-  out.push(azA("guarda-" + suf, inVista ? "In anteprima · chiudi" : "Guarda l'anteprima per " + cod, () => (inVista ? chiudiAnteprima() : guardaPer(c)), bl, { domId: "du-guarda-" + suf }));
+  out.push(azA("guarda-" + suf, inVista ? "Chiudi l'anteprima" : "Guarda l'anteprima per " + cod, () => (inVista ? chiudiAnteprima() : guardaPer(c)), bl, { domId: "du-guarda-" + suf }));
   const sorg = sorgenteDelProdotto(id);
   const bozza = haBozza(id);
   const sb = bozza ? sorgenteDellaBozza(id) : null;
@@ -2951,7 +3675,13 @@ function azioniCandidatura(c) {
   if (sorg && sorg === c.allegato_id && bozza && stessaDellaBozza) {
     // caso (e): la bozza è già su questa sorgente; al posto di S8 «Aggiorna proposta…» (riallinea_proposta: stesso STEP,
     // evidenze, regole o file nuovi; direttiva 39 §3)
-    out.push(azA("riallinea-" + suf, "Aggiorna proposta…", () => conProdotto(id, apriRiallinea), id === S.prodotto ? perchéNoModifica() : "", { domId: "du-riallinea-" + suf }));
+    out.push(azA("riallinea-" + suf, "Aggiorna proposta…", () => conProdotto(id, apriRiallinea), S.confrontoNo ? CONFRONTO_NON_V1 : id === S.prodotto ? perchéNoModifica() : "", { domId: "du-riallinea-" + suf }));
+    return out;
+  }
+  if (sorg && sorg === c.allegato_id && !bozza && bomConfermataSu(id, sorg)) {
+    // la BOM è confermata con questo STEP e la bozza è chiusa: niente da riprendere; le modifiche partono dalla BOM
+    // confermata, nella Revisione (collaudo UI46, B3)
+    out.push(azA("conferma-" + suf, "Vai alla Revisione di " + cod + " →", () => conProdotto(id, () => vaiPasso("revisione")), "", { domId: "du-vai-revisione-" + suf }));
     return out;
   }
   if (sorg && sorg === c.allegato_id && !bozza) {
@@ -2978,15 +3708,14 @@ function azioniCandidatura(c) {
 // l'ingegnere): l'anteprima per quel prodotto (S6) e poi S8, che associa lo STEP al prodotto al suo passo 1, con la
 // partenza dal gruppo dell'anteprima o dal solo prodotto. S7 («Associa lo STEP a ‹P›…», U2 §2.2) non si offre: il server
 // non registra la rotta (scelta [T-39] della corsia, rilievo del revisore del 20/10; richiesta alla corsia contratto)
-function azioniStepNonCandidato(f) {
+function azioniStepNonCandidato(f, esclusi) {
   const out = [];
   const cand = new Set(candidateDi(f.allegato_id).map((c) => c.prodotto_id));
   for (const p of prodottiSg()) {
-    if (cand.has(p.id)) continue;
+    if (cand.has(p.id) || (esclusi && esclusi.has(p.id))) continue;
     // direttiva 39 §3: anche uno STEP senza struttura per il prodotto si guarda (S6 dice nessuna struttura o l'analisi
     // in corso) e si conferma come sorgente con la partenza dal solo prodotto
-    out.push(azA("guarda-nc-" + sid(p.id), "Guarda l'anteprima per " + p.codice, () => guardaPer({ allegato_id: f.allegato_id, prodotto_id: p.id, gruppo: "" }), "",
-      { sub: "senza candidata: l'anteprima dice che cosa il motore sa della struttura; poi la conferma della sorgente (S8)" }));
+    out.push(azA("guarda-nc-" + sid(p.id), "Guarda l'anteprima per " + p.codice, () => guardaPer({ allegato_id: f.allegato_id, prodotto_id: p.id, gruppo: "" }), ""));
   }
   return out;
 }
@@ -3018,14 +3747,40 @@ function adattaAltezzaSg() {
   const barra = $("#du-barra");
   const top = sg.getBoundingClientRect().top + window.scrollY;
   const hb = barra ? barra.getBoundingClientRect().height : 0;
-  let alt = Math.max(360, window.innerHeight - top - hb - 24);
+  // la striscia dell'esito vuota tiene il suo posto (UI46, controllo di stabilità del 21/10): il minimo dello spazio di
+  // lavoro (360 px, anche nel CSS) cala di quel posto con lo spazio fra le righe del guscio, così la pagina della
+  // Sorgente non scorre a un'altezza dove prima non scorreva ([U] M32)
+  const av = $("#du-avviso");
+  const posto = av && av.hidden ? av.getBoundingClientRect().height + (parseFloat(getComputedStyle(av.parentElement).rowGap) || 0) : 0;
+  const minimo = Math.round(360 - posto);
+  sg.style.minHeight = minimo + "px";
+  let alt = Math.max(minimo, window.innerHeight - top - hb - 24);
   sg.style.height = alt + "px";
   // i margini del guscio (padding, barra di stato appiccicata) li misura la pagina stessa: se scorre ancora, si toglie l'eccesso
   const eccesso = document.documentElement.scrollHeight - window.innerHeight;
-  if (eccesso > 0 && alt - eccesso >= 360) {
+  if (eccesso > 0 && alt - eccesso >= minimo) {
     alt -= eccesso;
     sg.style.height = alt + "px";
   }
+  adattaTelaAnteprima();
+}
+// adattaTelaAnteprima: la tela dell'anteprima allargata prende l'altezza che resta nel riquadro del dettaglio sotto la
+// proposta, così sta tutta nello spazio che si vede e «Adatta» (vistaAdatta, che misura la tela) adatta l'albero a quello
+// spazio (collaudo UI46, giro 2, C2-I4: a 1600x1000 la tela di 700 px stava in un riquadro di 655 px, e i figli restavano
+// tagliati sotto). Almeno 240 px: sotto, il riquadro scorre come prima [T].
+function adattaTelaAnteprima() {
+  const det = $("#du-sg-dettaglio");
+  const vp = det && det.querySelector("#du-anteprima .du-vp");
+  if (!vp) return;
+  const rd = det.getBoundingClientRect();
+  const sotto = (el) => {
+    const cs = getComputedStyle(el);
+    return (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  };
+  const riq = vp.closest(".du-riq");
+  const sopra = vp.getBoundingClientRect().top - rd.top - det.clientTop + det.scrollTop;
+  const alt = Math.floor(det.clientHeight - sopra - (parseFloat(getComputedStyle(det).paddingBottom) || 0) - (riq ? sotto(riq) : 0) - 4);
+  vp.style.height = Math.max(240, alt) + "px";
 }
 window.addEventListener("resize", () => {
   if (S.passo === "sorgente") adattaAltezzaSg();
@@ -3181,13 +3936,25 @@ function fasciaCartella(k) {
 // intestazioneProdotto: la sorgente del prodotto, con data e autore (U2 §2.4), l'autorizzazione, l'esito dell'ultima
 // conferma della sorgente e le azioni del prodotto («Revoca come sorgente…», «Salva nella bozza le N proposte…»). Ripiegata
 // per difetto con poco spazio e dopo la conferma della sorgente (K-7); la scelta resta per la cartella.
+// intestazioneAperta: l'intestazione della cartella del prodotto è aperta (scelta dell'utente, o aperta da sola con lo
+// spazio per farlo e finché il prodotto non ha sorgente e bozza)
+function intestazioneAperta(id) {
+  const k = "p:" + id;
+  const poco = window.innerWidth < 1280 || window.innerHeight < 1000;
+  return SG.apertiProdotto[k] !== undefined ? SG.apertiProdotto[k] : !(poco || (sorgenteValida(id) && haBozza(id)));
+}
+// cardNellaCartella: la card dello STEP proposto (o dello stato della sorgente) di id per quell'allegato sta già
+// nell'intestazione aperta della cartella del prodotto in vista: il dettaglio del file e la riga non la ripetono, e
+// «Guarda l'anteprima» c'è una volta sola (collaudo UI46, giro 2, C2-I5, D28) [T]
+function cardNellaCartella(id, allegato) {
+  return SG.cartella === "p:" + id && !SG.cerca.trim() && intestazioneAperta(id) && !sorgenteDelProdotto(id) && !!stepProposto(id, allegato);
+}
 function intestazioneProdotto(id) {
   const k = "p:" + id;
   const fo = fonteDi(id) || {};
   const st = rigaStatoProdotto(id);
   const e = SG.esitiS8[id];
-  const poco = window.innerWidth < 1280 || window.innerHeight < 1000;
-  const aperta = SG.apertiProdotto[k] !== undefined ? SG.apertiProdotto[k] : !(poco || (sorgenteValida(id) && haBozza(id)));
+  const aperta = intestazioneAperta(id);
   const autore = (x) => (ogg(x) ? x.nome || x.utente_id || "" : x || "");
   const sorg = sorgenteDelProdotto(id);
   // G39-02 [U]: lo STEP del prodotto finito non entra fra le proposte da salvare come preassociazioni
@@ -3222,32 +3989,41 @@ function intestazioneProdotto(id) {
   } else if (haBozza(id)) {
     // una bozza senza sorgente confermata (partenza vuota, o la sorgente revocata): si lavora, ma la conferma della BOM
     // aspetta uno STEP confermato da S8 (direttiva 39 §1: R4 sì, R5 no)
-    corpo.append(boxStepProposto(id, "sg"), h("p", { class: "du-piccolo", id: "du-sg-fonte" }, s8 ? "La sorgente confermata di " + codiceDi(id) + " è " + testoMotivoSorgente(s8.motivo) + ". " : "La bozza di " + codiceDi(id) + " non ha uno STEP confermato. ",
+    // aggiungi, non append: boxStepProposto e legameStorico possono non dare niente, e Element.append(null) scrive «null»
+    aggiungi(corpo, [boxStepProposto(id, "sg"), h("p", { class: "du-piccolo", id: "du-sg-fonte" }, s8 ? "La sorgente confermata di " + codiceDi(id) + " è " + testoMotivoSorgente(s8.motivo) + ". " : "La bozza di " + codiceDi(id) + " non ha uno STEP confermato. ",
       "Si modifica e si salva; «Conferma BOM» richiederà uno STEP confermato con «Conferma questo STEP come sorgente di " + codiceDi(id) + "»."),
-    legameStorico(fo));
+    legameStorico(fo)]);
   } else {
     // G39-02 [U]: prima della scelta fra le candidate, la proposta del motore con le sue evidenze e la conferma
-    corpo.append(boxStepProposto(id, "sg"));
-    corpo.append(h("p", { class: "du-piccolo", id: candidatePer(id).length ? null : "du-nessuna-candidata" }, candidatePer(id).length ? "Scegli lo STEP sorgente fra le candidate: «Guarda l'anteprima», poi «Conferma questo STEP come sorgente di " + codiceDi(id) + "». La conferma crea la bozza: non conferma la BOM." :
+    aggiungi(corpo, boxStepProposto(id, "sg"));
+    const proposti = proposteSorgente(id);
+    aggiungi(corpo, [h("p", { class: "du-piccolo", id: candidatePer(id).length || proposti.length ? null : "du-nessuna-candidata" }, candidatePer(id).length ? "Scegli lo STEP sorgente fra le candidate: «Guarda l'anteprima», poi «Conferma questo STEP come sorgente di " + codiceDi(id) + "». La conferma crea la bozza: non conferma la BOM." :
+      // lo STEP proposto qui sopra non ha una struttura importabile: non si dice «nessuno STEP… caricalo» (collaudo UI46, I3)
+      proposti.length ? "Il motore non ha una struttura da importare da " + (proposti.length === 1 ? nomeFile(proposti[0].c.allegato_id) : "questi STEP") + " per " + codiceDi(id) +
+        ": confermandolo come sorgente, la bozza parte dal solo prodotto e i pezzi li aggiungi tu." :
       "Il Motore A non propone nessuno STEP per " + codiceDi(id) + ((S.modello && S.modello.motivoSenzaGruppi && id === S.prodotto && S.modello.motivoSenzaGruppi.testo) ? ": " + S.modello.motivoSenzaGruppi.testo : "") +
       ". Se lo STEP c'è, guardalo dal suo dettaglio (STEP della RFQ) e confermalo come sorgente partendo dal solo prodotto; altrimenti caricalo con «+ Aggiungi file», o parti dal solo prodotto nella Revisione."),
-    legameStorico(fo));
+    legameStorico(fo)]);
   }
   if (haBozza(id) && righeDi(id).some((y) => y.stato === "in_conflitto")) corpo.append(h("p", { class: "du-nota" }, "! Le righe in conflitto bloccano «Conferma BOM» finché non le sposti o le scolleghi."));
-  corpo.append(h("p", { class: "du-nota" }, "Sono proposte finché non le salvi nella bozza; la BOM diventa ufficiale solo con «Conferma BOM»."));
+  // con la BOM confermata e nessuna bozza non ci sono proposte da salvare: la nota non vale (collaudo UI46, B3)
+  if (!(bomConfermataSu(id) && !haBozza(id))) corpo.append(h("p", { class: "du-nota" }, "Sono proposte finché non le salvi nella bozza; la BOM diventa ufficiale solo con «Conferma BOM»."));
   box.append(corpo);
   return box;
 }
 function esitoS8Riga(id, e) {
-  const fatti = arr(e.passi).filter((p) => p.esito === "fatto" || p.esito === "gia_fatto" || p.esito === "non_serve");
+  // un passo che non serve non è «riuscito» (collaudo UI46: «Riuscito: associazione» con associazione non_serve)
+  const fatti = arr(e.passi).filter((p) => p.esito === "fatto" || p.esito === "gia_fatto");
   const ko = arr(e.passi).filter((p) => p.esito === "rifiutato");
   const manca = arr(e.passi).filter((p) => p.esito === "non_tentato");
   const nomi = { associazione: "associazione", conferma_documento: "conferma della sorgente", bozza: "bozza" };
   const s = (l) => l.map((p) => nomi[p.passo] || p.passo).join(", ");
-  const det = h("details", { class: "du-ripiega" }, h("summary", {}, "Dettagli"), h("ul", { class: "du-elenco-p" }, arr(e.passi).map((p) => h("li", { "data-passo": p.passo, "data-esito": p.esito },
+  const det = h("details", { class: "du-ripiega", id: "du-sg-esito-s8-dettagli" }, h("summary", {}, "Dettagli"), h("ul", { class: "du-elenco-p" }, arr(e.passi).map((p) => h("li", { "data-passo": p.passo, "data-esito": p.esito },
     (nomi[p.passo] || p.passo) + ": " + p.esito + (p.codice ? " (" + p.codice + ")" : "") + (p.testo ? " — " + p.testo : "")))));
-  return h("div", { class: "du-striscia du-striscia--" + (e.esito === "completata" ? "ok" : "ver"), id: "du-sg-esito-s8", "data-esito": e.esito },
-    h("span", {}, e.testo || (e.esito === "completata" ? "Sorgente confermata." : "Conferma della sorgente parziale."),
+  // completata: il testo dell'esito sta già in «Ultima mossa»; qui solo i passi (messaggio 46, D23)
+  const completa = e.esito === "completata";
+  return h("div", { class: "du-striscia du-striscia--" + (completa ? "ok" : "ver"), id: "du-sg-esito-s8", "data-esito": e.esito },
+    h("span", {}, completa ? "✓ Sorgente confermata." : senzaGergo(e.testo) || "Conferma della sorgente parziale.",
       (fatti.length ? " Riuscito: " + s(fatti) + "." : "") + (ko.length ? " Non riuscito: " + s(ko) + "." : "") + (manca.length ? " Manca: " + s(manca) + "." : "")),
     det, btn("Chiudi", () => {
       delete SG.esitiS8[id];
@@ -3300,7 +4076,8 @@ function registroDelSuggerimento(x, k) {
   return r1 && typeof r1.importazione === "string" ? r1.importazione : "";
 }
 // apriRevocaSorgente: «Revoca come sorgente di ‹P›…» (direttiva 39 §2; EM App. I.4; G39-03 [U]): per uno STEP scelto per
-// errore, del motore o dell'utente, con il motivo e la causa «sorgente errata» (sorgente_errata nel corpo [T-39]). Prima
+// errore, del motore o dell'utente, con la causa «sorgente errata» (sorgente_errata nel corpo [T-39]). Dal messaggio 46
+// [U] nessun motivo: il dialogo dice che cosa succede e la revoca parte; il motivo della riga lo scrive il server. Prima
 // della conferma della BOM con quello STEP la bozza aperta nata da lui si annulla (abbandonata, la storia resta: il server
 // lo fa nella stessa transazione, core/rfq/sorgente/revoca.go); dopo, la bozza e la working restano e il cambio di sorgente
 // è una revisione interna («correzione della sorgente»). La pagina dichiara la bozza che mostra (bozza_id,
@@ -3320,20 +4097,18 @@ async function apriRevocaSorgente(f) {
   const nata = !!(sb && sb.allegato_id === String(f.allegato_id).toLowerCase());
   const versione = conBozza ? S.bozza.versione : 0;
   apriFinestra("Revoca " + (f.nome_file || nomeFile(f.allegato_id)) + " come sorgente di " + cod, h("div", { style: "display:grid;gap:8px" },
-    h("p", {}, "Serve a correggere uno STEP scelto per errore, dal motore o da te: la revoca si registra con la causa «sorgente errata». Non cambia la working, il documento né la copia sul NAS: dice che questo STEP non è più la sorgente confermata di " + cod + "."),
-    nata ? h("p", { class: "du-esito du-esito--ver", id: "f-revoca-bozza", "data-nata": "1" }, "La bozza aperta di " + cod + " (versione " + versione + ") è nata da questo STEP. Se la BOM non è ancora confermata con lui, la revoca annulla la bozza: abbandonata, la sua storia resta; la bozza nuova nascerà dalla sorgente giusta che confermerai. " +
-      "Se invece la BOM è già confermata con questo STEP, la bozza e la working restano: il cambio di sorgente sarà una revisione interna (correzione della sorgente), non una revisione del cliente.") :
+    h("p", {}, "Serve a correggere uno STEP scelto per errore, dal motore o da te: la revoca si registra con la causa «sorgente errata». Non cambia la BOM confermata, il documento né la copia sul NAS: dice che questo STEP non è più la sorgente confermata di " + cod + "."),
+    // collaudo UI46: il dialogo dice il caso che vale adesso (la BOM confermata o no con questo STEP), non tutti e due
+    nata ? h("p", { class: "du-esito du-esito--ver", id: "f-revoca-bozza", "data-nata": "1" }, "La bozza aperta di " + cod + " (versione " + versione + ") è nata da questo STEP. " +
+      (bomConfermataSu(id, f.allegato_id) ? "La BOM è già confermata con questo STEP: la bozza e la BOM confermata restano, e il cambio di sorgente sarà una revisione interna (correzione della sorgente), non una revisione del cliente." :
+        "La BOM non è ancora confermata con lui: la revoca annulla la bozza (resta nella storia), e la bozza nuova nascerà dalla sorgente giusta che confermerai.")) :
       h("p", { class: "du-nota", id: "f-revoca-bozza", "data-nata": "0" }, conBozza ? "La bozza aperta di " + cod + " non è nata da questo STEP: la revoca non la cambia." : "Nessuna bozza aperta di " + cod + "."),
-    h("p", { class: "du-nota" }, "Finché un altro STEP (o lo stesso) non è confermato di nuovo come sorgente, «Conferma BOM» resta bloccata. Per una revisione del cliente (uno STEP nuovo) si usa «Usa nuovo STEP per " + cod + "…», non la revoca; se lo STEP giusto è la sorgente di un altro prodotto, dalla sua proposta «Sposta la sorgente su " + cod + "…»."),
-    campo("Motivo", area("f-motivo", "", 1000), "Obbligatorio, fino a 1000 caratteri.")),
+    h("p", { class: "du-nota" }, "Finché uno STEP non è confermato di nuovo come sorgente, «Conferma BOM» resta bloccata. Per uno STEP nuovo del cliente non si revoca: si usa «Usa nuovo STEP per " + cod + "…».")),
   [{ testo: "Annulla", chiudi: true }, { testo: "Revoca come sorgente", danger: true, id: "f-ok", spento: () => {
-    const m = valore($("#du-finestra"), "f-motivo");
     if (conBozza && S.bozza && S.bozza.versione !== versione) return "la bozza è cambiata: riapri il dialogo";
-    if (!m) return "scrivi il motivo";
-    return m.length > 1000 ? "il motivo sta in 1000 caratteri" : "";
+    return "";
   }, fai: async () => {
-    const motivo = valore($("#du-finestra"), "f-motivo");
-    const corpo = { prodotto_id: id, motivo, sorgente_errata: true };
+    const corpo = { prodotto_id: id, sorgente_errata: true };
     if (conBozza) corpo.bozza = { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione };
     const r = await inSerie("sorgente:" + id, () => P.revocaSorgente(f.allegato_id, corpo));
     return esitoRevocaSorgente(r, id, f);
@@ -3351,12 +4126,15 @@ async function riprovaRevocaSorgente(s) {
 async function esitoRevocaSorgente(r, id, f) {
   if (r.esito === "ok") {
     const d = r.dati || {};
-    const testo = d.testo || "Sorgente revocata per " + codiceDi(id) + ": la working non cambia." + (d.bozza_abbandonata ? " La bozza nata da questo STEP è annullata." : "");
+    const testo = senzaGergo(d.testo) || "Sorgente revocata per " + codiceDi(id) + "." + (d.bozza_abbandonata ? " La bozza nata da questo STEP è annullata (resta nella storia)." : "");
     const riletta = await rileggiDopoUnGesto(["sorgente", "bozza"], "La revoca della sorgente è registrata.");
     // la bozza annullata (G39-03) cambia anche lo smistamento
     await caricaSmistamento();
+    togliTutteLeSpunte();
+    // l'esito della conferma di prima non vale più: niente «Sorgente confermata» accanto a «sorgente revocata» (D10)
+    delete SG.esitiS8[id];
     registraMossa(testo, { allegato: f.allegato_id, esito: "ok" });
-    avvisa("ok", testo + (riletta ? "" : " La pagina non si è riletta: ↻ Rileggi."));
+    avvisa("ok", testo + (riletta ? "" : " La pagina non si è riletta: ↻ Rileggi."), "prodotto");
     render();
     return true;
   }
@@ -3381,7 +4159,7 @@ async function esitoRevocaSorgente(r, id, f) {
     avvisa("conflitto", "La bozza è cambiata altrove: la rileggo; niente è stato revocato. Ripeti la revoca se serve ancora.");
     return true;
   }
-  const testi = { MOTIVO_OBBLIGATORIO: "Serve il motivo.", CHIAVE_RIUSATA: "La chiave del tentativo è già usata per un altro corpo: rileggi e riprova." };
+  const testi = { MOTIVO_OBBLIGATORIO: TESTO_MOTIVO_VECCHIO, CHIAVE_RIUSATA: "La chiave del tentativo è già usata per un altro corpo: rileggi e riprova." };
   const nessuna = r.motivo === "nessuna_sorgente_da_revocare" ? "Lo STEP non è (più) una sorgente confermata e valida di " + codiceDi(id) + ": non c'è niente da revocare. ↻ Aggiorna." : "";
   const t = nessuna || testi[r.codice] || r.testo || "La revoca non è riuscita.";
   const err = $("#du-finestra-errore");
@@ -3410,7 +4188,7 @@ function elencoSg() {
       SG.vista = "cartelle";
       renderCorpo();
     } }, "‹ Cartelle"),
-    h("h3", { id: "du-sg-titolo" }, cartellaNome(k), " ", h("span", { class: "du-muto" }, n === null ? "—" : SG.cerca.trim() ? righe.length + "/" + tutte.length : String(n))),
+    h("h3", { id: "du-sg-titolo" }, cartellaNome(k), " ", h("span", { class: "du-muto" }, n === null ? "" : SG.cerca.trim() ? righe.length + "/" + tutte.length : String(n))),
     h("span", { class: "du-muto du-piccolo du-sg-def", title: definizioneDi(k) }, "ⓘ ", breve(definizioneDi(k), 140))));
   for (const x of fasciaCartella(k)) sec.append(x);
   const spuntate = righe.filter((y) => mm.spunte.has(y.f.allegato_id));
@@ -3475,16 +4253,29 @@ function nomeGruppo(g) {
 // e Scartati restano nella riga: a 1440 px ci stanno (K-6), e il dettaglio le ripete.
 // la provenienza di una riga di S9 o di una PB (D-PB03 A [U]: motore, corretta, manuale, legacy)
 const PROVENIENZE = { motore: "dal motore", corretta: "corretta dall'ingegnere", manuale: "messa a mano", legacy: "dai dati di prima" };
+// statoSorgenteRiga: per la riga di S9 di uno STEP legato come sorgente (o legame storico) di pid, lo stato della sorgente
+// di statiSorgente; null per le altre righe. testoStatoSorgenteRiga: la pillola, come STATI_RIGA ([segno, testo, tono]).
+function statoSorgenteRiga(f, pid, statoRiga) {
+  return statoRiga === "legato_come_sorgente" || statoRiga === "legame_storico" ? statoSorgentePer(f.allegato_id, pid) : null;
+}
+function testoStatoSorgenteRiga(xs) {
+  if (xs.stato === "confermata") return STATI_RIGA.legato_come_sorgente;
+  return ["", xs.stato === "revocata" ? "sorgente revocata" : xs.stato === "sostituita" ? "sostituita come sorgente" : "sorgente non valida", "ver"];
+}
 function rigaSg(y, k, id, attivo, mm) {
   const f = y.f;
   const spunt = mm.spunte.has(f.allegato_id);
   const cls = "du-sg-riga du-fr" + (f.stato === "altri_file" ? " du-fr--altri" : f.stato === "scartato" ? " du-fr--scartato" : "") + (attivo ? " du-sg-riga--attiva" : "") + (y.voce ? " du-sg-riga--voce" : "");
-  const meta = metaFile(f);
+  // lo STEP sorgente: lo stato della sorgente per questo prodotto, non quello della riga (statiSorgente, messaggio 46);
+  // detto dalla pillola della riga, non anche fra le pillole del file (rilievo della revisione: «◆ sorgente confermata» e
+  // «◆ sorgente di ‹P›» insieme)
+  const xs = y.r && eStep(f) ? statoSorgenteRiga(f, y.pid, y.stato) : null;
+  const meta = metaFile(f, xs ? y.pid : "");
   let stato = null;
   if (y.r) {
     const s = STATI_RIGA[y.stato] || ["", y.stato, "neu"];
-    const cid = y.r.identificativo_cliente;
-    stato = h("span", { class: "du-sg-dest" }, pill(s[2], s[0] + " " + s[1]), " → ", h("span", { class: "du-mono" }, y.r.codice_mostrato || "(senza codice)"),
+    const cid = testoIdc(y.r.identificativo_cliente);
+    stato = h("span", { class: "du-sg-dest" }, xs ? pillStatoSorgente(xs, f) : pill(s[2], (s[0] ? s[0] + " " : "") + s[1]), " → ", h("span", { class: "du-mono" }, y.r.codice_mostrato || "(senza codice)"),
       y.r.rev_mostrata ? " rev " + y.r.rev_mostrata : "", cid ? h("span", { class: "du-idc", title: TITOLO_IDC, "data-du-idc": cid }, " · id. cliente ", h("span", { class: "du-mono" }, cid)) : null,
       arr(y.r.condiviso_con).length ? pill("info", "⇄ anche " + arr(y.r.condiviso_con).map((p) => codiceDi(String(p).toLowerCase())).join(", ")) : null,
       // S9 (direttiva 39): la proposta con più destinazioni non diventa un suggerimento; la provenienza della riga
@@ -3495,7 +4286,7 @@ function rigaSg(y, k, id, attivo, mm) {
       k === "prodotti" || (k.indexOf("p:") !== 0 && collegamentiDi(f).length > 1) ? pill("neu", codiceDi(y.pid)) : null);
   } else if (y.x) stato = h("span", { class: "du-sg-dest" }, pill("att", "attende la sorgente di " + codiceDi(y.pid)), y.x.codice_mostrato ? [" → ", h("span", { class: "du-mono" }, y.x.codice_mostrato)] : null);
   else if (y.v) stato = h("span", { class: "du-sg-dest" }, pill("bozza", "↺ da ricollocare"), " " + motivoSvincolo(y.v.motivo));
-  else if (y.c) stato = h("span", { class: "du-sg-dest" }, pill(y.c.compatibilita === "compatibile" ? "ok" : "ver", "candidata " + (y.c.radice_letterale || "") + " · " + (y.c.compatibilita || "")));
+  else if (y.c) stato = h("span", { class: "du-sg-dest" }, pillCandidata(y.c, f));
   else if (k === "dc-senza" || (k === "dc" && y.grp === "senza")) {
     const mot = motivoDaAssociare(f.allegato_id);
     if (mot) stato = h("span", { class: "du-sg-dest du-muto" }, "motivo: " + mot);
@@ -3507,18 +4298,19 @@ function rigaSg(y, k, id, attivo, mm) {
     // nelle cartelle degli STEP il gesto in riga è la prima candidatura: «Guarda l'anteprima per ‹P›»
     const cc = y.c ? [y.c] : candidateDi(f.allegato_id);
     const c0 = cc.find((c) => c.prodotto_id === S.prodotto) || cc[0];
-    if (c0) gesto = bottoneAz(azioniCandidatura(c0)[0], azioniCandidatura(c0)[0].domId);
+    if (c0 && !cardNellaCartella(c0.prodotto_id, f.allegato_id)) gesto = bottoneAz(azioniCandidatura(c0)[0], azioniCandidatura(c0)[0].domId);
   } else if (A.prin) {
     gesto = bottoneAz(A.prin, "du-r-" + A.prin.id + "-" + sid(f.allegato_id), true);
   }
   const traccia = tracciaFile(f);
-  const riga = h("li", { role: "row", class: cls, id: k === "step" ? "du-step-" + sid(f.allegato_id) : id, "data-allegato": f.allegato_id, "data-stato": f.stato || "attivo",
+  const idRiga = k === "step" ? "du-step-" + sid(f.allegato_id) : id;
+  const riga = h("li", { role: "row", class: cls, id: idRiga, "data-allegato": f.allegato_id, "data-stato": f.stato || "attivo",
     "aria-selected": spunt ? "true" : "false", "aria-current": attivo ? "true" : null, tabindex: attivo ? "0" : "-1",
     onclick: (e) => {
       if (e.target.closest("button, a, input")) return;
       scegliFile(f.allegato_id);
     } },
-  h("span", { role: "gridcell", class: "du-sg-cella-spunta" }, h("input", { type: "checkbox", class: "du-sg-spunta", "aria-label": "Seleziona " + f.nome_file, checked: spunt, "data-allegato": f.allegato_id,
+  h("span", { role: "gridcell", class: "du-sg-cella-spunta" }, h("input", { type: "checkbox", class: "du-sg-spunta", id: idRiga + "-spunta", "aria-label": "Seleziona " + f.nome_file, checked: spunt, "data-allegato": f.allegato_id,
     onchange: (e) => {
       if (e.target.checked) mm.spunte.add(f.allegato_id);
       else mm.spunte.delete(f.allegato_id);
@@ -3532,17 +4324,24 @@ function rigaSg(y, k, id, attivo, mm) {
 }
 // metaFile: le pillole del file (origine, analisi, codice letto, stato dell'associazione registrata, «da ricodificare»,
 // preassociazione e proposte della bozza che si vede)
-function metaFile(f) {
+// salta: il prodotto il cui stato della sorgente la riga dice già (rigaSg)
+function metaFile(f, salta) {
   const meta = [pill("neu", f.origine === "interna" ? "interna" : f.canale === "posta" ? "posta" : "del cliente"), pill(f.analisi && f.analisi.stato === "errore" ? "ko" : inAnalisiF(f) ? "info" : "neu", (inAnalisiF(f) ? "⟳ " : "") + testoAnalisi(f))];
   if (f.proposta && f.proposta.codice) meta.push(h("span", { class: "du-mono" }, f.proposta.codice + (f.proposta.rev ? " rev " + f.proposta.rev : "")));
   if (f.scartato_legacy) meta.push(pill("neu", "Scartato (gesto precedente)"));
   const dove = destinazioneFile(f);
+  // lo STEP sorgente di un prodotto finito: un solo stato per prodotto (la tabella di statiSorgente, messaggio 46 punto
+  // 4), al posto di «✓ confermato» e senza le proposte del registro che lo citano come 3D della radice (D10, D11)
+  const ss = eStep(f) ? statiSorgente(f.allegato_id) : [];
+  for (const x of ss) if (!salta || x.pid !== salta) meta.push(pillStatoSorgente(x, f));
   // l'associazione registrata dalle righe di S9 (mai la copia di S1); un documento confermato si dice comunque
   const ar = arDi(f.allegato_id);
-  if (ar || f.documento) meta.push(pill("info", f.documento || (ar && ar.documento) ? "✓ confermato" : "● associato"));
+  if ((ar || f.documento) && !ss.length) meta.push(pill("info", f.documento || (ar && ar.documento) ? "✓ confermato" : "● associato"));
   if (dove.ricodifica) meta.push(pill("ver", "da ricodificare", "il componente del file ha una ricodifica nella bozza: alla conferma il file segue il codice nuovo (MAT §4.3 riga 7)"));
   if (dove.pb) meta.push(pill("bozza", "◈ preassociato a " + dove.pb));
-  for (const x of dove.pa) meta.push(pill("prop", "◇ proposto per " + x));
+  // uno STEP candidato sorgente di un finito non è un documento da preassociare: la proposta del registro non si mostra
+  const delFinito = ss.length || (eStep(f) && S.smist && stepSorgenteDelFinito(f));
+  if (!delFinito) for (const x of dove.pa) meta.push(pill("prop", "◇ proposto per " + x));
   for (const x of dove.noninc) meta.push(pill("neu", "◇ proposto per " + x + ": non richiesta, nodo non incluso (bozza)"));
   if (f.conservazione && f.conservazione.stato === "in_copia") meta.push(pill("info", "copia in corso…"));
   if (f.conservazione && f.conservazione.stato === "trattenuta") meta.push(pill("neu", "c'è una copia del cockpit nella cartella ALTRO" + (f.altri_file && f.altri_file.nome_sul_nas ? ": " + f.altri_file.nome_sul_nas : "")));
@@ -3567,7 +4366,8 @@ function tracciaFile(f) {
   const t = [];
   if (f.stato === "scartato") {
     const ev = arr(f.eventi).find((e) => e.azione === "scarta") || f.scarto || null;
-    if (ev) t.push("Scartato da " + (ev.autore || ev.autore_id || "?") + " il " + dataOra(ev.quando) + ": " + (ev.motivo || "") + ".");
+    // messaggio 46 [U]: il motivo non si mostra (né quello scritto nelle pagine di prima né la traccia del gesto): chi e quando
+    if (ev) t.push("Scartato da " + (chiE(ev.autore || ev.autore_id) || "?") + " il " + dataOra(ev.quando) + ".");
     t.push(testoRimozione(f));
     const rn = f.rimozione_nas || (f.conservazione && f.conservazione.rimozione);
     if (ogg(rn) && TESTI_RIMOZIONE_NAS[rn.motivo]) t.push(TESTI_RIMOZIONE_NAS[rn.motivo]);
@@ -3575,7 +4375,7 @@ function tracciaFile(f) {
   }
   if (f.stato === "altri_file") {
     const af = ogg(f.altri_file) ? f.altri_file : arr(f.eventi).find((e) => e.azione === "altri_file") || null;
-    if (af && (af.autore || af.autore_id || af.quando)) t.push("In Altri file da " + (af.autore || af.autore_id || "?") + " il " + dataOra(af.quando) + (af.motivo ? ": " + af.motivo : "") + ".");
+    if (af && (af.autore || af.autore_id || af.quando)) t.push("In Altri file da " + (chiE(af.autore || af.autore_id) || "?") + " il " + dataOra(af.quando) + ".");
     const c = f.conservazione;
     if (c) {
       const motivo = c.motivo || c.causa || "";
@@ -3631,6 +4431,10 @@ function tastiElenco(e) {
     if (d) d.replaceWith(dettaglioSg());
   }
 }
+// togliTutteLeSpunte: dopo un gesto riuscito sulla sorgente le spunte di ogni cartella si tolgono (messaggio 46, D20)
+function togliTutteLeSpunte() {
+  for (const k of Object.keys(SG.memo)) SG.memo[k].spunte.clear();
+}
 let spunteTolte = null;
 function togliSpunte() {
   const mm = memo();
@@ -3638,6 +4442,11 @@ function togliSpunte() {
   spunteTolte = { cartella: SG.cartella, spunte: new Set(mm.spunte) };
   mm.spunte.clear();
   renderCorpo();
+  // il pulsante sparisce con le spunte: il fuoco va sulla riga attiva, senza scorrere (UI46, controllo di stabilità)
+  if (document.activeElement === document.body || !document.activeElement) {
+    const r = (mm.file && document.querySelector("#du-sg-elenco [role=row][data-allegato='" + mm.file + "']")) || document.querySelector("#du-sg-elenco [role=row][tabindex='0']");
+    if (r) r.focus({ preventScroll: true });
+  }
   avvisa("ok", "Spunte tolte.");
   setTimeout(() => {
     spunteTolte = null;
@@ -3658,34 +4467,56 @@ function scegliFile(allegato, dettaglio) {
 // barraGruppo: le azioni di gruppo (LEGGIMI-v5 §4): valgono solo se ammesse per tutti i file spuntati in vista;
 // altrimenti spente con la ragione che nomina i file. Non si fanno in gruppo «Associa», «Sposta», «Apri», «Scollega» e
 // i gesti sulle sorgenti.
+// Messaggio 46 (D18, D19 [T]): la barra mostra solo i gesti che valgono per tutti i file spuntati; gli altri non diventano
+// un muro di pulsanti spenti: stanno in «n gesti non disponibili», ripiegato, con il perché in breve (e nel titolo, al
+// passaggio del mouse). Un gesto che non riguarda nessuno dei file spuntati non si nomina. Con un file solo, in testa il
+// suo gesto principale (per uno STEP candidato sorgente del prodotto, la conferma come sorgente).
 function barraGruppo(spuntate, nascoste, suf) {
   suf = suf || "";
   const k = SG.cartella;
   const ctx = (y) => ({ pid: y.pid, cartella: k });
+  const nonVale = [];
   const ogni = (gruppo) => {
     const ok = [];
     const no = [];
+    let nessuno = true;
     for (const y of spuntate) {
       const A = azioniFile(y.f, ctx(y));
       const a = [A.prin].concat(A.altre).concat(A.spente).find((x) => x && x.g === gruppo && (!x.pid || !y.pid || x.pid === y.pid));
+      if (a) nessuno = false;
       if (a && !a.no) ok.push({ y, a });
-      else no.push(y.f.nome_file + (a && a.no ? " (" + a.no + ")" : " (non ammesso in questo stato)"));
+      else no.push({ nome: y.f.nome_file, motivo: senzaGergo(a && a.no ? a.no : "non si applica a questo file") });
     }
-    return { ok, no };
+    return { ok, no, nessuno };
+  };
+  const breveNo = (no) => {
+    const per = new Map();
+    for (const x of no) per.set(x.motivo, (per.get(x.motivo) || []).concat(x.nome));
+    return [...per.entries()].map(([m, nomi]) => (spuntate.length === 1 ? m : (nomi.length === 1 ? nomi[0] : nomi.length + " file") + ": " + m)).join("; ");
   };
   const g = (gruppo, testo, fai, id) => {
     const r = ogni(gruppo);
-    if (!r.ok.length && !r.no.length) return null;
-    return btn(testo + " (" + spuntate.length + ")", () => fai(r.ok), { cls: "du-btn--sm" + (gruppo === "scarta" ? " du-btn--danger" : ""), id, no: r.no.length ? "non vale per: " + r.no.join(", ") : "" });
+    if (r.nessuno) return null;
+    if (r.no.length) {
+      nonVale.push({ t: testo, perche: breveNo(r.no), id });
+      return null;
+    }
+    return btn(testo + (spuntate.length > 1 ? " (" + spuntate.length + ")" : ""), () => fai(r.ok), { cls: "du-btn--sm" + (gruppo === "scarta" ? " du-btn--danger" : ""), id, perche: false });
   };
-  return h("div", { class: "du-sg-gruppo-barra", id: "du-sg-gruppo" + suf, role: "toolbar", "aria-label": "Azioni di gruppo" },
-    h("span", { class: "du-lab" }, spuntate.length + " selezionati"),
-    g("salva", "Salva nella bozza", (l) => mossaGruppo("salva", l), "du-g-salva" + suf),
+  const gesti = [g("salva", "Salva nella bozza", (l) => mossaGruppo("salva", l), "du-g-salva" + suf),
     g("togli", "Togli dalla bozza", (l) => mossaGruppo("togli", l), "du-g-togli" + suf),
     g("altri", "Metti in Altri file…", (l) => apriGruppoFile("altri", l.map((x) => x.y.f)), "du-g-altri" + suf),
     g("riattiva", "Riattiva…", (l) => apriGruppoFile("riattiva", l.map((x) => x.y.f)), "du-g-riattiva" + suf),
-    g("scarta", "Scarta…", (l) => apriGruppoFile("scarta", l.map((x) => x.y.f)), "du-g-scarta" + suf),
-    btn("Togli le spunte", togliSpunte, { cls: "du-btn--sm du-btn--ghost", perche: false }),
+    g("scarta", "Scarta…", (l) => apriGruppoFile("scarta", l.map((x) => x.y.f)), "du-g-scarta" + suf)];
+  const princ = spuntate.length === 1 ? principaleDi(spuntate[0], ctx(spuntate[0])) : null;
+  const perche = nonVale.map((x) => x.t + ": " + x.perche).join("\n");
+  return h("div", { class: "du-sg-gruppo-barra", id: "du-sg-gruppo" + suf, role: "toolbar", "aria-label": "Azioni di gruppo" },
+    h("span", { class: "du-lab" }, spuntate.length + " selezionati"),
+    princ && !princ.no ? btn(princ.t, princ.fai, { cls: "du-btn--sm du-btn--pri", id: "du-g-principale" + suf, perche: false }) : null,
+    gesti,
+    nonVale.length ? h("details", { class: "du-ripiega du-sg-nonvale", id: "du-sg-nonvale" + suf }, h("summary", { title: perche }, nonVale.length + (nonVale.length === 1 ? " gesto non disponibile" : " gesti non disponibili")),
+      h("ul", { class: "du-elenco-p du-piccolo" }, nonVale.map((x) => h("li", { "data-gesto": x.id }, h("b", {}, x.t), ": ", x.perche)))) : null,
+    btn("Togli le spunte", togliSpunte, { cls: "du-btn--sm du-btn--ghost", id: "du-sg-togli-spunte" + (suf || ""), perche: false }),
     nascoste.length ? h("span", { class: "du-perche", id: "du-sg-nascoste" }, nascoste.length + " spuntati nascosti dal filtro", " ",
       btn("Mostrali", () => {
         SG.cerca = "";
@@ -3696,12 +4527,46 @@ function barraGruppo(spuntate, nascoste, suf) {
         renderCorpo();
       }, { cls: "du-btn--sm du-btn--ghost", perche: false })) : null);
 }
+// principaleDi: il gesto principale di un file spuntato da solo, per la barra (D19): per uno STEP che ha la conferma di S8
+// valida del prodotto scelto il suo principale («Vai alla Revisione…»); per uno STEP candidato o proposto per il prodotto
+// scelto la conferma come sorgente; per gli altri file il principale della matrice, se non è già un gesto di gruppo
+function principaleDi(y, ctx) {
+  const f = y.f;
+  const A = azioniFile(f, ctx);
+  if (eStep(f) && eAttivo(f) && !statoSorgentePer(f.allegato_id, S.prodotto)) {
+    const sp = stepProposto(S.prodotto, f.allegato_id);
+    const cc = candidateDi(f.allegato_id);
+    const c0 = (sp && sp.c && sp.c.gruppo ? sp.c : null) || cc.find((c) => c.prodotto_id === S.prodotto);
+    const a = c0 ? azioniCandidatura(c0).find((x) => x.id.indexOf("conferma-") === 0) : null;
+    if (a) return a;
+  }
+  return A.prin && !A.prin.g && A.prin.id !== "apri" ? A.prin : null;
+}
+// senzaGergo: i testi del server mostrati in una barra o in un esito, senza i nomi delle rotte e delle versioni del
+// progetto («(S8)», «(non in V1)»; messaggio 46, D29 [T]). Solo presentazione: il testo resta del server.
+// aParole: un testo del server per chi guarda (collaudo UI46, I4 e I7): gli accenti scritti con l'apostrofo nel codice
+// del server («e'», «piu'»), i nomi delle rotte («da S8») e le frasi di metodo («senza dedurre un mono-pezzo») diventano
+// parole. Solo presentazione: il testo del server resta quello.
+const ACCENTI = { "e'": "è", "E'": "È", "piu'": "più", "gia'": "già", "puo'": "può", "perche'": "perché", "cioe'": "cioè", "pero'": "però", "finche'": "finché", "qualita'": "qualità",
+  "quantita'": "quantità", "identita'": "identità", "unicita'": "unicità", "validita'": "validità", "attivita'": "attività" };
+function aParole(t) {
+  return String(t || "").replace(/\b([A-Za-z]+)'(?=\s|[.,;:)]|$)/g, (m, p) => ACCENTI[p + "'"] || m)
+    .replace(/\s*\(confermat[oa] da S8\)/g, "").replace(/\bdopo il commit\b/g, "dopo la conferma").replace(/\bconfermat([oa]) da S8\b/g, "confermat$1 come sorgente")
+    .replace(/,\s*senza dedurre un mono-pezzo/g, "").replace(/\s*\(nessun mono-pezzo dedotto\)/g, "").replace(/\s*Nessuna struttura inventata\.?/g, "")
+    .replace(/l'assenza di struttura non è una prova/g, "il risultato non è definitivo").replace(/\.$/, "");
+}
+function senzaGergo(t) {
+  return String(t || "").replace(/\s*\((?:S\d{1,2}|non in V\d)\)/g, "").replace(/,\s*non in V\d\b/g, "").replace(/\s*\(non in V\d\.?\)/g, "");
+}
 // bottoneAz: il pulsante di un'azione della matrice; spento con la ragione accanto (o nel titolo, nella riga)
 function bottoneAz(a, id, riga) {
   if (!a) return null;
   const b = btn(riga && a.corta ? a.corta : a.t, a.fai, { cls: "du-btn--sm" + (a.pericolo ? " du-btn--danger" : "") + (riga ? "" : ""), id: id || null, no: a.no, perche: riga ? false : undefined });
   return a.sub && !riga && !a.no ? h("span", { class: "du-gesto" }, b, h("span", { class: "du-perche" }, a.sub)) : b;
 }
+// RIFIUTO_CANDIDATA: il perché del «Rifiuta la candidata…» spento nel dettaglio dello STEP (al posto di NON_V1.candidata,
+// che diceva la versione del progetto in cui arriva)
+const RIFIUTO_CANDIDATA = "Il rifiuto di una candidata non è ancora in questa pagina: per un'altra sorgente, conferma un altro STEP";
 function dettaglioSg() {
   const aside = h("aside", { class: "du-sg-dettaglio", id: "du-sg-dettaglio", "aria-label": "Dettaglio" });
   aside.append(h("button", { type: "button", class: "du-btn du-btn--sm du-btn--ghost du-sg-indietro", onclick: () => {
@@ -3723,7 +4588,7 @@ function dettaglioSg() {
   const y = righe.find((x) => x.f.allegato_id === mm.file) || righe[0];
   if (!y) {
     aside.append(h("h3", { tabindex: "-1" }, cartellaNome(k)), h("p", { class: "du-nota" }, definizioneDi(k)));
-    if (S.anteprima) aside.append(btn("Allarga l'anteprima ⟨", () => {
+    if (S.anteprima) aside.append(btn("‹ Allarga l'anteprima", () => {
       SG.larga = true;
       renderCorpo();
     }, { cls: "du-btn--sm", id: "du-sg-allarga", perche: false }));
@@ -3754,23 +4619,47 @@ function schedaFile(y, k) {
   box.append(az);
   // lo STEP: le candidature, una per prodotto, con i loro due gesti; e l'anteprima per i prodotti che il motore non propone
   if (eStep(f) && eAttivo(f)) {
-    const cc = candidateDi(f.allegato_id);
-    // G39-02 [U]: lo STEP proposto come sorgente di un prodotto, con la domanda e le evidenze, prima delle candidature
+    // messaggio 46 (D10, D11, D27, D28): per ogni prodotto un riquadro solo. Lo stato della sorgente (confermata, revocata,
+    // sostituita) se il prodotto ha su questo STEP la conferma di S8; altrimenti la proposta del motore (G39-02 [U]); poi
+    // le candidature dei prodotti che non hanno né l'uno né l'altra; infine, ripiegata, l'anteprima per gli altri prodotti
+    const coperti = new Set();
+    // la card che la cartella del prodotto mostra già in alto non si ripete qui (C2-I5): una riga che lo dice
     for (const p of prodottiSg()) {
-      if (stepProposto(p.id, f.allegato_id)) box.append(boxStepProposto(p.id, p.id === S.prodotto ? "d" : "d-" + sid(p.id), f.allegato_id));
+      if (!cardNellaCartella(p.id, f.allegato_id)) continue;
+      box.append(h("p", { class: "du-nota", id: "du-sg-card-sopra", "data-prodotto": p.id }, "La proposta di questo STEP come sorgente di " + codiceDi(p.id) + " è nell'intestazione della cartella, a sinistra."));
+      coperti.add(p.id);
     }
-    const cand = h("div", { class: "du-sg-candidature", id: "du-sg-candidature" }, h("h4", { class: "du-lab" }, "Candidature"));
-    if (!cc.length) cand.append(h("p", { class: "du-muto du-piccolo" }, S.erroreSmist ? "Le candidate non si leggono: ↻ Aggiorna." : "Il Motore A non propone questo STEP per nessun prodotto."));
+    for (const x of statiSorgente(f.allegato_id)) {
+      if (coperti.has(x.pid)) continue;
+      box.append(riquadroStatoSorgente(x, f));
+      coperti.add(x.pid);
+    }
+    for (const p of prodottiSg()) {
+      if (coperti.has(p.id) || !stepProposto(p.id, f.allegato_id)) continue;
+      box.append(boxStepProposto(p.id, p.id === S.prodotto ? "d" : "d-" + sid(p.id), f.allegato_id));
+      coperti.add(p.id);
+    }
+    const cc = candidateDi(f.allegato_id).filter((c) => !coperti.has(c.prodotto_id));
+    const cand = h("div", { class: "du-sg-candidature", id: "du-sg-candidature" }, cc.length || !coperti.size ? h("h4", { class: "du-lab" }, "Candidature") : null);
+    if (!cc.length && !coperti.size) cand.append(h("p", { class: "du-muto du-piccolo" }, S.erroreSmist ? "Le candidate non si leggono: ↻ Aggiorna." : "Il Motore A non propone questo STEP per nessun prodotto."));
     for (const c of cc) {
       const st = ogg(c.struttura) ? (c.struttura.completa === false ? "struttura non completa" : "struttura completa") : "";
+      const inc = perchéIncerta(c, null, "");
       cand.append(h("div", { class: "du-sg-cand", "data-prodotto": c.prodotto_id }, h("div", {}, h("b", { class: "du-mono" }, codiceDi(c.prodotto_id)), " · radice ", h("span", { class: "du-mono" }, c.radice_letterale || "?"),
         " · " + (c.compatibilita || "?") + (st ? " · " + st : "") + (typeof c.segnalati === "number" ? " · segnalati: " + c.segnalati : "")),
+      inc ? h("p", { class: "du-nota", "data-du-incerta": c.allegato_id || "" }, inc) : null,
       h("div", { class: "du-azioni" }, azioniCandidatura(c).map((a) => bottoneAz(a, a.domId + "-d")),
-        // il rifiuto motivato di una candidata non è in V1: visibile e spento, con il motivo (MAT §6.1)
-        btn("Rifiuta la candidata…", null, { cls: "du-btn--sm", no: NON_V1.candidata }))));
+        // il rifiuto di una candidata non è in questa pagina: visibile e spento, con il perché (MAT §6.1), senza le
+        // versioni del progetto e senza «motivato» (messaggio 46 [U] punti 1 e 5; rilievo della revisione della corsia)
+        btn("Rifiuta la candidata…", null, { cls: "du-btn--sm", no: RIFIUTO_CANDIDATA }))));
     }
-    for (const a of azioniStepNonCandidato(f)) cand.append(bottoneAz(a, "du-" + a.id + "-" + sid(f.allegato_id)));
-    box.append(cand);
+    // gli altri prodotti: l'anteprima per ciascuno, ripiegata (D27: niente elenco lungo che inviti a confermare lo STEP di
+    // un componente come sorgente di un finito qualsiasi)
+    const altri = azioniStepNonCandidato(f, coperti);
+    if (altri.length) cand.append(h("details", { class: "du-ripiega", id: "du-sg-altri-prodotti" }, h("summary", {}, "Guardalo per un altro prodotto (" + altri.length + ")"),
+      h("p", { class: "du-nota" }, "Il motore non propone questo STEP per questi prodotti: l'anteprima dice che cosa sa della sua struttura."),
+      h("div", { class: "du-azioni" }, altri.map((a) => bottoneAz(a, "du-" + a.id + "-" + sid(f.allegato_id))))));
+    if (cand.childNodes.length) box.append(cand);
   }
   if (A.spente.length) {
     const cercata = A.spente.some((a) => ["associa", "salva", "togli", "riattiva", "revisione"].includes(a.id.replace(/-.*/, "")));
@@ -3780,9 +4669,11 @@ function schedaFile(y, k) {
   // destinazioni (S9) e motivo del mancato abbinamento
   const links = collegamentiDi(f);
   if (links.length) box.append(h("div", { class: "du-sez" }, h("h4", { class: "du-lab" }, "Destinazioni"), h("ul", { class: "du-elenco-p", id: "du-sg-destinazioni" }, links.map((x) => {
-    const s = STATI_RIGA[x.stato] || ["", x.stato];
-    return h("li", {}, codiceDi(x.pid) + " · " + s[0] + " " + s[1] + " → ", h("span", { class: "du-mono" }, x.r.codice_mostrato || "(senza codice)"), x.r.rev_mostrata ? " rev " + x.r.rev_mostrata : "",
-      idClienteDa(x.r.identificativo_cliente, Object.prototype.hasOwnProperty.call(x.r, "identificativo_cliente")));
+    const xs = eStep(f) ? statoSorgenteRiga(f, x.pid, x.stato) : null;
+    const s = xs ? testoStatoSorgenteRiga(xs) : STATI_RIGA[x.stato] || ["", x.stato];
+    const idc = idClienteDa(x.r.identificativo_cliente, Object.prototype.hasOwnProperty.call(x.r, "identificativo_cliente"));
+    return h("li", { "data-prodotto": x.pid }, codiceDi(x.pid) + " · " + (s[0] ? s[0] + " " : "") + s[1] + " → ", h("span", { class: "du-mono" }, x.r.codice_mostrato || "(senza codice)"), x.r.rev_mostrata ? " rev " + x.r.rev_mostrata : "",
+      idc && !idc.hidden ? [" · ", idc] : null);
   }))));
   const mot = motivoDaAssociare(f.allegato_id);
   if (mot && !links.length) box.append(h("p", { class: "du-nota", id: "du-sg-motivo" }, "Il Motore A non lo abbina: " + mot + "."));
@@ -3793,15 +4684,30 @@ function schedaFile(y, k) {
 // dettaglioAnteprima: l'anteprima di uno STEP nel dettaglio allargato (T-14): la proposta, l'organigramma o l'elenco, il
 // pannello del nodo accanto; «Riduci ⟩» la rimette nel riquadro stretto, «Chiudi» la toglie
 function dettaglioAnteprima() {
-  const g = S.anteprima ? grafoProposta() : null;
-  const nodo = g && g.nodi[S.nodo] ? pannelloNodo(g, g.nodi[S.nodo]) : h("p", { class: "du-muto du-piccolo" }, "Scegli un pezzo della proposta per vedere identità proposta, riferimenti e provenienza.");
   return h("div", { class: "du-sg-anteprima" },
-    h("div", { class: "du-azioni du-sg-anteprima-t" }, btn("Riduci ⟩", () => {
+    h("div", { class: "du-azioni du-sg-anteprima-t" }, btn("Riduci l'anteprima ›", () => {
       SG.larga = false;
       renderCorpo();
     }, { cls: "du-btn--sm du-btn--ghost", id: "du-sg-riduci", perche: false })),
-    h("div", { class: "du-sg-anteprima-c" }, riquadroAnteprima(g), h("section", { class: "du-zona du-zona--nodo", "aria-label": "Pannello del nodo" },
-      h("div", { class: "du-zona-testa" }, h("h2", {}, S.nodo && g && g.nodi[S.nodo] ? "Nodo della proposta" : "Pannello del nodo")), h("div", { class: "du-zona-corpo" }, nodo))));
+    anteprimaConPannello());
+}
+// anteprimaConPannello: il riquadro dell'anteprima (riquadroAnteprima: la proposta, l'organigramma o l'elenco, i gesti) con
+// il pannello del nodo della proposta accanto. Lo stesso nella Sorgente (dettaglio allargato) e nella Revisione.
+function anteprimaConPannello(id) {
+  const g = S.anteprima ? grafoProposta() : null;
+  const nodo = g && g.nodi[S.nodo] ? pannelloNodo(g, g.nodi[S.nodo]) : h("p", { class: "du-muto du-piccolo" }, "Scegli un pezzo della proposta per vedere identità proposta, riferimenti e provenienza.");
+  return h("div", { class: "du-sg-anteprima-c", id: id || null }, riquadroAnteprima(g), h("section", { class: "du-zona du-zona--nodo", "aria-label": "Pannello del nodo" },
+    h("div", { class: "du-zona-testa" }, h("h2", {}, S.nodo && g && g.nodi[S.nodo] ? "Nodo della proposta" : "Pannello del nodo")), h("div", { class: "du-zona-corpo" }, nodo)));
+}
+// anteprimaInRevisione: l'anteprima di uno STEP chiesta dalla Revisione (il riquadro dello STEP proposto, o della sorgente
+// revocata): si mostra lì, con lo stesso riquadro della Sorgente, finché non la si chiude (collaudo UI46, giro 2, C2-B1:
+// «Guarda l'anteprima» dalla Revisione senza bozza non mostrava niente, e «Conferma questo STEP» stava accanto) [T]
+function anteprimaInRevisione() {
+  return !!(S.anteprima && S.passo === "revisione" && S.anteprimaPasso === "revisione");
+}
+// revisioneAnteprima: il posto dell'anteprima nella Revisione, a tutta larghezza
+function revisioneAnteprima() {
+  return h("div", { class: "du-rev-anteprima", id: "du-rev-anteprima" }, anteprimaConPannello());
 }
 
 // ---- le mosse (R4 del mockup v5): ogni mossa lascia la riga fantasma, il ±1 sui conti, «Ultima mossa» con «Vai al file»
@@ -3815,7 +4721,7 @@ function contiAlbero() {
 function registraMossa(testo, o) {
   o = o || {};
   SG.mossa = { testo, allegato: o.allegato || "", cartella: SG.cartella, passo: o.annullabile ? S.pila[S.pila.length - 1] || null : null, esito: o.esito || "ok", contiPrima: o.contiPrima || null,
-    fantasma: o.fantasma || null };
+    fantasma: o.fantasma || null, prodotto: S.prodotto };
   annuncia(testo);
   renderBarra();
 }
@@ -3987,7 +4893,7 @@ function apriAssociaNodo(f, o) {
 }
 // apriGruppoFile: «Metti in Altri file… (n)», «Riattiva… (n)», «Scarta… (n)» (D-V5-02 senza risposta: vale la
 // raccomandata A, base [T]: un dialogo solo con l'elenco file per file e le dipendenze, un solo «Scollega e …», una sola
-// spunta per le uniche copie, un motivo uguale per tutti, l'esito file per file). I gesti partono uno dopo l'altro, ognuno
+// spunta per le uniche copie, l'esito file per file; dal messaggio 46 [U] nessun motivo). I gesti partono uno dopo l'altro, ognuno
 // con la sua chiave, il suo corpo e le impronte del suo dettaglio.
 async function apriGruppoFile(gesto, files) {
   if (!files.length) return;
@@ -4011,26 +4917,21 @@ async function apriGruppoFile(gesto, files) {
     h("p", {}, testi[gesto]),
     h("ul", { class: "du-dip", id: "f-gruppo" }, det.map((x) => h("li", { "data-allegato": x.f.allegato_id }, h("b", {}, x.f.nome_file), h("span", {}, arr(x.d.dipendenze).map((d) => (d.codice || "") + (d.testo ? ": " + d.testo : "")).join(" · ") || "nessuna dipendenza")))),
     gesto === "scarta" && unica ? h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-unica" }), "Ho capito: per " + unica + " file è l'unica copia. Scartandoli non ne resta nessuna: per riaverli dovrò ricaricarli.") : null,
-    gesto !== "riattiva" && scol ? h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-scollega" }), (gesto === "scarta" ? "Scollega e scarta" : "Scollega e metti in Altri file") + " (" + scol + " file associati)") : null,
-    gesto === "riattiva" ? null : campo(gesto === "scarta" ? "Motivo (uguale per tutti)" : "Motivo (facoltativo, uguale per tutti)", area("f-motivo", gesto === "scarta" ? "obbligatorio" : ""))),
+    gesto !== "riattiva" && scol ? h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-scollega" }), (gesto === "scarta" ? "Scollega e scarta" : "Scollega e metti in Altri file") + " (" + scol + " file associati)") : null),
   [{ testo: "Annulla", chiudi: true }, { testo: nomi[gesto] + " (" + files.length + ")", pri: gesto !== "scarta", danger: gesto === "scarta", id: "f-ok", spento: () => {
     const fin = $("#du-finestra");
     const manca = [];
     if (blocchi.length) manca.push("dipendenze che bloccano: " + blocchi.map((x) => x.f.nome_file).join(", "));
-    if (gesto === "scarta" && !valore(fin, "f-motivo")) manca.push("il motivo");
     if (gesto === "scarta" && unica && !fin.querySelector("#f-unica").checked) manca.push("la spunta «Ho capito»");
     if (gesto !== "riattiva" && scol && !fin.querySelector("#f-scollega").checked) manca.push("la spunta «Scollega e …»");
     return manca.length ? "Spento: mancano: " + manca.join(", ") : "";
   }, fai: async () => {
-    const fin = $("#du-finestra");
-    const motivo = valore(fin, "f-motivo");
     const prima = contiAlbero();
     const k0 = SG.cartella;
     const esiti = [];
     for (const { f, d } of det) {
       const corpo = { versione_attesa: typeof f.versione === "number" ? f.versione : 0 };
       if (gesto !== "riattiva") corpo.impronta_dipendenze = d.impronta_dipendenze || "";
-      if (motivo) corpo.motivo = motivo;
       if (gesto !== "riattiva" && richiede(d, "scollega")) corpo.scollega = true;
       if (gesto === "scarta" && richiede(d, "conferma_unica_copia")) corpo.conferma_unica_copia = true;
       if (eArchivio(f) && gesto !== "scarta") corpo.perimetro = "contenitore";
@@ -4065,9 +4966,11 @@ async function guardaPer(c) {
     if (S.prodotto !== c.prodotto_id) return;
   }
   SG.larga = true;
-  // una candidata incerta non si mette in vista da sola (SG-02; [U] RAT05-FONTE-SOSTITUIBILE): S6 senza gruppo, e la
-  // struttura si sceglie con un gesto esplicito nell'anteprima
-  await guarda(c.allegato_id, c.compatibilita === "incerta" ? "" : c.gruppo || "");
+  // messaggio 46 [U]: l'anteprima dello STEP compare anche con la candidata «incerta». Il gesto «Guarda l'anteprima per
+  // ‹P›» di una candidatura (o della proposta) mette in vista la sua struttura: è la scelta esplicita di chi guarda, e
+  // guardare non conferma niente (supera, per l'anteprima, la regola di prima SG-02 «un'incerta non si mette in vista da
+  // sola»; la conferma resta il gesto separato di S8). Senza gruppo, guarda sceglie la struttura se è una sola.
+  await guarda(c.allegato_id, c.gruppo || "");
 }
 function chiudiAnteprima() {
   S.anteprima = null;
@@ -4081,10 +4984,10 @@ function chiudiAnteprima() {
 // la conferma di uno STEP senza struttura importabile (apriSoloProdotto). Il prodotto della candidatura è il prodotto
 // scelto (conProdotto). Il gruppo e l'impronta sono quelli che la pagina ha mostrato (S6 o la candidatura di S9); con una
 // bozza aperta su un'altra sorgente o senza STEP il dialogo legge prima l'effetto con S6 ?bozza= (caso (d)), dichiara la
-// bozza nel corpo e vuole il motivo. codice_atteso è il codice del prodotto mostrato; sha256 quello del file di S1.
+// bozza nel corpo (dal messaggio 46 [U] mai il motivo: dove serve lo scrive il server). codice_atteso è il codice del prodotto mostrato; sha256 quello del file di S1.
 // opz.spostaDa (G39-03 [U]): lo STEP è legato a quell'altro prodotto e passa a questo (S8 con sposta_da): come sorgente S8
 // non usata da una R5 (la revoca «sorgente errata» e l'annullamento della bozza là) o, con opz.riassocia, come documento
-// o copia P1 senza S8 (si riassocia con il motivo, opz.testo è il testo del server). Il motivo serve sempre.
+// o copia P1 senza S8 (si riassocia con sposta_da, opz.testo è il testo del server). Nessun motivo (messaggio 46 [U]).
 async function apriConfermaSorgente(c, opz) {
   const o = opz || {};
   const id = S.prodotto;
@@ -4117,6 +5020,7 @@ async function apriConfermaSorgente(c, opz) {
   let impronta = c.impronta_contenuto || "";
   let radice = c.radice_letterale || "";
   let effetto = null;
+  let conBozzaS6 = null; // S6 ?bozza= letta per l'effetto: la struttura del dialogo la riusa
   if (!solo && S.anteprima && S.anteprimaAllegato === c.allegato_id) {
     const gr = arr(S.anteprima.gruppi).find((x) => x.gruppo === (S.anteprimaGruppo || gruppo));
     if (gr) {
@@ -4131,32 +5035,72 @@ async function apriConfermaSorgente(c, opz) {
     try {
       const a2 = await P.anteprimaStep(c.allegato_id, id, { gruppo: gruppo || undefined, bozza: S.bozza.bozza_id });
       if (a2.errore) return avvisa("errore", "L'effetto sulla bozza non si calcola: " + a2.errore + ". La conferma non parte.");
+      conBozzaS6 = a2;
       const gr2 = arr(a2.gruppi).find((x) => x.gruppo === gruppo) || arr(a2.gruppi)[0];
       if (gr2) {
         gruppo = gr2.gruppo;
         impronta = gr2.impronta_contenuto || impronta;
       }
       effetto = P.effettoS6(a2.effetto_sulla_bozza);
-      if (effetto.stessa_sorgente && sorg === c.allegato_id) return avvisa("no", "È la sorgente della bozza: per prendere la proposta di oggi usa «Aggiorna proposta…».");
+      if (effetto.stessa_sorgente && sorg === c.allegato_id) return avvisa("no", S.confrontoNo ? "È già la sorgente della bozza." : "È la sorgente della bozza: per prendere la proposta di oggi usa «Aggiorna proposta…».");
     } catch (e) {
       return avvisa("errore", "L'effetto sulla bozza non si legge: " + testoErrore(e) + ". La conferma non parte.");
     }
   }
-  if (!solo && (!gruppo || !impronta)) return avvisa("no", "La conferma della sorgente non parte: il server non dà gruppo e impronta della proposta. Guarda prima l'anteprima.");
+  if (!solo && (!gruppo || !impronta)) {
+    // collaudo UI46, giro 3 (F3-B1): uno STEP senza struttura importabile per il prodotto (la radice diversa, o senza il
+    // marcatore) non ha gruppo né impronta; il pulsante principale della card apre lo stesso dialogo «solo prodotto»
+    // dell'anteprima, con lo stato che dice S6 (struttura_step.partenza = solo_prodotto), invece di fermarsi [T]
+    let ss2 = null;
+    const vista0 = S.anteprima && S.anteprimaAllegato === c.allegato_id ? S.anteprima : conBozzaS6;
+    if (vista0 && ogg(vista0.struttura_step)) ss2 = vista0.struttura_step;
+    else {
+      try {
+        const a4 = await P.anteprimaStep(c.allegato_id, id, {});
+        if (a4 && !a4.errore && ogg(a4.struttura_step)) ss2 = a4.struttura_step;
+      } catch (e) {
+        ss2 = null;
+      }
+    }
+    if (ss2 && ss2.partenza === "solo_prodotto") return apriConfermaSorgente(c, Object.assign({}, o, { partenza: "solo_prodotto", struttura: ss2 }));
+    return avvisa("no", "Per " + cod + " il Motore A non dà una struttura da confermare in questo STEP: «Guarda l'anteprima per " + cod + "» dice che cosa legge.");
+  }
+  // che cosa si conferma (messaggio 46 [U], difetti D09 e D17): la struttura proposta del gruppo che si dichiara, dalla
+  // anteprima in vista se è questa, altrimenti letta adesso con S6 (una lettura: guardare non scrive niente). Se la
+  // lettura non riesce il dialogo lo dice e la conferma resta possibile: la regola la tiene S8
+  let vista = null;
+  if (!solo && S.anteprima && S.anteprimaAllegato === c.allegato_id && S.anteprimaGruppo === gruppo && S.anteprima.proposta) vista = S.anteprima;
+  else if (!solo && conBozzaS6 && conBozzaS6.proposta && arr(conBozzaS6.gruppi).some((x) => x.gruppo === gruppo)) vista = conBozzaS6;
+  else if (!solo) {
+    try {
+      const a3 = await P.anteprimaStep(c.allegato_id, id, conBozza ? { gruppo, bozza: S.bozza.bozza_id } : { gruppo });
+      if (a3 && !a3.errore && a3.proposta) vista = a3;
+    } catch (e) {
+      vista = null;
+    }
+  }
+  if (vista && !radice) radice = radiceDi(arr(vista.gruppi).find((x) => x.gruppo === gruppo));
+  const confronto = vista && vista.confronto ? vista.confronto : radice && cod ? (radice === cod ? "coincide" : "diverso") : "";
   // G39-03 [U] prima di R5 (giro G39-ter): la bozza aperta è nata da un'altra sorgente S8 e la BOM non è mai stata
   // confermata: S8 la sostituisce (annullata con la sua storia, sorgente revocata, bozza nuova dalla proposta) invece di
   // cambiarne la fonte; lo dice S6 (effetto_sulla_bozza.sostituzione), con la presa d'atto se la bozza ha modifiche
   const sostBozza = effetto && ogg(effetto.sostituzione) ? effetto.sostituzione : null;
   const diverso = !solo && !!(radice && cod && radice !== cod);
+  // il codice letto dal file (S1 proposta.codice) che non è quello del prodotto: S8 registra il documento con il codice del
+  // prodotto (core/rfq/sorgente/s8.go passo 2, con qualunque candidatura dal messaggio 46 [U]), e il dialogo lo dice prima
+  // del gesto, perché l'utente veda che cosa conferma [T]. Un documento già confermato non cambia codice. Il confronto è
+  // quello del server (confermadoc.stessoCodice: spazi ai lati e maiuscole non contano). Il corpo non lo porta.
+  const letto = !f.documento ? codiceLettoDelFile(f) : "";
+  const lettoDiverso = !!(letto && cod && letto.toUpperCase() !== String(cod).trim().toUpperCase());
   const manuale = conBozza && !sb;
   const cambio = conBozza && !!sb && !stessaDellaBozza;
   // un'altra sorgente confermata e valida: la conferma nuova la supera per la bozza; per S8 è una presa d'atto
   // (sostituisci {conferma: true}, R39-05), il documento di prima resta e la working cambia solo con «Conferma BOM»
   const sostituisci = !!(sorg && sorg !== c.allegato_id);
   const nas = S.sorgente && S.sorgente.configurazione && ogg(S.sorgente.configurazione.altri_file) && S.sorgente.configurazione.altri_file.disponibile === false;
-  const motivoServe = !!sposta || solo || diverso || ((manuale || cambio) && !stessaDellaBozza);
   const versione = conBozza ? S.bozza.versione : 0;
-  const elenco = (t, x) => (arr(x).length ? h("li", {}, t + ": " + arr(x).length + " — " + arr(x).map(voceEffetto).join(", ")) : null);
+  const gpEff = vista ? grafoProposta(vista) : null;
+  const elenco = (t, x) => (arr(x).length ? h("li", {}, t + ": " + arr(x).length + " — " + arr(x).map((y) => voceEffetto(y, gpEff)).join(", ")) : null);
   const statoTesto = { pronta: "analisi conclusa, nessuna struttura importabile per il prodotto", in_analisi: "analisi ancora in corso", errore: "analisi fallita", non_valutato: "analisi non valutata" };
   const cosa = manuale ? "riconcilia la bozza senza STEP che hai già (la stessa bozza: i pezzi uguali si abbinano, gli incerti restano da decidere)" :
     sostBozza ? "sostituisce la bozza aperta, nata da un altro STEP (la bozza di adesso è annullata e resta nella storia, la sua sorgente è revocata, la bozza nuova nasce dalla proposta)" :
@@ -4166,16 +5110,18 @@ async function apriConfermaSorgente(c, opz) {
     solo ? "Conferma " + f.nome_file + " come sorgente di " + cod + " · solo prodotto" : "Conferma " + f.nome_file + " come sorgente di " + cod;
   const codA = sposta ? codiceDi(sposta) : "";
   apriFinestra(titolo, h("div", { style: "display:grid;gap:8px" },
-    h("p", {}, "Il server registra la conferma di " + f.nome_file + " come sorgente di " + cod + " e " + cosa + ". Non è la conferma della BOM né del fascicolo: la BOM confermata e lo STEP della working cambiano solo con «Conferma BOM». Lo STEP confermato va anche nella cartella della RFQ sul NAS" +
+    h("p", {}, "Il server registra la conferma di " + f.nome_file + " come sorgente di " + cod + " e " + cosa + ". Non è la conferma della BOM né del fascicolo: la BOM confermata cambia solo con «Conferma BOM». Lo STEP confermato va anche nella cartella della RFQ sul NAS" +
       (nas ? " quando la scrittura sul NAS sarà accesa" : "") + "."),
     sposta ? h("div", { class: "du-esito du-esito--ver", id: "f-sposta", "data-sposta-da": sposta }, h("b", {}, (o.riassocia ? "Riassocia lo STEP da " : "Sposta la sorgente da ") + codA + " a " + cod + "."),
-      h("span", {}, o.riassocia ? " " + (o.testo || "Lo STEP è un documento di " + codA + ", non la sua sorgente confermata: lascerà " + codA + ".") + " Scrivi il motivo." :
-        " Il server lo fa in un solo gesto: revoca la sorgente di " + codA + " con il motivo «sorgente errata»; annulla la bozza di " + codA + " nata da questo STEP (abbandonata, la sua storia resta); " +
-        "conferma lo STEP come sorgente di " + cod + ". Se " + codA + " ha già confermato la BOM con questo STEP, lo spostamento non si fa: si apre la sua revisione. In V1 uno STEP è la sorgente di un solo prodotto.")) : null,
+      h("span", {}, o.riassocia ? " " + (o.testo || "Lo STEP è un documento di " + codA + ", non la sua sorgente confermata: lascerà " + codA + ".") :
+        " Il server lo fa in un solo gesto: revoca la sorgente di " + codA + " come «sorgente errata»; annulla la bozza di " + codA + " nata da questo STEP (abbandonata, la sua storia resta); " +
+        "conferma lo STEP come sorgente di " + cod + ". Se " + codA + " ha già confermato la BOM con questo STEP, lo spostamento non si fa: si apre la sua revisione. Uno STEP è la sorgente di un solo prodotto.")) : null,
     solo ? h("div", { class: "du-esito du-esito--ver", id: "f-solo-prodotto" }, h("b", {}, "Stato dello STEP: " + (statoTesto[ss.stato_analisi] || ss.stato_analisi || "?") + "."),
-      h("span", {}, " " + (ss.testo || "") + " La bozza parte dal solo prodotto: nessuna struttura è dedotta, e l'assenza di un risultato non è una prova geometrica (nessun mono-pezzo dedotto)."),
+      h("span", {}, " " + aParole(ss.testo) + (ss.testo ? ". " : "") + "La bozza parte dal solo prodotto: i pezzi li aggiungi tu."),
+      radiceLettaDiversa(c.allegato_id, cod) ? h("span", { id: "f-radice-letta" }, " La radice dello STEP è ", h("span", { class: "du-mono" }, radiceLettaDiversa(c.allegato_id, cod)), ", non " + cod + ".") : null,
       h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-presa" }), "Ho preso atto dello stato dell'analisi: procedo dal solo prodotto.")) :
-      h("p", { class: "du-nota" }, "Struttura: ", h("span", { class: "du-mono" }, breve(gruppo, 60)), " · radice letta ", h("span", { class: "du-mono" }, radice || "?")),
+      h("div", { class: "du-riass-box", id: "f-cosa" }, h("p", { class: "du-nota", id: "f-codici" }, righeCodici(cod, radice, confronto, stepProposto(id, c.allegato_id))),
+        riassuntoStruttura(vista ? grafoProposta(vista) : null) || h("p", { class: "du-nota", id: "f-struttura-non-letta" }, "La struttura proposta non si legge adesso: la vedi con «Guarda l'anteprima per " + cod + "».")),
     sostituisci ? h("p", { class: "du-nota", id: "f-sostituisci" }, "La sorgente confermata di adesso (" + nomeFile(sorg) + ") resta un documento confermato: questo STEP la supera come sorgente della bozza. La BOM confermata non cambia finché non confermi la BOM nuova.") : null,
     // G39-03 [U]: dopo la conferma della BOM il cambio di sorgente per uno STEP sbagliato è una revisione interna, distinta
     // da una revisione del cliente: la spunta (mai spuntata) lo dichiara, correzione_sorgente nel corpo di S8 [T-39]
@@ -4189,45 +5135,58 @@ async function apriConfermaSorgente(c, opz) {
         elenco("caselle riscritte su un'altra copia", effetto.caselle_riscritte), elenco("archi riscritti", effetto.archi_riscritti), elenco("identità aggiornate", effetto.identita_aggiornate),
         elenco("da rivedere", effetto.da_rivedere), elenco("decisioni che cadono", effetto.decisioni_cadute), elenco("collegamenti da ricollocare", effetto.preassociazioni_nel_vassoio),
         elenco("abbinamenti da decidere", effetto.abbinamenti_proposti))) : null,
-    diverso ? h("p", { class: "du-nota", id: "f-radice-diversa" }, "Il codice letto dalla radice dello STEP (", h("span", { class: "du-mono" }, radice), ") non è quello del prodotto (", h("span", { class: "du-mono" }, cod), "): serve un motivo.") : null,
+    diverso ? h("p", { class: "du-nota", id: "f-radice-diversa" }, "Il codice letto dalla radice dello STEP (", h("span", { class: "du-mono" }, radice), ") non è quello del prodotto (", h("span", { class: "du-mono" }, cod), "): confermando, vale il codice del prodotto.") : null,
+    lettoDiverso ? h("p", { class: "du-nota", id: "f-codice-letto", "data-letto": letto }, "Il file dice ", h("span", { class: "du-mono" }, letto), ", non ", h("span", { class: "du-mono" }, cod),
+      ": confermando, il documento prende il codice del prodotto (", h("span", { class: "du-mono" }, cod), ").") : null,
     // G39-02 [U]: la partenza «solo prodotto» da un altro STEP mentre il motore ne propone uno come sorgente
     solo ? avvisoStepProposto(id, c.allegato_id) : null,
-    motivoServe ? campo("Motivo", area("f-motivo", "", 500), "Fino a 500 caratteri.") : null),
+    // l'attesa si vede nel dialogo, non solo nella striscia dietro il velo (messaggio 46, D26)
+    h("p", { class: "du-esito du-esito--info", id: "f-in-corso", role: "status", hidden: true })),
   [{ testo: "Annulla", chiudi: true }, { testo: cambio ? "Usa questo STEP" : solo ? "Conferma e parti dal solo prodotto" : "Conferma la sorgente", pri: true, id: "f-ok", spento: () => {
     const fin = $("#du-finestra");
-    const m = valore(fin, "f-motivo");
     const manca = [];
     if (conBozza && S.bozza && S.bozza.versione !== versione) return "la bozza è cambiata: riapri il dialogo";
     if (solo && !(fin.querySelector("#f-presa") || {}).checked) manca.push("la presa d'atto dello stato dell'analisi");
     if (sostBozza && sostBozza.modifiche_utente && !(fin.querySelector("#f-presa-sostituzione") || {}).checked) manca.push("la presa d'atto della bozza sostituita");
     if (mancaPresaProposto(fin)) manca.push(mancaPresaProposto(fin));
-    if (motivoServe && !m) manca.push("il motivo");
-    if (manca.length) return "mancano: " + manca.join(", ");
-    return m && m.length > 500 ? "il motivo sta in 500 caratteri" : "";
+    return manca.length ? "mancano: " + manca.join(", ") : "";
   }, fai: async () => {
-    const motivo = valore($("#du-finestra"), "f-motivo");
     const corpo = { prodotto_id: id, codice_atteso: cod || undefined };
     if (f.sha256) corpo.sha256 = f.sha256;
     if (solo) Object.assign(corpo, { partenza: "solo_prodotto", stato_analisi: ss.stato_analisi, presa_d_atto: true });
     else Object.assign(corpo, { gruppo, impronta_contenuto: impronta });
     if (!corpo.codice_atteso) delete corpo.codice_atteso;
-    if (motivo) corpo.motivo = motivo;
     if (sostituisci || sostBozza) corpo.sostituisci = { conferma: true };
     if (sposta) corpo.sposta_da = sposta;
     if (sostituisci && !sposta && !sostBozza && ($("#du-finestra").querySelector("#f-correzione") || {}).checked) corpo.correzione_sorgente = true;
     // con una bozza aperta il corpo la dichiara (anche la bozza senza STEP: senza, 409 BOZZA_VERSIONE con il conflitto)
     if (conBozza) corpo.bozza = { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione };
     SG.inCorsoS8[id] = true;
-    avvisa("ok", "Conferma della sorgente in corso: conferma del documento, bozza…");
+    avvisa("ok", "Conferma della sorgente in corso: conferma del documento, bozza…", "prodotto");
+    const attesa = $("#f-in-corso");
+    if (attesa) {
+      attesa.textContent = "⟳ Conferma in corso: registro la sorgente e preparo la bozza di " + cod + "…";
+      attesa.hidden = false;
+    }
     renderCorpo();
     let r;
     try {
       r = await inSerie("sorgente:" + id, () => P.confermaSorgente(c.allegato_id, corpo));
+    } catch (e) {
+      if (attesa) attesa.hidden = true;
+      throw e;
     } finally {
       delete SG.inCorsoS8[id];
     }
-    return esitoS8(r, id, c);
+    if (attesa && r && r.esito === "ok") attesa.textContent = "⟳ Sorgente registrata: rileggo la bozza e i file…";
+    const fatto = await esitoS8(r, id, c);
+    if (!fatto && attesa) attesa.hidden = true;
+    return fatto;
   } }]);
+}
+// codiceLettoDelFile: il codice letto dal file (S1 proposta.codice), "" se non c'è; solo da mostrare (il dialogo di S8)
+function codiceLettoDelFile(f) {
+  return f && ogg(f.proposta) && typeof f.proposta.codice === "string" ? f.proposta.codice.trim() : "";
 }
 // apriSoloProdotto: «Conferma come sorgente e parti dal solo prodotto…» dall'anteprima di uno STEP senza struttura per il
 // prodotto, o con l'analisi in corso o fallita (direttiva 39 §3; struttura_step di S6 con partenza solo_prodotto)
@@ -4254,17 +5213,24 @@ async function esitoS8(r, id, c) {
     const nAbb = id === S.prodotto && bozzaLavorabile() ? abbinamentiProposti().length : 0;
     // e le differenze di quantità, legami e tipi con lo STEP (direttiva 39 §3: si mostrano, «recepisci/mantieni»)
     const nDiff = id === S.prodotto && bozzaLavorabile() ? differenzeRiconciliazione().length : 0;
-    const testo = (d.esito === "completata" ? d.testo || "Sorgente confermata: la bozza di " + codiceDi(id) + " è pronta da rivedere. La BOM non è confermata." :
-      (d.testo || "Conferma della sorgente parziale.") + (d.ritentabile ? " «Riprova» dalla striscia riprende con la stessa chiave." : ko && ko.codice === "ANTEPRIMA_SUPERATA" ? " Rivedi l'anteprima e conferma di nuovo." : "")) +
+    const testo = (d.esito === "completata" ? senzaGergo(d.testo) || "Sorgente confermata: la bozza di " + codiceDi(id) + " è pronta da rivedere. La BOM non è confermata." :
+      (senzaGergo(d.testo) || "Conferma della sorgente parziale.") + (d.ritentabile ? " «Riprova» dalla striscia riprende con la stessa chiave." : ko && ko.codice === "ANTEPRIMA_SUPERATA" ? " Rivedi l'anteprima e conferma di nuovo." : "")) +
       (nAbb ? " Abbinamenti da decidere nella Revisione: " + nAbb + "." : "") + (nDiff ? " Differenze con lo STEP da vedere nella Revisione: " + nDiff + "." : "") +
       // G39-03: che cosa lo spostamento ha fatto sull'altro prodotto (la revoca, la bozza annullata), detto dal server
-      (ogg(d.spostamento) && d.spostamento.testo ? " " + d.spostamento.testo : "") +
+      (ogg(d.spostamento) && d.spostamento.testo ? " " + senzaGergo(d.spostamento.testo) : "") +
       // G39-03 prima di R5 (giro G39-ter): la bozza precedente sostituita (annullata, sorgente revocata), detto dal server
-      (ogg(d.sostituzione) && d.sostituzione.testo ? " " + d.sostituzione.testo : "");
+      (ogg(d.sostituzione) && d.sostituzione.testo ? " " + senzaGergo(d.sostituzione.testo) : "");
     registraMossa(testo, { allegato: c.allegato_id, esito: d.esito === "completata" ? "ok" : "parziale" });
     SG.apertiProdotto["p:" + id] = undefined;
+    // dopo il gesto riuscito le spunte non valgono più (messaggio 46, D20)
+    togliTutteLeSpunte();
     await vaiCartella("p:" + id, { salto: true, vista: "elenco" });
-    avvisa(d.esito === "completata" ? "ok" : "no", testo + (riletta ? "" : " La pagina non si è riletta: ↻ Rileggi."));
+    // l'esito riuscito sta nell'intestazione del prodotto e in «Ultima mossa»: niente terza copia nella striscia (D23);
+    // la striscia resta per un esito parziale, per la pagina che non si è riletta, per quello che resta da fare nella
+    // Revisione (abbinamenti, differenze) e per gli effetti su un altro prodotto o su una bozza di prima (spostamento,
+    // sostituzione: detti dal server)
+    if (d.esito === "completata" && riletta && !nAbb && !nDiff && !(ogg(d.spostamento) && d.spostamento.testo) && !(ogg(d.sostituzione) && d.sostituzione.testo)) avvisa("ok", "");
+    else avvisa(d.esito === "completata" ? "ok" : "no", testo + (riletta ? "" : " La pagina non si è riletta: ↻ Rileggi."), "prodotto");
     render();
     const t = $("#du-sg-esito-s8");
     if (t) t.setAttribute("tabindex", "-1"), t.focus();
@@ -4326,7 +5292,7 @@ async function esitoS8(r, id, c) {
   }
   // G39-03 [U]: lo STEP è legato a un altro prodotto (altro_prodotto del rifiuto, core/rfq/sorgente/sposta.go); il testo è
   // del server, la pagina aggiunge il rimedio: sorgente_spostabile → «Sposta la sorgente su ‹P›…»; riassociazione (un
-  // documento o una copia P1 dell'altro, senza S8) → la riassociazione con il motivo; bom_confermata → «Apri la revisione di
+  // documento o una copia P1 dell'altro, senza S8) → «Riassocia a ‹P›…» (sposta_da; messaggio 46 [U]: senza motivo); bom_confermata → «Apri la revisione di
   // ‹altro›» (dopo R5 niente spostamento diretto: il cambio di sorgente dell'altro è una sua revisione interna)
   const altroP = r.dati && typeof r.dati.altro_prodotto === "string" ? r.dati.altro_prodotto.toLowerCase() : "";
   if (altroP && ["sorgente_spostabile", "bom_confermata", "riassociazione"].includes(r.motivo)) {
@@ -4337,7 +5303,7 @@ async function esitoS8(r, id, c) {
         chiudiFinestra();
         conProdotto(altroP, () => vaiPasso("revisione"));
       }, { cls: "du-btn--sm du-btn--pri", id: "f-rimedio-revisione", perche: false }) :
-      btn(r.motivo === "riassociazione" ? "Riassocia a " + codiceDi(id) + " con il motivo…" : "Sposta la sorgente su " + codiceDi(id) + "…", () => {
+      btn(r.motivo === "riassociazione" ? "Riassocia a " + codiceDi(id) + "…" : "Sposta la sorgente su " + codiceDi(id) + "…", () => {
         chiudiFinestra();
         conProdotto(id, () => apriConfermaSorgente(c, { spostaDa: altroP, riassocia: r.motivo === "riassociazione", testo: r.testo }));
       }, { cls: "du-btn--sm du-btn--pri", id: "f-rimedio-sposta", perche: false });
@@ -4362,7 +5328,7 @@ async function esitoS8(r, id, c) {
     renderCorpo();
     return false;
   }
-  const testi = { STEP_SORGENTE_DI_ALTRO_PRODOTTO: "Questo STEP è già la sorgente di un altro prodotto: in V1 uno STEP è la sorgente di un solo prodotto.", MOTIVO_OBBLIGATORIO: "Serve il motivo.",
+  const testi = { STEP_SORGENTE_DI_ALTRO_PRODOTTO: "Questo STEP è già la sorgente di un altro prodotto: uno STEP è la sorgente di un solo prodotto.", MOTIVO_OBBLIGATORIO: TESTO_MOTIVO_VECCHIO,
     FILE_NON_ATTIVO: "Lo STEP non è fra i file attivi della RFQ: riattivalo prima.", NON_STEP: "Il file non è uno STEP.", FONTE_NON_CONFERMATA: "La sorgente non risulta confermata: ↻ Aggiorna.",
     GIA_DOCUMENTO: "Lo stesso STEP è già un documento del Fascicolo (di un altro componente, senza componente o sostituito): non diventa la sorgente di questo prodotto.",
     CALCOLO_OCCUPATO: "Il motore è occupato: niente è stato scritto, riprova fra poco.", CALCOLO_SCADUTO: "Il motore non ha risposto in tempo: niente è stato scritto, riprova.", RFQ_UNITA: TESTI_FILE.RFQ_UNITA };
@@ -4397,20 +5363,33 @@ async function riprovaS8(s) {
 
 async function guarda(allegato, gruppo, silenzioso) {
   if (!S.prodotto) return;
+  // F4-I1: l'anteprima di questo STEP era già aperta nella Revisione (un'altra struttura scelta dentro il riquadro): la
+  // pagina non si sposta
+  const giaInRevisione = anteprimaInRevisione() && S.anteprimaAllegato === allegato;
   S.anteprimaAllegato = allegato;
   S.anteprimaGruppo = gruppo || "";
+  // il passo da cui l'anteprima è stata chiesta: dalla Revisione si mostra lì (collaudo UI46, giro 2, C2-B1); le letture
+  // silenziose (dopo un gesto) non lo cambiano
+  if (!silenzioso) S.anteprimaPasso = S.passo;
   S.erroreAnteprima = "";
-  if (!silenzioso) avvisa("ok", "Lettura della proposta dello STEP…");
+  if (!silenzioso) avvisa("ok", "Lettura della proposta dello STEP…", "anteprima");
   try {
     const opz = { gruppo: gruppo || undefined };
     if (bozzaLavorabile()) opz.bozza = S.bozza.bozza_id;
-    const a = await P.anteprimaStep(allegato, S.prodotto, opz);
-    S.anteprima = a;
+    let a = await P.anteprimaStep(allegato, S.prodotto, opz);
     if (!gruppo) {
       const inVista = arr(a.gruppi).find((x) => x.in_vista);
-      S.anteprimaGruppo = inVista ? inVista.gruppo : "";
+      // messaggio 46 [U]: una sola struttura candidata (anche «incerta», che il server non mette in vista da solo) si
+      // mostra subito: S6 di nuovo con quel gruppo, una lettura
+      const unica = !inVista && !a.errore && arr(a.gruppi).length === 1 ? arr(a.gruppi)[0].gruppo : "";
+      if (unica) {
+        a = await P.anteprimaStep(allegato, S.prodotto, Object.assign({}, opz, { gruppo: unica }));
+        S.anteprimaGruppo = unica;
+      } else S.anteprimaGruppo = inVista ? inVista.gruppo : "";
     }
-    if (!silenzioso) avvisa("ok", a.errore ? "Il calcolo della proposta non è riuscito: " + a.errore : "Proposta dello STEP in vista, non confermata.");
+    S.anteprima = a;
+    if (!silenzioso) avvisa(a.errore ? "errore" : "ok", a.errore ? "Il calcolo della proposta non è riuscito: " + a.errore : a.proposta ? "Proposta dello STEP in vista, non confermata." :
+      "Anteprima di " + (a.nome_file || nomeFile(allegato)) + ": il motore non ha una struttura da proporre per " + codiceProdotto() + ".", "anteprima");
   } catch (e) {
     S.anteprima = null;
     S.erroreAnteprima = testoErrore(e);
@@ -4418,6 +5397,26 @@ async function guarda(allegato, gruppo, silenzioso) {
   }
   S.nodo = "";
   render();
+  // collaudo finale, giro 4 (F4-I1) [T]: dalla Revisione l'anteprima nasce sotto la card dello STEP, sotto la piega. Il clic
+  // l'ha chiesta: la si porta in cima alla finestra e la si adatta alla parte che ora si vede (all'apertura altoVisibile
+  // misurava meno di 200 px e lasciava lo zoom al 60 %). Solo dopo il gesto che la apre, mai dopo una lettura silenziosa né
+  // quando era già aperta qui
+  if (!silenzioso && !giaInRevisione && anteprimaInRevisione()) {
+    const ra = $("#du-rev-anteprima");
+    if (ra) {
+      ra.scrollIntoView({ block: "start", behavior: "instant" });
+      if (L && L.vp && ra.contains(L.vp)) setCam(vistaIniziale());
+    }
+  }
+  // UI46 (controllo di stabilità del 21/10 [T]): l'anteprima allargata nasconde l'elenco, e il fuoco che era sulla riga
+  // dello STEP finiva sul body; va sul «Chiudi» dell'anteprima (o sul «Riduci»), senza far scorrere niente
+  if (!silenzioso) {
+    const a = document.activeElement;
+    if (!a || a === document.body || !a.isConnected || !a.offsetParent || getComputedStyle(a).visibility === "hidden") {
+      const dove = $("#du-anteprima-chiudi") || $("#du-sg-riduci");
+      if (dove) dove.focus({ preventScroll: true });
+    }
+  }
 }
 function riquadroAnteprima(g) {
   const a = S.anteprima;
@@ -4434,9 +5433,15 @@ function riquadroAnteprima(g) {
   const ss = ogg(a.struttura_step) ? a.struttura_step : null;
   const fascia = ss ? fasciaStruttura(ss) : null;
   if (a.stato !== "pronta") {
+    // F3-I4 (collaudo UI46, giro 3) [T]: lo STEP analizzato la cui radice non è il prodotto non è «non determinabile»: è
+    // di un altro codice, e la striscia dice quale
+    const rd = a.stato === "struttura_non_determinabile" && ss && ss.stato_analisi === "pronta" ? radiceLettaDiversa(a.allegato_id, a.codice_prodotto || codiceProdotto()) : "";
     const testi = { in_analisi: "Lo STEP è ancora in analisi.", non_scaricato: "Lo STEP non è scaricato.", errore: "L'analisi dello STEP è in errore.",
-      struttura_non_determinabile: "La struttura dello STEP non è determinabile" + (a.struttura && a.struttura.motivo ? ": " + a.struttura.motivo : "") + ". Nessuna struttura inventata." };
-    box.append(h("div", { class: "du-striscia du-striscia--ver", id: "du-anteprima-stato" }, testi[a.stato] || a.testo || "Proposta non disponibile (" + a.stato + ")."));
+      struttura_non_determinabile: "La struttura dello STEP non è determinabile" + (a.struttura && a.struttura.motivo ? ": " + aParole(a.struttura.motivo) : "") + "." };
+    box.append(h("div", { class: "du-striscia du-striscia--ver", id: "du-anteprima-stato", "data-du-radice-letta": rd || null }, rd ?
+      h("span", {}, "La radice dello STEP è ", h("span", { class: "du-mono" }, rd), ", non ", h("span", { class: "du-mono" }, a.codice_prodotto || codiceProdotto()),
+        ": per " + (a.codice_prodotto || codiceProdotto()) + " il Motore A non ha una struttura da importare da questo STEP.") :
+      testi[a.stato] || a.testo || "Proposta non disponibile (" + a.stato + ")."));
     if (fascia) box.append(fascia);
     box.append(azioniAnteprima(a, null));
     return box;
@@ -4444,13 +5449,13 @@ function riquadroAnteprima(g) {
   if (fascia) box.append(fascia);
   const gruppi = arr(a.gruppi);
   const scelto = gruppi.find((x) => x.gruppo === S.anteprimaGruppo) || null;
-  // la scelta della struttura: con più candidate, e anche con una sola quando non è in vista (un'incerta non si mette in
-  // vista da sola, ma si guarda e si usa con un gesto esplicito; SG-02, [U] RAT05-FONTE-SOSTITUIBILE)
+  // la scelta della struttura: con più candidate, e con una sola che non è in vista (messaggio 46 [U]: guarda la mette in
+  // vista da sola; qui resta il caso di una lettura che non l'ha portata)
   if (gruppi.length > 1 || (gruppi.length === 1 && !scelto)) {
     box.append(h("div", { class: "du-cartelle", role: "group", "aria-label": "Strutture dello STEP", id: "du-strutture" }, gruppi.map((x) => h("button", { type: "button", "aria-pressed": x.gruppo === S.anteprimaGruppo ? "true" : "false",
-      id: "du-struttura-" + sid(x.gruppo), title: "compatibilità: " + (x.compatibilita || "?"), onclick: () => guarda(a.allegato_id, x.gruppo) },
-    (x.radice && x.radice.identita_proposta && x.radice.identita_proposta.letterale) || x.gruppo.slice(0, 18), " · ", x.compatibilita || ""))));
-    if (!scelto) box.append(h("p", { class: "du-nota", id: "du-nessuna-in-vista" }, "Nessuna struttura in vista: una candidata incerta non si mette in vista da sola. Sceglila qui sopra per guardarla."));
+      id: "du-struttura-" + sid(x.gruppo), title: "compatibilità con il prodotto: " + (x.compatibilita || "?"), onclick: () => guarda(a.allegato_id, x.gruppo) },
+    (x.radice && x.radice.identita_proposta && x.radice.identita_proposta.letterale) || "struttura " + (gruppi.indexOf(x) + 1), " · ", x.compatibilita || ""))));
+    if (!scelto) box.append(h("p", { class: "du-nota", id: "du-nessuna-in-vista" }, gruppi.length > 1 ? "Lo STEP ha " + gruppi.length + " strutture candidate per " + codiceProdotto() + ": scegline una qui sopra per guardarla." : "Scegli la struttura qui sopra per guardarla."));
   }
   if (!gruppi.length) {
     box.append(h("div", { class: "du-striscia du-striscia--ver", id: "du-anteprima-nessuna" }, "Nessuna candidata per " + codiceProdotto() + " in questo STEP" +
@@ -4459,13 +5464,59 @@ function riquadroAnteprima(g) {
     return box;
   }
   const gr = gruppi.find((x) => x.gruppo === S.anteprimaGruppo) || null;
-  box.append(h("p", { class: "du-nota" }, "Codice del prodotto: ", h("span", { class: "du-mono" }, a.codice_prodotto || codiceProdotto()), ". Radice letta: ",
-    a.confronto === "coincide" ? "coincide con il prodotto." : a.confronto === "diverso" ? "diversa dal prodotto: per usarla serve un motivo." : "non determinabile."));
+  if (gr) box.append(h("p", { class: "du-nota", id: "du-anteprima-codici" }, righeCodici(a.codice_prodotto || codiceProdotto(), radiceDi(gr), a.confronto, stepProposto(S.prodotto, a.allegato_id))));
   box.append(azioniAnteprima(a, gr));
   if (S.vista === "org" && g && g.radice) box.append(strumentiOrg(g), organigramma(g));
   else if (g && g.radice) box.append(elencoRighe(g));
   else box.append(h("p", { class: "du-muto du-piccolo" }, "Scegli una struttura dello STEP per vederla."));
   return box;
+}
+// radiceDi: il codice letto dalla radice di una struttura di S6 (gruppi[].radice.identita_proposta.letterale), "" se non c'è
+function radiceDi(gr) {
+  return (gr && gr.radice && gr.radice.identita_proposta && gr.radice.identita_proposta.letterale) || "";
+}
+// compatCodice: che cosa la lettura del Motore A dice del codice letto rispetto a quello del prodotto (le evidenze della
+// proposta del server: base e marcatore), in parole; "" senza evidenze. Solo presentazione (messaggio 46, D02 e D31 [T]).
+function compatCodice(sp) {
+  const ev = arr(sp && sp.evidenze).filter((e) => ogg(e) && e.esito_base);
+  const e = ev.find((x) => /step|radice/.test(String(x.selettore || "")) && x.esito_marcatore) || ev.find((x) => x.esito_marcatore) || ev[0];
+  if (!e) return "";
+  const base = e.esito_base === "uguale" || e.esito_base === "equivalente" ? "stesso codice di base" : "codice di base " + (ESITI_EVIDENZA[e.esito_base] || e.esito_base);
+  return base + (e.esito_marcatore ? ", marcatore " + (ESITI_EVIDENZA[e.esito_marcatore] || e.esito_marcatore) : "");
+}
+// righeCodici: il codice del prodotto e quello letto dalla radice dello STEP, una riga sola e senza allarmi: un codice
+// letto senza il marcatore del prodotto è un caso previsto, e lo dice la compatibilità del Motore A (messaggio 46, D02
+// e D31 [T]). Lo stesso testo nell'anteprima e nel dialogo di conferma.
+function righeCodici(codProdotto, radice, confronto, sp) {
+  const compat = compatCodice(sp);
+  const esito = confronto === "coincide" ? " · uguale" : radice && confronto === "diverso" ? " · " + (compat || "diverso dal codice del prodotto") : "";
+  return ["Codice del prodotto: ", h("span", { class: "du-mono" }, codProdotto || "?"), " · codice letto dalla radice dello STEP: ",
+    radice ? h("span", { class: "du-mono", "data-du-radice": radice }, radice) : "non letto", esito];
+}
+// riassuntoStruttura: che cosa si conferma (messaggio 46 [U]: «il dialogo di conferma mostra cosa si conferma»): la radice
+// e i pezzi della struttura proposta, con le quantità, fino a max righe. g: il grafo di grafoProposta.
+function riassuntoStruttura(g, max) {
+  if (!g || !g.radice || !g.nodi[g.radice]) return null;
+  max = max || 14;
+  const righe = [];
+  const visti = new Set();
+  const giro = (k, liv, qta) => {
+    if (visti.has(k)) return;
+    visti.add(k);
+    const v = g.nodi[k];
+    if (righe.length < max) {
+      righe.push(h("li", { class: "du-riass-riga", style: "padding-left:" + liv * 16 + "px", "data-k": k },
+        qta !== undefined ? h("span", { class: "du-muto" }, "×" + qta + " ") : null, h("span", { class: "du-mono" }, v.cod || "(senza codice)"),
+        v.rev ? " rev " + v.rev : "", " ", h("span", { class: "du-muto du-piccolo" }, TIPI[v.tipo] || v.tipo || ""), v.desc ? h("span", { class: "du-muto du-piccolo" }, " · " + breve(v.desc, 40)) : null));
+    }
+    for (const a of figliA(g, k)) giro(a.f, liv + 1, a.qta);
+  };
+  giro(g.radice, 0);
+  const n = Object.keys(g.nodi).length;
+  const figli = figliA(g, g.radice).length;
+  return h("div", { class: "du-riass", id: "f-struttura", "data-nodi": String(n) },
+    h("p", {}, h("b", {}, "Struttura che diventa la bozza: "), n + (n === 1 ? " pezzo" : " pezzi") + (figli ? ", " + figli + (figli === 1 ? " pezzo" : " pezzi") + " sotto la radice" : ", la sola radice")),
+    h("ul", { class: "du-riass-elenco" }, righe), n > righe.length ? h("p", { class: "du-muto du-piccolo" }, "… e altri " + (n - righe.length) + " pezzi: li vedi nell'anteprima.") : null);
 }
 // fasciaStruttura: la riga dello stato della struttura dello STEP (struttura_step di S6), con il testo del server
 const STRUTTURE_STEP = { con_struttura: "struttura dallo STEP", sola_radice: "sola radice: il motore non ha estratto figli", nessuna_struttura: "nessuna struttura importabile per il prodotto",
@@ -4476,7 +5527,7 @@ function fasciaStruttura(ss) {
   return h("div", { class: "du-striscia du-striscia--" + tono, id: "du-struttura-step", "data-struttura": ss.struttura || "", "data-analisi": ss.stato_analisi || "", "data-partenza": ss.partenza || "" },
     h("span", {}, (STRUTTURE_STEP[ss.struttura] || ss.struttura || "?") + " · " + (ANALISI_STEP[ss.stato_analisi] || ss.stato_analisi || "?") +
       (ss.struttura === "con_struttura" && typeof ss.figli_estratti === "number" ? " · figli estratti: " + ss.figli_estratti : "") + (ss.testo ? ". " + ss.testo : "") +
-      (ss.struttura === "sola_radice" ? ". Nessun mono-pezzo è dedotto: lo dichiari tu, se lo è." : "")));
+      (ss.struttura === "sola_radice" ? ". Se il prodotto è un pezzo unico, lo dichiari tu." : "")));
 }
 // azioniAnteprima: i gesti della proposta in vista (U2 §2.2; direttiva 39 §2-§3). Con la struttura (con figli o la sola
 // radice, sul vero gruppo), S8 con la partenza dallo STEP: «Conferma questo STEP come sorgente di ‹P›», «Usa nuovo STEP
@@ -4509,7 +5560,7 @@ function azioniAnteprima(a, gr) {
   } else if (bozzaAperta() && bozzaDaConvertire()) {
     az.append(btn("Usa nuovo STEP per " + prodotto + "…", null, { cls: "du-btn--sm", no: "prima converti la bozza" }));
   } else if (bozzaAperta() && a.effetto_sulla_bozza && a.effetto_sulla_bozza.stessa_sorgente && sorg === a.allegato_id) {
-    az.append(btn("Aggiorna proposta…", apriRiallinea, { cls: "du-btn--sm", id: "du-riallinea-da-step", no: perchéNoModifica() }));
+    az.append(btn("Aggiorna proposta…", apriRiallinea, { cls: "du-btn--sm", id: "du-riallinea-da-step", no: perchéNoAggiorna() }));
   } else {
     const ac = azioniCandidatura(c).find((x) => x.id.indexOf("conferma-") === 0 || x.id.indexOf("riallinea-") === 0);
     const id = ac && /^(Usa|Aggiorna)/.test(ac.t) ? (/^Aggiorna/.test(ac.t) ? "du-riallinea-da-step" : "du-cambia-sorgente") : "du-conferma-sorgente";
@@ -4524,7 +5575,7 @@ function secondario(f) {
   if (!s2) return null;
   const nome = typeof s2 === "string" ? s2 : s2.nome_file || nomeFile(s2.allegato_id) || "uno STEP";
   return h("p", { class: "du-nota", id: "du-step-secondario" }, pill("info", "STEP secondario disponibile"), " ", h("span", { class: "du-mono" }, nome),
-    typeof s2 === "object" && s2.motivo ? " · " + s2.motivo : "", ". L'accettazione dei suoi archi arriva in V5.");
+    typeof s2 === "object" && s2.motivo ? " · " + s2.motivo : "", ". I suoi archi non si accettano ancora da questa pagina.");
 }
 
 // ---- «+ Aggiungi file» (E1′)
@@ -4593,7 +5644,8 @@ async function carica(files, origine) {
   await caricaModello();
   await caricaSmistamento();
   const nuovi = arr(r.file).filter((f) => f.esito === "caricato");
-  if (nuovi.length) registraMossa(nuovi.length + " file caricati → In analisi", { allegato: nuovi[0].allegato_id || "" });
+  // l'ultima mossa dice il gesto, non uno stato che poi cambia (collaudo UI46, giro 3, minore) [T]
+  if (nuovi.length) registraMossa(nuovi.length === 1 ? "1 file caricato e mandato all'analisi" : nuovi.length + " file caricati e mandati all'analisi", { allegato: nuovi[0].allegato_id || "" });
   render();
 }
 
@@ -4769,11 +5821,12 @@ function corpoRevisione() {
   if (S.erroreModello) return h("div", { class: "du-vuoto" }, "Il calcolo del motore non è riuscito: niente tela, bozza né wizard finché non riesce (D-18).");
   if (!bozzaAperta()) return revisioneSenzaBozza();
   if (bozzaDaConvertire()) return h("div", { class: "du-vuoto" }, "La bozza aperta è nel formato di prima: convertila per lavorarla (striscia qui sopra).");
+  if (anteprimaInRevisione()) return h("div", { style: "display:grid;gap:10px" }, riquadroSenzaSorgente(), revisioneAnteprima());
   const g = grafoBozza();
   if (S.nodo && !g.nodi[S.nodo]) S.nodo = "";
   const vista = h("section", { class: "du-zona du-zona--vista", "aria-label": "BOM di lavoro" },
     h("div", { class: "du-zona-testa" }, h("h2", {}, S.vista === "org" ? "Organigramma della bozza" : "Elenco della bozza"), statoConferma()),
-    h("div", { class: "du-zona-corpo" }, S.vista === "org" ? [riquadroSenzaSorgente(), riquadroProposta(), riquadroAbbinamenti(), riquadroDifferenze(), strumentiOrg(g), cassettoSegnalati(g), barraSelezione(g), organigramma(g)] :
+    h("div", { class: "du-zona-corpo" }, S.vista === "org" ? [riquadroSenzaSorgente(), riquadroProposta(), riquadroAbbinamenti(), riquadroDifferenze(), strumentiOrg(g), cassettoSegnalati(g), postoSelezione(g), organigramma(g), legendaOrg(g)] :
       [riquadroSenzaSorgente(), riquadroProposta(), riquadroAbbinamenti(), riquadroDifferenze(), vassoio(), elencoRighe(g)]));
   const nodo = h("section", { class: "du-zona du-zona--nodo", "aria-label": "Pannello del nodo" },
     h("div", { class: "du-zona-testa" }, h("h2", {}, "Pannello del nodo")),
@@ -4802,17 +5855,163 @@ function revisioneSenzaBozza() {
       h("p", {}, "Lettura non riuscita: la bozza di " + (codiceProdotto() || "questo prodotto") + " non si legge (" + S.erroreBozza + "). Niente è mostrato come attuale finché la lettura non riesce."),
       h("div", { class: "du-azioni" }, btn("↻ Aggiorna", aggiorna, { cls: "du-btn--sm du-btn--pri", id: "du-aggiorna-bozza", perche: false })));
   }
+  // messaggio 47 [U]: dopo la conferma la BOM resta visibile, come BOM confermata (la working), in sola lettura
+  const u = ultimaConferma();
+  if (u) return revisioneWorking(u);
+  // con lo storico delle conferme non letto «Modifica la BOM confermata» resta, spento (corsia ALBERO, messaggio 46 D41)
+  const gesti = gestiPartenza(storicoNonLetto());
+  // le partenze che non si possono fare non si mostrano (lettura [T] dei messaggi 46-47); un motivo comune a tutte (la BOM
+  // congelata) si dice in una riga sola. Lo storico non letto lo dice già la riga in fondo
+  const ferma = !gesti.length && perchéNoPartenza("vuota") === CONGELATA ? CONGELATA : "";
   return h("div", { class: "du-vuoto", id: "du-nessuna-bozza" },
     statoConferma(),
     h("p", {}, "Nessuna bozza per " + codiceProdotto() + ". La BOM di lavoro nasce di solito dallo STEP confermato come sorgente nella Sorgente; senza STEP si può partire dal solo prodotto."),
     // G39-02 [U]: lo STEP proposto dal motore, da confermare prima di partire senza
     boxStepProposto(S.prodotto, "rev"),
-    h("div", { class: "du-azioni" },
-      btn("Vai alla Sorgente", () => vaiPasso("sorgente"), { cls: "du-btn--sm", perche: false }),
-      btn("Modifica la BOM confermata", () => creaDa("conferma"), { cls: "du-btn--sm", id: "du-da-conferma", no: perchéNoPartenza("conferma") }),
-      btn("Parti dalla BOM registrata", () => creaDa("registrato"), { cls: "du-btn--sm", id: "du-da-registrato", no: perchéNoPartenza("registrato") }),
-      btn("Parti dal solo prodotto…", apriSoloProdottoSenzaStep, { cls: "du-btn--sm", id: "du-da-vuota", no: perchéNoPartenza("vuota") })),
-    S.erroreStorico ? h("p", { class: "du-muto du-piccolo" }, "Lo storico delle conferme non si legge: " + S.erroreStorico) : null);
+    h("div", { class: "du-azioni" }, btn("Vai alla Sorgente", () => vaiPasso("sorgente"), { cls: "du-btn--sm", perche: false }), gesti),
+    ferma ? h("p", { class: "du-muto du-piccolo", id: "du-partenze-ferme" }, "Una bozza nuova non parte: " + ferma + ".") : null,
+    S.erroreStorico ? h("p", { class: "du-muto du-piccolo" }, "Lo storico delle conferme non si legge: " + S.erroreStorico) : null,
+    anteprimaInRevisione() ? revisioneAnteprima() : null);
+}
+// gestiPartenza: i gesti che aprono una bozza nuova. «Modifica la BOM confermata» (con una conferma) è il gesto principale
+// e resta anche spento, con il motivo; «Parti dalla BOM registrata» e «Parti dal solo prodotto…» compaiono solo quando si
+// possono fare (lettura [T] dei messaggi 46-47: niente gesti spenti con la spiegazione lunga). Le regole sono quelle di
+// perchéNoPartenza, invariate; il server ricontrolla.
+function gestiPartenza(conConferma) {
+  return [
+    conConferma ? btn("Modifica la BOM confermata", () => creaDa("conferma"), { cls: "du-btn--sm du-btn--pri", id: "du-da-conferma", no: perchéNoPartenza("conferma") }) : null,
+    perchéNoPartenza("registrato") ? null : btn("Parti dalla BOM registrata", () => creaDa("registrato"), { cls: "du-btn--sm", id: "du-da-registrato" }),
+    perchéNoPartenza("vuota") ? null : btn("Parti dal solo prodotto…", apriSoloProdottoSenzaStep, { cls: "du-btn--sm", id: "du-da-vuota" }),
+  ].filter(Boolean);
+}
+
+// ---------------------------------------------------------------- la BOM confermata (working) nella Revisione
+
+// Messaggio 47 [U]: «la BOM scompare dopo che viene confermata. In realtà dobbiamo continuare a mostrarla facendo notare
+// che sia la working». Senza bozza aperta e con una conferma, la Revisione mostra la BOM confermata in sola lettura
+// (lettura [T]), con la stessa tela (organigramma) e lo stesso Elenco della bozza e il pannello del nodo senza gesti di
+// scrittura; per cambiarla, «Modifica la BOM confermata» apre una bozza nuova da questa conferma (R2, partenza
+// «conferma»). La struttura viene dal dettaglio di R7 (&conferma=, con i registri citati): una lettura che il ponte ha già,
+// nessuna rotta nuova.
+//
+// leggiWorking: il dettaglio dell'ultima conferma, letto una volta per conferma (una conferma non cambia); alla risposta
+// la Revisione si ridisegna. Una lettura non riuscita si dice, con «↻ Riprova», e non è «nessuna struttura».
+function leggiWorking(u) {
+  const chiave = S.prodotto + ":" + u.conferma_id;
+  if (S.working && S.working.chiave === chiave) return S.working;
+  const w = { chiave, stato: "in_lettura", d: null, errore: "" };
+  S.working = w;
+  P.storicoConferme(S.prodotto, { conferma: u.conferma_id, importazione: true }).then((j) => {
+    w.d = ogg(j.dettaglio) ? j.dettaglio : null;
+    w.stato = w.d ? "letta" : "errore";
+    if (!w.d) w.errore = "lo storico non dà il dettaglio della conferma";
+  }, (e) => {
+    w.stato = "errore";
+    w.errore = testoErrore(e);
+  }).then(() => {
+    if (S.working === w && S.passo === "revisione" && !bozzaAperta()) renderCorpo();
+  });
+  return w;
+}
+// grafoWorking: il grafo della BOM confermata dal dettaglio di R7, nella forma di grafoBozza, con modo «working»: le
+// funzioni della tela, dell'Elenco e del pannello scrivono solo con modo «bozza», quindi qui niente trascinamento,
+// selezione, quantità né gesti del nodo. Nodi e legami sono le righe certificate della conferma (componenti e archi); il
+// nodo dello snapshot formato 3 con la stessa chiave_bozza dà la casella (la provenienza nel pannello) e, con i registri
+// citati, la voce del registro. Il componente sta in cid (non in nodo.componente_id, che per le funzioni della bozza è
+// un nodo di S.lavoro).
+function grafoWorking(d) {
+  const snap = !d.contenuto_non_leggibile && ogg(d.snapshot) ? normalizza(d.snapshot) : null;
+  const perChiave = new Map(snap ? snap.nodi.filter((n) => n && n.chiave_bozza).map((n) => [n.chiave_bozza, n]) : []);
+  const registri = arr(d.registri).map((r) => r && r.contenuto).filter(ogg);
+  const voceDi = (c) => {
+    for (const reg of registri) {
+      const v = voceDiCasella(reg, c);
+      if (v) return { v, reg };
+    }
+    return null;
+  };
+  const nodi = {};
+  const chiaveDi = {};
+  let radice = "";
+  let registro = null;
+  for (const c of arr(d.componenti)) {
+    const cid = String((c && c.componente_id) || "").toLowerCase();
+    if (!cid) continue;
+    const k = c.chiave_bozza || "c:" + cid;
+    const sn = perChiave.get(c.chiave_bozza) || null;
+    const cas = sn ? casellaDi(sn) : null;
+    const tv = cas ? voceDi(cas) : null;
+    if (tv && !registro) registro = tv.reg;
+    chiaveDi[cid] = k;
+    nodi[k] = { k, cid, cod: c.codice || "", rev: c.rev || "", desc: c.descrizione || "", tipo: c.tipo || "sciolto", stato: { c: "reg", t: "confermato" },
+      nodo: sn ? { caselle: arr(sn.caselle), identita: sn.identita } : { caselle: [] }, voce: tv ? tv.v : null,
+      fornitore: typeof c.emittente === "string" && c.emittente.indexOf("partner:") === 0, cad: false, rivedere: [], wk: true };
+    if (c.radice) radice = k;
+  }
+  const archi = [];
+  for (const a of arr(d.archi)) {
+    const p = chiaveDi[String((a && a.padre_id) || "").toLowerCase()];
+    const f = chiaveDi[String((a && a.figlio_id) || "").toLowerCase()];
+    if (p && f) archi.push({ id: p + ">" + f + (a.posizione ? "@" + a.posizione : ""), p, f, qta: a.qta, origine: a.origine || "conferma", kind: "conf", arco: a });
+  }
+  return { radice, nodi, archi, nonInclusi: [], modo: "working", registro };
+}
+// documentiWorking: i documenti di un pezzo della BOM confermata, cioè le associazioni registrate del suo componente,
+// lette dalle righe di S9 come nella bozza (associazioniRegistrate); niente preassociazioni né proposte.
+function documentiWorking(v) {
+  const out = { pb: [], pa: [], ar: [], nonRichieste: [] };
+  for (const [aid, ar] of associazioniRegistrate()) {
+    if (!v.cid || ar.componente_id !== v.cid) continue;
+    const f = fileDi(aid);
+    if (f) out.ar.push(ar.documento && !f.documento ? Object.assign({}, f, { documento: { motivo: "documento_confermato" } }) : f);
+  }
+  return out;
+}
+// revisioneWorking: la Revisione senza bozza con la conferma u (l'ultima di R7): la testata che dice che è la BOM
+// confermata (la working) e i segni della conferma, la nota con il gesto per cambiarla, poi la tela o l'Elenco e il
+// pannello del nodo. Se dopo la conferma la struttura è cambiata (u.valida falso), la testata non la chiama working.
+function revisioneWorking(u) {
+  const w = leggiWorking(u);
+  const da = u.confermato_da_nome || u.confermato_da_sigla || "";
+  const il = u.confermato_il ? new Date(u.confermato_il) : null;
+  const data = il && !isNaN(il.getTime()) ? " del " + il.toLocaleDateString("it-IT") : "";
+  const titolo = "BOM confermata" + (u.valida ? " (working)" : "") + " · v" + u.numero + data + (da ? " da " + da : "");
+  const nota = u.valida ? "È la distinta ufficiale. Per cambiarla: «Modifica la BOM confermata» apre una bozza nuova da questa conferma."
+    : "Dopo questa conferma la struttura del prodotto è cambiata: qui c'è la BOM della conferma n. " + u.numero + ", e serve una conferma nuova. «Modifica la BOM confermata» apre una bozza da questa conferma.";
+  const g = w.stato === "letta" ? grafoWorking(w.d) : null;
+  if (g && S.nodo && !g.nodi[S.nodo]) S.nodo = "";
+  let corpo;
+  if (anteprimaInRevisione()) corpo = [revisioneAnteprima()];
+  else if (w.stato === "in_lettura") corpo = [h("p", { class: "du-muto", id: "du-working-lettura" }, "Lettura della BOM confermata…")];
+  else if (!g) {
+    corpo = [h("div", { class: "du-striscia du-striscia--ko", id: "du-working-non-letta" }, h("span", {}, "Lettura non riuscita: la struttura della conferma n. " + u.numero + " non si legge (" + w.errore + ")."),
+      btn("↻ Riprova", () => {
+        S.working = null;
+        renderCorpo();
+      }, { cls: "du-btn--sm", id: "du-working-riprova", perche: false }))];
+  } else if (!Object.keys(g.nodi).length) corpo = [h("p", { class: "du-muto", id: "du-working-vuota" }, "La conferma n. " + u.numero + " non ha righe certificate da mostrare.")];
+  else if (S.vista === "org") {
+    const vp = organigramma(g);
+    // le quantità della BOM confermata non si cambiano da qui: il motivo della tela (pensato per la Sorgente) si dice per lei
+    vp.querySelectorAll(".du-oq").forEach((b) => {
+      b.disabled = true;
+      b.title = (b.getAttribute("aria-label") || "") + " (BOM confermata, in sola lettura)";
+    });
+    corpo = [strumentiOrg(g), vp];
+  } else corpo = [elencoRighe(g)];
+  const vista = h("section", { class: "du-zona du-zona--vista", id: "du-working", "data-du-conferma": u.conferma_id, "aria-label": "BOM confermata" },
+    h("div", { class: "du-zona-testa", id: "du-working-testa" }, h("h2", {}, titolo), statoConferma()),
+    h("div", { class: "du-zona-corpo" },
+      h("div", { class: "du-striscia " + (u.valida ? "du-striscia--info" : "du-striscia--ver"), id: "du-working-nota" }, h("span", {}, nota),
+        h("span", { class: "du-azioni" }, gestiPartenza(true), btn("Vai alla Sorgente", () => vaiPasso("sorgente"), { cls: "du-btn--sm du-btn--ghost", perche: false }))),
+      // G39-02 [U]: lo STEP proposto dal motore, se il prodotto non ha una sorgente confermata
+      boxStepProposto(S.prodotto, "rev"),
+      corpo));
+  const scelto = g && g.nodi[S.nodo];
+  const nodo = h("section", { class: "du-zona du-zona--nodo", "aria-label": "Pannello del nodo" },
+    h("div", { class: "du-zona-testa" }, h("h2", {}, "Pannello del nodo")),
+    h("div", { class: "du-zona-corpo" }, scelto ? pannelloNodo(g, scelto) : h("p", { class: "du-muto du-piccolo" }, "Scegli un pezzo: identità, provenienza e documenti della BOM confermata stanno qui, in sola lettura.")));
+  return h("div", {}, zoneTabs(), h("div", { class: "du-ws", "data-zona": S.zona }, vista, nodo));
 }
 // apriSoloProdottoSenzaStep: «Parti dal solo prodotto…» senza STEP (direttiva 39 §1 [U]): R2 crea con la partenza vuota,
 // la bozza con la sola radice del prodotto finito, senza allegato, SHA, gruppo né registro. Si modifica, si salva e si
@@ -4851,7 +6050,16 @@ function perchéNoPartenza(partenza) {
     return sorgenteValida(S.prodotto) ? "lo STEP sorgente del prodotto è confermato: la bozza nasce da lì («Riprendi: crea la bozza» nella Sorgente)" : "";
   }
   if (partenza === "conferma") return ultimaConferma() ? "" : "il prodotto non ha una conferma";
-  return haConfermaFormato3() ? PARTENZA_REGISTRATO_NO : "";
+  return haConfermaFormato3() ? PARTENZA_REGISTRATO_NO : haBomRegistrata() ? "" : "il prodotto non ha una BOM registrata";
+}
+// haBomRegistrata: il prodotto ha una BOM registrata da cui partire: una conferma (di un formato di prima: con il formato 3
+// «registrato» non si offre) o componenti registrati sotto di lui secondo il motore. «Parti dalla BOM registrata» accanto
+// a «BOM mai confermata», per un prodotto senza niente sotto, era una partenza dal solo prodotto con un altro nome
+// (collaudo UI46, I6/D41 [T]); il server ricontrolla comunque.
+function haBomRegistrata() {
+  if (arr(S.storico && S.storico.conferme).length) return true;
+  const p = prodottoScelto();
+  return !!(p && p.registrati > 0);
 }
 // statoConferma: i segni di U2 §5.5 (MAT §6.2, recepimento di U2), distinti e mai fusi in una pillola sola: la conferma
 // registrata (R7), la verifica corrente del server (/dati conferma_corrente.verifica_adesso, «verificata in prima
@@ -4865,7 +6073,7 @@ function statoConferma() {
   if (ultima) out.append(pill(ultima.valida ? "ok" : "ver", ultima.valida ? "v" + ultima.numero + " confermata il " + dataOra(ultima.confermato_il) + (da ? " da " + da : "") : "v" + ultima.numero + " confermata, poi la struttura è cambiata: serve una conferma nuova", "conferma n. " + ultima.numero));
   // lo storico che non si legge non è «nessuna conferma» (MAT §5.4: niente si mostra come attuale)
   else if (storicoNonLetto()) out.append(h("span", { id: "du-conferme-non-lette" }, pill("ver", "conferme: non lette (↻ Aggiorna)", S.erroreStorico || "")));
-  else out.append(pill("neu", "nessuna conferma"));
+  else out.append(pill("neu", "BOM mai confermata"));
   // aggiungi salta i segni assenti (null): Element.append li scriverebbe come testo «null»
   aggiungi(out, [segnoVerifica(), segnoPropostaAggiornata()]);
   // gli altri segni di MAT §6.2: il finito mono_pezzo (della conferma, o proposto nella bozza) e la BOM congelata
@@ -4904,8 +6112,32 @@ function segnoVerifica(dove) {
   if (sc) return h("span", { id, "data-du-verifica": "condivisa" }, pill("neu", "Verificata: non calcolata (struttura condivisa con " + (sc.codice || sc.prodotto_id || "un altro prodotto") + ")"));
   const p = prodottoScelto();
   if (!p) return null;
-  return h("span", { id, "data-du-verifica": p.verificatoOggi ? "oggi_si" : "oggi_no" }, pill(p.verificatoOggi ? "ok" : "neu", "Verificata (calcolo di oggi): " + (p.verificatoOggi ? "sì" : "no") + (p.criterioOggi ? " · criterio " + p.criterioOggi : ""),
-    arr(p.motivi).map((m) => (m && (m.codice || m.motivo)) || m).join(", ")));
+  // messaggio 46 (D43): «Verificata: no» con il primo motivo detto in una frase, non «calcolo di oggi»; il resto nel
+  // suggerimento. Un motivo che la pagina non sa dire in parole non va nella testata: il suo codice sta solo nel
+  // suggerimento (revisione della corsia ALBERO, rilievo 3 [T])
+  const motivi = motiviDelProdotto(p);
+  const primo = motivi.find((m) => m.frase);
+  return h("span", { id, "data-du-verifica": p.verificatoOggi ? "oggi_si" : "oggi_no" }, pill(p.verificatoOggi ? "ok" : "neu", "Verificata: " + (p.verificatoOggi ? "sì" : "no" + (primo ? " — " + primo.frase : "")),
+    motivi.map((m) => m.frase || "motivo del motore: " + m.codice).join("; ") + (p.criterioOggi && p.criterioOggi !== "nessuno" ? " · criterio " + p.criterioOggi : "")));
+}
+// motiviDelProdotto: i motivi per cui il prodotto non è verificato (valutazione.MotivoProdotto, dieci valori), ciascuno
+// con la frase che lo dice: {codice, frase}; frase vuota per un codice che la pagina non conosce. La fonte strutturale
+// dipende da che cosa c'è: con lo STEP sorgente confermato da S8 manca solo «Conferma BOM» (direttiva 39: solo R5 fa dello
+// STEP la fonte della BOM); senza, manca lo STEP. [T]
+const MOTIVI_PRODOTTO = { target_non_confermato: "il prodotto della RFQ non è confermato", fonte_superata: "lo STEP della BOM confermata è superato da uno più nuovo",
+  nomenclatura_non_verificata: "i codici della BOM non sono verificati", gerarchia_non_verificata: "l'albero della BOM non è verificato",
+  smistamento_non_verificato: "lo smistamento dei file non è verificato", documentazione_incompleta: "mancano dei documenti dei pezzi",
+  documentazione_non_calcolabile: "la completezza dei documenti non si può ancora calcolare", conflitto: "c'è un conflitto da risolvere",
+  revisione_tecnica_aperta: "c'è una revisione tecnica aperta" };
+function fraseMotivoProdotto(codice, prodotto) {
+  if (codice === "fonte_strutturale_step_mancante_o_non_confermata") {
+    return sorgenteValida(prodotto || S.prodotto) ? "la BOM non è ancora confermata: lo STEP sorgente diventa la sua fonte con «Conferma BOM»" : "manca lo STEP sorgente confermato";
+  }
+  return MOTIVI_PRODOTTO[codice] || "";
+}
+function motiviDelProdotto(p) {
+  return arr(p && p.motivi).map((m) => (m && (m.codice || m.motivo)) || m).filter((c) => typeof c === "string" && c)
+    .map((c) => ({ codice: c, frase: fraseMotivoProdotto(c, p && p.id) }));
 }
 // segnoPropostaAggiornata: il segno «Proposta aggiornata: N differenze da valutare» (U2 §5.3, §5.5; C-04 [U]), con i gesti:
 // «Vedi le differenze», e senza bozza «Rifiuta la proposta aggiornata…» (R15, U2 §5.7) e «Modifica la BOM confermata»
@@ -4920,7 +6152,7 @@ function segnoPropostaAggiornata() {
   const pa = cc && cc.proposta_aggiornata;
   if (!ogg(pa)) return null;
   if (ogg(pa.rifiutata)) return h("span", { id: "du-proposta-aggiornata", "data-du-proposta": "rifiutata" },
-    pill("neu", "Proposta del " + dataOra(pa.rifiutata.quando) + " rifiutata da " + (pa.rifiutata.autore || "?")));
+    pill("neu", "Proposta del " + dataOra(pa.rifiutata.quando) + " rifiutata da " + (chiE(pa.rifiutata.autore) || "?")));
   const n = differenzePerTipo(pa) || arr(pa.differenze && pa.differenze.nodi).length + arr(pa.differenze && pa.differenze.archi).length;
   return h("span", { id: "du-proposta-aggiornata", class: "du-azioni", "data-du-proposta": "aperta" },
     pill("prop", "Proposta aggiornata: " + n + " differenze da valutare"),
@@ -4937,15 +6169,48 @@ function perchéNoRifiuta(cc) {
 }
 // apriDifferenzeConferma: le differenze della proposta aggiornata rispetto alla conferma (U2 §5.3), per tipo; le evidenze
 // nuove come informazione. Solo lettura: nessuna richiesta, le dice /dati.
+// le differenze dette con il codice del pezzo e a parole, mai con la voce del registro (n:<allegato>:nodo:…) né con i nomi
+// dei campi (collaudo UI46, B2)
+const CAMPI_DIFFERENZA = { decisione_esistente: "componente già registrato", abbinamento_proposto: "abbinamento a un componente", tipo_proposto: "tipo",
+  codice_proposto: "codice", identita_proposta: "codice letto", motivo_proposto: "codice", codice_composto: "codice del cartiglio", motivo_lettura: "lettura del codice",
+  alternative: "letture alternative", riferimenti: "riferimenti ai documenti", grezzi: "dati letti dallo STEP", codice_manuale_legacy: "codice delle pagine di prima",
+  rev_proposta: "revisione", motivo_rev: "revisione", attributi: "attributi", segnali: "segnalazioni", diagnostiche: "segnalazioni", foglia: "assieme o particolare",
+  leggibile: "leggibilità", entita_id: "entità dello STEP", radice_del_file: "radice del file", relazioni: "relazioni", padri: "padri",
+  "stato_motore.raggiunto": "presenza nella struttura", "stato_motore.tolto": "pezzo tolto dal motore", quantita: "quantità", occorrenze: "occorrenze" };
+const TIPI_DIFFERENZA = { aggiunto: "nuovo nella proposta", tolto: "non più nella proposta", cambiato: "cambia" };
+function nomeDellaVoce(voce, k) {
+  const n = k && S.lavoro ? S.lavoro.nodi.find((y) => y.chiave_bozza === k) : null;
+  if (n && n.identita && n.identita.codice) return n.identita.codice;
+  const m = voce ? nodoDelModello(voce) : null;
+  const de = m && ogg(m.decisione_esistente) && ogg(m.decisione_esistente.identita_registrata) ? m.decisione_esistente.identita_registrata.codice : "";
+  const c = de || (m && (m.codice_proposto || m.codice || (m.identita_proposta && m.identita_proposta.letterale) || (m.grezzi && (m.grezzi.nome || m.grezzi.id))));
+  if (c) return String(c);
+  // il pezzo che la BOM confermata ha già per quella voce (la stessa voce nei registri letti dalla pagina)
+  for (const r of Object.values(S.registri || {})) {
+    const v = r && arr(r.proposta && r.proposta.nodi).find((x) => x.voce === voce);
+    if (v) return nomeVoce(v);
+  }
+  const reg = registroBozza();
+  const v = reg && voce ? arr(reg.proposta && reg.proposta.nodi).find((x) => x.voce === voce) : null;
+  return v ? nomeVoce(v) : (n && n.descrizione) || "un pezzo dello STEP";
+}
+function testoDifferenza(x) {
+  const campi = [...new Set(arr(x.campi).map((c) => CAMPI_DIFFERENZA[c] || String(c).replace(/[._]/g, " ")))];
+  return nomeDellaVoce(x.voce, x.chiave_bozza) + ": " + (TIPI_DIFFERENZA[x.tipo] || x.tipo || "") + (campi.length ? " (" + campi.join(", ") + ")" : "");
+}
+function testoDifferenzaArco(x) {
+  const voce = (rif) => (x.allegato_id && rif ? "n:" + x.allegato_id + ":" + rif : "");
+  const campi = [...new Set(arr(x.campi).map((c) => CAMPI_DIFFERENZA[c] || String(c).replace(/[._]/g, " ")))];
+  return "legame " + nomeDellaVoce(voce(x.padre)) + " → " + nomeDellaVoce(voce(x.figlio)) + ": " + (TIPI_DIFFERENZA[x.tipo] || x.tipo || "") + (campi.length ? " (" + campi.join(", ") + ")" : "");
+}
 function apriDifferenzeConferma(pa) {
   const d = pa.differenze || {};
   const t = pa.per_tipo || {};
-  const nomi = { identita: "identità", revisione: "revisione", metadati: "metadati", quantita: "quantità", relazioni: "relazioni", gerarchia: "gerarchia" };
+  const nomi = { identita: "identità", revisione: "revisione", metadati: "dati del pezzo", quantita: "quantità", relazioni: "relazioni", gerarchia: "struttura" };
   apriFinestra("Proposta aggiornata: le differenze", h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "La proposta di adesso del Motore A è diversa da quella usata alla conferma. È una proposta non ufficializzata: la BOM confermata non cambia finché non la riesamini, la modifichi e la confermi con il wizard."),
     h("ul", { class: "du-elenco-p", id: "f-pa-tipi" }, Object.keys(nomi).filter((k) => Number(t[k])).map((k) => h("li", {}, nomi[k] + ": " + t[k]))),
-    h("ul", { class: "du-elenco-p", id: "f-pa-differenze" }, arr(d.nodi).map((x) => h("li", {}, (x.chiave_bozza || x.voce || x.decisione_id || "?") + ": " + (x.tipo || "") + (arr(x.campi).length ? " (" + arr(x.campi).join(", ") + ")" : ""))),
-      arr(d.archi).map((x) => h("li", {}, "legame " + (x.padre || "") + " → " + (x.figlio || "") + ": " + (x.tipo || "") + (arr(x.campi).length ? " (" + arr(x.campi).join(", ") + ")" : "")))),
+    h("ul", { class: "du-elenco-p", id: "f-pa-differenze" }, arr(d.nodi).map((x) => h("li", {}, testoDifferenza(x))), arr(d.archi).map((x) => h("li", {}, testoDifferenzaArco(x)))),
     arr(d.evidenze).length ? h("p", { class: "du-nota", id: "f-pa-evidenze" }, "Evidenze nuove o cambiate (informazione, non differenze della proposta): " + arr(d.evidenze).length + ".") : null),
   [{ testo: "Chiudi", chiudi: true }]);
 }
@@ -4965,10 +6230,9 @@ function apriRifiutaProposta(cc) {
         chiudiFinestra();
         S.passo = "revisione";
         creaDa("conferma");
-      }, { cls: "du-btn--sm", id: "f-pa-modifica", no: perchéNoPartenza("conferma"), perche: false })) : null,
-    campo("Motivo", area("f-motivo", "perché la proposta aggiornata non si recepisce", 1000))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Rifiuta la proposta aggiornata", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: async () => {
-    const corpo = { prodotto_id: S.prodotto, conferma_id: cc.conferma_id, gruppo: pa.gruppo, impronta_contenuto: pa.impronta_contenuto, motivo: valore($("#du-finestra"), "f-motivo") };
+      }, { cls: "du-btn--sm", id: "f-pa-modifica", no: perchéNoPartenza("conferma"), perche: false })) : null),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Rifiuta la proposta aggiornata", pri: true, id: "f-ok", fai: async () => {
+    const corpo = { prodotto_id: S.prodotto, conferma_id: cc.conferma_id, gruppo: pa.gruppo, impronta_contenuto: pa.impronta_contenuto };
     const r = await inSerie("proposta:" + S.prodotto, () => P.rifiutaProposta(corpo));
     return esitoRifiuto(r);
   } }]);
@@ -5064,7 +6328,7 @@ function cassettoSegnalati(g) {
     const seg = segnaliDi(v.voce)[0] || {};
     const padre = padriA(g, v.k)[0];
     c.append(h("label", { class: "du-segnalato", "data-k": v.k },
-      h("input", { type: "checkbox", checked: S.selezione.has(v.k), disabled: !sel.ok, title: sel.motivo || null, "aria-label": "Seleziona " + ((v.voce && v.voce.grezzi && v.voce.grezzi.nome) || v.k),
+      h("input", { type: "checkbox", id: "sel-seg-" + sid(v.k), checked: S.selezione.has(v.k), disabled: !sel.ok, title: sel.motivo || null, "aria-label": "Seleziona " + ((v.voce && v.voce.grezzi && v.voce.grezzi.nome) || v.k),
         onchange: (e) => cambiaSelezione(v.k, e.target.checked) }),
       h("span", { class: "du-segnalato-n" }, (v.voce && v.voce.grezzi && (v.voce.grezzi.nome || v.voce.grezzi.id)) || v.desc || v.k, !sel.ok && sel.motivo ? h("span", { class: "du-perche" }, " non selezionabile: " + sel.motivo) : null),
       h("span", { class: "du-segnalato-s" }, (padre ? "sotto " + (g.nodi[padre.p].cod || g.nodi[padre.p].desc) + " · " : "") + (seg.regola || "") + (seg.spiegazione ? " · " + seg.spiegazione : "") +
@@ -5072,6 +6336,12 @@ function cassettoSegnalati(g) {
   }
   box.append(c);
   return box;
+}
+// postoSelezione: il posto della barra «N nodi selezionati», con l'altezza riservata anche senza selezione: la barra che
+// compare o sparisce non sposta la tela sotto il puntatore (UI46, controllo di stabilità del 21/10 [T])
+function postoSelezione(g) {
+  if (g.modo !== "bozza") return barraSelezione(g);
+  return h("div", { class: "du-selezione-posto", id: "du-selezione-posto" }, barraSelezione(g));
 }
 function barraSelezione(g) {
   if (!S.selezione.size) return null;
@@ -5241,7 +6511,7 @@ function elencoRighe(g) {
     h("span", { role: "columnheader" }, "Documenti"), h("span", { role: "columnheader" }, "Azioni")));
   for (const r of righe) {
     const v = g.nodi[r.k];
-    const doc = g.modo === "bozza" ? documentiNodo(v) : { pb: [], pa: [], ar: [], nonRichieste: [] };
+    const doc = g.modo === "bozza" ? documentiNodo(v) : g.modo === "working" ? documentiWorking(v) : { pb: [], pa: [], ar: [], nonRichieste: [] };
     const celleDoc = [];
     for (const aid of doc.pb) {
       const es = esitoPreassociazione(aid);
@@ -5252,13 +6522,13 @@ function elencoRighe(g) {
       celleDoc.push(h("span", { class: "du-el-doc" }, pill("prop", "◇ proposto"), h("span", { class: "du-mono" }, nomeFile(pa.allegato_id)),
         btn("Accetta la proposta", () => preassocia(pa.allegato_id, v.k), { cls: "du-btn--sm", id: "du-accetta-" + sid(pa.allegato_id), no: v.escluso ? ESCLUSO_SENZA_PB : perchéNoModifica(), perche: false })));
     }
-    const ricod = v.nodo && v.nodo.componente_id && S.lavoro.decisioni.some((d) => d.tipo === "ricodifica" && d.componente_id === v.nodo.componente_id);
+    const ricod = v.nodo && v.nodo.componente_id && arr(S.lavoro && S.lavoro.decisioni).some((d) => d.tipo === "ricodifica" && d.componente_id === v.nodo.componente_id);
     for (const f of doc.ar) {
       const sv0 = svincoloDi(f.allegato_id);
       // un documento già confermato non si scollega da qui: serve una revisione, non in V1 (EM §3.6.2)
       celleDoc.push(h("span", { class: "du-el-doc" }, pill(f.documento ? "ok" : sv0 ? "ver" : "info", f.documento ? "✓ confermato" : sv0 ? "⊘ da scollegare" : "● associato"), h("span", { class: "du-mono" }, f.nome_file),
         ricod ? pill("ver", "da ricodificare") : null,
-        sv0 || f.documento ? null : btn("Scollega dal componente…", () => apriScollega(f, v), { cls: "du-btn--sm du-btn--ghost", no: perchéNoModifica(), perche: false })));
+        sv0 || f.documento || g.modo !== "bozza" ? null : btn("Scollega dal componente…", () => apriScollega(f, v), { cls: "du-btn--sm du-btn--ghost", no: perchéNoModifica(), perche: false })));
     }
     for (const x of doc.nonRichieste) celleDoc.push(h("span", { class: "du-el-doc" }, pill("neu", "◇ non richiesta: nodo non incluso (bozza)"), h("span", { class: "du-mono" }, nomeFile(x.allegato_id))));
     if (!celleDoc.length) celleDoc.push(h("span", { class: "du-muto du-piccolo" }, v.tipo === "commerciale" ? "2D non richiesto" : "nessun documento"));
@@ -5592,87 +6862,129 @@ function daRivedere() {
 function riga(dt, dd) {
   return [h("dt", {}, dt), h("dd", {}, dd === "" || dd === null || dd === undefined ? "—" : dd)];
 }
+// parola: un valore del vocabolario del server (snake_case) detto con le parole: «non_verificabile» → «non verificabile»
+const parola = (s) => String(s === null || s === undefined ? "" : s).replace(/_/g, " ");
+// parolaEmittente: chi ha emesso il codice, per nome (messaggio 46, D14): «cliente · acme», «fornitore beta»; mai
+// l'identificativo interno del cliente
+// testoQualificatore: il testo di un qualificatore della lettura (il marcatore, un affisso): l'originale letto, o il valore
+function testoQualificatore(q) {
+  if (typeof q === "string") return q;
+  if (!ogg(q)) return "";
+  return typeof q.originale === "string" && q.originale ? q.originale : typeof q.valore === "string" ? q.valore : "";
+}
+// l'emittente in parole: il namespace della grammatica del cliente è un identificativo, non si mostra (collaudo UI46)
+function parolaEmittente(em, ns) {
+  if (typeof em !== "string" || !em) return "";
+  if (em.indexOf("partner:") === 0) return "fornitore " + (ns || em.slice(8));
+  if (em.indexOf("cliente:") === 0) return "cliente";
+  return parola(em);
+}
 function testoLettura(l) {
   if (!l) return "—";
-  return (l.letterale || "—") + (l.emittente ? " · " + l.emittente : "") + (l.namespace ? " (" + l.namespace + ")" : "");
+  const em = parolaEmittente(l.emittente, l.namespace);
+  return (l.letterale || "—") + (em ? " (" + em + ")" : "");
 }
+// sezione: una sezione richiudibile del pannello del nodo, come nella pagina di prima (messaggio 46, D15). Resta aperta o
+// chiusa come l'ha lasciata chi guarda, anche quando la pagina si ridisegna.
+function sezione(id, titolo, aperta, ...corpo) {
+  const st = S.sezioni[id];
+  const d = h("details", { class: "du-sez", id, open: st === undefined ? !!aperta : st }, h("summary", {}, h("h3", {}, titolo)), h("div", { class: "du-sez-c" }, corpo));
+  d.addEventListener("toggle", () => {
+    S.sezioni[id] = d.open;
+  });
+  return d;
+}
+const TIPI_RIFERIMENTO = { documentale: "riferimento documentale", lettura_ruolo: "lettura con ruolo", equivalente_k4: "P/N equivalente", manuale_legacy: "codice corretto a mano" };
 function pannelloNodo(g, v) {
   const box = h("div", { class: "du-nodo", id: "du-pannello", "data-k": v.k });
-  box.append(h("div", {}, h("div", { class: "du-nodo-cod" }, (v.cod || "(senza codice)") + (v.rev ? " rev " + v.rev : "")), h("div", { class: "du-muto du-piccolo" }, v.desc || "—"),
-    h("div", { class: "du-azioni" }, h("span", { class: "du-tipo du-tipo--" + v.tipo }, TIPI[v.tipo] || v.tipo), pill(v.stato.c === "reg" ? "ok" : v.stato.c, v.stato.t),
+  box.append(h("div", {}, h("div", { class: "du-nodo-cod" }, (v.cod || "(senza codice)") + (v.rev ? " rev " + v.rev : "")), v.desc ? h("div", { class: "du-muto du-piccolo" }, v.desc) : null,
+    h("div", { class: "du-azioni" }, chipTipo(v), pill(v.stato.c === "reg" ? "ok" : v.stato.c, v.stato.t),
       v.rivedere && v.rivedere.length ? pill("info", "da rivedere: " + v.rivedere.join(", ")) : null)));
   // le linguette «Dettaglio nodo» e «Documenti del nodo» (MAT PN-02): solo nel browser
   box.append(h("div", { class: "du-linguette", role: "tablist", "aria-label": "Pannello del nodo" }, [["dettaglio", "Dettaglio nodo"], ["documenti", "Documenti del nodo"]].map(([k, t]) =>
     h("button", { type: "button", role: "tab", id: "du-ling-" + k, "aria-selected": S.linguettaNodo === k ? "true" : "false", onclick: () => {
       S.linguettaNodo = k;
       renderCorpo();
+      // la linguetta cambia la vista del pannello: il fuoco resta sulla linguetta, senza scorrere (UI46, stabilità)
+      const lg = document.getElementById("du-ling-" + k);
+      if (lg) lg.focus({ preventScroll: true });
     } }, t))));
   if (S.linguettaNodo === "documenti") {
     box.append(documentiDelNodo(g, v));
     return box;
   }
+  // il 2D del nodo, grande, come nella pagina di prima (messaggio 46, D15): un clic lo apre nel visore
+  box.append(miniatura(v, true));
+  // i gesti subito sotto il disegno: prima stavano in fondo, fuori vista (D15)
+  if (g.modo === "bozza") box.append(gestiNodo(g, v));
   const voce = v.voce;
   // 1 · identità proposta
   const ip = voce && voce.identita_proposta;
-  const s1 = h("div", { class: "du-sez", id: "du-sez-proposta" }, h("h3", {}, "Identità proposta ", h("span", { class: "du-muto du-piccolo" }, "proposta del Motore A")));
-  if (!voce) s1.append(h("p", { class: "du-muto du-piccolo" }, v.nuovo ? "Pezzo aggiunto a mano: nessuna identità proposta." : "Nessuna voce del registro per questo pezzo."));
+  const s1 = sezione("du-sez-proposta", ["Identità proposta ", h("span", { class: "du-muto du-piccolo" }, "proposta del Motore A")], true);
+  const c1 = s1.lastChild;
+  if (!voce) c1.append(h("p", { class: "du-muto du-piccolo" }, v.nuovo ? "Pezzo aggiunto a mano: nessuna identità proposta." : "Nessuna voce del registro per questo pezzo."));
   else {
-    s1.append(h("dl", { class: "du-dl" },
-      riga("Letterale", ip ? h("span", { class: "du-mono" }, ip.letterale) : "nessuna lettura" + (voce.motivo_lettura ? " (" + voce.motivo_lettura + ")" : "")),
-      riga("Emittente", ip ? ip.emittente + (ip.namespace ? " · namespace " + ip.namespace : "") : ""),
+    c1.append(h("dl", { class: "du-dl" },
+      riga("Letterale", ip ? h("span", { class: "du-mono" }, ip.letterale) : "nessuna lettura" + (voce.motivo_lettura ? " (" + parola(voce.motivo_lettura) + ")" : "")),
+      riga("Emittente", ip ? parolaEmittente(ip.emittente, ip.namespace) : ""),
       riga("Base", ip && ip.base ? ip.base.normalizzata : ""),
-      riga("Qualificatori", ip && ip.qualificatori ? [ip.qualificatori.marcatore, ...arr(ip.qualificatori.affissi).map((a) => a.originale)].filter(Boolean).join(" · ") : ""),
-      riga("Revisione letta", ip && ip.revisione ? ip.revisione.originale + " (" + ip.revisione.stato + ")" : ""),
-      riga("Codice proposto", voce.codice_proposto ? h("span", { class: "du-mono" }, voce.codice_proposto + (voce.rev_proposta ? " rev " + voce.rev_proposta : "")) : "vuoto" + (voce.motivo_proposto ? " (" + voce.motivo_proposto + ")" : "")),
-      riga("Codice del cartiglio", voce.codice_composto && voce.codice_composto.testo ? voce.codice_composto.testo : "")));
+      // il marcatore è un oggetto {originale, valore, intervallo}, come gli affissi (collaudo UI46, I2: «[object Object]»)
+      riga("Qualificatori", ip && ip.qualificatori ? [testoQualificatore(ip.qualificatori.marcatore), ...arr(ip.qualificatori.affissi).map(testoQualificatore)].filter(Boolean).join(" · ") : ""),
+      riga("Revisione letta", ip && ip.revisione ? ip.revisione.originale + " (" + parola(ip.revisione.stato) + ")" : ""),
+      riga("Codice proposto", voce.codice_proposto ? h("span", { class: "du-mono" }, voce.codice_proposto + (voce.rev_proposta ? " rev " + voce.rev_proposta : "")) : "vuoto" + (voce.motivo_proposto ? " (" + parola(voce.motivo_proposto) + ")" : "")),
+      voce.codice_composto && voce.codice_composto.testo ? riga("Codice del cartiglio", voce.codice_composto.testo) : null));
   }
   box.append(s1);
+  // 4 · decisione dell'ingegnere, tipo e categoria (solo nella Revisione)
+  // gestiCategoria è null per un nodo non incluso: aggiungi lo salta (Element.append scriverebbe «null»)
+  if (g.modo === "bozza") aggiungi(box, [sezioneDecisione(g, v), gestiCategoria(g, v)]);
+  // la posizione nell'albero, come nella pagina di prima (messaggio 46, D15): sotto quali padri e con quale quantità
+  if (!v.noninc) box.append(sezionePosizione(g, v));
   // 2 · riferimenti e relazioni
-  const s2 = h("div", { class: "du-sez", id: "du-sez-riferimenti" }, h("h3", {}, "Riferimenti e relazioni"));
   const rif = [];
-  for (const a of arr(voce && voce.alternative)) rif.push(h("li", {}, "alternativa: ", h("span", { class: "du-mono" }, testoLettura(a.lettura || a)), a.motivo ? " · " + a.motivo : ""));
+  for (const a of arr(voce && voce.alternative)) rif.push(h("li", {}, "alternativa: ", h("span", { class: "du-mono" }, testoLettura(a.lettura || a)), a.motivo ? " · " + parola(a.motivo) : ""));
   const regAdotta = g.modo === "bozza" ? registroBozza() : g.registro;
+  let azioniRif = false;
   for (const r of arr(voce && voce.riferimenti)) {
-    const testo = r.tipo + (r.ruolo ? " (" + r.ruolo + ")" : "") + ": " + (r.lettura ? testoLettura(r.lettura) : r.equivalente ? (r.equivalente.base || "") + " · " + (r.equivalente.emittente || "emittente non concorde") : r.valore || "");
+    const valore = r.lettura ? testoLettura(r.lettura) : r.equivalente ? (r.equivalente.base || "") + " (" + (parolaEmittente(r.equivalente.emittente, r.equivalente.namespace) || "emittente non concorde") + ")" : r.valore || "";
+    const testo = (TIPI_RIFERIMENTO[r.tipo] || parola(r.tipo)) + (r.ruolo ? " «" + parola(r.ruolo) + "»" : "") + (valore ? ": " + valore : "");
     const k4 = r.tipo === "equivalente_k4" || !!r.equivalente;
     const ad = g.modo === "bozza" && v.nodo && (r.lettura || r.equivalente) ? letturaDaAdottare(r, regAdotta) : null;
-    rif.push(h("li", { "data-du-riferimento": r.tipo || "" }, testo, r.esito ? " · " + r.esito : "", ad ? h("span", { class: "du-azioni" },
+    if (ad) azioniRif = true;
+    rif.push(h("li", { "data-du-riferimento": r.tipo || "" }, testo, r.esito ? " · " + parola(r.esito) : "", ad ? h("span", { class: "du-azioni" },
       btn("Adotta come codice…", () => apriAdotta(v, r, ad), { cls: "du-btn--sm", no: ad.motivo || (v.escluso ? "il pezzo è escluso: ↺ Ripristina, poi decidi l'identità" : "") || perchéNoModifica() }),
-      // il rifiuto esplicito del P/N K4: un'alternativa sulla lettura primaria, con il motivo (MAT PN-08; EM §3.6.1)
+      // il rifiuto esplicito del P/N K4: un'alternativa sulla lettura primaria (MAT PN-08; EM §3.6.1; senza motivo dal messaggio 46 [U])
       k4 ? btn("Conferma l'identità proposta…", () => apriConfermaIdentita(v, r), { cls: "du-btn--sm", id: "du-conferma-identita", no: perchéNoConfermaIdentita(v) }) : null) : null));
   }
-  if (voce && voce.codice_manuale_legacy) rif.push(h("li", {}, "codice corretto a mano nella pagina vecchia (evidenza): ", h("span", { class: "du-mono" }, voce.codice_manuale_legacy.codice),
-    // il codice manuale si adotta solo su un nodo da creare (U2-P35, [U] Q16 con la regola [T]; MAT PN-08): il codice di un
-    // componente registrato cambia solo con una ricodifica, e R2 rifiuterebbe l'identità decisa
-    g.modo === "bozza" ? h("span", { class: "du-azioni" }, btn("Adotta come codice…", () => apriAdotta(v, { tipo: "manuale_legacy" }, { codice: voce.codice_manuale_legacy.codice, rev: voce.codice_manuale_legacy.rev || "" }),
-      { cls: "du-btn--sm", id: "du-adotta-manuale", no: (v.escluso ? "il pezzo è escluso: ↺ Ripristina, poi decidi l'identità" : "") ||
-        (v.nodo && v.nodo.op !== "crea" ? "per cambiare il codice di un componente registrato serve una ricodifica (✎ Correggi codice, rev e descrizione…)" : "") || perchéNoModifica() }),
-      h("span", { class: "du-perche" }, "Corretto a mano nella pagina vecchia: autore e data non registrati.")) : null));
+  if (voce && voce.codice_manuale_legacy) {
+    azioniRif = azioniRif || g.modo === "bozza";
+    rif.push(h("li", {}, "codice corretto a mano nella pagina vecchia (evidenza): ", h("span", { class: "du-mono" }, voce.codice_manuale_legacy.codice),
+      // il codice manuale si adotta solo su un nodo da creare (U2-P35, [U] Q16 con la regola [T]; MAT PN-08): il codice di un
+      // componente registrato cambia solo con una ricodifica, e R2 rifiuterebbe l'identità decisa
+      g.modo === "bozza" ? h("span", { class: "du-azioni" }, btn("Adotta come codice…", () => apriAdotta(v, { tipo: "manuale_legacy" }, { codice: voce.codice_manuale_legacy.codice, rev: voce.codice_manuale_legacy.rev || "" }),
+        { cls: "du-btn--sm", id: "du-adotta-manuale", no: (v.escluso ? "il pezzo è escluso: ↺ Ripristina, poi decidi l'identità" : "") ||
+          (v.nodo && v.nodo.op !== "crea" ? "per cambiare il codice di un componente registrato serve una ricodifica (✎ Correggi codice, rev e descrizione…)" : "") || perchéNoModifica() }),
+        h("span", { class: "du-perche" }, "Corretto a mano nella pagina vecchia: autore e data non registrati.")) : null));
+  }
   const reg = g.modo === "bozza" ? registroBozza() : g.registro;
   for (const r of arr(reg && reg.proposta && reg.proposta.relazioni).filter((x) => voce && x.sorgente && x.sorgente.voce === voce.voce)) {
-    rif.push(h("li", {}, "relazione " + r.tipo + " · " + (r.stato || "proposta") + ", non ratificata", h("span", { class: "du-azioni" },
+    rif.push(h("li", {}, "relazione «" + parola(r.tipo) + "» · " + parola(r.stato || "proposta") + ", non ratificata", h("span", { class: "du-azioni" },
       btn("Accetta o rifiuta", null, { cls: "du-btn--sm", no: NON_V1.relazioni }))));
   }
-  s2.append(rif.length ? h("ul", { class: "du-elenco-p" }, rif) : h("p", { class: "du-muto du-piccolo" }, "Nessun riferimento né relazione."));
-  box.append(s2);
-  // 3 · provenienza
-  const s3 = h("div", { class: "du-sez", id: "du-sez-provenienza" }, h("h3", {}, "Provenienza"));
+  box.append(sezione("du-sez-riferimenti", "Riferimenti e relazioni", azioniRif, rif.length ? h("ul", { class: "du-elenco-p" }, rif) : h("p", { class: "du-muto du-piccolo" }, "Nessun riferimento né relazione.")));
+  // 3 · provenienza: il file si legge; gli identificativi tecnici stanno in un dettaglio chiuso (messaggio 46, D14)
   const c = v.nodo ? casellaDi(v.nodo) : v.decisione ? v.decisione.casella : null;
+  const s3 = sezione("du-sez-provenienza", "Provenienza", false);
   if (c) {
-    s3.append(h("dl", { class: "du-dl" }, riga("File", nomeFile(c.allegato_id)), riga("Occorrenza", h("span", { class: "du-mono" }, String(c.allegato_id).slice(0, 8))),
-      riga("SHA", h("span", { class: "du-mono" }, String(c.rif).split(":")[1] ? String(c.rif).split(":")[1].slice(0, 12) : "")), riga("Unità di lettura", ip ? ip.unita_id || "" : ""),
-      riga("Gruppo", h("span", { class: "du-mono" }, breve(c.gruppo, 40))), riga("Rif", h("span", { class: "du-mono" }, breve(c.rif, 50)))));
-    if (g.modo === "bozza" && S.bozza && S.bozza.importazione) {
-      const imp = S.bozza.importazione;
-      s3.append(h("details", { class: "du-ripiega" }, h("summary", {}, "Regole e versioni dell'importazione"), h("dl", { class: "du-dl" },
-        riga("Importato il", dataOra(imp.creata_il)), riga("Impronta", h("span", { class: "du-mono" }, String(imp.impronta || "").slice(0, 16))),
-        riga("Regole", h("span", { class: "du-mono" }, breve(JSON.stringify(imp.regole || (reg && reg.regole) || {}), 160))))));
-    }
-  } else s3.append(h("p", { class: "du-muto du-piccolo" }, "Pezzo senza casella dello STEP."));
+    const tecnici = [riga("Allegato", h("span", { class: "du-mono" }, String(c.allegato_id || ""))), riga("Nodo nello STEP", h("span", { class: "du-mono" }, String(c.rif || ""))),
+      riga("Unità di lettura", ip ? ip.unita_id || "" : ""), riga("Struttura", h("span", { class: "du-mono" }, String(c.gruppo || "")))];
+    const imp = g.modo === "bozza" && S.bozza && S.bozza.importazione;
+    if (imp) tecnici.push(riga("Importato il", dataOra(imp.creata_il)), riga("Impronta", h("span", { class: "du-mono" }, String(imp.impronta || "").slice(0, 16))),
+      riga("Regole", h("span", { class: "du-mono" }, breve(JSON.stringify(imp.regole || (reg && reg.regole) || {}), 160))));
+    s3.lastChild.append(h("dl", { class: "du-dl" }, riga("File", nomeFile(c.allegato_id))),
+      h("details", { class: "du-ripiega", id: "du-dati-tecnici" }, h("summary", {}, "Dati tecnici (per l'assistenza)"), h("dl", { class: "du-dl" }, tecnici)));
+  } else s3.lastChild.append(h("p", { class: "du-muto du-piccolo" }, "Pezzo senza casella dello STEP."));
   box.append(s3);
-  // 4 · decisione dell'ingegnere (solo nella Revisione)
-  // gestiCategoria è null per un nodo non incluso: aggiungi lo salta (Element.append scriverebbe «null»)
-  if (g.modo === "bozza") aggiungi(box, [sezioneDecisione(g, v), gestiCategoria(g, v), gestiNodo(g, v)]);
   return box;
 }
 // perchéNoConfermaIdentita: «Conferma l'identità proposta…» (MAT PN-08) vuole la lettura primaria della voce, il codice
@@ -5687,7 +6999,7 @@ function perchéNoConfermaIdentita(v) {
   return perchéNoModifica();
 }
 // apriConfermaIdentita: il rifiuto esplicito del P/N equivalente K4 (MAT PN-08; EM §3.6.1, «Il rifiuto di un
-// equivalente K4»): un'alternativa sulla lettura primaria, con il motivo. Il nodo tiene l'identità proposta, ma come
+// equivalente K4»): un'alternativa sulla lettura primaria (dal messaggio 46 [U] senza motivo). Il nodo tiene l'identità proposta, ma come
 // identità decisa, e l'avviso EQUIVALENTE_NON_ADOTTATO non scatta più. La copia della lettura e la chiave stanno già nel
 // registro della bozza: la proiezione non serve, perché il codice proposto è la proiezione della primaria (EM §6.1).
 function apriConfermaIdentita(v, r) {
@@ -5697,15 +7009,13 @@ function apriConfermaIdentita(v, r) {
   const eq = r.equivalente || {};
   apriFinestra("Conferma l'identità proposta di " + (v.cod || "questo pezzo"), h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "L'identità resta quella proposta (", h("span", { class: "du-mono" }, (id.codice || "") + (id.rev ? " rev " + id.rev : "")), ", " + (ip.emittente || "") + "), ma diventa un'identità decisa: il P/N equivalente ",
-      h("span", { class: "du-mono" }, eq.base || "?"), " (" + (eq.emittente || "emittente non concorde") + ") non si adotta."),
-    campo("Motivo", area("f-motivo", "perché non adotti il P/N equivalente"))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Conferma l'identità proposta", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
-    const motivo = valore($("#du-finestra"), "f-motivo");
+      h("span", { class: "du-mono" }, eq.base || "?"), " (" + (eq.emittente || "emittente non concorde") + ") non si adotta.")),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Conferma l'identità proposta", pri: true, id: "f-ok", fai: () => {
     const identita = { emittente: id.emittente, codice: id.codice };
     if (id.namespace) identita.namespace = id.namespace;
     if (id.rev) identita.rev = id.rev;
     const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "alternativa", importazione: S.bozza.importazione.impronta, chiave_lettura: ip.chiave_lettura,
-      lettura: copiaLettura(ip), identita, motivo };
+      lettura: copiaLettura(ip), identita };
     fai("confermata l'identità proposta di " + (v.cod || "un pezzo"), [{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" },
       { azione: "nodo_modificato", chiave_bozza: v.k, prima: { identita: clona(id) }, dopo: { identita: Object.assign({}, identita, { modo: "decisione", decisione: dec.id }) }, origine: "utente" }]);
   } }]);
@@ -5778,7 +7088,7 @@ function documentiDelNodo(g, v) {
   const apri = (f) => (f && f.allegato_id && f.stato !== "scartato" ? bottoneApri(f, "du-doc-apri-" + sid(f.allegato_id)) : null);
   if (g.modo === "bozza") {
     const doc = documentiNodo(v);
-    const ricod = v.nodo && v.nodo.componente_id && S.lavoro.decisioni.some((d) => d.tipo === "ricodifica" && d.componente_id === v.nodo.componente_id);
+    const ricod = v.nodo && v.nodo.componente_id && arr(S.lavoro && S.lavoro.decisioni).some((d) => d.tipo === "ricodifica" && d.componente_id === v.nodo.componente_id);
     for (const aid of doc.pb) {
       const es = esitoPreassociazione(aid);
       righe.push(h("li", { "data-du-doc": "preassociato" }, pill("bozza", "◈ preassociato"), " ", h("span", { class: "du-mono" }, nomeFile(aid)), es ? pill(es === "applicabile" ? "ok" : "ver", es) : null, apri(fileDi(aid))));
@@ -5790,6 +7100,12 @@ function documentiDelNodo(g, v) {
         h("span", { class: "du-mono" }, f.nome_file), ricod ? pill("ver", "da ricodificare") : null, apri(f)));
     }
     for (const x of doc.nonRichieste) righe.push(h("li", { "data-du-doc": "non_richiesta" }, pill("neu", "◇ non richiesta: nodo non incluso (bozza)"), " ", h("span", { class: "du-mono" }, nomeFile(x.allegato_id))));
+  } else if (g.modo === "working") {
+    // la BOM confermata (messaggio 47): le associazioni registrate del componente, in sola lettura
+    for (const f of documentiWorking(v).ar) {
+      righe.push(h("li", { "data-du-doc": f.documento ? "confermato" : "associato" }, pill(f.documento ? "ok" : "info", f.documento ? "✓ confermato" : "● associato"), " ",
+        h("span", { class: "du-mono" }, f.nome_file), apri(f)));
+    }
   } else {
     for (const a of arr(v.voce && v.voce.associazioni_proposte)) righe.push(h("li", { "data-du-doc": "proposto" }, pill("prop", "◇ proposto"), " ", h("span", { class: "du-mono" }, nomeFile(a.allegato_id)), a.motivo ? " · " + a.motivo : ""));
   }
@@ -5806,28 +7122,62 @@ function documentiDelNodo(g, v) {
   const diaOggi = arr(nm && nm.diagnostiche);
   const gr = voce && S.modello ? S.modello.gruppi.find((x) => arr(x.nodi).some((n) => n && n.voce === voce.voce)) : null;
   const diaGruppo = arr(gr && gr.diagnostiche);
-  const testoDia = (l) => l.map((x) => (x.codice || "") + (x.messaggio ? ": " + x.messaggio : x.testo ? ": " + x.testo : "")).join("; ");
+  // messaggio 46 (D14, rilievo 6 della revisione ALBERO [T]): le diagnostiche con il loro messaggio, il tipo di documento
+  // e l'esito in parole; i codici del motore non si scrivono nella linguetta
+  const testoDia = (l) => l.map((x) => x.messaggio || x.testo || parola(x.codice)).join("; ");
+  const tipoDoc = (t) => TIPI_DOCUMENTO_NODO[t] || parola(t);
+  // collaudo UI46, giro 3 (F3-I2) [T]: i messaggi delle diagnostiche citano selettori e regole del motore
+  // («radice_step.nome», «rev-campo»): stanno in «Dettagli tecnici», chiusi; in vista resta solo quante sono
+  const nDia = diaOggi.length + diaGruppo.length + dia.length;
+  const vociDia = (t, l) => (l.length ? h("li", {}, h("b", {}, t + ": "), testoDia(l)) : null);
   s.append(h("dl", { class: "du-dl", id: "du-completezza" },
-    riga("2D previsti all'importazione", fab.length ? fab.map((x) => (x.tipo_documento || "documento") + (x.bloccante ? " (bloccante)" : "")).join(", ") : voce ? "nessuno" : ""),
-    riga("Completezza del 2D di adesso", comp ? (comp.requisito || "?") + " · " + (comp.esito || "?") + (comp.deroga ? " · deroga: " + (comp.deroga.motivo || comp.deroga.stato || "sì") : "") :
+    riga("2D previsti all'importazione", fab.length ? fab.map((x) => (x.tipo_documento ? tipoDoc(x.tipo_documento) : "documento") + (x.bloccante ? " (bloccante)" : "")).join(", ") : voce ? "nessuno" : ""),
+    riga("Completezza del 2D di adesso", comp ? (comp.requisito ? tipoDoc(comp.requisito) : "?") + " · " + (comp.esito ? parola(comp.esito) : "?") + (comp.deroga ? " · deroga" + (comp.deroga.stato ? " " + parola(comp.deroga.stato) : "") : "") :
       voce ? "il modello non dà la completezza di questo nodo" : ""),
-    riga("Diagnostiche del Motore A, adesso", diaOggi.length ? testoDia(diaOggi) : nm ? "nessuna" : ""),
-    diaGruppo.length ? riga("Diagnostiche della struttura (senza nodo)", testoDia(diaGruppo)) : null,
-    riga("Diagnostiche all'importazione", dia.length ? testoDia(dia) : voce ? "nessuna" : "")));
+    riga("Diagnostiche del Motore A", nDia ? nDia + (nDia === 1 ? " segnalazione del motore, nei «Dettagli tecnici» qui sotto" : " segnalazioni del motore, nei «Dettagli tecnici» qui sotto") : nm || voce ? "nessuna" : "")));
+  if (nDia) {
+    s.append(h("details", { class: "du-ripiega", id: "du-diagnostiche-tecniche" }, h("summary", {}, "Dettagli tecnici del Motore A (" + nDia + ")"),
+      h("ul", { class: "du-elenco-p du-piccolo", style: "overflow-wrap:anywhere" }, vociDia("Adesso", diaOggi), vociDia("Della struttura (senza nodo)", diaGruppo), vociDia("All'importazione", dia))));
+  }
   // le azioni sui documenti che V1 non ha (MAT §6.1, EL-09): visibili e spente, con il motivo accanto (D23:294)
-  s.append(h("div", { class: "du-azioni du-non-v1", id: "du-doc-non-v1" },
+  // messaggio 46 (D40): le azioni sui documenti che questa versione non ha stanno in un dettaglio chiuso, non in vista
+  s.append(h("details", { class: "du-ripiega" }, h("summary", {}, "Azioni sui documenti non ancora disponibili"), h("div", { class: "du-azioni du-non-v1", id: "du-doc-non-v1" },
     btn("Conferma il documento", null, { cls: "du-btn--sm", no: NON_V1.documento }),
     btn("Conferma 2D", null, { cls: "du-btn--sm", no: NON_V1.documento }),
     btn("Correggi il codice di un file…", null, { cls: "du-btn--sm", no: NON_V1.r10 }),
     btn("Deroga", null, { cls: "du-btn--sm", no: NON_V1.deroga }),
     btn("Revoca la deroga", null, { cls: "du-btn--sm", no: NON_V1.deroga }),
-    btn("Sostituisci il principale con questo", null, { cls: "du-btn--sm", no: NON_V1.sostituisci })));
+    btn("Sostituisci il principale con questo", null, { cls: "du-btn--sm", no: NON_V1.sostituisci }))));
   return s;
+}
+const TIPI_DOCUMENTO_NODO = { disegno_2d: "2D", cad_3d: "3D", sviluppo_dxf: "sviluppo DXF", distinta_cliente: "distinta del cliente" };
+// chiE: chi ha fatto un gesto, detto all'utente. Il server vero dà l'autore come identificativo dell'utente (R1
+// EventoR1.Autore), il banco come sigla: l'identificativo dell'utente che guarda diventa la sua sigla, quello di un altro
+// utente «un altro utente», mai l'identificativo a schermo (revisioni delle corsie MOTIVO e SORGENTE del messaggio 46 [T]).
+function chiE(autore) {
+  const a = String(autore || "").trim();
+  if (!a) return "";
+  if (S.utente && a.toLowerCase() === String(S.utente).toLowerCase()) return S.sigla || "tu";
+  return RE_UUID.test(a) ? "un altro utente" : a;
 }
 function autoreDi(chiave) {
   const ev = arr(S.bozza && S.bozza.eventi).filter((e) => e.chiave === chiave || (e.dopo && e.dopo.id === chiave));
   const e = ev[ev.length - 1];
-  return e ? (e.autore || "?") + " alle " + ora(e.quando) : "";
+  return e ? (chiE(e.autore) || "?") + " alle " + ora(e.quando) : "";
+}
+// decisoDa: chi ha preso la decisione e quando, dagli eventi della bozza; è quello che pannello e wizard mostrano al posto del
+// motivo (messaggio 46 [U]). Un evento appena salvato da questa scheda non ha ancora l'autore (lo dà la rilettura di R1):
+// «deciso adesso». "" se la bozza non ha l'evento (per esempio dopo la conferma).
+function decisoDa(chiave) {
+  const ev = arr(S.bozza && S.bozza.eventi).filter((e) => e.chiave === chiave || (e.dopo && e.dopo.id === chiave));
+  const e = ev[ev.length - 1];
+  if (!e) return "";
+  return e.autore ? "deciso da " + chiE(e.autore) + (dataOra(e.quando) ? " il " + dataOra(e.quando) : "") : "deciso adesso, in bozza";
+}
+// testoSegnale: un segnale del motore (LS-02) con le parole della pagina, non con il codice
+const TESTI_SEGNALE = { "ancoraggio.possibile_elemento_cad": "possibile elemento CAD" };
+function testoSegnale(codice) {
+  return TESTI_SEGNALE[codice] || codice || "";
 }
 // L'identificativo del cliente (U2 §4.2 punto 4; C-01 [U]): una stringa calcolata dal server alla lettura con la regola
 // della grammatica del cliente, mai salvata e mai composta dalla pagina. Per un nodo della bozza la dà il riepilogo
@@ -5835,10 +7185,19 @@ function autoreDi(chiave) {
 // S9. Senza regola il server lo dice vuoto: «composizione non definita nella grammatica», e codice e revisione restano
 // due campi. Mai una concatenazione di ripiego ([U] D31 §8).
 const TITOLO_IDC = "identificativo verso il cliente, composto con la regola della sua grammatica; codice e revisione restano due campi";
+// testoIdc: il testo dell'identificativo verso il cliente come lo dà il server, {testo, motivo}
+// (propostabom.IdentificativoCliente: /dati, S9, R1, R4, R7), o una stringa (la forma del banco di prima); "" se non c'è.
+// Mai l'oggetto scritto com'è («[object Object]», messaggio 46, difetto D12)
+function testoIdc(v) {
+  if (typeof v === "string") return v === "non determinato" ? "" : v;
+  return ogg(v) && typeof v.testo === "string" ? v.testo : "";
+}
 function idClienteDa(valore, presente) {
   if (!presente) return null;
-  if (typeof valore === "string" && valore && valore !== "non determinato") return h("span", { class: "du-idc", title: TITOLO_IDC, "data-du-idc": valore }, "id. cliente: ", h("span", { class: "du-mono" }, valore));
-  return h("span", { class: "du-idc du-muto", title: TITOLO_IDC, "data-du-idc": "" }, "id. cliente: composizione non definita nella grammatica");
+  valore = testoIdc(valore);
+  if (valore) return h("span", { class: "du-idc", title: TITOLO_IDC, "data-du-idc": valore }, "id. cliente: ", h("span", { class: "du-mono" }, valore));
+  // senza una regola di composizione nella grammatica non c'è niente da dire a chi guarda (collaudo UI46, minore)
+  return h("span", { class: "du-idc du-muto", title: TITOLO_IDC, "data-du-idc": "", hidden: true }, "");
 }
 function idClienteNodo(k, rip) {
   const r = rip || S.riepilogo;
@@ -5846,55 +7205,73 @@ function idClienteNodo(k, rip) {
   const d = x && x.decisa;
   return idClienteDa(d && d.identificativo_cliente, !!(d && Object.prototype.hasOwnProperty.call(d, "identificativo_cliente")));
 }
+// sezionePosizione: i padri del pezzo con la quantità del legame e il suo stato, e quanti pezzi ha sotto
+function sezionePosizione(g, v) {
+  const nome = (k) => (g.nodi[k] && (g.nodi[k].cod || g.nodi[k].desc)) || "(senza codice)";
+  const statoLegame = (a) => (g.modo === "proposta" ? "dal file" : a.kind === "conf" ? "confermato" : a.kind === "bozza" ? "deciso nella bozza" : "dal file, da confermare");
+  const pa = padriA(g, v.k);
+  const fi = figliA(g, v.k);
+  return sezione("du-sez-posizione", "Posizione", true, h("dl", { class: "du-dl" },
+    riga("Sotto", v.k === g.radice ? "è il prodotto della RFQ" : pa.length ? h("span", {}, pa.map((a, i) => [i ? "; " : "", h("span", { class: "du-mono" }, nome(a.p)), " ×" + a.qta + " (" + statoLegame(a) + ")"])) : "nessun padre: da ricollocare"),
+    riga("Pezzi sotto", fi.length ? String(fi.length) : "nessuno")));
+}
+const MODI_IDENTITA = { proposta: "proposta dal file", decisione: "decisa nella bozza", registrato: "registrata", da_decidere: "da decidere" };
 function sezioneDecisione(g, v) {
-  const s = h("div", { class: "du-sez", id: "du-sez-decisione" }, h("h3", {}, "Decisione dell'ingegnere"));
   if (v.noninc) {
     const d = v.decisione;
-    s.append(h("dl", { class: "du-dl" }, riga("Decisione", "non includere nella BOM (bozza)"), riga("Motivo", (d.motivo_codice || "") + " · " + (d.motivo || "")),
-      riga("Segnale visto", d.segnale_visto ? d.segnale_visto.codice : "nessuno"), riga("Gesto", h("span", { class: "du-mono" }, String(d.azione_id || "").slice(0, 8)))));
-    return s;
+    // messaggio 46 [U]: al posto del motivo chi ha deciso e quando; il segnale del motore con le parole della pagina
+    return sezione("du-sez-decisione", "Decisione dell'ingegnere", true, h("dl", { class: "du-dl" }, riga("Decisione", "non includere nella BOM (bozza)"),
+      riga("Chi e quando", h("span", { id: "du-noninc-deciso" }, decisoDa(d.id) || "in bozza")), riga("Segnale visto", d.segnale_visto ? testoSegnale(d.segnale_visto.codice) : "nessuno")));
   }
   const id = v.nodo.identita || {};
   const dec = id.decisione ? S.lavoro.decisioni.find((x) => x.id === id.decisione) : null;
-  s.append(h("dl", { class: "du-dl" }, riga("Identità decisa", h("span", { class: "du-mono" }, (id.codice || "(senza codice)") + (id.rev ? " rev " + id.rev : ""))),
-    riga("Id. cliente", idClienteNodo(v.k) || h("span", { class: "du-muto" }, S.riepilogoStato === "aggiornato" ? "il riepilogo non lo dà" : "da aggiornare (lo calcola il riepilogo)")),
-    riga("Emittente", emittenteParola(id) + (id.namespace ? " · " + id.namespace : "")), riga("Modo", id.modo || ""),
-    dec ? riga("Decisione", dec.tipo + (dec.modo ? " (" + dec.modo + ")" : "") + (dec.motivo ? ": " + dec.motivo : "")) : null,
+  // l'identificativo verso il cliente c'è solo quando il riepilogo lo dà: mai «da aggiornare» (messaggio 46, D16)
+  const idc = idClienteNodo(v.k);
+  return sezione("du-sez-decisione", "Decisione dell'ingegnere", true, h("dl", { class: "du-dl" }, riga("Identità decisa", h("span", { class: "du-mono" }, (id.codice || "(senza codice)") + (id.rev ? " rev " + id.rev : ""))),
+    idc ? riga("Id. cliente", idc) : null,
+    // il namespace della grammatica è un identificativo: non si mostra (collaudo UI46)
+    riga("Emittente", emittenteParola(id)), riga("Stato", MODI_IDENTITA[id.modo] || parola(id.modo)),
+    dec ? riga("Decisione", parola(dec.tipo) + (dec.modo ? " (" + parola(dec.modo) + ")" : "")) : null,
     dec ? riga("Chi e quando", autoreDi(dec.id) || "non ancora salvata") : null,
     v.escluso ? riga("Esclusione", "escluso alla conferma (archiviato, mai cancellato se ha storia)") : null,
-    segnaliDi(v.voce).length ? riga("Segnale LS-02", segnaliDi(v.voce).map((x) => x.spiegazione || x.codice).join(" ")) : null));
-  return s;
+    segnaliDi(v.voce).length ? riga("Segnale del motore", segnaliDi(v.voce).map((x) => x.spiegazione || parola(x.codice)).join(" ")) : null));
 }
-function gestiNodo(g, v) {
+// vociGesti: i gesti del pezzo sulla bozza, per il pannello e per il menu del nodo (messaggio 46, D38). Solo quelli che
+// valgono per il pezzo (D40: niente «Aggiungi sotto» su un particolare, niente «Ricolloca i figli» senza figli, niente
+// «Cambia tipo» sul prodotto); spenti, con il motivo, quelli che oggi non si fanno (la bozza in conflitto, la conferma
+// in sospeso). {id, testo, fai, no, cls}.
+function vociGesti(g, v) {
   const no = perchéNoModifica();
-  const s = h("div", { class: "du-sez du-gesti", id: "du-gesti" }, h("h3", {}, "Gesti sulla bozza"));
-  if (v.noninc) {
-    // una voce con un componente registrato (decisione_esistente) tornerebbe «registrato» con l'identità della
-    // certificazione, che il registro non porta: il browser non la inventa (PE-10, come «Importa dalla proposta»)
-    s.append(btn("Includi di nuovo", () => includiDiNuovo(v), { cls: "du-btn--sm", id: "du-includi", no: no || (voceNonImportabile(v.voce) ? MOTIVO_VOCE_REGISTRATA : "") }));
-    return s;
-  }
+  if (v.noninc) return [{ id: "du-includi", testo: "Includi di nuovo", fai: () => includiDiNuovo(v), no: no || (voceNonImportabile(v.voce) ? MOTIVO_VOCE_REGISTRATA : "") }];
   const radice = v.k === g.radice;
   const conCasella = !!casellaDi(v.nodo);
   const registrato = !!v.nodo.componente_id;
-  s.append(btn("✎ Correggi codice, rev e descrizione…", () => apriCorreggi(v), { cls: "du-btn--sm", id: "du-correggi", no }));
-  s.append(btn("◆ Cambia tipo…", () => apriTipo(v), { cls: "du-btn--sm", id: "du-cambia-tipo", no: no || (radice ? "è il prodotto della RFQ: il tipo non cambia (DB7-3)" : "") }));
-  s.append(btn("+ Aggiungi un pezzo sotto…", () => apriAggiungi("sciolto", v.k), { cls: "du-btn--sm", id: "du-aggiungi-sotto", no: no || (contenitore(v) ? "" : "un " + (TIPI[v.tipo] || v.tipo).toLowerCase() + " non ha figli (E37)") }));
-  s.append(btn("↳ Sposta sotto…", () => apriSposta(v.k, ""), { cls: "du-btn--sm", id: "du-sposta", no: no || (radice ? "il prodotto della RFQ non va sotto un altro pezzo" : "") }));
-  s.append(btn("+ Collega anche sotto…", () => apriCollega(v.k), { cls: "du-btn--sm", id: "du-collega", no: no || (radice ? "il prodotto della RFQ non va sotto un altro pezzo" : "") }));
-  s.append(btn("− Scollega da un padre…", () => apriScollegaPadre(v.k), { cls: "du-btn--sm", id: "du-scollega-padre", no: no || (padriA(g, v.k).length ? "" : "il pezzo non ha padri") }));
-  s.append(btn("× Quantità…", () => apriQuantita(v.k, ""), { cls: "du-btn--sm", id: "du-quantita", no: no || (padriA(g, v.k).length ? "" : "il pezzo non ha padri") }));
-  s.append(btn("⤴ Ricolloca i figli…", () => apriRicollocaFigli(v.k), { cls: "du-btn--sm", id: "du-ricolloca", no: no || (figliA(g, v.k).length ? "" : "il pezzo non ha figli") }));
-  if (v.escluso) s.append(btn("↺ Ripristina", () => ripristina(v), { cls: "du-btn--sm", id: "du-ripristina", no }));
-  else if (registrato && !radice) s.append(btn("Escludi (senza cascata)…", () => apriEscludi(v), { cls: "du-btn--sm du-btn--danger", id: "du-escludi", no }));
-  if (!radice && conCasella && !registrato) s.append(btn("Non includere nella BOM…", () => {
+  const padri = padriA(g, v.k).length > 0;
+  const out = [{ id: "du-correggi", testo: "✎ Correggi codice, rev e descrizione…", fai: () => apriCorreggi(v), no }];
+  if (!radice) out.push({ id: "du-cambia-tipo", testo: "◆ Cambia tipo…", fai: () => apriTipo(v), no });
+  if (contenitore(v)) out.push({ id: "du-aggiungi-sotto", testo: "+ Aggiungi un pezzo sotto…", fai: () => apriAggiungi("sciolto", v.k), no });
+  if (!radice) out.push({ id: "du-sposta", testo: "↳ Sposta sotto…", fai: () => apriSposta(v.k, ""), no }, { id: "du-collega", testo: "+ Collega anche sotto…", fai: () => apriCollega(v.k), no });
+  if (padri) out.push({ id: "du-scollega-padre", testo: "− Scollega da un padre…", fai: () => apriScollegaPadre(v.k), no }, { id: "du-quantita", testo: "× Quantità…", fai: () => apriQuantita(v.k, ""), no });
+  if (figliA(g, v.k).length) out.push({ id: "du-ricolloca", testo: "⤴ Ricolloca i figli…", fai: () => apriRicollocaFigli(v.k), no });
+  if (v.escluso) out.push({ id: "du-ripristina", testo: "↺ Ripristina", fai: () => ripristina(v), no });
+  else if (registrato && !radice) out.push({ id: "du-escludi", testo: "Escludi (senza cascata)…", fai: () => apriEscludi(v), no, cls: "du-btn--danger" });
+  if (!radice && conCasella && !registrato) out.push({ id: "du-non-includere-nodo", testo: "Non includere nella BOM…", fai: () => {
     S.selezione = new Set([v.k]);
     apriNonIncludere(g);
-  }, { cls: "du-btn--sm du-btn--danger", id: "du-non-includere-nodo", no }));
-  if (!radice && !conCasella && !registrato) s.append(btn("Non crearlo (togli dalla bozza)…", () => togliNodo(v), { cls: "du-btn--sm du-btn--danger", id: "du-togli", no }));
-  if (registrato && v.nodo.identita && v.nodo.identita.emittente_presunto) s.append(btn("Fissa l'emittente…", () => apriFissaEmittente(v), { cls: "du-btn--sm", id: "du-fissa-emittente", no }));
-  const riuso = riusoNelPannello(g, v);
-  if (riuso) s.append(riuso);
+  }, no, cls: "du-btn--danger" });
+  if (!radice && !conCasella && !registrato) out.push({ id: "du-togli", testo: "Non crearlo (togli dalla bozza)…", fai: () => togliNodo(v), no, cls: "du-btn--danger" });
+  if (registrato && v.nodo.identita && v.nodo.identita.emittente_presunto) out.push({ id: "du-fissa-emittente", testo: "Fissa l'emittente…", fai: () => apriFissaEmittente(v), no });
+  return out;
+}
+function gestiNodo(g, v) {
+  const s = sezione("du-gesti", "Gesti sulla bozza", true);
+  s.classList.add("du-gesti");
+  const c = s.lastChild;
+  for (const o of vociGesti(g, v)) c.append(btn(o.testo, o.fai, { cls: "du-btn--sm" + (o.cls ? " " + o.cls : ""), id: o.id, no: o.no }));
+  if (!v.noninc) {
+    const riuso = riusoNelPannello(g, v);
+    if (riuso) c.append(riuso);
+  }
   return s;
 }
 
@@ -5963,11 +7340,31 @@ function sezioneDocumenti(g, v) {
 
 // ---------------------------------------------------------------- finestre
 
+// UI46 (controllo di stabilità del 21/10 [T]): alla chiusura il fuoco torna a chi ha aperto il dialogo senza far
+// scorrere la pagina (preventScroll), e lo si ritrova per id se un ridisegno l'ha sostituito. Un dialogo aperto
+// trascinando una scheda o dal menu del nodo non ha un pulsante di partenza (il fuoco era rimasto altrove, anche lontano):
+// torna sulla scheda del pezzo (#oc-‹k›), che conRitorno indica.
 let fuocoPrima = null;
+let fuocoPrimaId = "";
+let ritornoFinestra = "";
+function conRitorno(id, fai) {
+  ritornoFinestra = id;
+  let r;
+  try {
+    r = fai();
+  } finally {
+    if (r && typeof r.then === "function") r.then(() => (ritornoFinestra = ""), () => (ritornoFinestra = ""));
+    else ritornoFinestra = "";
+  }
+  return r;
+}
 function apriFinestra(titolo, corpo, azioni, o) {
   const f = $("#du-finestra");
   const velo = $("#du-velo");
-  fuocoPrima = document.activeElement;
+  const rit = ritornoFinestra && document.getElementById(ritornoFinestra);
+  fuocoPrima = rit || document.activeElement;
+  fuocoPrimaId = rit ? ritornoFinestra : fuocoPrima && fuocoPrima.id ? fuocoPrima.id : "";
+  ritornoFinestra = "";
   const err = h("p", { class: "du-err", id: "du-finestra-errore", role: "alert" });
   const piede = h("div", { class: "du-azioni" });
   const bottoni = [];
@@ -6007,7 +7404,9 @@ function apriFinestra(titolo, corpo, azioni, o) {
   f.addEventListener("change", aggiornaBottoni);
   aggiornaBottoni();
   const primo = f.querySelector("textarea, input, select") || bottoni.length && bottoni[bottoni.length - 1].b;
-  if (primo && primo.focus) primo.focus();
+  // il fuoco entra nel dialogo senza far scorrere la pagina sotto (collaudo UI46, giro 2: all'apertura di «Sposta» la
+  // pagina scorreva di circa 40 px)
+  if (primo && primo.focus) primo.focus({ preventScroll: true });
   if (o && o.dopo) o.dopo(f);
   return { f, err, aggiorna: aggiornaBottoni };
 }
@@ -6024,13 +7423,11 @@ function chiudiFinestra() {
   f.hidden = true;
   f.replaceChildren();
   if (!S.wizard) $("#du-velo").hidden = true;
-  if (fuocoPrima && document.body.contains(fuocoPrima)) fuocoPrima.focus();
+  const torna = fuocoPrima && document.body.contains(fuocoPrima) ? fuocoPrima : fuocoPrimaId ? document.getElementById(fuocoPrimaId) : null;
+  if (torna && torna.focus) torna.focus({ preventScroll: true });
 }
 function campo(etichetta, input, aiuto) {
   return h("label", { class: "du-campo" }, h("span", {}, etichetta), input, aiuto ? h("small", { class: "du-muto" }, aiuto) : null);
-}
-function area(id, segnaposto, max) {
-  return h("textarea", { id, placeholder: segnaposto || null, maxlength: max || 1000 });
 }
 function valore(f, id) {
   const el = f.querySelector("#" + id);
@@ -6112,7 +7509,7 @@ function apriRiepilogoRfq() {
       riga("File", c.attivi !== undefined ? c.attivi + " attivi, " + (c.altri_file || 0) + " in Altri file, " + (c.scartati || 0) + " scartati, " + (c.in_analisi || 0) + " in analisi" : ""),
       riga("Rismistamento F8", (m && m.f8) || "")),
     h("ul", { class: "du-elenco-p", id: "f-riepilogo-prodotti" }, prodotti.map((x) => h("li", {}, h("span", { class: "du-mono" }, x.codice || x.rif), x.descrizione ? " · " + x.descrizione : "",
-      " · Verificata (calcolo di oggi): " + (x.verificatoOggi ? "sì" : "no") + (arr(x.motivi).length ? " (" + arr(x.motivi).map((mm) => (mm && (mm.codice || mm.motivo)) || mm).join(", ") + ")" : ""))))),
+      " · Verificata: " + (x.verificatoOggi ? "sì" : "no") + (motiviDelProdotto(x).some((mm) => mm.frase) ? " (" + motiviDelProdotto(x).filter((mm) => mm.frase).map((mm) => mm.frase).join("; ") + ")" : ""))))),
   [{ testo: "Chiudi", chiudi: true }]);
 }
 function apriLimiti() {
@@ -6124,7 +7521,7 @@ function apriLimiti() {
     "Due emittenti con lo stesso letterale non convivono nella working: blocco COLLISIONE_EMITTENTI prima della conferma.",
     "Gli avvisi del motore (proposta cambiata, STEP secondario, non incluso condiviso) sono fuori dalla firma: possono cambiare fra il riepilogo e la conferma.",
     "Un nodo senza righe legacy, o con righe chiuse da un automatismo, non si può non includere (NON_INCLUSO_NON_APPLICABILE).",
-    "Il fascicolo, la conferma dei documenti, le deroghe, la sostituzione dei documenti e la verifica dall'ultima conferma non sono in V1.",
+    "Il fascicolo, la conferma dei documenti, le deroghe, la sostituzione dei documenti e la verifica dall'ultima conferma non sono in questa pagina.",
     "La pagina è solo per l'amministratore, dietro il flag [motore_a].",
   ];
   apriFinestra("Limiti di questa versione", h("ul", { class: "du-elenco-p" }, voci.map((t) => h("li", {}, t))), [{ testo: "Chiudi", chiudi: true }]);
@@ -6136,14 +7533,16 @@ function contenitoriPer(g, k) {
   return Object.values(g.nodi).filter((v) => !v.noninc && !v.escluso && contenitore(v) && (!k || !vietatoSotto(k, v.k)));
 }
 function opzioniPadri(g, k, scelto) {
-  return contenitoriPer(g, k).map((v) => h("option", { value: v.k, selected: v.k === scelto }, (v.cod || "(senza codice)") + " · " + (v.desc || "")));
+  return contenitoriPer(g, k).map((v) => h("option", { value: v.k, selected: v.k === scelto }, (v.cod || "(senza codice)") + (v.desc ? " · " + v.desc : "")));
 }
 function apriAggiungi(tipo, padre) {
   const g = grafoBozza();
-  const sel = h("select", { id: "f-padre" }, h("option", { value: "" }, "— scegli il padre —"), opzioniPadri(g, "", padre || ""));
+  // con un solo padre possibile è già scelto (collaudo UI46, minore)
+  const possibili = contenitoriPer(g, "");
+  const sel = h("select", { id: "f-padre" }, h("option", { value: "" }, "— scegli il padre —"), opzioniPadri(g, "", padre || (possibili.length === 1 ? possibili[0].k : "")));
   const tipoSel = h("select", { id: "f-tipo" }, ["sottoassieme", "sciolto", "commerciale"].map((t) => h("option", { value: t, selected: t === tipo }, TIPI[t])));
   apriFinestra("Aggiungi un pezzo", h("div", { style: "display:grid;gap:8px" },
-    h("p", { class: "du-nota" }, "Il pezzo nasce nella bozza, senza UUID finché non confermi. Il codice si può lasciare vuoto: la conferma lo chiederà (CODICE_DA_ASSEGNARE)."),
+    h("p", { class: "du-nota" }, "Il pezzo nasce nella bozza e diventa un componente solo con «Conferma BOM». Il codice si può lasciare vuoto: la conferma lo chiederà."),
     campo("Tipo", tipoSel), campo("Codice", h("input", { id: "f-codice", maxlength: 40, autocomplete: "off" })), campo("Rev", h("input", { id: "f-rev", maxlength: 10, autocomplete: "off" })),
     campo("Descrizione", h("input", { id: "f-desc", maxlength: 200, autocomplete: "off" })), campo("Padre", sel),
     campo("Quantità sul legame", h("input", { id: "f-qta", type: "number", min: "1", max: "100000", step: "1", inputmode: "numeric" }), "Nessuna quantità implicita: va scritta.")),
@@ -6221,28 +7620,24 @@ function apriEscludi(v) {
       h("p", {}, "È un componente registrato con " + ar.length + " associazioni di file registrate: " + ar.map((f) => f.nome_file).join(", ") + ". Scegli come gestirle: niente viene cancellato, documenti, copie sul NAS e storia restano."),
       scelta("f-ar-mantieni", "mantieni", "Mantieni le associazioni: restano storiche, il componente esce dalla struttura alla conferma (il riepilogo lo avvisa)."),
       scelta("f-ar-scollega", "scollega", "Scollega alla conferma: alla conferma i file perdono l'associazione a questo componente e restano nella RFQ.")) : null,
-    confermati.length ? h("p", { class: "du-nota", id: "f-escludi-confermati" }, "Documenti confermati (non si toccano da qui): " + confermati.map((f) => f.nome_file).join(", ") + ".") : null,
-    campo("Motivo", area("f-motivo", "perché esce dalla BOM"))),
+    confermati.length ? h("p", { class: "du-nota", id: "f-escludi-confermati" }, "Documenti confermati (non si toccano da qui): " + confermati.map((f) => f.nome_file).join(", ") + ".") : null),
   [{ testo: "Annulla", chiudi: true }, { testo: "Escludi nella bozza", danger: true, id: "f-ok", spento: () => {
     const fin = $("#du-finestra");
-    if (ar.length && !fin.querySelector("input[name=f-ar]:checked")) return "scegli come gestire le associazioni registrate";
-    return valore(fin, "f-motivo") ? "" : "scrivi il motivo";
+    return ar.length && !fin.querySelector("input[name=f-ar]:checked") ? "scegli come gestire le associazioni registrate" : "";
   }, fai: () => {
     const fin = $("#du-finestra");
-    const motivo = valore(fin, "f-motivo");
     const scollega = ar.length && fin.querySelector("input[name=f-ar]:checked").value === "scollega";
-    const dec = { id: nuovoIdDecisione("es"), tipo: "escludi", componente_id: v.nodo.componente_id, motivo };
+    const dec = { id: nuovoIdDecisione("es"), tipo: "escludi", componente_id: v.nodo.componente_id };
     const azioni = [];
     for (const d of pb) azioni.push({ azione: "file_svincolato", chiave_bozza: v.k, prima: clona(d), dopo: { allegato_id: d.allegato_id, motivo: "nodo_escluso" }, origine: "utente" });
     azioni.push({ azione: "nodo_modificato", chiave_bozza: v.k, prima: { op: v.nodo.op }, dopo: { op: "esclude" }, origine: "utente" },
       { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
-    // uno svincolo per AR, con il motivo dell'esclusione (lo stesso testo: entra nei 1000 caratteri del motivo) e
-    // da_decisione = l'esclusione, nello stesso salvataggio (PE-27). Lo svincolo cita l'occorrenza, {allegato_id,
+    // uno svincolo per AR, con da_decisione = l'esclusione (dal messaggio 46 [U] senza motivo), nello stesso salvataggio (PE-27). Lo svincolo cita l'occorrenza, {allegato_id,
     // componente_id} (provvisorio, base [T] D-4 A); il server vuole una AR attiva della coppia (422
     // svincolo_senza_associazione): finché la pagina legge le AR dalla copia di S1 (giro successivo), una copia senza AR
     // si scopre al salvataggio
     if (scollega) ar.forEach((f) => azioni.push({ azione: "decisione_aggiunta", chiave_bozza: null, prima: null,
-      dopo: { id: nuovoIdDecisione("sv"), tipo: "scollega_documento", allegato_id: f.allegato_id, componente_id: v.nodo.componente_id, motivo, da_decisione: dec.id }, origine: "utente" }));
+      dopo: { id: nuovoIdDecisione("sv"), tipo: "scollega_documento", allegato_id: f.allegato_id, componente_id: v.nodo.componente_id, da_decisione: dec.id }, origine: "utente" }));
     fai("escluso " + v.cod + (scollega ? " (associazioni da scollegare alla conferma)" : ar.length ? " (associazioni mantenute)" : ""), azioni);
   } }]);
 }
@@ -6298,12 +7693,11 @@ function apriCorreggi(v) {
     return r === revPrima ? revPrima : r.toUpperCase();
   };
   apriFinestra("Correggi codice, rev e descrizione", h("div", { style: "display:grid;gap:8px" },
-    h("p", { class: "du-nota" }, importato ? "È un pezzo importato: la sua identità proposta resta com'è, e la correzione diventa una decisione motivata (l'identità decisa)." :
-      registrato ? "È un componente registrato: un codice nuovo è una ricodifica, con il motivo (fino a 500 caratteri)." : "È un pezzo aggiunto a mano."),
+    h("p", { class: "du-nota" }, importato ? "È un pezzo importato: la sua identità proposta resta com'è, e la correzione diventa una decisione (l'identità decisa)." :
+      registrato ? "È un componente registrato: un codice nuovo è una ricodifica." : "È un pezzo aggiunto a mano."),
     campo("Codice", h("input", { id: "f-codice", value: id.codice || "", maxlength: 60, disabled: !!radice, title: radice ? "è il prodotto della RFQ: il codice non cambia (DB7-3)" : null })),
     campo("Rev", h("input", { id: "f-rev", value: id.rev || "", maxlength: 10 })),
-    campo("Descrizione", h("input", { id: "f-desc", value: n.descrizione || "", maxlength: 200 })),
-    campo("Motivo", area("f-motivo", "obbligatorio per correggere un'identità importata o già decisa, o per ricodificare", registrato ? 500 : 1000))),
+    campo("Descrizione", h("input", { id: "f-desc", value: n.descrizione || "", maxlength: 200 }))),
   [{ testo: "Annulla", chiudi: true }, { testo: "Salva nella bozza", pri: true, id: "f-ok", spento: () => {
     const f = $("#du-finestra");
     const codice = valore(f, "f-codice"), rev = revDa(f), desc = valore(f, "f-desc");
@@ -6324,11 +7718,10 @@ function apriCorreggi(v) {
           "con la correzione la rev entra nell'identità decisa e non è più copiata dalla sua fonte" : "dopo la correzione la rev non è più copiata dalla sua fonte") + ", scrivila senza minuscole";
       }
     }
-    if ((cambiaCodice || cambiaRev) && decisioneNuova && !valore(f, "f-motivo")) return "scrivi il motivo";
     return "";
   }, fai: () => {
     const f = $("#du-finestra");
-    const codice = valore(f, "f-codice"), rev = revDa(f), desc = valore(f, "f-desc"), motivo = valore(f, "f-motivo");
+    const codice = valore(f, "f-codice"), rev = revDa(f), desc = valore(f, "f-desc");
     const azioni = [];
     const prima = {}, dopo = {};
     if (desc !== (n.descrizione || "")) {
@@ -6345,7 +7738,7 @@ function apriCorreggi(v) {
       if (registrato && cambiaCodice) {
         // la ricodifica: il nodo cita lei, e una decisione identita che citava prima (per esempio «Fissa l'emittente») si
         // toglie nello stesso gesto (togliIdentitaPrecedenti)
-        const dec = { id: nuovoIdDecisione("rc"), tipo: "ricodifica", componente_id: n.componente_id, codice_prima: id.codice || "", codice_dopo: codice, motivo, emittente_dopo: nuova.emittente };
+        const dec = { id: nuovoIdDecisione("rc"), tipo: "ricodifica", componente_id: n.componente_id, codice_prima: id.codice || "", codice_dopo: codice, emittente_dopo: nuova.emittente };
         azioni.push(...togliIdentitaPrecedenti(v.k), { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
         prima.identita = clona(id);
         prima.op = n.op;
@@ -6354,7 +7747,7 @@ function apriCorreggi(v) {
       } else if (importato || citaIdentita(id)) {
         // la correzione di un pezzo importato, o di un'identità già decisa da una decisione identita (che deve portare la
         // stessa identità del nodo): una decisione di correzione nuova, che sostituisce quella di prima nello stesso gesto
-        const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: nuova.emittente, codice: codice || undefined, rev: rev || undefined }, motivo };
+        const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: nuova.emittente, codice: codice || undefined, rev: rev || undefined } };
         if (nuova.namespace) dec.identita.namespace = nuova.namespace;
         if (nuova.emittente.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
         azioni.push(...togliIdentitaPrecedenti(v.k), { azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: JSON.parse(JSON.stringify(dec)), origine: "utente" });
@@ -6452,6 +7845,11 @@ function apriDiscordanza(v, prima, dopo, disc, etichetta, azioni) {
 // (?effetto_cambio_tipo=, decisioni dell'ondata A, PE-09): il dialogo la legge per il tipo scelto, mostra l'effetto e
 // accende «Cambia» solo con l'effetto letto e un cambio che si può fare. Un cambio di tipo già deciso nella bozza per lo
 // stesso componente si sostituisce nello stesso gesto: una decisione sola per componente.
+const AIUTI_TIPO = {
+  sottoassieme: "Un assieme ha pezzi sotto. Il 2D resta richiesto.",
+  sciolto: "Un particolare non ha pezzi sotto. Il 2D resta richiesto.",
+  commerciale: "Un commerciale non ha pezzi sotto. Anche il commerciale chiede il 2D: non lo chiede solo la minuteria confermata da una persona («Conferma la categoria…»).",
+};
 function apriTipo(v) {
   const registrato = !!(v.nodo && v.nodo.componente_id);
   const sel = h("select", { id: "f-tipo" }, ["sottoassieme", "sciolto", "commerciale"].map((t) => h("option", { value: t, selected: t === v.tipo }, TIPI[t])));
@@ -6490,6 +7888,14 @@ function apriTipo(v) {
     mostraEffetto();
     if (fin) fin.aggiorna();
   };
+  // l'aiuto segue il tipo scelto (messaggio 46, D39), con le parole e senza i codici delle regole
+  const nFigli = S.lavoro ? figliA(grafoBozza(), v.k).length : 0;
+  const aiuto = h("p", { class: "du-nota", id: "f-tipo-aiuto", "aria-live": "polite" });
+  const scriviAiuto = () => {
+    const t = scelto() || v.tipo;
+    aiuto.textContent = (AIUTI_TIPO[t] || "") + (nFigli && t !== "sottoassieme" ? " Ha " + nFigli + (nFigli === 1 ? " pezzo" : " pezzi") + " sotto: con questo tipo vanno spostati sotto un assieme." : "");
+  };
+  sel.addEventListener("change", scriviAiuto);
   sel.addEventListener("change", leggiEffetto);
   // un cambio di tipo già deciso nella bozza per questo componente: si toglie con il suo gesto, che riporta il nodo al
   // tipo di prima (dal giornale); l'effetto verso il tipo registrato il server non lo firma, perché non c'è un cambio
@@ -6502,10 +7908,11 @@ function apriTipo(v) {
   }, { cls: "du-btn--sm", id: "f-togli-tipo", no: tipoPrima ? "" : "il tipo di prima non si ritrova nel giornale della bozza: usa «Annulla»" }),
   h("span", { class: "du-muto du-piccolo" }, tipoPrima ? "La bozza ha già un cambio di tipo di questo componente: togliendolo, il pezzo torna " + (TIPI[tipoPrima] || tipoPrima) + "." : "")) : null;
   fin = apriFinestra("Cambia tipo di " + (v.cod || "il pezzo"), h("div", { style: "display:grid;gap:8px" }, campo("Tipo", sel),
-    h("p", { class: "du-nota" }, "Un commerciale non ha figli (E37). Il tipo non toglie il 2D: l'unica esenzione è la minuteria confermata da una persona (R103 C, «Conferma la categoria…»)."),
-    registrato ? h("p", { class: "du-nota" }, "È un componente registrato: il cambio è una decisione della bozza, con la firma dell'effetto che il server calcola adesso. La conferma lo applica; se nel frattempo l'effetto cambia, il riepilogo lo dice (TIPO_EFFETTO_CAMBIATO).") : null,
+    aiuto,
+    registrato ? h("p", { class: "du-nota" }, "È un componente registrato: il cambio è una decisione della bozza, con l'effetto che il server calcola adesso. La conferma lo applica; se nel frattempo l'effetto cambia, il riepilogo lo dice.") : null,
     togli, box),
   [{ testo: "Annulla", chiudi: true }, { testo: "Cambia", pri: true, id: "f-ok", spento: () => {
+    scriviAiuto();
     const t = scelto();
     if (t === v.tipo) return "è già di questo tipo";
     if (!registrato) return "";
@@ -6526,7 +7933,7 @@ function apriTipo(v) {
         tipo_nuovo: t, firma_effetto: st.effetto.firma_effetto }, origine: "utente" });
     }
     azioni.push({ azione: "nodo_modificato", chiave_bozza: v.k, prima: { tipo: v.tipo }, dopo: { tipo: t }, origine: "utente" });
-    fai("tipo di " + (v.cod || "un pezzo") + " → " + TIPI[t], azioni);
+    fai("tipo di " + (v.cod || v.desc || "un pezzo") + " → " + TIPI[t], azioni);
   } }]);
 }
 // tipoPrimaDelCambio: il tipo del nodo k prima della decisione cambia_tipo d, dal giornale (R1 ?eventi=1, più i gesti in
@@ -6575,9 +7982,18 @@ function apriSposta(k, verso) {
   const pa = padriA(g, k);
   const daSel = h("select", { id: "f-da" }, pa.map((a) => h("option", { value: a.p }, "da " + (g.nodi[a.p].cod || g.nodi[a.p].desc) + " (×" + a.qta + ")")));
   const aSel = h("select", { id: "f-a" }, h("option", { value: "" }, "— scegli il padre di arrivo —"), opzioniPadri(g, k, verso));
+  // collaudo UI46, giro 2 (minori): la quantità del legame che si sposta è già scritta (si sposta il legame con la sua
+  // quantità); si cambia se serve, e segue il legame scelto finché non la si tocca. Senza padri resta da scrivere [T]
+  const qta = h("input", { id: "f-qta", type: "number", min: "1", max: "100000", step: "1", inputmode: "numeric", value: pa.length ? String(pa[0].qta) : "" });
+  let toccata = false;
+  qta.addEventListener("input", () => (toccata = true));
+  daSel.addEventListener("change", () => {
+    const x = pa.find((a) => a.p === daSel.value);
+    if (x && !toccata) qta.value = String(x.qta);
+  });
   apriFinestra("Sposta " + (v.cod || "il pezzo") + " sotto…", h("div", { style: "display:grid;gap:8px" },
     pa.length ? campo("Legame da spostare", daSel) : h("p", { class: "du-nota" }, "Il pezzo non ha padri: lo spostamento gli dà un padre."), campo("Nuovo padre", aSel),
-    campo("Quantità sul legame nuovo", h("input", { id: "f-qta", type: "number", min: "1", max: "100000", step: "1", inputmode: "numeric" }), "Nessuna quantità implicita: va scritta.")),
+    campo("Quantità sul legame nuovo", qta, pa.length ? "La quantità del legame di adesso: cambiala se sotto il nuovo padre è un'altra." : "Nessuna quantità implicita: va scritta.")),
   [{ testo: "Annulla", chiudi: true }, { testo: "Sposta", pri: true, id: "f-ok", spento: () => {
     const f = $("#du-finestra");
     const a = valore(f, "f-a");
@@ -6650,7 +8066,10 @@ function apriQuantita(k, padre) {
   } }]);
 }
 // «Non includere nella BOM…» (MAT NI-05; EM §7.1): un solo salvataggio, una decisione per nodo con lo stesso azione_id
-// su tutti gli eventi del gesto. L'elenco è visibile e si può ridurre; il motivo è obbligatorio.
+// su tutti gli eventi del gesto. L'elenco è visibile e si può ridurre. Dal messaggio 46 [U] l'utente non scrive il motivo
+// e non sceglie il «motivo (codice)»: la decisione li vuole, perché lo snapshot confermato deve portarli uguali alle righe
+// di conferma_strutturale_non_incluso (0023, controllo (iii)), e li scrive la pagina come traccia del gesto
+// (tracciaDelGesto) con motivo_codice dal segnale visto (motivoCodiceDelGesto) [T].
 function apriNonIncludere(g) {
   const scelti = [...S.selezione].filter((k) => g.nodi[k] && selezionabile(g, g.nodi[k]).ok);
   if (!scelti.length) return avvisa("no", "Nessun nodo selezionabile: la radice e i pezzi con un componente non si possono non includere.");
@@ -6661,19 +8080,15 @@ function apriNonIncludere(g) {
       h("span", {}, h("span", { class: "du-mono" }, (v.voce && v.voce.grezzi && (v.voce.grezzi.nome || v.voce.grezzi.id)) || v.cod || k), v.cad ? " · segnalato" : "", pb ? " · " + pb + " file preassociati vanno in «Da ricollocare»" : "",
         figliA(g, k).length ? " · ha figli: resteranno senza padre (nessuna cascata)" : ""));
   }));
-  const codice = h("select", { id: "f-motivo-codice" }, [["elemento_cad", "elemento CAD (cordone, annotazione)"], ["duplicato_cad", "duplicato CAD"], ["non_articolo", "non è un articolo"], ["altro", "altro"]]
-    .map(([v, t]) => h("option", { value: v }, t)));
   apriFinestra("Non includere nella BOM", h("div", { style: "display:grid;gap:8px" },
     h("p", { class: "du-nota" }, "I nodi escono dalla bozza con una decisione ciascuno, che la conferma applica. Fino alla conferma il 2D resta richiesto e bloccante. I fatti dello STEP restano."),
-    lista, campo("Motivo (codice)", codice), campo("Motivo", area("f-motivo", "per esempio: cordoni di saldatura, annotazioni CAD"))),
+    lista),
   [{ testo: "Annulla", chiudi: true }, { testo: "Non includere", danger: true, id: "f-ok", spento: () => {
     const f = $("#du-finestra");
-    if (!f.querySelectorAll("#f-elenco input:checked").length) return "nessun nodo nell'elenco";
-    return valore(f, "f-motivo") ? "" : "scrivi il motivo";
+    return f.querySelectorAll("#f-elenco input:checked").length ? "" : "nessun nodo nell'elenco";
   }, fai: () => {
     const f = $("#du-finestra");
     const chiavi = [...f.querySelectorAll("#f-elenco input:checked")].map((x) => x.value);
-    const motivo = valore(f, "f-motivo"), motivoCodice = valore(f, "f-motivo-codice");
     const azioneId = P.nuovaChiave();
     const reg = registroBozza();
     const imp = S.bozza.importazione ? S.bozza.importazione.impronta : undefined;
@@ -6697,7 +8112,9 @@ function apriNonIncludere(g) {
       const c = casellaDi(n);
       const voce = voceDiCasella(reg, c);
       const seg = segnaliDi(voce)[0];
-      const dec = { id: nuovoIdDecisione("ni"), tipo: "non_includere", casella: clona(c), motivo_codice: motivoCodice, motivo, azione_id: azioneId };
+      const nome = (voce && voce.grezzi && (voce.grezzi.nome || voce.grezzi.id)) || (g.nodi[k] && g.nodi[k].cod) || k;
+      const dec = { id: nuovoIdDecisione("ni"), tipo: "non_includere", casella: clona(c), motivo_codice: motivoCodiceDelGesto(seg),
+        motivo: tracciaDelGesto("Non includere nella BOM", "«" + nome + "» esce dalla BOM" + (seg && seg.codice ? " (segnale del motore: " + testoSegnale(seg.codice) + ")" : "")), azione_id: azioneId };
       if (imp) dec.importazione = imp;
       if (seg) dec.segnale_visto = { codice: seg.codice, regola: seg.regola, versione_servizio: versioneServizio(reg) };
       decisioni.push({ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
@@ -6737,6 +8154,27 @@ function identitaRegistrata(voce) {
 }
 function voceNonImportabile(voce) {
   return voceRegistrata(voce) && !identitaRegistrata(voce);
+}
+// Messaggio 46 [U] (21/10): il motivo scritto dall'utente si toglie da ogni widget. TESTO_MOTIVO_VECCHIO: il testo di un
+// MOTIVO_OBBLIGATORIO che un server di prima potrebbe ancora dare (la pagina non chiede mai il motivo).
+const TESTO_MOTIVO_VECCHIO = "Il server chiede ancora un motivo scritto: è una versione di prima del server. Aggiorna il server; niente è stato scritto.";
+// motivoCodiceDelGesto: il motivo_codice di «Non includere nella BOM» quando l'utente non sceglie (la scelta da un
+// vocabolario chiuso che la pagina presentava come «motivo»): dal segnale che il nodo porta, «elemento_cad» per il
+// possibile elemento CAD del motore, altrimenti «altro», il valore che non dice niente di più del gesto [T].
+function motivoCodiceDelGesto(seg) {
+  return seg && seg.codice === "ancoraggio.possibile_elemento_cad" ? "elemento_cad" : "altro";
+}
+// tracciaDelGesto: il motivo che la pagina scrive al posto dell'utente dove la decisione dello snapshot lo deve portare
+// (non_includere: lo snapshot confermato e conferma_strutturale_non_incluso devono dire lo stesso, 0023 controllo (iii)).
+// La forma è quella del server (core/rfq/traccia): «gesto di <sigla> da «<widget>»: <che cosa>», in NFC, al più 1000
+// caratteri. Non finge che l'abbia scritto l'utente: dice il gesto e chi l'ha fatto.
+function tracciaDelGesto(widget, cosa) {
+  const pulito = (x) => String(x || "").replace(/[\r\n\t]+/g, " ").trim();
+  const s = pulito(S.sigla);
+  let t = "gesto" + (s ? " di " + s : "") + " da «" + pulito(widget) + "»" + (pulito(cosa) ? ": " + pulito(cosa) : "");
+  t = typeof t.normalize === "function" ? t.normalize("NFC") : t;
+  const r = [...t];
+  return r.length > 1000 ? r.slice(0, 999).join("") + "…" : t;
 }
 const MOTIVO_VOCE_REGISTRATA = "la voce ha un componente registrato e il modello non dà ancora la sua identità registrata (decisione_esistente.identita_registrata di /dati): ↻ Aggiorna";
 function nodoDaVoce(voce, k, casella) {
@@ -6794,12 +8232,18 @@ function includiDiNuovo(v) {
 function riquadroProposta() {
   if (!bozzaLavorabile() || !S.bozza.importazione) return null;
   const no = perchéNoModifica();
+  const reg = registroBozza();
+  const m = reg ? mancantiDellaProposta(reg) : null;
+  const n = m ? m.voci.length + m.archi.length : 0;
+  const stato = !reg ? "Il registro della bozza non è letto: ↻ Aggiorna." : n === 0 ? "La bozza contiene tutta la proposta dello STEP." :
+    n === 1 ? "1 elemento della proposta dello STEP non è nella bozza." : n + " elementi della proposta dello STEP non sono nella bozza.";
   return h("div", { class: "du-riq du-riq--prop", id: "du-proposta-step" },
-    h("div", { class: "du-riq-testa" }, h("h3", {}, "Proposta dello STEP"),
-      h("span", { class: "du-muto du-piccolo" }, "L'import porta nella bozza solo gli elementi che scegli; ripartire dalla proposta sostituisce la bozza, non la versione registrata.")),
+    h("div", { class: "du-riq-testa" }, h("h3", {}, "Proposta dello STEP"), h("span", { class: "du-muto du-piccolo", id: "du-proposta-stato" }, stato)),
     h("div", { class: "du-azioni" },
-      btn("Importa dalla proposta…", apriImporta, { cls: "du-btn--sm", id: "du-importa", no: no || (registroBozza() ? "" : "il registro della bozza non è letto: ↻ Aggiorna") }),
-      btn("Riparti dalla proposta…", apriRiparti, { cls: "du-btn--sm du-btn--ghost", id: "du-riparti", no: no || perchéNoRiparti() })));
+      btn("Importa dalla proposta…", apriImporta, { cls: "du-btn--sm", id: "du-importa", perche: false, no: no || (reg ? "" : "il registro della bozza non è letto: ↻ Aggiorna"),
+        t: "Porta nella bozza solo gli elementi della proposta che scegli" }),
+      btn("Riparti dalla proposta…", apriRiparti, { cls: "du-btn--sm du-btn--ghost", id: "du-riparti", perche: false, no: no || perchéNoRiparti(),
+        t: "Sostituisce la bozza con la proposta dello STEP; la versione registrata non cambia" })));
 }
 // mancantiDellaProposta: le voci del registro che la bozza non ha (né come nodo, né come «non includere», che si
 // ripristina con «Includi di nuovo») e i legami della proposta fra due nodi che la bozza ha senza quel legame.
@@ -6893,8 +8337,8 @@ async function apriRiparti() {
   if (no) return avvisa("no", "«Riparti dalla proposta» non parte: " + no + ".");
   const bp = S.modello.bozzaDelProdotto;
   const sorg = S.salvato.sorgente;
-  // la proposta di oggi del gruppo corrente (S6): la sua impronta, e il confronto della radice con il prodotto, che
-  // chiede il motivo anche qui (MAT SG-05: è una creazione con partenza «step»)
+  // la proposta di oggi del gruppo corrente (S6): la sua impronta, e il confronto della radice con il prodotto (MAT
+  // SG-05: è una creazione con partenza «step»; dal messaggio 46 [U] il motivo lo scrive il server)
   let a;
   try {
     a = await P.anteprimaStep(sorg.allegato_id, S.prodotto, { gruppo: bp.gruppo_corrente.chiave });
@@ -6906,18 +8350,17 @@ async function apriRiparti() {
     return avvisa("no", "«Riparti dalla proposta» non parte: la proposta di oggi della sorgente non è disponibile" + (a.errore ? " (" + a.errore + ")" : "") + ".");
   }
   const diverso = a.confronto !== "coincide";
-  const letta = (gr.radice && gr.radice.identita_proposta && gr.radice.identita_proposta.letterale) || "?";
+  const letta = (gr.radice && gr.radice.identita_proposta && gr.radice.identita_proposta.letterale) || "";
   apriFinestra("Riparti dalla proposta", h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "La bozza di adesso si chiude (resta nel registro delle bozze) e se ne apre una nuova, costruita dal server con la proposta di oggi della stessa sorgente. La versione registrata della BOM non cambia."),
-    h("p", { class: "du-nota" }, "Niente della bozza di adesso passa alla nuova; per tenere il lavoro usa «Aggiorna proposta…». Le preassociazioni non passano alla bozza nuova."),
-    diverso ? h("p", { class: "du-nota", id: "f-radice-diversa" }, "Il codice letto dalla radice dello STEP (", h("span", { class: "du-mono" }, letta), ") non è quello del prodotto (",
-      h("span", { class: "du-mono" }, a.codice_prodotto || codiceProdotto()), "): il motivo vale anche per questo.") : null,
-    campo("Motivo", area("f-motivo", "perché riparti dalla proposta"))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Riparti dalla proposta", danger: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: async () => {
-    const motivo = valore($("#du-finestra"), "f-motivo");
+    h("p", { class: "du-nota" }, "Niente della bozza di adesso passa alla nuova" + (S.confrontoNo ? "" : "; per tenere il lavoro usa «Aggiorna proposta…»") + ". Le preassociazioni non passano alla bozza nuova."),
+    // collaudo UI46, giro 3 (minore): il codice della radice non letto si dice «non letto», non «(?)»
+    diverso ? h("p", { class: "du-nota", id: "f-radice-diversa" }, letta ? ["Il codice letto dalla radice dello STEP (", h("span", { class: "du-mono" }, letta), ") non è quello del prodotto ("] :
+      ["Il codice della radice dello STEP non è letto: nella bozza nuova vale il codice del prodotto ("], h("span", { class: "du-mono" }, a.codice_prodotto || codiceProdotto()),
+    letta ? "): nella bozza nuova vale il codice del prodotto." : ").") : null),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Riparti dalla proposta", danger: true, id: "f-ok", fai: async () => {
     const crea = { partenza: "step", sorgente: { allegato_id: sorg.allegato_id, sha256: sorg.sha256, gruppo: bp.gruppo_corrente.chiave }, impronta_contenuto: gr.impronta_contenuto,
-      abbandona: { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione, motivo } };
-    if (diverso) crea.motivo = motivo;
+      abbandona: { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione } };
     const r = await P.creaBozza({ bozza_id: null, versione_attesa: 0, prodotto_id: S.prodotto, vocabolario: 2, crea });
     return dopoFormaServer(r, "Bozza ripartita dalla proposta dello STEP: quella di prima è abbandonata.");
   } }]);
@@ -6942,27 +8385,22 @@ function lascia(aid) {
 }
 function apriScollega(f, v) {
   apriFinestra("Scollegare " + f.nome_file + " dal componente?", h("div", { style: "display:grid;gap:8px" },
-    h("p", {}, "Lo scollegamento si decide nella bozza e si applica con «Conferma BOM». Il file resta nella RFQ: non è uno scarto e non va in Altri file."),
-    campo("Motivo (facoltativo)", area("f-motivo", ""))),
+    h("p", {}, "Lo scollegamento si decide nella bozza e si applica con «Conferma BOM». Il file resta nella RFQ: non è uno scarto e non va in Altri file.")),
   [{ testo: "Annulla", chiudi: true }, { testo: "Scollega alla conferma", pri: true, id: "f-ok", fai: () => {
-    const motivo = valore($("#du-finestra"), "f-motivo");
     const dec = { id: nuovoIdDecisione("sv"), tipo: "scollega_documento", allegato_id: f.allegato_id, componente_id: v.nodo.componente_id };
-    if (motivo) dec.motivo = motivo;
     fai("da scollegare " + f.nome_file, [{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" }]);
   } }]);
 }
-// «Adotta come codice…» (MAT PN-08; EM §3.6.1): un'alternativa motivata, che cita la lettura (chiave_lettura e la sua
+// «Adotta come codice…» (MAT PN-08; EM §3.6.1): un'alternativa (dal messaggio 46 [U] senza motivo), che cita la lettura (chiave_lettura e la sua
 // copia compatta) o il codice manuale (riferimento manuale_legacy). Il codice è la proiezione della lettura, la rev è
 // rev_proposta (introdotta dal registro, in maiuscolo) o quella del codice manuale, copiata byte per byte (P-18).
 function apriAdotta(v, r, ad) {
   const lettura = ad.lettura || null;
   const proiezione = ad.codice;
   apriFinestra("Adotta come codice", h("div", { style: "display:grid;gap:8px" },
-    h("p", {}, "L'identità decisa di " + (v.cod || "questo pezzo") + " diventa ", h("span", { class: "du-mono" }, proiezione + (ad.rev ? " rev " + ad.rev : "")), " (" + (lettura ? lettura.emittente : r.tipo === "manuale_legacy" ? "cliente, presunto" : "?") + "). L'identità proposta resta com'era."),
-    campo("Motivo", area("f-motivo", "perché adotti questa lettura"))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Adotta", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
-    const motivo = valore($("#du-finestra"), "f-motivo");
-    const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "alternativa", importazione: S.bozza.importazione ? S.bozza.importazione.impronta : undefined, motivo };
+    h("p", {}, "L'identità decisa di " + (v.cod || "questo pezzo") + " diventa ", h("span", { class: "du-mono" }, proiezione + (ad.rev ? " rev " + ad.rev : "")), " (" + (lettura ? lettura.emittente : r.tipo === "manuale_legacy" ? "cliente, presunto" : "?") + "). L'identità proposta resta com'era.")),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Adotta", pri: true, id: "f-ok", fai: () => {
+    const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "alternativa", importazione: S.bozza.importazione ? S.bozza.importazione.impronta : undefined };
     if (r.tipo === "manuale_legacy") {
       dec.riferimento = "manuale_legacy";
       dec.identita = { emittente: emittenteCliente(), codice: proiezione };
@@ -6992,13 +8430,13 @@ function apriFissaEmittente(v) {
   const noRev = minuscoleAscii(rev) && !revMinuscoleAmmesse(v.nodo.op, { modo: "decisione", decisione: "" }) ?
     "la rev «" + rev + "» ha minuscole: con l'emittente fissato la rev entra in una decisione di correzione e va senza minuscole; correggila prima con «✎ Correggi codice, rev e descrizione…»" : "";
   apriFinestra("Fissa l'emittente di " + v.cod, h("div", { style: "display:grid;gap:8px" },
-    h("p", {}, "Il componente è «cliente, presunto»: nessuno ha scelto l'emittente. Se in realtà è un codice del fornitore, fissalo con un motivo: la conferma lo certificherà."),
-    campo("Emittente", sel), campo("Motivo", area("f-motivo", ""))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Fissa", pri: true, id: "f-ok", spento: () => noRev || (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
+    h("p", {}, "Il componente è «cliente, presunto»: nessuno ha scelto l'emittente. Se in realtà è un codice del fornitore, fissalo: la conferma lo certificherà."),
+    campo("Emittente", sel)),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Fissa", pri: true, id: "f-ok", spento: () => noRev, fai: () => {
     const f = $("#du-finestra");
     const em = valore(f, "f-emittente");
     const id = v.nodo.identita || {};
-    const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: em, codice: id.codice }, motivo: valore(f, "f-motivo") };
+    const dec = { id: nuovoIdDecisione("di"), tipo: "identita", chiave_bozza: v.k, modo: "correzione", identita: { emittente: em, codice: id.codice } };
     if (id.rev) dec.identita.rev = id.rev;
     if (em.indexOf("partner:") === 0 && S.bozza.importazione) dec.importazione = S.bozza.importazione.impronta;
     fai("emittente fissato per " + v.cod, togliIdentitaPrecedenti(v.k).concat([{ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" },
@@ -7012,14 +8450,12 @@ function apriRebase() {
   const vc = b.versione_corrente || {};
   apriFinestra("Rebase della bozza", h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "La base della bozza diventa quella di adesso" + (vc.numero ? " (conferma n. " + vc.numero + ")" : "") + ". Sorgente e registro non cambiano; le decisioni restano."),
-    arr(b.rif_scaduti).length ? h("p", { class: "du-nota" }, "Riferimenti scaduti da sistemare: " + arr(b.rif_scaduti).map((r) => r.chiave_bozza || r.decisione).join(", ")) : null,
-    campo("Motivo", area("f-motivo", ""))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Fai il rebase", pri: true, id: "f-ok", spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: () => {
-    const motivo = valore($("#du-finestra"), "f-motivo");
+    arr(b.rif_scaduti).length ? h("p", { class: "du-nota" }, "Riferimenti scaduti da sistemare: " + arr(b.rif_scaduti).map((r) => r.chiave_bozza || r.decisione).join(", ")) : null),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Fai il rebase", pri: true, id: "f-ok", fai: () => {
     const base = { conferma_id: vc.conferma_id === undefined ? null : vc.conferma_id, numero: vc.numero || 0, contatore: vc.contatore || 0, firma_struttura: vc.firma_struttura };
     const prima = { base: { conferma_id: S.lavoro.versione_bom_base ? S.lavoro.versione_bom_base.conferma_id : null, numero: S.lavoro.versione_bom_base ? S.lavoro.versione_bom_base.numero : 0,
       contatore: S.lavoro.versione_bom_base ? S.lavoro.versione_bom_base.contatore : 0, firma_struttura: S.lavoro.firma_base } };
-    fai("rebase sulla base corrente", [{ azione: "rebase", chiave_bozza: null, prima, dopo: { base, rif_scaduti: arr(b.rif_scaduti) }, origine: "utente", motivo }], { rebase: { base, motivo } });
+    fai("rebase sulla base corrente", [{ azione: "rebase", chiave_bozza: null, prima, dopo: { base, rif_scaduti: arr(b.rif_scaduti) }, origine: "utente" }], { rebase: { base } });
   } }]);
 }
 
@@ -7070,7 +8506,7 @@ function esitoFormaKo(r) {
     chiudi = true;
     guarda(r.dati.allegato_id, "", true);
   } else if (r.motivo === "stessa_sorgente") {
-    testo = "È la struttura della bozza: per prendere la proposta di oggi usa «Aggiorna proposta…».";
+    testo = S.confrontoNo ? "È la struttura della bozza." : "È la struttura della bozza: per prendere la proposta di oggi usa «Aggiorna proposta…».";
     chiudi = true;
   } else if (r.codice === "BOZZA_VERSIONE") {
     testo = r.motivo === "bozza_chiusa" ? "La bozza risulta già chiusa: la rileggo." : "La bozza è cambiata altrove: la rileggo; poi ripeti il gesto.";
@@ -7105,14 +8541,17 @@ async function rileggiTenendoDaParte() {
   render();
 }
 // voceEffetto: un elemento di un elenco dell'effetto di S6 (o della risposta di cambia_sorgente): una chiave della bozza,
-// oppure un oggetto con chiave, voce o decisione e il motivo. Il nome è il codice del nodo, se la bozza lo ha.
-function voceEffetto(x) {
+// oppure un oggetto con chiave, voce o decisione e il motivo. Il nome è il codice del nodo, se la bozza lo ha, o se lo ha
+// la proposta in vista (gp, il grafo di grafoProposta: i nodi che entrano non sono ancora nella bozza). La chiave della
+// bozza non si mostra mai: è un identificativo interno (revisione della corsia SORGENTE del messaggio 46, rilievo 1 [T]).
+function voceEffetto(x, gp) {
   const k = typeof x === "string" ? x : ogg(x) ? x.chiave_bozza || x.decisione_id || x.voce || "" : String(x);
   const n = S.lavoro && S.lavoro.nodi.find((y) => y.chiave_bozza === k);
-  const nome = (n && n.identita && n.identita.codice) || (n && n.descrizione) || k;
+  const q = gp && gp.nodi && typeof k === "string" ? gp.nodi[k] : null;
+  const nome = (n && n.identita && n.identita.codice) || (n && n.descrizione) || (q && (q.cod || q.desc)) || "un pezzo senza codice";
   // le preassociazioni nel vassoio citano l'allegato (direttiva 35, C-2): il nome del file davanti al nodo
   const file = ogg(x) && x.allegato_id ? nomeFile(x.allegato_id) + " → " : "";
-  return file + nome + (nome !== k && k ? " (" + k + ")" : "") + (ogg(x) && x.motivo ? " · " + x.motivo : "");
+  return file + nome + (ogg(x) && x.motivo ? " · " + x.motivo : "");
 }
 async function apriDifferenze() {
   avvisa("ok", "Calcolo delle differenze…");
@@ -7122,7 +8561,7 @@ async function apriDifferenze() {
     if (c.errore) return avvisa("errore", "Il calcolo delle differenze non è riuscito: " + c.errore);
     const d = c.differenze || {};
     apriFinestra("Differenze con la proposta di oggi", h("div", { style: "display:grid;gap:8px" }, h("p", {}, "Esito: " + (c.esito || "?") + "."),
-      h("ul", { class: "du-elenco-p", id: "f-differenze" }, arr(d.nodi).map((x) => h("li", {}, (x.chiave_bozza || x.voce || "?") + ": " + (x.tipo || "") + (arr(x.campi).length ? " (" + arr(x.campi).join(", ") + ")" : ""))),
+      h("ul", { class: "du-elenco-p", id: "f-differenze" }, arr(d.nodi).map((x) => h("li", {}, testoDifferenza(x))),
         arr(d.archi).map((x) => h("li", {}, "legame " + (x.padre || "") + " → " + (x.figlio || "") + ": " + (x.tipo || ""))))), [{ testo: "Chiudi", chiudi: true }]);
     avvisa("ok", "Differenze calcolate.");
   } catch (e) {
@@ -7152,15 +8591,14 @@ async function apriRiallinea() {
       x.decisione_id ? null : h("option", { value: "tieni_senza_casella" }, "Tieni come nodo a mano")))) : h("p", { class: "du-muto du-piccolo" }, "Nessuna casella sparita."));
   apriFinestra("Aggiorna la bozza alla proposta di oggi", h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "Il server prende la proposta di oggi per la stessa sorgente: i nodi non toccati si aggiornano e si elencano, quelli decisi restano e vanno «da rivedere» se la loro proposta è cambiata. Niente cambia da solo senza una scelta."),
-    scelte, campo("Motivo", area("f-motivo", ""))),
+    scelte),
   [{ testo: "Annulla", chiudi: true }, { testo: "Aggiorna", pri: true, id: "f-ok", spento: () => {
     const f = $("#du-finestra");
-    if ([...f.querySelectorAll("#f-scelte select")].some((s) => !s.value)) return "scegli per ogni casella sparita";
-    return valore(f, "f-motivo") ? "" : "scrivi il motivo";
+    return [...f.querySelectorAll("#f-scelte select")].some((s) => !s.value) ? "scegli per ogni casella sparita" : "";
   }, fai: async () => {
     const f = $("#du-finestra");
     const sc = [...f.querySelectorAll("#f-scelte select")].map((s) => (s.dataset.k ? { chiave_bozza: s.dataset.k, scelta: s.value } : { decisione_id: s.dataset.d, scelta: s.value }));
-    const r = await P.riallineaProposta(corpoForma({ riallinea_proposta: { impronta_contenuto: c.impronta_contenuto_corrente, motivo: valore(f, "f-motivo"), scelte: sc } }));
+    const r = await P.riallineaProposta(corpoForma({ riallinea_proposta: { impronta_contenuto: c.impronta_contenuto_corrente, scelte: sc } }));
     return dopoFormaServer(r, "Bozza aggiornata alla proposta di oggi.");
   } }]);
 }
@@ -7174,10 +8612,9 @@ async function creaDa(partenza) {
 function apriConverti() {
   const no = perchéNoFormaBozza();
   if (no) return avvisa("errore", "La conversione non parte: " + no + ".");
-  apriFinestra("Converti la bozza", h("div", { style: "display:grid;gap:8px" }, h("p", {}, "La bozza di prima si chiude e se ne apre una nuova con la stessa struttura; i codici scritti restano come decisioni dell'ingegnere."),
-    campo("Motivo", area("f-motivo", ""))),
-  [{ testo: "Annulla", chiudi: true }, { testo: "Converti", pri: true, id: "f-ok", spento: () => perchéNoFormaBozza() || (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: async () => {
-    const r = await P.convertiBozza({ bozza_id: null, versione_attesa: 0, prodotto_id: S.prodotto, vocabolario: 2, converti_da: { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione, motivo: valore($("#du-finestra"), "f-motivo") } });
+  apriFinestra("Converti la bozza", h("div", { style: "display:grid;gap:8px" }, h("p", {}, "La bozza di prima si chiude e se ne apre una nuova con la stessa struttura; i codici scritti restano come decisioni dell'ingegnere.")),
+  [{ testo: "Annulla", chiudi: true }, { testo: "Converti", pri: true, id: "f-ok", spento: () => perchéNoFormaBozza(), fai: async () => {
+    const r = await P.convertiBozza({ bozza_id: null, versione_attesa: 0, prodotto_id: S.prodotto, vocabolario: 2, converti_da: { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione } });
     // la conversione traduce le preassociazioni da proposta_id ad allegato_id e segnala quelle su file non attivi o che
     // non si preassociano (direttiva 35, C-2): copiate nella bozza nuova, il riepilogo le dirà (R4)
     const d = (r.esito === "ok" && r.dati) || {};
@@ -7195,16 +8632,13 @@ function apriAbbandona() {
   if (no) return avvisa("errore", "L'abbandono non parte: " + no + ".");
   const perse = S.coda.map((v) => v.etichetta).concat(S.daParte ? S.daParte.voci.map((v) => v.etichetta) : []);
   apriFinestra("Abbandona la bozza", h("div", { style: "display:grid;gap:8px" }, h("p", {}, "La bozza viene chiusa e non si riapre: resta nel registro delle bozze. Le preassociazioni spariscono con lei; le associazioni registrate non cambiano."),
-    perse.length ? h("p", { class: "du-nota", id: "f-perse" }, "Queste modifiche non salvate si perdono con la bozza: " + perse.join("; ") + ".") : null,
-    campo("Motivo (facoltativo)", area("f-motivo", ""))),
+    perse.length ? h("p", { class: "du-nota", id: "f-perse" }, "Queste modifiche non salvate si perdono con la bozza: " + perse.join("; ") + ".") : null),
   [{ testo: "Annulla", chiudi: true }, { testo: "Abbandona la bozza", danger: true, id: "f-ok", spento: () => perchéNoFormaBozza(), fai: async () => {
     clearTimeout(timerSalva);
-    const motivo = valore($("#du-finestra"), "f-motivo");
     const prodotto = S.prodotto;
     const r = await inSerie("bozza:" + prodotto, async () => {
       await attendi(() => !S.invio, 30000);
       const corpo = { versione_attesa: S.bozza.versione };
-      if (motivo) corpo.motivo = motivo;
       return P.abbandonaBozza(S.bozza.bozza_id, corpo, prodotto);
     });
     if (r.esito !== "ok") return esitoFormaKo(r);
@@ -7312,10 +8746,10 @@ async function riprovaGestoFile(s) {
 }
 // i testi dei 422 dei gesti dei file che hanno una frase della matrice (MAT §5.4)
 const TESTI_FILE = {
-  GIA_DOCUMENTO: "È già un documento confermato: per cambiarlo serve una revisione o una sostituzione (non in V1).",
+  GIA_DOCUMENTO: "È già un documento confermato: per cambiarlo serve una revisione o una sostituzione, non da questa pagina.",
   NON_STEP: "Il file non è uno STEP: l'associazione al prodotto vale solo per lo STEP.",
   FILE_NON_ATTIVO: "Il file non è fra i file attivi della RFQ: riattivalo prima.",
-  MOTIVO_OBBLIGATORIO: "Serve il motivo.",
+  MOTIVO_OBBLIGATORIO: TESTO_MOTIVO_VECCHIO,
   RISOLUZIONE_RICHIESTA: "Manca una dichiarazione richiesta dalle dipendenze (l'unica copia o «Scollega»): rivedi le caselle del dialogo.",
   FILE_SENZA_BYTE: "Il file non ha ancora i byte (non scaricato): niente è scritto, si può riprovare dopo «Prepara i file».",
   FILE_SCARTATO: "Il file è stato scartato: per riaverlo, ricaricalo.",
@@ -7436,7 +8870,7 @@ async function apriScarta(f) {
   const voci = arr(det.voci);
   apriFinestra("Scartare «" + f.nome_file + "»?", h("div", { style: "display:grid;gap:8px" },
     h("p", {}, "Il file esce dai file attivi della RFQ e la sua copia gestita dal cockpit viene eliminata."),
-    h("p", {}, "Resta la traccia: nome, SHA, origine, chi l'ha scartato, quando e perché."),
+    h("p", {}, "Resta la traccia: nome, SHA, origine, chi l'ha scartato e quando."),
     h("p", { id: "f-scarta-altro" }, "La mail originale, i documenti confermati e la storia non si toccano. Se il file è in Altri file, anche la sua copia nella cartella ALTRO della RFQ sul NAS viene eliminata. Non si annulla: per riaverlo dovrai ricaricarlo."),
     f.canale === "posta" ? h("p", { class: "du-nota" }, "La mail originale resta: per riaverlo, lo salvi dalla mail e lo ricarichi.") : null,
     f.stato === "altri_file" ? h("p", { class: "du-nota" }, "È in Altri file: si toglie solo la copia che il cockpit ha creato nella cartella ALTRO, e solo se nessuno l'ha cambiata.") : null,
@@ -7444,18 +8878,16 @@ async function apriScarta(f) {
     elencoDipendenze(det),
     unica ? h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-unica" }), "Ho capito: è l'unica copia" + (unica > 1 ? " (" + unica + " file)" : "") + ". Scartandolo non ne resta nessuna: per riaverlo dovrò ricaricarlo.") : null,
     scol ? h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-scollega" }), "Scollega e scarta" + (scol > 1 ? " (" + scol + " file associati)" : "") + ": l'associazione al componente viene tolta.") : null,
-    sv ? h("p", { class: "du-nota", id: "f-scollega-composto" }, "La RFQ è gestita con la Distinta nuova: prima lo svincolo si salva nella bozza di " + codiceProdotto() + " (" + sv.map((x) => nomeFile(x.allegato_id) + (x.cod ? " da " + x.cod : "")).join(", ") + "), poi lo scarto chiude l'associazione. Se lo scarto non riesce, lo svincolo resta nella bozza.") : null,
-    campo("Motivo", area("f-motivo", "obbligatorio"))),
+    sv ? h("p", { class: "du-nota", id: "f-scollega-composto" }, "La RFQ è gestita con la Distinta nuova: prima lo svincolo si salva nella bozza di " + codiceProdotto() + " (" + sv.map((x) => nomeFile(x.allegato_id) + (x.cod ? " da " + x.cod : "")).join(", ") + "), poi lo scarto chiude l'associazione. Se lo scarto non riesce, lo svincolo resta nella bozza.") : null),
   [{ testo: "Annulla", chiudi: true }, { testo: "Scarta", danger: true, id: "f-ok", spento: () => {
     const fin = $("#du-finestra");
     if (blocchi.length) return "il file ha dipendenze che bloccano: " + blocchi.map((b) => b.codice).join(", ");
-    if (!valore(fin, "f-motivo")) return "scrivi il motivo";
     if (unica && !fin.querySelector("#f-unica").checked) return "serve la conferma dell'unica copia";
     if (scol && !fin.querySelector("#f-scollega").checked) return "serve «Scollega e scarta»";
     return "";
   }, fai: async () => {
     const fin = $("#du-finestra");
-    const corpo = { versione_attesa: typeof f.versione === "number" ? f.versione : 0, motivo: valore(fin, "f-motivo"), impronta_dipendenze: det.impronta_dipendenze || "" };
+    const corpo = { versione_attesa: typeof f.versione === "number" ? f.versione : 0, impronta_dipendenze: det.impronta_dipendenze || "" };
     if (det.n_voci !== undefined) {
       corpo.n_voci = det.n_voci;
       corpo.impronta_voci = det.impronta_voci;
@@ -7501,8 +8933,7 @@ async function apriAltriFile(f, perimetro) {
         h("ul", { class: "du-elenco-p" }, voci.map((v) => h("li", {}, h("span", { class: "du-mono" }, v.nome_file || nomeFile(v.allegato_id)), v.stato ? " · " + v.stato : "")))) : null,
       elencoDipendenze(det),
     scol ? h("label", { class: "du-spunta" }, h("input", { type: "checkbox", id: "f-scollega" }), "Scollega e metti in Altri file" + (scol > 1 ? " (" + scol + " file associati)" : "") + ".") : null,
-    sv ? h("p", { class: "du-nota", id: "f-scollega-composto" }, "La RFQ è gestita con la Distinta nuova: prima lo svincolo si salva nella bozza di " + codiceProdotto() + " (" + sv.map((x) => nomeFile(x.allegato_id) + (x.cod ? " da " + x.cod : "")).join(", ") + "), poi il gesto chiude l'associazione. Se non riesce, lo svincolo resta nella bozza.") : null,
-    campo("Motivo (facoltativo)", area("f-motivo", ""))),
+    sv ? h("p", { class: "du-nota", id: "f-scollega-composto" }, "La RFQ è gestita con la Distinta nuova: prima lo svincolo si salva nella bozza di " + codiceProdotto() + " (" + sv.map((x) => nomeFile(x.allegato_id) + (x.cod ? " da " + x.cod : "")).join(", ") + "), poi il gesto chiude l'associazione. Se non riesce, lo svincolo resta nella bozza.") : null),
   [{ testo: "Annulla", chiudi: true }, { testo: "Metti in Altri file", pri: true, id: "f-ok", spento: () => {
     if (blocchi.length) return "il file ha dipendenze che bloccano: " + blocchi.map((b) => b.codice).join(", ");
     if (scol && !$("#du-finestra").querySelector("#f-scollega").checked) return "serve «Scollega e metti in Altri file»";
@@ -7510,8 +8941,6 @@ async function apriAltriFile(f, perimetro) {
   }, fai: async () => {
     const fin = $("#du-finestra");
     const corpo = { versione_attesa: typeof f.versione === "number" ? f.versione : 0, impronta_dipendenze: det.impronta_dipendenze || "" };
-    const motivo = valore(fin, "f-motivo");
-    if (motivo) corpo.motivo = motivo;
     // il perimetro (U2 §3.10): con «contenitore» n_voci e impronta_voci non ci sono; con «contenitore_e_voci» sì
     if (arch) corpo.perimetro = conVoci ? "contenitore_e_voci" : "contenitore";
     if ((!arch || conVoci) && det.n_voci !== undefined) {
@@ -7686,7 +9115,17 @@ function verificaConRiprova(chiave, fatto) {
 
 // ---------------------------------------------------------------- la barra fissa
 
+// renderBarra: la barra ricreata tiene il fuoco sul pulsante che l'aveva (Annulla, Ripeti), ritrovato per id, senza
+// scorrere (UI46, controllo di stabilità del 21/10)
 function renderBarra() {
+  const box = $("#du-barra");
+  const a = document.activeElement;
+  const id = box && a && a !== box && box.contains(a) && a.id ? a.id : "";
+  renderBarraDentro();
+  const el = id && document.getElementById(id);
+  if (el && box.contains(el) && el !== document.activeElement && !el.disabled) el.focus({ preventScroll: true });
+}
+function renderBarraDentro() {
   const box = $("#du-barra");
   if (!box) return;
   if (S.passo !== "revisione") {
@@ -7696,33 +9135,55 @@ function renderBarra() {
     // dell'utente: resta, con «Vai al file» e «Annulla la mossa», finché non ne fa un'altra) e «Vai alla Revisione →»
     const m = SG.mossa;
     const garanzia = bozzaLavorabile() ? "Sorgente: qui si preassociano i file; la struttura si modifica nella Revisione." : "Sorgente: la BOM non si modifica qui.";
-    const mossa = m ? h("span", { class: "du-sg-mossa", id: "du-sg-mossa", "data-esito": m.esito, role: m.esito === "ko" ? "alert" : "status" }, h("span", { class: "du-lab" }, "Ultima mossa"), " ", h("span", { id: "du-sg-mossa-t" }, m.testo),
+    // l'ultima mossa fatta su un altro prodotto lo dice (messaggio 46, D22): non si legge come un esito di quello in vista
+    const altroP = m && m.prodotto && m.prodotto !== S.prodotto ? codiceDi(m.prodotto) : "";
+    const mossa = m ? h("span", { class: "du-sg-mossa", id: "du-sg-mossa", "data-esito": m.esito, "data-prodotto": m.prodotto || null, role: m.esito === "ko" ? "alert" : "status" },
+      h("span", { class: "du-lab" }, altroP ? "Ultima mossa · " + altroP : "Ultima mossa"), " ", h("span", { id: "du-sg-mossa-t" }, m.testo),
       m.allegato && fileDi(m.allegato) ? btn("Vai al file", () => vaiAlFile(m.allegato), { cls: "du-btn--sm du-btn--ghost", id: "du-sg-mossa-vai", perche: false }) : null,
       mossaAnnullabile() ? btn("Annulla la mossa", annullaMossa, { cls: "du-btn--sm", id: "du-sg-mossa-annulla", perche: false }) : null) : null;
     const nessuna = nessunaBozza();
     box.replaceChildren(h("div", { class: "du-salva du-salva--sorg" }, bozzaLavorabile() ? statoSalvataggio() : null,
-      h("span", { class: "du-salva-conti", title: m ? garanzia : null }, m ? h("span", { class: "du-sg-garanzia-corta" }, h("span", { "aria-hidden": "true" }, "Niente «Conferma BOM» ⓘ"), h("span", { class: "du-sr" }, garanzia)) : garanzia),
+      h("span", { class: "du-salva-conti", title: m ? garanzia : null }, m ? h("span", { class: "du-sg-garanzia-corta" }, h("span", { "aria-hidden": "true" }, "La BOM non si modifica qui ⓘ"), h("span", { class: "du-sr" }, garanzia)) : garanzia),
       mossa,
       btn("Vai alla Revisione →", () => vaiPasso("revisione"), { cls: "du-btn--sm" + (nessuna ? "" : " du-btn--pri"), id: "du-vai-revisione", no: S.prodotto ? "" : "nessun prodotto valutato", t: nessuna ? "nessuna bozza: conferma prima una sorgente" : null })));
     return;
   }
   if (!bozzaLavorabile()) {
     box.replaceChildren();
+    S.barraAltezza = null;
     return;
   }
   const r = S.riepilogo;
   const conti = h("span", { class: "du-salva-conti", id: "du-conti" }, S.riepilogoStato === "aggiornato" && r ?
     [h("span", {}, "blocchi ", h("b", {}, String(arr(r.blocchi).length))), h("span", {}, "avvisi ", h("b", {}, String(arr(r.avvisi).length))),
       h("span", {}, "documenti irrisolti ", h("b", {}, String(arr(r.documenti_preassociati).filter((d) => d.esito === "in_conflitto" || d.esito === "in_attesa_codice" || d.esito === "orfana").length)))] :
-    h("span", {}, S.riepilogoStato === "errore" ? "riepilogo non letto: " + (S.riepilogoErrore || "") : "conti da aggiornare"));
+    h("span", {}, S.riepilogoStato === "errore" ? "riepilogo non letto: " + (S.riepilogoErrore || "") : S.riepilogoStato === "da_aggiornare" ? "conti in calcolo…" : ""));
   const noCta = perchéNoConferma();
-  box.replaceChildren(h("div", { class: "du-salva", id: "du-salva" }, statoSalvataggio(), conti,
+  const salva = h("div", { class: "du-salva", id: "du-salva" }, statoSalvataggio(), conti,
     h("span", { class: "du-azioni" },
       btn("Annulla", annulla, { cls: "du-btn--sm", id: "du-annulla", no: !S.pila.length ? "niente da annullare" : perchéNoModifica(), perche: false }),
       btn("Ripeti", ripeti, { cls: "du-btn--sm", id: "du-ripeti", no: !S.rifai.length ? "niente da ripetere" : perchéNoModifica(), perche: false }),
       btn("Abbandona la bozza…", apriAbbandona, { cls: "du-btn--sm du-btn--ghost", id: "du-abbandona", no: perchéNoFormaBozza(), perche: false })),
     h("span", { class: "du-cta" }, btn("Rivedi e conferma BOM", apriWizard, { cls: "du-btn--pri", id: "du-cta-bom", no: noCta })),
-    h("span", { class: "du-cta" }, btn("Rivedi e conferma fascicolo", null, { cls: "du-btn--sm", id: "du-cta-fascicolo", no: NON_V1.fascicolo }))));
+    h("span", { class: "du-cta" }, btn("Rivedi e conferma fascicolo", null, { cls: "du-btn--sm", id: "du-cta-fascicolo", no: NON_V1.fascicolo, perche: false })));
+  // la barra non si accorcia mentre salva («conti in calcolo…» sta su una riga, i conti di R4 su due): l'altezza più
+  // grande vista a questa larghezza resta come minimo, messa prima di inserirla, così una pagina scorsa fino in fondo
+  // non salta di 32 px a ogni Annulla, Ripeti o OK (UI46, stabilità, seconda rimisura)
+  const larga = window.innerWidth;
+  if (!S.barraAltezza || S.barraAltezza.larga !== larga) {
+    // a una larghezza nuova (la finestra ridimensionata, senza un render della barra) si parte dall'altezza naturale della
+    // barra che c'è, misurata senza il minimo della larghezza di prima: da zero, il primo salvataggio dopo la accorcerebbe
+    const prima = document.getElementById("du-salva");
+    let alta = 0;
+    if (prima && box.contains(prima)) {
+      prima.style.minHeight = "";
+      alta = prima.offsetHeight;
+    }
+    S.barraAltezza = { larga, alta };
+  }
+  if (S.barraAltezza.alta) salva.style.minHeight = S.barraAltezza.alta + "px";
+  box.replaceChildren(salva);
+  S.barraAltezza.alta = Math.max(S.barraAltezza.alta, salva.offsetHeight);
 }
 // statoSalvataggio: lo stato del salvataggio della bozza (MAT §5.1; D23:286), con «Riprova ora» dopo tre tentativi e
 // «Rileggi la bozza salvata» dopo un conflitto o un rifiuto.
@@ -7926,6 +9387,9 @@ function chiudiWizard() {
   $("#du-wizard").replaceChildren();
   $("#du-velo").hidden = true;
   render();
+  // il fuoco torna al pulsante che apre il wizard (ricreato dal render), senza far scorrere la pagina (UI46, 21/10)
+  const cta = $("#du-cta-bom");
+  if (cta && (!document.activeElement || document.activeElement === document.body)) cta.focus({ preventScroll: true });
 }
 async function rileggiRiepilogo() {
   const w = S.wizard;
@@ -7971,15 +9435,51 @@ function mostraNelGrafo(k) {
 function nonInclusiNellaBozza() {
   return S.salvato ? S.salvato.decisioni.filter((d) => d.tipo === "non_includere").length : 0;
 }
+// UI46 [U] (messaggio 48: «flickering nel wizard R5 che fanno tornare su la pagina mentre la scrollo»): il wizard si
+// ridisegna intero (replaceChildren), e il corpo che scorre (#du-wz-corpo) nasceva sempre in cima. Ridisegnare non deve
+// spostare chi legge [T]: lo scorrimento del corpo si conserva finché restano la stessa fase, lo stesso gruppo e lo
+// stesso esito (un esito nuovo, una fase o un gruppo diversi ripartono dall'inizio, dove si leggono), e tornano il fuoco
+// e i <details> aperti che hanno un id. Il «Calcolo del riepilogo…» di una rilettura non cancella la posizione: torna
+// con il riepilogo riletto. La rilettura in sottofondo che non cambia niente non ridisegna affatto (leggiIngressi).
+function vistaWizardPrima(box, w) {
+  const c = box.querySelector("#du-wz-corpo");
+  if (c && c.dataset.duPronto === "1") w.scorri = { chiave: c.dataset.duVista, esito: w.scorriEsito, top: c.scrollTop };
+  const a = document.activeElement;
+  return { fuoco: a && a !== box && box.contains(a) && a.id ? a.id : "", aperti: Array.from(box.querySelectorAll("details[open][id]"), (d) => d.id) };
+}
+function vistaWizardDopo(box, w, v, corpo) {
+  for (const id of v.aperti) {
+    const d = document.getElementById(id);
+    if (d && box.contains(d)) d.open = true;
+  }
+  if (corpo.dataset.duPronto === "1" && w.scorri && w.scorri.chiave === corpo.dataset.duVista && w.scorri.esito === w.esito) corpo.scrollTop = w.scorri.top;
+  w.scorriEsito = w.esito;
+  if (v.fuoco) {
+    const el = document.getElementById(v.fuoco);
+    if (el && box.contains(el) && el !== document.activeElement) el.focus({ preventScroll: true });
+  }
+}
+// firmaVistaWizard: quello che il wizard mostra e che la rilettura in sottofondo (leggiIngressi) può cambiare: le
+// notifiche N1-N5, i documenti in analisi con la presa d'atto, il riepilogo nuovo, lo stato e la ragione del CTA spento
+function firmaVistaWizard(w) {
+  return JSON.stringify([w.stato, w.n1, w.n2, w.n2incerto, w.n3, w.n4, w.n5, arr(w.mostrati).map((x) => x.allegato_id), w.presaAnalisi, !!w.nuovo,
+    w.esito && w.esito.tipo, perchéNoConfermaWizard(w)]);
+}
 function renderWizard() {
   const box = $("#du-wizard");
   const w = S.wizard;
   if (!box || !w) return;
+  const vista = vistaWizardPrima(box, w);
   const versione = S.bozza && typeof S.bozza.versione === "number" ? "bozza versione " + S.bozza.versione : w.esito && w.esito.tipo === "ok" ? "bozza confermata" : "bozza non letta";
   const testa = h("div", { class: "du-wz-t" }, h("h2", { id: "du-wizard-titolo" }, "Rivedi e conferma BOM · " + (w.codice || codiceProdotto())),
     h("span", { class: "du-muto du-piccolo" }, versione), h("button", { type: "button", class: "du-btn du-btn--sm du-btn--ghost", id: "du-wz-chiudi", onclick: chiudiWizard,
       disabled: w.stato === "conferma" }, "Chiudi"));
-  const passi = h("div", { class: "du-wz-passi" },
+  // collaudo UI46, giro 2 (C2-B2): dopo «Conferma BOM» il wizard dice solo l'esito. Il riepilogo di R4 era quello della
+  // bozza, che non c'è più: i suoi avvisi («Con la conferma…»), «La BOM è confermabile» e i documenti senza la bozza
+  // («un pezzo senza codice») dicevano lo stato di prima. Le fasi e «Conferma BOM» non servono più; la BOM confermata la
+  // mostra la Revisione (la working, messaggio 47 [U]) [T]
+  const confermata = !!(w.esito && w.esito.tipo === "ok");
+  const passi = confermata ? null : h("div", { class: "du-wz-passi" },
     h("button", { type: "button", class: "du-wz-passo", "aria-current": w.fase === 1 ? "step" : null, id: "du-wz-fase1", onclick: () => {
       w.fase = 1;
       renderWizard();
@@ -7988,15 +9488,23 @@ function renderWizard() {
       w.fase = 2;
       renderWizard();
     } }, "2 · Gerarchie, quantità e tipi"));
-  const corpo = h("div", { class: "du-wz-c", id: "du-wz-corpo" });
+  const corpo = h("div", { class: "du-wz-c", id: "du-wz-corpo", "data-du-vista": w.fase + "|" + (w.fase === 1 ? w.gruppo : ""),
+    "data-du-pronto": w.riepilogo && w.stato !== "lettura" && w.stato !== "errore" ? "1" : "0" });
   if (w.esito) corpo.append(esitoWizard(w));
   if (w.stato === "lettura") corpo.append(h("p", {}, "Calcolo del riepilogo…"));
   else if (w.stato === "errore") corpo.append(h("div", { class: "du-striscia du-striscia--ko", role: "alert" }, w.errore));
+  else if (confermata) corpo.append(h("p", { class: "du-nota", id: "du-wz-dopo-conferma" }, "La BOM confermata resta visibile nella Revisione, in sola lettura: è la BOM di lavoro (working). Per cambiarla, «Modifica la BOM confermata» apre una bozza nuova."));
   else if (w.riepilogo) {
-    if (!w.esito || w.esito.tipo !== "ok") for (const n of notificheWizard(w)) corpo.append(n);
+    for (const n of notificheWizard(w)) corpo.append(n);
     corpo.append(w.fase === 1 ? faseIdentita(w) : faseGerarchie(w));
   }
   const piede = h("div", { class: "du-wz-p" });
+  if (confermata) {
+    piede.append(h("span", { class: "du-sp" }), btn("Chiudi e guarda la BOM confermata", chiudiWizard, { cls: "du-btn--pri", id: "du-wz-fine", perche: false }));
+    box.replaceChildren(testa, corpo, piede);
+    vistaWizardDopo(box, w, vista, corpo);
+    return;
+  }
   if (w.fase === 2) piede.append(btn("Torna alla fase 1", () => {
     w.fase = 1;
     renderWizard();
@@ -8009,6 +9517,7 @@ function renderWizard() {
   const no = perchéNoConfermaWizard(w);
   piede.append(h("span", { class: "du-cta" }, btn("Conferma BOM", confermaWizard, { cls: "du-btn--pri", id: "du-wz-conferma", no })));
   box.replaceChildren(testa, passi, corpo, piede);
+  vistaWizardDopo(box, w, vista, corpo);
 }
 function perchéNoConfermaWizard(w) {
   if (w.stato === "conferma") return "conferma in corso…";
@@ -8095,7 +9604,7 @@ function faseIdentita(w) {
     if (aperto) {
       const p = x.proposta || {};
       tr.push(h("tr", {}, h("td", { colspan: "5" }, h("dl", { class: "du-dl" }, riga("Proposta", p.letterale ? p.letterale + " · " + (p.emittente || "") : "nessuna"),
-        riga("Riferimenti", String(arr(x.riferimenti).length)), riga("Motivo", d.motivo || ""), riga("Modo", d.modo || ""), d.lettura ? riga("Lettura di allora", d.lettura.letterale || "") : null))));
+        riga("Riferimenti", String(arr(x.riferimenti).length)), riga("Modo", d.modo || ""), d.lettura ? riga("Lettura di allora", d.lettura.letterale || "") : null))));
     }
     return tr;
   });
@@ -8112,14 +9621,15 @@ function nonInclusiDi(r) {
 function nomeNonIncluso(x, r) {
   const reg = registroBozza() || (r && ogg(r.importazione) && S.registri[r.importazione.impronta]) || null;
   const v = x.casella ? voceDiCasella(reg, x.casella) : null;
-  return (v && v.grezzi && v.grezzi.nome) || (v ? nomeVoce(v) : "") || (x.casella && x.casella.rif) || x.id || "?";
+  return (v && v.grezzi && v.grezzi.nome) || (v ? nomeVoce(v) : "") || (x.casella && x.casella.rif) || "voce senza nome";
 }
 function tabellaNonInclusi(r) {
   const nonInc = nonInclusiDi(r);
   return h("div", { class: "du-tab-guscio" }, h("table", { class: "du-tab", id: "du-wz-noninclusi" },
-    h("thead", {}, h("tr", {}, h("th", {}, "Nodo"), h("th", {}, "Motivo"), h("th", {}, "Effetti dopo la conferma"))),
+    h("thead", {}, h("tr", {}, h("th", {}, "Nodo"), h("th", {}, "Decisione"), h("th", {}, "Effetti dopo la conferma"))),
     h("tbody", {}, nonInc.length ? nonInc.map((x) => h("tr", { "data-du-noninc": x.id || "" }, h("td", {}, h("span", { class: "du-mono" }, nomeNonIncluso(x, r))),
-      h("td", {}, (x.motivo_codice || "") + (x.motivo ? " · " + x.motivo : "")),
+      // messaggio 46 [U]: nessun motivo (né il codice né il testo): chi ha deciso e quando, e il segnale del motore se c'era
+      h("td", { "data-du-deciso": "" }, (decisoDa(x.id) || "non incluso nella bozza") + (x.segnale_visto && x.segnale_visto.codice ? " · segnale del motore: " + testoSegnale(x.segnale_visto.codice) : "")),
       h("td", { "data-du-effetti": "" }, testoEffettiEscluso(x.effetti)))) : h("tr", {}, h("td", { colspan: "3" }, "Nessun nodo non incluso.")))));
 }
 // testoEffettiEscluso: gli effetti di un'esclusione che R4 dichiara e R5 applica (EM §7.4; blocco «R4 completo» della
@@ -8148,11 +9658,11 @@ function tabellaAltreEsclusioni(r) {
   const altre = arr(r && r.esclusi).filter((x) => ogg(x) && x.origine !== "non_includere");
   if (!altre.length) return null;
   return h("div", { class: "du-tab-guscio" }, h("table", { class: "du-tab", id: "du-wz-altre-esclusioni" },
-    h("thead", {}, h("tr", {}, h("th", {}, "Voce"), h("th", {}, "Origine"), h("th", {}, "Motivo"), h("th", {}, "Alla conferma"))),
+    h("thead", {}, h("tr", {}, h("th", {}, "Voce"), h("th", {}, "Origine"), h("th", {}, "Alla conferma"))),
     h("tbody", {}, altre.map((x) => h("tr", { "data-origine": x.origine || "" },
-      h("td", {}, h("span", { class: "du-mono" }, x.codice || (x.casella ? nomeNonIncluso(x, r) : x.id || "?"))),
-      h("td", {}, ALTRE_ESCLUSIONI[x.origine] || x.origine || ""),
-      h("td", {}, (x.motivo_codice || "") + (x.motivo ? (x.motivo_codice ? " · " : "") + x.motivo : x.motivo_mancante ? "senza motivo scritto" : "") + (x.autore_id ? " (da chi le guardava prima)" : "")),
+      h("td", {}, h("span", { class: "du-mono" }, x.codice || (x.casella ? nomeNonIncluso(x, r) : "voce senza nome"))),
+      // messaggio 46 [U]: nessuna colonna del motivo; l'origine dice da dove viene l'esclusione
+      h("td", {}, (ALTRE_ESCLUSIONI[x.origine] || x.origine || "") + (x.autore_id ? " (decisa da chi le guardava prima)" : "")),
       h("td", {}, x.origine === "assenza" ? testoEffettiEscluso(x.effetti) : x.origine === "escludi" ? "esce dalla BOM" : "solo la traccia, niente si chiude"))))));
 }
 function faseGerarchie(w) {
@@ -8177,21 +9687,28 @@ function faseGerarchie(w) {
   const avvisi = arr(r.avvisi);
   // gli avvisi del registro portano il codice o l'emittente che nominano (valore: il P/N K4, il codice del cartiglio,
   // l'emittente della lettura; blocco «R4 completo» della persistenza)
-  if (avvisi.length) box.append(h("div", { class: "du-esito du-esito--ver", id: "du-wz-avvisi" }, h("b", {}, "Avvisi"), h("ul", { class: "du-elenco-p" }, avvisi.map((a) => h("li", { "data-codice": a.codice },
-    h("b", {}, a.codice), a.valore ? [" ", h("span", { class: "du-mono", "data-du-valore": a.valore }, a.valore)] : null, " ", a.testo || "",
-    a.chiave_bozza ? h("span", { class: "du-azioni" }, btn("Mostra nel grafo", () => mostraNelGrafo(a.chiave_bozza), { cls: "du-btn--sm du-btn--ghost", perche: false })) : null)))));
+  // collaudo UI46 (I4, C2-I1): gli avvisi si dicono con il testo del server, senza il codice (che resta in data-codice);
+  // quelli che dicono solo che cosa farà la conferma (AVVISI_INFORMATIVI) non hanno il colore dell'allarme [T]
+  if (avvisi.length) {
+    const soloInfo = avvisi.every((a) => AVVISI_INFORMATIVI.has(a.codice));
+    box.append(h("div", { class: "du-esito " + (soloInfo ? "du-esito--info" : "du-esito--ver"), id: "du-wz-avvisi" }, h("b", {}, soloInfo ? "Da sapere" : "Avvisi"), h("ul", { class: "du-elenco-p" }, avvisi.map((a) => h("li", { "data-codice": a.codice },
+      a.valore ? [h("span", { class: "du-mono", "data-du-valore": a.valore }, a.valore), " "] : null, testoAvviso(a),
+      a.chiave_bozza ? h("span", { class: "du-azioni" }, btn("Mostra nel grafo", () => mostraNelGrafo(a.chiave_bozza), { cls: "du-btn--sm du-btn--ghost", perche: false })) : null)))));
+  }
   // gli avvisi e i conflitti del motore (EM §8.2, §9.4 con U2 §6.3.5): calcolati con il riepilogo e dentro la sua firma;
   // senza di loro la BOM non si conferma (niente presa d'atto: si riprova il riepilogo)
   const mot = h("div", { class: "du-esito du-esito--ver", id: "du-wz-motore" });
+  // senza avvisi né conflitti il riquadro non è giallo: «nessuno» non è un avviso (collaudo UI46, I4) [T]
+  if (r.avvisi_motore_calcolati === true && !arr(r.avvisi_motore).length && !arr(r.conflitti_motore).length) mot.className = "du-esito du-esito--info";
   if (r.avvisi_motore_calcolati !== true) {
     mot.append(h("b", {}, "Avvisi del motore non calcolati" + (r.avvisi_motore_errore ? " (" + (r.avvisi_motore_errore.codice || "") + ": " + (r.avvisi_motore_errore.testo || "") + ")" : "") + "."),
       h("span", {}, " La conferma resta spenta finché il riepilogo non li ha."),
       btn("Riprova", rileggiRiepilogo, { cls: "du-btn--sm", id: "du-wz-riprova-motore", perche: false }));
   } else {
     const am = arr(r.avvisi_motore);
-    mot.append(h("b", {}, "Avvisi del motore, calcolati con il riepilogo e firmati: "), am.length ? "" : "nessuno");
+    mot.append(h("b", {}, am.length ? "Avvisi del motore, calcolati con il riepilogo e firmati:" : "Avvisi del motore, calcolati con il riepilogo e firmati: il motore non ne ha."));
     if (am.length) mot.append(h("ul", { class: "du-elenco-p", id: "du-wz-avvisi-motore" }, am.map((a) => h("li", { "data-codice": a.codice || "", "data-motivo": a.motivo || "" },
-      h("b", {}, a.codice || ""), a.motivo ? h("span", { class: "du-muto du-piccolo" }, " (" + a.motivo + ")") : null, " ", a.testo || "",
+      testoAvviso(a),
       ogg(a.differenze) ? h("span", { class: "du-muto du-piccolo" }, " · nodi diversi " + (a.differenze.nodi || 0) + ", legami diversi " + (a.differenze.archi || 0)) : null,
       arr(a.prodotti).length ? h("span", { class: "du-muto du-piccolo" }, " · anche " + arr(a.prodotti).map((x) => codiceDi(String(x).toLowerCase())).join(", ")) : null))));
     const cm = arr(r.conflitti_motore);
@@ -8199,17 +9716,17 @@ function faseGerarchie(w) {
       "Nessun conflitto aperto del motore sul prodotto."));
   }
   box.append(mot);
-  // mono_pezzo: casella mai spuntata, motivo obbligatorio (MAT BZ-14). Dopo la conferma la bozza non c'è più (R1 riletto:
+  // mono_pezzo: casella mai spuntata (MAT BZ-14; dal messaggio 46 [U] senza motivo). Dopo la conferma la bozza non c'è più (R1 riletto:
   // nessuna bozza, S.salvato vuoto): il wizard mostra l'esito e il riepilogo di allora, senza gesti sulla bozza
   const salvate = S.salvato ? S.salvato.decisioni : [];
   if (avvisi.some((a) => a.codice === "PRODOTTO_SENZA_FIGLI") && bozzaLavorabile() && !salvate.some((d) => d.tipo === "mono_pezzo")) {
-    box.append(h("div", { class: "du-esito du-esito--ver" }, h("b", {}, "Il prodotto non ha figli."), h("span", {}, "Se è un pezzo unico, dichiaralo con il motivo: la conferma della BOM vuole lo STEP del prodotto confermato come sorgente."),
+    box.append(h("div", { class: "du-esito du-esito--ver" }, h("b", {}, "Il prodotto non ha figli."), h("span", {}, "Se è un pezzo unico, dichiaralo: la conferma della BOM vuole lo STEP del prodotto confermato come sorgente."),
       btn("Dichiara mono_pezzo…", apriMonoPezzo, { cls: "du-btn--sm", perche: false })));
   }
   const archi = arr(r.archi);
   box.append(h("h3", {}, "Legami (" + archi.length + ")"), h("div", { class: "du-tab-guscio" }, h("table", { class: "du-tab", id: "du-wz-archi" },
     h("thead", {}, h("tr", {}, h("th", {}, "Padre → figlio"), h("th", {}, "Qtà di prima"), h("th", {}, "Qtà voluta"), h("th", {}, "Azione"), h("th", {}, "Origine"))),
-    h("tbody", {}, archi.map((a) => h("tr", { "data-azione": a.azione || "" }, h("td", {}, h("span", { class: "du-mono" }, ((a.padre && a.padre.codice) || "?") + " → " + ((a.figlio && a.figlio.codice) || "?")),
+    h("tbody", {}, archi.map((a) => h("tr", { "data-azione": a.azione || "" }, h("td", {}, h("span", { class: "du-mono" }, ((a.padre && (a.padre.codice || nomeNodoWizard(a.padre.chiave_bozza, r))) || "?") + " → " + ((a.figlio && (a.figlio.codice || nomeNodoWizard(a.figlio.chiave_bozza, r))) || "?")),
       a.padre_prima ? h("span", { class: "du-muto du-piccolo" }, " (prima sotto " + (a.padre_prima.codice || "?") + ")") : null),
       h("td", {}, a.qta_precedente === null || a.qta_precedente === undefined ? "—" : String(a.qta_precedente)), h("td", {}, a.qta_voluta === null || a.qta_voluta === undefined ? "—" : String(a.qta_voluta)),
       h("td", {}, (a.azione || "") + (a.decisione ? " · " + a.decisione : "")), h("td", {}, a.origine || "")))))));
@@ -8219,10 +9736,22 @@ function faseGerarchie(w) {
   box.append(sezioneSorgenteWizard(r), sezioneDocumentiWizard(w, r));
   const cond = sezioneCondivisione(r);
   if (cond) box.append(cond);
+  // il criterio previsto e la firma del riepilogo sono dati tecnici (collaudo UI46, I4): restano, ripiegati [T]
   const cp = r.criterio_previsto || {};
-  box.append(h("p", { class: "du-nota", id: "du-wz-criterio" }, "Criterio che la conferma registrerà: " + (cp.criterio || "?") + (cp.motivo ? " — " + cp.motivo : "")),
-    h("p", { class: "du-nota" }, "Firma del riepilogo: ", h("span", { class: "du-mono", id: "du-wz-firma" }, String(r.firma_anteprima).slice(0, 12) + "…")));
+  box.append(h("details", { class: "du-ripiega du-piccolo", id: "du-wz-tecnici" }, h("summary", {}, "Dati tecnici del riepilogo"),
+    h("p", { class: "du-nota", id: "du-wz-criterio" }, "Criterio che la conferma registrerà: " + (cp.criterio || "?") + (cp.motivo ? " — " + aParole(cp.motivo) : "")),
+    h("p", { class: "du-nota" }, "Firma del riepilogo: ", h("span", { class: "du-mono", id: "du-wz-firma" }, String(r.firma_anteprima).slice(0, 12) + "…"))));
   return box;
+}
+// AVVISI_INFORMATIVI: gli avvisi di R4 che dicono che cosa farà la conferma, senza niente da decidere
+const AVVISI_INFORMATIVI = new Set(["VERIFICA_DOPO_COMMIT", "SORGENTE_NON_AUTORIZZATA"]);
+// testoAvviso: un avviso di R4 o del motore per chi legge: il testo del server in parole (aParole), mai il codice; senza
+// testo, il codice in minuscolo e senza trattini bassi, e il motivo in parole (collaudo UI46, I4) [T]
+function testoAvviso(a) {
+  const t = aParole(a && a.testo);
+  if (t) return t + ".";
+  const c = String((a && a.codice) || "avviso").toLowerCase().replace(/_/g, " ");
+  return c.charAt(0).toUpperCase() + c.slice(1) + (a && a.motivo ? " (" + aParole(String(a.motivo).replace(/_/g, " ")) + ")" : "") + ".";
 }
 // gestiD1: le decisioni D1 adatte a ciascun blocco (MAT BZ-12, WZ-07; EM §3.6, decisioni 1-3): per D1_ULTIMO_FIGLIO
 // «Diventa particolare» (d1_a_particolare) o «Lascia assieme» (d1_resta_sottoassieme, un rinvio); per
@@ -8331,7 +9860,7 @@ function riusoNelPannello(g, v) {
 // ---- la sorgente, i documenti e la condivisione nel riepilogo formato 3 (direttiva 39 §4, §5; EM §9.4, App. I.8)
 
 // codiceComponenteR4: il codice di un componente registrato per i testi del riepilogo: dalle identità del riepilogo, dai nodi
-// della bozza, dai prodotti della RFQ; altrimenti l'inizio dell'identificativo
+// della bozza, dai prodotti della RFQ; altrimenti «un componente registrato»
 function codiceComponenteR4(r, cid) {
   if (!cid) return "?";
   const c = String(cid).toLowerCase();
@@ -8341,23 +9870,30 @@ function codiceComponenteR4(r, cid) {
   if (n && n.identita && n.identita.codice) return n.identita.codice;
   for (const cc of arr(r && r.condivisione)) for (const e of arr(cc.elementi)) if (e.componente_id && String(e.componente_id).toLowerCase() === c && e.codice) return e.codice;
   if (S.modello && S.modello.prodotti.some((p) => p.id === c)) return codiceDi(c);
-  return c.slice(0, 8);
+  // mai un pezzo dell'identificativo (UI46 [U], messaggio 48: niente UUID nel wizard)
+  return "un componente registrato";
 }
 // sezioneSorgenteWizard: lo STEP sorgente della bozza (direttiva 39 §2, §5 [U]): la riga «legato come sorgente» in sola
 // lettura e fuori dalle preassociazioni (lo STEP sorgente del finito non è mai un documento da associare né una AR), i
 // legami storici di D-AR04 (iii) (non valgono come sorgente finché non si riconfermano con S8), l'effetto sulla fonte della
 // working (la promuove solo «Conferma BOM»).
+// testoServer: un testo del server per il wizard, in parole (aParole: niente «da S8», «commit», accenti con l'apostrofo;
+// collaudo UI46, I4), con il punto finale
+function testoServer(t) {
+  const x = aParole(t);
+  return x ? x + "." : "";
+}
 function sezioneSorgenteWizard(r) {
   const box = h("div", { class: "du-sez", id: "du-wz-sorgente" }, h("h3", {}, "STEP sorgente"));
   const l = ogg(r.sorgente_legata) ? r.sorgente_legata : null;
   if (l) {
     box.append(h("p", { id: "du-wz-sorgente-legata", "data-confermata": l.confermata ? "1" : "0" },
-      pill(l.confermata ? "ok" : "ver", l.confermata ? "◆ legato come sorgente" : "◇ sorgente non confermata"), " ", h("span", { class: "du-mono" }, l.nome_file || nomeFile(l.allegato_id)), " — " + (l.testo || ""),
+      pill(l.confermata ? "ok" : "ver", l.confermata ? "◆ legato come sorgente" : "◇ sorgente non confermata"), " ", h("span", { class: "du-mono" }, l.nome_file || nomeFile(l.allegato_id)), " — " + testoServer(l.testo),
       h("span", { class: "du-muto du-piccolo" }, " (sola lettura)")));
   } else box.append(h("p", { id: "du-wz-sorgente-legata", "data-confermata": "0" }, "La bozza non ha uno STEP: parte dal solo prodotto."));
-  for (const x of arr(r.legami_storici)) box.append(h("p", { class: "du-nota", "data-du-legame-storico": x.documento_id || "" }, pill("ver", "legame storico"), " ", h("span", { class: "du-mono" }, x.nome_file || ""), " — " + (x.testo || "")));
+  for (const x of arr(r.legami_storici)) box.append(h("p", { class: "du-nota", "data-du-legame-storico": x.documento_id || "" }, pill("ver", "legame storico"), " ", h("span", { class: "du-mono" }, x.nome_file || ""), " — " + testoServer(x.testo)));
   const e = ogg(r.effetto_sulla_fonte) ? r.effetto_sulla_fonte : null;
-  if (e && e.testo) box.append(h("p", { class: "du-nota", id: "du-wz-effetto-fonte", "data-promozione": e.promozione ? "1" : "0" }, e.testo));
+  if (e && e.testo) box.append(h("p", { class: "du-nota", id: "du-wz-effetto-fonte", "data-promozione": e.promozione ? "1" : "0" }, testoServer(e.testo)));
   // G39-03 [U]: la conferma che corregge uno STEP sorgente sbagliato dopo una BOM confermata è una revisione interna, non del
   // cliente (R4 effetto_sulla_fonte.correzione_sorgente; R5 la scrive nell'origine della conferma, R7 la rilegge)
   if (e && e.correzione_sorgente) box.append(h("p", { class: "du-esito du-esito--ver", id: "du-wz-correzione-sorgente", "data-revisione": "interna" }, pill("ver", "correzione della sorgente"),
@@ -8400,18 +9936,15 @@ function rimediPB(r, d) {
   return out;
 }
 // apriRiconosci: il dialogo del riconoscimento di una PB legacy (R39-15; direttiva 39 §4, D-PB-04 A [U]: rimedio esplicito,
-// mai una ratifica silenziosa). Il motivo è facoltativo; il salvataggio porta file_riconosciuto {allegato_id, chiave_bozza}
+// mai una ratifica silenziosa). Dal messaggio 46 [U] senza motivo; il salvataggio porta file_riconosciuto {allegato_id, chiave_bozza}
 // e lo snapshot invariato (la verifica la decide il server). Il passo non entra nella pila: non si annulla.
 function apriRiconosci(pb, d) {
   const nome = d.nome_file || nomeFile(d.allegato_id);
   apriFinestra("Riconosci la preassociazione legacy", h("div", { style: "display:grid;gap:8px", id: "f-riconosci" },
     h("p", {}, "«" + nome + "» → " + voceEffetto(pb.chiave_bozza) + " viene da una pre-assegnazione delle pagine di prima. Riconoscendola dichiari di averla verificata: resta «legacy» e la conferma la registrerà così."),
-    h("p", { class: "du-nota" }, "Il riconoscimento non si annulla: per tornare indietro togli la preassociazione. Se la sposti su un altro nodo diventa manuale."),
-    campo("Motivo (facoltativo)", area("f-motivo-riconosci", "per esempio: verificato il cartiglio", 1000))),
+    h("p", { class: "du-nota" }, "Il riconoscimento non si annulla: per tornare indietro togli la preassociazione. Se la sposti su un altro nodo diventa manuale.")),
   [{ testo: "Annulla", chiudi: true }, { testo: "Riconosci", pri: true, id: "f-ok", fai: async () => {
-    const motivo = valore($("#du-finestra"), "f-motivo-riconosci");
     const dopo = { allegato_id: pb.allegato_id, chiave_bozza: pb.chiave_bozza };
-    if (motivo) dopo.motivo = motivo;
     const az = { azione: "file_riconosciuto", chiave_bozza: pb.chiave_bozza, prima: { allegato_id: pb.allegato_id, chiave_bozza: pb.chiave_bozza }, dopo, origine: "utente" };
     if (!fai("riconosciuta la preassociazione legacy di " + nome, [az])) return false;
     // fuori dalla pila d'annullamento (il server non lo annulla)
@@ -8437,6 +9970,22 @@ function testoConflittoPB(r, d) {
   const rim = b ? arr(b.rimedi) : [];
   return t + (rim.length ? " Rimedi: " + rim.join("; ") + "." : "");
 }
+// nomeNodoWizard: il pezzo k per chi legge il wizard, il codice e, se c'è, la descrizione; mai la chiave interna del nodo
+// (UI46 [U], messaggio 48: le preassociazioni mostravano «(k-c-…)»). Dalla bozza, poi dalle identità del riepilogo (dopo la
+// conferma la bozza non c'è più), poi dal codice proposto o dal nome della voce dello STEP; altrimenti «pezzo senza codice».
+function nomeNodoWizard(k, r) {
+  const n = S.lavoro && k ? S.lavoro.nodi.find((y) => y.chiave_bozza === k) : null;
+  const x = k ? arr(r && r.identita).find((y) => y.chiave_bozza === k) : null;
+  const pd = (z) => (ogg(z) ? z.dopo || z.prima || "" : typeof z === "string" ? z : "");
+  let cod = (n && n.identita && n.identita.codice) || (x && (pd(x.codice) || (x.decisa && x.decisa.codice))) || "";
+  const des = (n && n.descrizione) || (x && pd(x.descrizione)) || "";
+  if (!cod && n && casellaDi(n)) {
+    const v = voceDiCasella(registroBozza(), casellaDi(n));
+    cod = (v && (v.codice_proposto || (v.grezzi && v.grezzi.nome))) || "";
+  }
+  if (!cod) return des ? des + " (pezzo senza codice)" : "pezzo senza codice";
+  return des && des !== cod ? cod + " · " + des : cod;
+}
 // sezioneDocumentiWizard: che cosa registra la conferma per i documenti (D-PB-04 A [U]): le preassociazioni raggruppate per
 // provenienza («dal motore, intatte», «corrette», «manuali», «legacy da verificare»), le proposte del motore tolte, gli
 // spostamenti delle associazioni registrate (sostituzioni e svincoli) e quelle che restano. «Conferma BOM» è
@@ -8457,8 +10006,10 @@ function sezioneDocumentiWizard(w, r) {
         const es = ESITI_PB[d.esito] || ["neu", d.esito || ""];
         const conflitto = d.esito === "in_conflitto";
         return h("li", { "data-du-pb": v.allegato_id, "data-esito": d.esito || "", "data-motivo": d.motivo || "" },
-          h("span", { class: "du-mono" }, d.nome_file || nomeFile(v.allegato_id)), " → ", h("span", { class: "du-mono" }, voceEffetto(v.chiave_bozza)), " ", pill(es[0], es[1]),
-          d.effetto ? h("span", { class: "du-muto du-piccolo" }, " " + d.effetto) : null,
+          h("span", { class: "du-mono" }, d.nome_file || nomeFile(v.allegato_id)), " → ", h("span", { class: "du-mono" }, nomeNodoWizard(v.chiave_bozza, r)), " ", pill(es[0], es[1]),
+          // «si registra» lo dice già la pillola, e la nota sotto il gruppo dice che non è la conferma del documento: l'effetto
+          // del server, uguale su ogni riga, si scrive solo negli altri esiti (collaudo UI46, giro 3, minore) [T]
+          d.effetto && d.esito !== "applicabile" ? h("span", { class: "du-muto du-piccolo" }, " " + d.effetto) : null,
           conflitto ? h("div", { class: "du-err du-piccolo" }, testoConflittoPB(r, d)) : null,
           conflitto && bozzaLavorabile() ? h("span", { class: "du-azioni" }, rimediPB(r, d)) : null);
       })));
@@ -8467,12 +10018,12 @@ function sezioneDocumentiWizard(w, r) {
   }
   const rim = arr(ed.proposte_rimosse);
   if (rim.length) box.append(h("div", { class: "du-wz-gruppo", "data-gruppo": "proposte_rimosse", id: "du-wz-gruppo-proposte_rimosse" }, h("h4", { class: "du-lab" }, "Proposte del motore tolte (" + rim.length + ")"),
-    h("ul", { class: "du-elenco-p" }, rim.map((x) => h("li", { "data-du-pb": x.allegato_id }, h("span", { class: "du-mono" }, nomeFile(x.allegato_id)), " proposto per ", h("span", { class: "du-mono" }, voceEffetto(x.chiave_bozza)), ": tolto, non si registra")))));
+    h("ul", { class: "du-elenco-p" }, rim.map((x) => h("li", { "data-du-pb": x.allegato_id }, h("span", { class: "du-mono" }, nomeFile(x.allegato_id)), " proposto per ", h("span", { class: "du-mono" }, nomeNodoWizard(x.chiave_bozza, r)), ": tolto, non si registra")))));
   const sp = arr(ed.spostamenti_ar);
   box.append(h("div", { class: "du-wz-gruppo", "data-gruppo": "spostamenti_ar", id: "du-wz-gruppo-spostamenti_ar" }, h("h4", { class: "du-lab" }, "Associazioni registrate che cambiano (" + sp.length + ")"),
     sp.length ? h("ul", { class: "du-elenco-p" }, sp.map((x) => h("li", { "data-du-spostamento": x.allegato_id, "data-tipo": x.tipo || "", "data-esito": x.esito || "" },
       h("span", { class: "du-mono" }, nomeFile(x.allegato_id)), ": ",
-      x.tipo === "sostituzione" ? "da " + codiceComponenteR4(r, x.da_componente_id) + " a " + (x.a_chiave_bozza ? voceEffetto(x.a_chiave_bozza) : codiceComponenteR4(r, x.a_componente_id)) + " (l'associazione di prima si chiude, la storia resta)" :
+      x.tipo === "sostituzione" ? "da " + codiceComponenteR4(r, x.da_componente_id) + " a " + (x.a_chiave_bozza ? nomeNodoWizard(x.a_chiave_bozza, r) : codiceComponenteR4(r, x.a_componente_id)) + " (l'associazione di prima si chiude, la storia resta)" :
         "scollegato da " + codiceComponenteR4(r, x.da_componente_id) + (x.esito === "svincolo_gia_chiuso" ? " (già chiusa da un gesto dei file)" : " alla conferma"),
       x.esito && x.esito !== "applicabile" && x.esito !== "sostituzione" && x.esito !== "svincolo_gia_chiuso" ? h("span", { class: "du-err du-piccolo" }, " " + (x.motivo || x.esito)) : null))) :
       h("p", { class: "du-muto du-piccolo" }, "Nessuna.")));
@@ -8506,10 +10057,12 @@ async function decisioneWizard(etichetta, dec) {
   if (!ok) return;
   await rileggiRiepilogo();
 }
+// apriMonoPezzo: «Dichiara mono_pezzo…» (MAT BZ-14). Dal messaggio 46 [U] senza motivo: il dialogo dice che cosa
+// dichiara; alla conferma della BOM il server registra la traccia del gesto (conferma_strutturale.mono_pezzo_motivo).
 function apriMonoPezzo() {
-  apriFinestra("Dichiara mono_pezzo", campo("Motivo", area("f-motivo", "")), [{ testo: "Annulla", chiudi: true }, { testo: "Dichiara", pri: true, id: "f-ok",
-    spento: () => (valore($("#du-finestra"), "f-motivo") ? "" : "scrivi il motivo"), fai: async () => {
-      await decisioneWizard("dichiarato mono_pezzo", { id: nuovoIdDecisione("mp"), tipo: "mono_pezzo", motivo: valore($("#du-finestra"), "f-motivo") });
+  apriFinestra("Dichiara mono_pezzo", h("p", { id: "f-mono-pezzo" }, "Dichiari che " + (codiceProdotto() || "il prodotto") + " è un pezzo unico, senza figli. La conferma della BOM lo registra, con lo STEP del prodotto confermato come sorgente."),
+    [{ testo: "Annulla", chiudi: true }, { testo: "Dichiara", pri: true, id: "f-ok", fai: async () => {
+      await decisioneWizard("dichiarato mono_pezzo", { id: nuovoIdDecisione("mp"), tipo: "mono_pezzo" });
     } }]);
 }
 async function confermaWizard() {
@@ -8630,7 +10183,7 @@ function esitoWizard(w) {
     const conta = (x) => (typeof x === "number" ? x : arr(x).length);
     const nonInc = Array.isArray(d.non_inclusi_applicati) ? d.non_inclusi_applicati.map((x) => {
       const y = nonInclusiDi(w.riepilogo).find((z) => z.id === x);
-      return y ? nomeNonIncluso(y, w.riepilogo) : typeof x === "string" ? x : "";
+      return y ? nomeNonIncluso(y, w.riepilogo) : "voce senza nome";
     }) : conta(d.non_inclusi_applicati) ? nonInclusiDi(w.riepilogo).map((y) => nomeNonIncluso(y, w.riepilogo)) : [];
     const fo = ogg(d.fonte) ? d.fonte : null;
     return h("div", { class: "du-esito du-esito--ok", id: "du-wz-esito", "data-esito": "ok" }, h("b", {}, "Conferma n. " + n + " di " + (w.codice || codiceProdotto()) + (e.verificato ? " (verificata con la stessa chiave)" : "") + "."),
@@ -8644,7 +10197,7 @@ function esitoWizard(w) {
           " (associazioni registrate allineate al codice nuovo: " + conta(d.correzioni_ricodifica) + ")") : null,
         conta(d.identita_ripristinate) ? h("li", { id: "du-wz-esito-ripristinati" }, "Componenti archiviati ripristinati: " + conta(d.identita_ripristinate)) : null,
         conta(d.tipi_cambiati) ? h("li", { id: "du-wz-esito-tipi" }, "Tipi cambiati: " + conta(d.tipi_cambiati)) : null,
-        conta(d.assenze_applicate) ? h("li", { id: "du-wz-esito-assenze" }, "Voci dello STEP non rappresentate, chiuse senza motivo scritto: " + conta(d.assenze_applicate)) : null,
+        conta(d.assenze_applicate) ? h("li", { id: "du-wz-esito-assenze" }, "Voci dello STEP non rappresentate, chiuse dalla conferma: " + conta(d.assenze_applicate)) : null,
         (fo && fo.correzione_sorgente) || d.correzione_sorgente ? h("li", { id: "du-wz-esito-correzione", "data-revisione": "interna" }, "Revisione interna: correzione della sorgente, non una revisione del cliente.") : null,
         fo && fo.promossa ? h("li", { id: "du-wz-esito-fonte" }, "Lo STEP sorgente è diventato lo STEP della BOM confermata" + (fo.sostituzione_di ? "; lo STEP di prima resta, sostituito, con la sua storia" : "") + ".") : null,
         conta(d.esclusi_condivisi) ? h("li", {}, "Esclusi condivisi con altri prodotti (restano nella BOM registrata): " + conta(d.esclusi_condivisi)) : null,
@@ -8751,6 +10304,11 @@ async function dopoConferma(dati) {
   const codice = (w && w.codice) || codiceProdotto();
   const riletta = await rileggiDopoUnGesto(["bozza", "storico"], "La conferma n. " + n + " di " + codice + " è registrata.");
   if (w && w.esito) w.esito.rilettura = riletta ? "ok" : "fallita";
+  // l'ultima mossa è la conferma, non più la sorgente confermata di prima; l'esito di S8 di prima non resta in vista
+  // (collaudo UI46, B3)
+  if (w && w.prodotto) delete SG.esitiS8[w.prodotto];
+  delete SG.esitiS8[S.prodotto];
+  registraMossa("BOM di " + codice + " confermata (conferma n. " + n + ").");
   avvisa("ok", riletta ? "BOM confermata (conferma n. " + n + " di " + codice + ")." : "La conferma n. " + n + " di " + codice + " è registrata; la pagina non si è riletta: ↻ Rileggi.");
   if (S.wizard) renderWizard();
   render();
@@ -8804,6 +10362,9 @@ async function leggiIngressi() {
     return programmaIngressi();
   }
   if (S.wizard !== w) return;
+  // UI46 [U] (messaggio 48): la rilettura ogni 5-10 s ridisegnava il wizard anche senza niente di nuovo, e lo riportava
+  // in cima mentre lo si scorreva; ora ridisegna solo se cambia quello che il wizard mostra (firmaVistaWizard)
+  const vistaPrima = firmaVistaWizard(w);
   const pv = w.ingressi;
   const pn = j.parti;
   const inAn = arr(pn.analisi && pn.analisi.in_analisi);
@@ -8840,7 +10401,7 @@ async function leggiIngressi() {
   }
   if (pn.proposta && pv.proposta && pn.proposta.impronta !== pv.proposta.impronta) w.daRiepilogare = true;
   if (w.daRiepilogare) await riepilogoNuovo(w, inAn.length > 0);
-  if (S.wizard === w) renderWizard();
+  if (S.wizard === w && firmaVistaWizard(w) !== vistaPrima) renderWizard();
   programmaIngressi();
 }
 // chiHaSalvato: il nome di chi ha salvato la bozza, per N4. R1 ?ingressi=1 dà aggiornata_da come utente_id (EM §9.1,
@@ -8897,23 +10458,26 @@ async function riepilogoNuovo(w, inAnalisi) {
   w.analizzati = [];
 }
 // differenzeRiepiloghi: le differenze fra due riepiloghi, per chiave stabile (chiave_bozza; padre e figlio per i legami;
-// codice per i blocchi): solo presentazione, la decisione la prende il server (U2 §6.3.4 punto 3)
+// codice per i blocchi): solo presentazione, la decisione la prende il server (U2 §6.3.4 punto 3). Il testo nomina i pezzi
+// con codice e descrizione, mai con la chiave del nodo (UI46 [U], messaggio 48)
 function differenzeRiepiloghi(a, b) {
   const out = [];
+  const nome = nomeNodoWizard;
+  const nomeArco = (z) => ((z.padre && (z.padre.codice || nome(z.padre.chiave_bozza, b))) || "?") + " → " + ((z.figlio && (z.figlio.codice || nome(z.figlio.chiave_bozza, b))) || "?");
   const idA = new Map(arr(a && a.identita).map((x) => [x.chiave_bozza, x]));
   for (const x of arr(b && b.identita)) {
     const y = idA.get(x.chiave_bozza);
     const c = (z) => JSON.stringify([z && z.codice, z && z.rev, z && z.tipo, z && z.esito_identita, z && z.decisa && z.decisa.codice]);
-    if (!y) out.push((x.chiave_bozza || "?") + ": nuovo nel riepilogo");
-    else if (c(x) !== c(y)) out.push((x.chiave_bozza || "?") + ": identità, rev o tipo cambiati");
+    if (!y) out.push(nome(x.chiave_bozza, b) + ": nuovo nel riepilogo");
+    else if (c(x) !== c(y)) out.push(nome(x.chiave_bozza, a) + ": identità, rev o tipo cambiati");
   }
-  for (const k of idA.keys()) if (!arr(b && b.identita).some((x) => x.chiave_bozza === k)) out.push(k + ": non più nel riepilogo");
+  for (const k of idA.keys()) if (!arr(b && b.identita).some((x) => x.chiave_bozza === k)) out.push(nome(k, a) + ": non più nel riepilogo");
   const ka = (z) => (z.padre && (z.padre.chiave_bozza || z.padre.codice)) + "→" + (z.figlio && (z.figlio.chiave_bozza || z.figlio.codice));
   const archiA = new Map(arr(a && a.archi).map((x) => [ka(x), x]));
   for (const x of arr(b && b.archi)) {
     const y = archiA.get(ka(x));
-    if (!y) out.push("legame " + ka(x) + ": nuovo");
-    else if (String(y.qta_voluta) !== String(x.qta_voluta) || String(y.qta_step) !== String(x.qta_step)) out.push("legame " + ka(x) + ": quantità cambiata");
+    if (!y) out.push("legame " + nomeArco(x) + ": nuovo");
+    else if (String(y.qta_voluta) !== String(x.qta_voluta) || String(y.qta_step) !== String(x.qta_step)) out.push("legame " + nomeArco(x) + ": quantità cambiata");
   }
   const bA = new Set(arr(a && a.blocchi).map((x) => x.codice + (x.chiave_bozza || "")));
   for (const x of arr(b && b.blocchi)) if (!bA.has(x.codice + (x.chiave_bozza || ""))) out.push("blocco nuovo: " + x.codice);
@@ -9009,34 +10573,35 @@ function decisioneCat(v, o) {
 // gestiCategoria: nell'editor del nodo, sotto il tipo: la classe proposta, «Conferma la categoria…», «Non è minuteria…»,
 // «Conferma il tipo proposto» (U2 §6.4.2, «Un solo modello, due punti d'ingresso»)
 function gestiCategoria(g, v) {
-  const s = h("div", { class: "du-sez", id: "du-sez-categoria" }, h("h3", {}, "Tipo e categoria"));
   if (v.noninc || !v.nodo) return null;
+  const s = sezione("du-sez-categoria", "Tipo e categoria", true);
   const radice = v.k === g.radice || v.tipo === "finito";
   const no = perchéNoModifica();
   const c = classeProposta(v);
   const d = decisioneCategoria(v.k);
   const tp = v.voce && v.voce.tipo_proposto && v.voce.tipo_proposto.valore;
-  s.append(h("dl", { class: "du-dl" }, riga("Tipo", (TIPI[v.tipo] || v.tipo) + (v.nodo.tipo_confermato ? " · tipo confermato" + (autoreGestoNodo(v.k) ? " da " + autoreGestoNodo(v.k) : "") : "")),
+  s.lastChild.append(h("dl", { class: "du-dl" }, riga("Tipo", (TIPI[v.tipo] || v.tipo) + (tipoProposto(v) ? " (proposto dal file)" : "") + (v.nodo.tipo_confermato ? " · tipo confermato" + (autoreGestoNodo(v.k) ? " da " + autoreGestoNodo(v.k) : "") : "")),
     riga("Classe proposta", c ? testoClasse(c) + " (una proposta: da sola non esenta dal 2D)" : "nessuna"),
-    riga("Categoria", d ? (d.esito === "rifiuto" ? "non è " + d.categoria : d.categoria + " confermata") + (autoreDi(d.id) ? " da " + autoreDi(d.id) : " (in bozza)") + (d.motivo ? ": " + d.motivo : "") : "non confermata"),
+    riga("Categoria", d ? (d.esito === "rifiuto" ? "non è " + d.categoria : d.categoria + " confermata") + (autoreDi(d.id) ? " da " + autoreDi(d.id) : " (in bozza)") : "non confermata"),
     d && d.esito === "conferma" && d.categoria === "minuteria" ? riga("Effetto", h("span", { id: "du-cat-effetto" }, "in bozza: il 2D non sarà richiesto dopo la conferma")) : null));
   if (radice) {
-    s.append(h("p", { class: "du-perche" }, "Il prodotto della RFQ non ha una categoria: chiede sempre il 2D."));
+    s.lastChild.append(h("p", { class: "du-perche" }, "Il prodotto della RFQ non ha una categoria: chiede sempre il 2D."));
     return s;
   }
   const az = h("div", { class: "du-azioni" });
-  az.append(btn("Conferma la categoria…", () => apriCategoria(v, "conferma", "editor"), { cls: "du-btn--sm", id: "du-conferma-categoria", no }),
+  // aggiungi salta il pulsante assente (null): Element.append lo scriveva come testo («Conferma il tipo proposto null», D13)
+  aggiungi(az, [btn("Conferma la categoria…", () => apriCategoria(v, "conferma", "editor"), { cls: "du-btn--sm", id: "du-conferma-categoria", no }),
     btn("Non è minuteria…", () => apriCategoria(v, "rifiuto", "editor"), { cls: "du-btn--sm", id: "du-non-minuteria", no: no || (d && d.esito === "rifiuto" ? "è già detto «non è minuteria»" : "") }),
     btn("Conferma il tipo proposto", () => confermaTipoProposto(v), { cls: "du-btn--sm", id: "du-conferma-tipo", no: no || (!tp ? "il registro non propone un tipo" : tp !== v.tipo ? "il tipo di adesso non è quello proposto (" + (TIPI[tp] || tp) + "): «◆ Cambia tipo…»" : v.nodo.tipo_confermato ? "il tipo proposto è già confermato" : "") }),
     d ? btn("Togli la decisione sulla categoria", () => fai("tolta la decisione sulla categoria di " + (v.cod || v.k), [{ azione: "decisione_tolta", chiave_bozza: chiaveEvento(d), prima: clona(d), dopo: null, origine: "utente" }]),
-      { cls: "du-btn--sm du-btn--ghost", id: "du-togli-categoria", no }) : null);
-  s.append(az);
+      { cls: "du-btn--sm du-btn--ghost", id: "du-togli-categoria", no }) : null]);
+  s.lastChild.append(az);
   return s;
 }
 // autoreGestoNodo: chi ha salvato l'ultimo nodo_modificato del nodo (dal giornale della bozza), o ""
 function autoreGestoNodo(k) {
   const e = arr(S.bozza && S.bozza.eventi).filter((x) => x.azione === "nodo_modificato" && x.chiave === k).pop();
-  return e ? (e.autore || "") + (e.quando ? " il " + dataOra(e.quando) : "") : "";
+  return e ? chiE(e.autore) + (e.quando ? " il " + dataOra(e.quando) : "") : "";
 }
 function apriCategoria(v, esito, ingresso) {
   const c = classeProposta(v);
@@ -9045,15 +10610,13 @@ function apriCategoria(v, esito, ingresso) {
   const origini = h("select", { id: "f-origine" }, c ? h("option", { value: "classe_grammatica" }, "accetto la classe proposta (" + testoClasse(c) + ")") : null,
     h("option", { value: "normativa" }, "cito la normativa"), h("option", { value: "manuale" }, "scelta mia, senza proposta"));
   const titolo = esito === "rifiuto" ? "Non è minuteria: " + (v.cod || v.k) : "Conferma la categoria di " + (v.cod || v.k);
-  const motivoServe = () => esito === "rifiuto" || valore($("#du-finestra"), "f-origine") !== "classe_grammatica";
   apriFinestra(titolo, h("div", { style: "display:grid;gap:8px" },
     h("p", { class: "du-nota" }, esito === "rifiuto" ? "Dice che il pezzo non è minuteria: il 2D resta richiesto." :
       "Tipo e categoria sono separati: la categoria non cambia il tipo. Solo la minuteria confermata da una persona non chiede il 2D, e solo dopo la conferma della BOM; fabbricato e commerciale si registrano, ma il 2D resta richiesto."),
-    campo("Categoria", sel), esito === "rifiuto" ? null : campo("Da dove viene", origini),
-    campo("Motivo", area("f-motivo", "facoltativo solo se accetti la classe proposta", 1000))),
-  [{ testo: "Annulla", chiudi: true }, { testo: esito === "rifiuto" ? "Non è minuteria" : "Conferma la categoria", pri: true, id: "f-ok", spento: () => (motivoServe() && !valore($("#du-finestra"), "f-motivo") ? "scrivi il motivo" : ""), fai: () => {
+    campo("Categoria", sel), esito === "rifiuto" ? null : campo("Da dove viene", origini)),
+  [{ testo: "Annulla", chiudi: true }, { testo: esito === "rifiuto" ? "Non è minuteria" : "Conferma la categoria", pri: true, id: "f-ok", fai: () => {
     const f = $("#du-finestra");
-    const dec = decisioneCat(v, { categoria: esito === "rifiuto" ? "minuteria" : valore(f, "f-categoria"), esito, origine: esito === "rifiuto" ? (c ? "classe_grammatica" : "manuale") : valore(f, "f-origine"), ingresso, motivo: valore(f, "f-motivo") });
+    const dec = decisioneCat(v, { categoria: esito === "rifiuto" ? "minuteria" : valore(f, "f-categoria"), esito, origine: esito === "rifiuto" ? (c ? "classe_grammatica" : "manuale") : valore(f, "f-origine"), ingresso });
     const prima = decisioneCategoria(v.k);
     const azioni = prima ? [{ azione: "decisione_tolta", chiave_bozza: chiaveEvento(prima), prima: clona(prima), dopo: null, origine: "utente" }] : [];
     azioni.push({ azione: "decisione_aggiunta", chiave_bozza: chiaveEvento(dec), prima: null, dopo: dec, origine: "utente" });
@@ -9180,6 +10743,7 @@ async function avvio() {
   if (!radice) return;
   S.thread = radice.dataset.duThread || "";
   S.utente = radice.dataset.duUtente || "";
+  S.sigla = radice.dataset.duSigla || "";
   try {
     P.configura({ thread: S.thread, utente: S.utente });
   } catch (e) {

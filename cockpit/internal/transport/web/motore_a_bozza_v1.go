@@ -332,10 +332,14 @@ type confrontoR1 struct {
 	Errore string `json:"errore"`
 }
 
-// rispostaR1 e' la risposta di R1 (EM §9.1), con il confronto quando e' chiesto.
+// rispostaR1 e' la risposta di R1 (EM §9.1), con il confronto quando e' chiesto. ConfrontoDisponibile dice alla pagina se
+// ?confronto=1 calcola il confronto con la proposta di oggi: finche' l'adattatore del Motore A non c'e' e' sempre false, e
+// la pagina tiene spenti con il perche' «Aggiorna proposta…» e «Vedi le differenze» invece di offrirli e fallire
+// (collaudo UI46, giro 3, F3-I1 [T]). Solo lettura: nessuna regola nuova, nessuna scrittura.
 type rispostaR1 struct {
 	distintabozza.LetturaR1
-	Confronto *confrontoR1 `json:"confronto,omitempty"`
+	ConfrontoDisponibile bool         `json:"confronto_disponibile"`
+	Confronto            *confrontoR1 `json:"confronto,omitempty"`
 }
 
 // effettoR1 e' la variante ?effetto_cambio_tipo=<componente_id>&tipo_nuovo=<tipo> di R1 (PE-09): l'effetto del cambio di

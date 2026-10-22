@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,9 +23,17 @@ import (
 	"promatec/cockpit/internal/core/rfq/confermabom"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
+
+// WidgetMonoPezzo: il gesto della pagina che la traccia della dichiarazione mono_pezzo nomina (messaggio 46 [U]).
+const WidgetMonoPezzo = "Dichiara mono_pezzo"
+
+// MotivoMonoPezzoDelGesto: per la prima istanza di R4, il motivo di una dichiarazione mono_pezzo della bozza senza il
+// motivo dell'utente (messaggio 46 [U]): la dichiarazione e' il gesto, e alla conferma R5 scrive la traccia.
+const MotivoMonoPezzoDelGesto = "dichiarazione mono_pezzo della bozza (gesto «" + WidgetMonoPezzo + "»)"
 
 // NotaNonInclusoR5: la nota fissa delle righe che R5 chiude per una non_includere (EM §7.5 punto 1).
 const NotaNonInclusoR5 = "non incluso nella BOM (conferma formato 3)"
@@ -110,7 +119,7 @@ func (sc *scrittureR5) esegui() (ConfermaR5, error) {
 	}
 	if base != sc.precedente {
 		return ConfermaR5{}, &Errore{Codice: CodiceBaseSuperata, Motivi: []string{MotivoConfermaCambiata}, VersioneCorrente: &sc.rp.VersioneCorrente,
-			Messaggio: "la base della bozza non e' l'ultima conferma del prodotto: rileggi la base e riconferma"}
+			Messaggio: "la base della bozza non è l'ultima conferma del prodotto: rileggi la base e riconferma"}
 	}
 	for _, k := range sc.p.inclusi {
 		if id, ok := sc.p.esistenti[k]; ok {
@@ -151,12 +160,12 @@ func (sc *scrittureR5) working() error {
 		if err != nil {
 			if sqlstate(err) == "23505" {
 				return &Errore{Codice: CodiceBaseSuperata, Motivi: []string{MotivoCodiceOccupato}, VersioneCorrente: &sc.rp.VersioneCorrente,
-					Messaggio: fmt.Sprintf("il codice %s e' stato occupato nella RFQ dopo la tua lettura: rileggi la base e riconferma", d.CodiceDopo)}
+					Messaggio: fmt.Sprintf("il codice %s è stato occupato nella RFQ dopo la tua lettura: rileggi la base e riconferma", d.CodiceDopo)}
 			}
 			return err
 		}
 		if n != 1 {
-			return rifiutoRiprova("il codice di un componente e' cambiato mentre confermavi: riprova")
+			return rifiutoRiprova("il codice di un componente è cambiato mentre confermavi: riprova")
 		}
 		sc.out.IdentitaRicodificate = append(sc.out.IdentitaRicodificate, *d.ComponenteID)
 	}
@@ -169,7 +178,7 @@ func (sc *scrittureR5) working() error {
 			return err
 		}
 		if n != 1 {
-			return rifiutoRiprova("un componente archiviato e' cambiato mentre confermavi: riprova")
+			return rifiutoRiprova("un componente archiviato è cambiato mentre confermavi: riprova")
 		}
 		sc.out.IdentitaRipristinate = append(sc.out.IdentitaRipristinate, id)
 	}
@@ -186,7 +195,7 @@ func (sc *scrittureR5) working() error {
 		if err != nil {
 			if sqlstate(err) == "23505" {
 				return &Errore{Codice: CodiceBaseSuperata, Motivi: []string{MotivoCodiceOccupato}, VersioneCorrente: &sc.rp.VersioneCorrente,
-					Messaggio: fmt.Sprintf("il codice %s e' stato occupato nella RFQ dopo la tua lettura: rileggi la base e riconferma", n.Identita.Codice)}
+					Messaggio: fmt.Sprintf("il codice %s è stato occupato nella RFQ dopo la tua lettura: rileggi la base e riconferma", n.Identita.Codice)}
 			}
 			return err
 		}
@@ -263,7 +272,7 @@ func (sc *scrittureR5) working() error {
 		}
 		if !p.togli[k] && !p.escluso[a.Figlio] && !(inBozza[a.Figlio] && spostato) {
 			return rifiutoBlocchi([]Rilievo{{Codice: BloccoAssenzaNonDecisa, Motivo: "arco", ComponenteID: uid(a.Figlio),
-				Testo:  "Un arco della BOM registrata non c'e' nella bozza e non ha una decisione: scollegalo esplicitamente o rimettilo.",
+				Testo:  "Un arco della BOM registrata non c'è nella bozza e non ha una decisione: scollegalo esplicitamente o rimettilo.",
 				Rimedi: []string{"«Scollega da un padre…» (togli_arco)", "rimetti l'arco"}}})
 		}
 		tolti = append(tolti, a)
@@ -278,7 +287,7 @@ func (sc *scrittureR5) working() error {
 		if n, err := q.DeleteRelazione(ctx, db.DeleteRelazioneParams{PadreID: a.Padre, FiglioID: a.Figlio}); err != nil {
 			return err
 		} else if n != 1 {
-			return rifiutoRiprova("un arco della working e' cambiato mentre confermavi: riprova")
+			return rifiutoRiprova("un arco della working è cambiato mentre confermavi: riprova")
 		}
 		qp := int(a.Qta)
 		sc.out.ArchiTolti = append(sc.out.ArchiTolti, ArcoScritto{PadreID: a.Padre, FiglioID: a.Figlio, Qta: qp})
@@ -301,7 +310,7 @@ func (sc *scrittureR5) working() error {
 				if n, err := q.SetQtaRelazione(ctx, db.SetQtaRelazioneParams{Qta: int32(x.qta), ConfermatoDa: sc.utente, PadreID: k[0], FiglioID: k[1]}); err != nil {
 					return err
 				} else if n != 1 {
-					return rifiutoRiprova("un arco della working e' cambiato mentre confermavi: riprova")
+					return rifiutoRiprova("un arco della working è cambiato mentre confermavi: riprova")
 				}
 				qp := int(w.Qta)
 				sc.out.ArchiModificati = append(sc.out.ArchiModificati, ArcoScritto{PadreID: k[0], FiglioID: k[1], Qta: x.qta, QtaPrecedente: &qp})
@@ -322,7 +331,7 @@ func (sc *scrittureR5) working() error {
 		if err := q.InsertRelazioneR5(ctx, db.InsertRelazioneR5Params{ThreadID: sc.thread, PadreID: k[0], FiglioID: k[1], Qta: int32(x.qta),
 			Posizione: testoNullo(x.posizione), Origine: origine, ConfermatoDa: sc.utente}); err != nil {
 			if sqlstate(err) == "23505" {
-				return rifiutoRiprova("un arco della working e' nato mentre confermavi: riprova")
+				return rifiutoRiprova("un arco della working è nato mentre confermavi: riprova")
 			}
 			return err
 		}
@@ -361,7 +370,7 @@ func (sc *scrittureR5) working() error {
 			ComponenteID: sc.snap.ProdottoID}); err != nil {
 			return err
 		} else if n != 1 {
-			return rifiutoRiprova("il prodotto e' cambiato mentre confermavi: riprova")
+			return rifiutoRiprova("il prodotto è cambiato mentre confermavi: riprova")
 		}
 		// R39-07 [T-39 corsia contratto, adottata dall'orchestratore]: l'evento autorizzazione, perche' /dati e R7 restino veri
 		src := sc.snap.Sorgente
@@ -389,7 +398,7 @@ func (sc *scrittureR5) sostituzione() error {
 		return err
 	}
 	if n != 1 {
-		return rifiutoRiprova("lo STEP di prima del prodotto e' stato sostituito mentre confermavi: riprova")
+		return rifiutoRiprova("lo STEP di prima del prodotto è stato sostituito mentre confermavi: riprova")
 	}
 	a := p.stepA.UUID
 	sc.out.Fonte.SostituzioneDi = &a
@@ -415,13 +424,13 @@ func (sc *scrittureR5) testata() error {
 	}
 	if len(per.Componenti) != len(attesi) || len(per.Archi) != len(sc.p.voluti) {
 		return &RifiutoR5{Err: &Errore{Codice: CodiceControlloFinale, Motivo: "perimetro",
-			Messaggio: fmt.Sprintf("il perimetro scritto (%d componenti, %d archi) non e' quello della bozza (%d, %d): niente e' stato registrato",
+			Messaggio: fmt.Sprintf("il perimetro scritto (%d componenti, %d archi) non è quello della bozza (%d, %d): niente è stato registrato",
 				len(per.Componenti), len(per.Archi), len(attesi), len(sc.p.voluti))}, NonRegistrato: true}
 	}
 	for _, c := range per.Componenti {
 		if !attesi[c.ID] {
 			return &RifiutoR5{Err: &Errore{Codice: CodiceControlloFinale, Motivo: "perimetro",
-				Messaggio: "il perimetro scritto non e' quello della bozza: niente e' stato registrato"}, NonRegistrato: true}
+				Messaggio: "il perimetro scritto non è quello della bozza: niente è stato registrato"}, NonRegistrato: true}
 		}
 	}
 	firma, err := per.Firma()
@@ -461,6 +470,14 @@ func (sc *scrittureR5) testata() error {
 	for _, d := range sc.snap.Decisioni {
 		if d.Tipo == DecisioneMonoPezzo {
 			mono, motivoMono = true, d.Motivo
+		}
+	}
+	// messaggio 46 [U]: la dichiarazione mono_pezzo non chiede piu' il motivo all'utente; ck_conferma_mono_pezzo lo vuole,
+	// e lo scrive il server come traccia del gesto (la decisione resta la dichiarazione della bozza)
+	if mono && strings.TrimSpace(motivoMono) == "" {
+		if motivoMono, err = traccia.DelGesto(ctx, q, sc.utente, MaxMotivo, WidgetMonoPezzo,
+			"il prodotto è un pezzo unico: dichiarazione mono_pezzo della bozza, registrata con la conferma n. "+strconv.Itoa(sc.numero)); err != nil {
+			return err
 		}
 	}
 	mappaJSON := map[string]string{}
@@ -548,7 +565,7 @@ func (sc *scrittureR5) certificati() error {
 		id := sc.mappa[k]
 		c, ok := perID[id]
 		if !ok {
-			return fmt.Errorf("conferma: il componente %s del nodo %s non c'e'", id, k)
+			return fmt.Errorf("conferma: il componente %s del nodo %s non c'è", id, k)
 		}
 		if certificato[id] {
 			// lo stesso componente di un nodo prima (W1): una riga certificata sola, con la chiave del primo nodo
@@ -794,7 +811,7 @@ func (sc *scrittureR5) associazioni() error {
 			return uuid.NullUUID{}, err
 		}
 		if len(rr) != 1 {
-			return uuid.NullUUID{}, fuori("documenti_preassociati.importazione", "il registro %s della PB non e' del prodotto", impronta)
+			return uuid.NullUUID{}, fuori("documenti_preassociati.importazione", "il registro %s della PB non è del prodotto", impronta)
 		}
 		registri[impronta] = uuid.NullUUID{UUID: rr[0].ImportazioneID, Valid: true}
 		return registri[impronta], nil
@@ -805,11 +822,11 @@ func (sc *scrittureR5) associazioni() error {
 		case errors.As(err, &rf) && rf.Codice == associazioni.CodiceVincolo:
 			// il database ha fermato la scrittura della AR: la transazione e' annullata, niente e' registrato
 			return &RifiutoR5{Err: &Errore{Codice: CodiceControlloFinale, Motivo: rf.Codice,
-				Messaggio: "il controllo delle associazioni non e' passato: niente e' stato registrato"}, NonRegistrato: true}
+				Messaggio: "il controllo delle associazioni non è passato: niente è stato registrato"}, NonRegistrato: true}
 		case errors.As(err, &rf):
 			a := e.Allegato
 			return rifiutoBlocchi([]Rilievo{{Codice: BloccoPreassociazioneNonApplicab, Motivo: rf.Codice, AllegatoID: &a, ChiaveBozza: e.ChiaveBozza,
-				Testo: "La preassociazione non si applica piu': " + rf.Messaggio}})
+				Testo: "La preassociazione non si applica più: " + rf.Messaggio}})
 		}
 		return err
 	}
@@ -991,7 +1008,7 @@ func (sc *scrittureR5) segni() error {
 				return err
 			}
 			if m != 1 {
-				return rifiutoRiprova("una riga della proposta e' cambiata mentre confermavi: riprova")
+				return rifiutoRiprova("una riga della proposta è cambiata mentre confermavi: riprova")
 			}
 		}
 		for _, a := range archi {
@@ -1001,7 +1018,7 @@ func (sc *scrittureR5) segni() error {
 				return err
 			}
 			if m != 1 {
-				return rifiutoRiprova("un arco della proposta e' cambiato mentre confermavi: riprova")
+				return rifiutoRiprova("un arco della proposta è cambiato mentre confermavi: riprova")
 			}
 		}
 	}
@@ -1019,7 +1036,7 @@ func (sc *scrittureR5) segni() error {
 				return err
 			}
 			if m != 1 {
-				return rifiutoRiprova("una riga della proposta e' cambiata mentre confermavi: riprova")
+				return rifiutoRiprova("una riga della proposta è cambiata mentre confermavi: riprova")
 			}
 		}
 		for _, a := range archi {
@@ -1029,7 +1046,7 @@ func (sc *scrittureR5) segni() error {
 				return err
 			}
 			if m != 1 {
-				return rifiutoRiprova("un arco della proposta e' cambiato mentre confermavi: riprova")
+				return rifiutoRiprova("un arco della proposta è cambiato mentre confermavi: riprova")
 			}
 		}
 	}
@@ -1081,7 +1098,7 @@ func (sc *scrittureR5) chiusura() error {
 		return err
 	}
 	if n != 1 {
-		return rifiutoRiprova("la bozza e' cambiata mentre confermavi: riprova")
+		return rifiutoRiprova("la bozza è cambiata mentre confermavi: riprova")
 	}
 	codice := sc.snap.ProdottoID.String()
 	if c, ok := sc.st.Componente(sc.snap.ProdottoID); ok {
@@ -1091,7 +1108,7 @@ func (sc *scrittureR5) chiusura() error {
 	sc.out.Testo = fmt.Sprintf("Conferma n. %d di %s: %d componenti nuovi, %d legami nuovi, %d legami tolti, %d associazioni registrate.",
 		sc.numero, codice, len(sc.out.IdentitaCreate), len(sc.out.ArchiAggiunti), len(sc.out.ArchiTolti), sc.out.AssociazioniApplicate)
 	if sc.out.Fonte.Promossa {
-		sc.out.Testo += " Lo STEP sorgente della bozza e' ora lo STEP strutturale del prodotto."
+		sc.out.Testo += " Lo STEP sorgente della bozza è ora lo STEP strutturale del prodotto."
 	}
 	esito, err := json.Marshal(sc.out)
 	if err != nil {

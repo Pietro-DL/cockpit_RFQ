@@ -29,6 +29,15 @@
 // delle forme di R2) quando la procedura e' completa; dopo un rifiuto definitivo di un passo, in una transazione propria,
 // con esito «parziale» (lo stesso reinvio riceve «riproposto»); dopo un errore temporaneo (40P01, 55P03) non si scrive, e
 // lo stesso reinvio riprende dal primo passo non fatto.
+//
+// Messaggio 46 [U] (21/10): il motivo scritto dall'utente si toglie da ogni widget, anche dalla conferma della sorgente.
+// Dove il contratto lo voleva (il codice letto dalla radice dello STEP non e' quello del prodotto, la partenza dal solo
+// prodotto, il codice letto dal file da correggere con quello del prodotto, la riassociazione da un altro prodotto) il
+// corpo non lo chiede piu': la decisione e' il gesto dell'utente, e il motivo della riga di S8 e della bozza e' la traccia
+// del gesto scritta dal server (TracciaS8: «gesto di <sigla> da «Conferma la sorgente»: …», con le evidenze del Motore A
+// dove la candidatura e' univoca). Se un client di prima manda un motivo, vale il suo. Il reinvio dello stesso corpo con la
+// stessa chiave riconosce la riga del passo 2 confrontando il motivo con la traccia esatta che il server genera con gli
+// stessi dati (stessoMotivoDelPasso2), mai con un prefisso.
 package sorgente
 
 import (
@@ -49,8 +58,10 @@ import (
 	"promatec/cockpit/internal/core/rfq/confermabom"
 	"promatec/cockpit/internal/core/rfq/confermadoc"
 	"promatec/cockpit/internal/core/rfq/distintabozza"
+	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/core/rfq/filerfq"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
@@ -133,7 +144,8 @@ type BozzaS8 struct {
 }
 
 // RichiestaS8: il corpo di S8 [T-39]. Partenza step (predefinita): gruppo e impronta_contenuto dell'anteprima (V-7).
-// Partenza solo_prodotto: stato_analisi mostrato e presa_d_atto vera, motivo obbligatorio. codice_atteso e
+// Partenza solo_prodotto: stato_analisi mostrato e presa_d_atto vera (il motivo, dal messaggio 46 [U], e' la traccia del
+// server se il corpo non lo porta). codice_atteso e
 // componente_atteso sono facoltativi (il prodotto che la pagina mostrava). «sostituisci» ({conferma: true}) resta solo
 // come presa d'atto, senza effetto sul documento: S8 non sostituisce mai (D-TAB-02 B rivista; R39-05 della corsia
 // contratto, adottata [T-39]); niente campi per l'autorizzazione.
@@ -159,17 +171,29 @@ type RichiestaS8 struct {
 	// CorrezioneSorgente: la sorgente nuova corregge una sorgente sbagliata (G39-03 [U]: dopo R5 il cambio di sorgente e' una
 	// revisione interna, non del cliente): il motivo della riga di S8 prende la causa sorgente_errata [T-39].
 	CorrezioneSorgente bool `json:"correzione_sorgente,omitempty"`
+	// traccia: il motivo scritto dal server quando il gesto ne vuole uno e il corpo non lo porta (messaggio 46 [U];
+	// conTraccia); tracciaBase: la stessa traccia senza le ragioni, per gli eventi che vogliono sempre un motivo (il cambio
+	// della fonte della bozza, motivoCambio). Non sono del corpo: non entrano nell'impronta.
+	traccia, tracciaBase string
 }
 
-// motivoRegistrato: il motivo della riga di S8 e della bozza; con la correzione della sorgente dichiarata, con la causa
-// sorgente_errata in testa (confermabom.MotivoConCausa). Il gesto «sposta la sorgente» (sposta_da) non la scrive qui: la
-// causa sta sulla revoca dell'altro prodotto (notaSpostamento), e per il prodotto che riceve lo STEP la conferma che
-// segue non e' una correzione della sua BOM (confermabom.StatoSorgente.Correzione).
+// motivoRegistrato: il motivo della riga di S8 e della bozza (quello dell'utente o la traccia del server); con la
+// correzione della sorgente dichiarata, con la causa sorgente_errata in testa (confermabom.MotivoConCausa). Il gesto «sposta
+// la sorgente» (sposta_da) non la scrive qui: la causa sta sulla revoca dell'altro prodotto (notaSpostamento), e per il
+// prodotto che riceve lo STEP la conferma che segue non e' una correzione della sua BOM
+// (confermabom.StatoSorgente.Correzione).
 func (r RichiestaS8) motivoRegistrato() string {
+	m := r.motivoEffettivo()
 	if r.CorrezioneSorgente {
-		return confermabom.MotivoConCausa(confermabom.CausaSorgenteErrata, r.Motivo)
+		return confermabom.MotivoConCausa(confermabom.CausaSorgenteErrata, m)
 	}
-	return r.Motivo
+	return m
+}
+
+// motivoEffettivo: il motivo dell'utente o la traccia, senza la causa ("" se il gesto non ne ha bisogno e il corpo non lo
+// porta).
+func (r RichiestaS8) motivoEffettivo() string {
+	return traccia.DellUtente(r.Motivo, r.traccia)
 }
 
 // PresaDAttoS8: «sostituisci» del corpo, la presa d'atto che il prodotto ha gia' un altro STEP confermato; non cambia
@@ -331,6 +355,8 @@ type EsitoS8 struct {
 type Contesto struct {
 	Prodotto db.GetProdottoDellaRfqRow
 	Sha256   string
+	// NomeFile: il nome dello STEP, com'e' arrivato (per la traccia del gesto, messaggio 46 [U])
+	NomeFile string
 	// Documento: il documento del prodotto con lo stesso contenuto, se c'e' gia'.
 	Documento *db.Documento
 	// Aperta: la bozza aperta del prodotto; Propria: e' quella nata dal passo 3 di questa stessa chiave (la ripresa).
@@ -382,6 +408,7 @@ func Controlla(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, r
 	if err != nil {
 		return out, err
 	}
+	out.NomeFile = a.NomeFile
 	if !confermadoc.FileStep(a.Estensione.String, a.NomeFile) {
 		return out, errCodice(CodiceNonStep, "allegato", "%s non e' uno STEP: la sorgente strutturale del prodotto e' uno STEP (.stp, .step)", a.NomeFile)
 	}
@@ -549,10 +576,12 @@ func controllaPreparazione(allegato uuid.UUID, r RichiestaS8, c Contesto, p Prep
 		if err := distintabozza.VerificaImprontaDichiarata("impronta_contenuto", reg, r.ImprontaContenuto); err != nil {
 			return err
 		}
-		if r.Motivo == "" && propostabom.MotivoFonteObbligatorio(reg.Contenuto, c.Prodotto.Codice) {
+		// il codice della radice diverso non chiede piu' il motivo all'utente (messaggio 46 [U]): lo dice la traccia
+		// (conTraccia); il controllo resta per un chiamante che non l'ha preparata
+		if r.motivoEffettivo() == "" && propostabom.MotivoFonteObbligatorio(reg.Contenuto, c.Prodotto.Codice) {
 			return &distintabozza.Errore{Codice: distintabozza.CodiceMotivoObbligatorio, Campo: "motivo",
 				Messaggio: "il codice letto dalla radice dello STEP non coincide con quello del prodotto (" + propostabom.ConfrontoDelCodice(reg.Contenuto, c.Prodotto.Codice) +
-					"): la conferma della sorgente vuole il motivo"}
+					"): manca la traccia del gesto"}
 		}
 		return nil
 	}
@@ -564,9 +593,9 @@ func controllaPreparazione(allegato uuid.UUID, r RichiestaS8, c Contesto, p Prep
 		return &distintabozza.Errore{Codice: distintabozza.CodiceAnteprimaSuperata, Campo: "stato_analisi", Anteprima: "stato_analisi",
 			Messaggio: fmt.Sprintf("lo stato dell'analisi dello STEP e' cambiato (%s, non %s): rileggi e prendi atto dello stato di adesso", p.StatoAnalisi, r.StatoAnalisi)}
 	}
-	if r.Motivo == "" {
+	if r.motivoEffettivo() == "" {
 		return &distintabozza.Errore{Codice: distintabozza.CodiceMotivoObbligatorio, Campo: "motivo",
-			Messaggio: "senza struttura importabile il codice della radice non e' determinabile: la conferma della sorgente vuole il motivo"}
+			Messaggio: "senza struttura importabile il codice della radice non e' determinabile: manca la traccia del gesto"}
 	}
 	return nil
 }
@@ -583,11 +612,15 @@ func ConfermaS8(ctx context.Context, pool distintabozza.Avviatore, thread, alleg
 	if err != nil {
 		return out, err
 	}
+	// la traccia del gesto al posto del motivo dell'utente (messaggio 46 [U]), con gli stessi dati a ogni reinvio
+	if r, err = conTraccia(ctx, pool, allegato, utente, r, c, prep); err != nil {
+		return out, err
+	}
 	if err := controllaPreparazione(allegato, r, c, prep); err != nil {
 		return out, err
 	}
 	// passo 2
-	esito2, copia, spostato, err := passo2(ctx, pool, thread, allegato, utente, r, candidatoDelMotore(prep, allegato, r.ProdottoID))
+	esito2, copia, spostato, err := passo2(ctx, pool, thread, allegato, utente, r)
 	if err != nil {
 		return chiudiParziale(ctx, pool, thread, utente, r, impronta, out, PassoConfermaDocumento, err)
 	}
@@ -690,17 +723,11 @@ type candidaturaDelMotore struct {
 	evidenze []propostabom.EvidenzaCandidatura
 }
 
-// candidatoDelMotore (G39-02 [U]; scelta [T-39 integrazione, da ratificare], ristretta nel giro G39-bis su rilievo della
-// revisione del contratto): lo STEP e' il candidato sorgente UNIVOCO di questo prodotto nello stesso calcolo del Motore A
-// che prepara S8 (distintabozza.StepCandidati.UnivocaDel: la candidatura che la pagina propone in S9, con il codice letto
-// dal file che ha la base del prodotto e il marcatore compatibile, oppure la radice dello STEP che e' il prodotto, senza
-// un altro finito, senza un altro candidato nell'ancoraggio e senza il nome ambiguo). Allora il codice della vecchia
-// lettura del file (documento_proposta.codice, per esempio 9120001 contro il prodotto 9120001A, PM-01 (marcatore
-// finale)) non e' un codice diverso da correggere con il motivo: il motore ha gia' detto che e' lo stesso prodotto, e la
-// conferma di S8 e' il gesto esplicito dell'utente sulla sua proposta; il passo 2 scrive la traccia delle evidenze nel
-// motivo della riga di S8 (tracciaCodiceDalMotore). Senza il calcolo del motore (partenza solo_prodotto, ripiego), con
-// una candidatura non univoca (che la pagina non propone) o con lo STEP candidato di un altro prodotto resta la regola
-// di sempre: il motivo.
+// candidatoDelMotore (G39-02 [U]; scelta [T-39 integrazione], ristretta nel giro G39-bis): lo STEP e' il candidato
+// sorgente UNIVOCO di questo prodotto nello stesso calcolo del Motore A che prepara S8
+// (distintabozza.StepCandidati.UnivocaDel: la candidatura che la pagina propone in S9). Dal messaggio 46 [U] non decide
+// piu' se serve il motivo (il motivo dell'utente non si chiede mai): le sue evidenze entrano nella traccia del gesto quando
+// il codice letto dal file si corregge con quello del prodotto (TracciaS8).
 func candidatoDelMotore(prep Preparazione, allegato, prodotto uuid.UUID) candidaturaDelMotore {
 	if prep.Proposta == nil || !prep.Proposta.StepCandidati.UnivocaDel(allegato, prodotto) {
 		return candidaturaDelMotore{}
@@ -708,72 +735,166 @@ func candidatoDelMotore(prep Preparazione, allegato, prodotto uuid.UUID) candida
 	return candidaturaDelMotore{univoca: true, evidenze: prep.Proposta.StepCandidati.EvidenzeUnivocaDel(allegato, prodotto)}
 }
 
-// PrefissoTracciaMotore: l'inizio del motivo che il server scrive nella riga di S8 (fonte_step_evento.motivo) quando
-// corregge il codice del documento con la candidatura univoca del Motore A, senza il motivo dell'utente (giro G39-bis,
-// [T-39 integrazione, da ratificare]: il codice si corregge con un gesto esplicito e tracciato, P4-WZ-04 A [U]; qui il
-// gesto e' la conferma della proposta del motore e la traccia sono le sue evidenze). Nessun DDL: e' il motivo di sempre.
-const PrefissoTracciaMotore = "codice dal Motore A"
+// MaxTracciaS8: la traccia di S8 sta nei 500 caratteri del motivo dell'utente di prima.
+const MaxTracciaS8 = 500
 
-// tracciaCodiceDalMotore: il motivo scritto dal server, per esempio «codice dal Motore A: letto «9120001», prodotto
-// «9120001A»; candidatura univoca dello STEP del finito; evidenze: <selettore> 9120001 (base uguale, marcatore
-// compatibile)». Al piu' 500 caratteri, come il motivo dell'utente.
-func tracciaCodiceDalMotore(letto, prodotto string, ev []propostabom.EvidenzaCandidatura) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s: letto «%s», prodotto «%s»; candidatura univoca dello STEP del finito", PrefissoTracciaMotore,
-		strings.TrimSpace(letto), strings.TrimSpace(prodotto))
-	var parti []string
-	for _, e := range ev {
-		var esiti []string
-		if e.EsitoBase != "" {
-			esiti = append(esiti, "base "+e.EsitoBase)
-		}
-		if e.EsitoMarcatore != "" {
-			esiti = append(esiti, "marcatore "+e.EsitoMarcatore)
-		}
-		x := strings.TrimSpace(strings.TrimSpace(e.Selettore) + " " + strings.TrimSpace(e.CodiceLetto))
-		if len(esiti) > 0 {
-			x = strings.TrimSpace(x + " (" + strings.Join(esiti, ", ") + ")")
-		}
-		if x != "" {
-			parti = append(parti, x)
-		}
-	}
-	if len(parti) > 0 {
-		b.WriteString("; evidenze: " + strings.Join(parti, "; "))
-	}
-	if rr := []rune(b.String()); len(rr) > 500 {
-		return string(rr[:497]) + "..."
-	}
-	return b.String()
+// WidgetConfermaSorgente: il gesto della pagina che la traccia di S8 nomina.
+const WidgetConfermaSorgente = "Conferma la sorgente"
+
+// RagioniS8: i dati che fanno della conferma della sorgente un gesto da tracciare (messaggio 46 [U]), letti dal corpo e
+// da dati che il gesto non cambia (il codice del prodotto, il nome del file, il codice letto dalla proposta del file, il
+// registro della proposta), cosi' la stessa richiesta da' la stessa traccia anche dopo il passo 2.
+type RagioniS8 struct {
+	Sigla, NomeFile, CodiceProdotto string
+	// SoloProdotto: la partenza solo_prodotto, con lo stato dell'analisi mostrato (quello del corpo)
+	SoloProdotto bool
+	StatoAnalisi string
+	// Radice: il confronto del codice della radice dello STEP con il prodotto, se non coincide (diverso,
+	// non_determinabile), con il codice letto dalla radice
+	Radice, CodiceRadice string
+	// Letto: il codice letto dal file (documento_proposta.codice), se non e' quello del prodotto: il documento prende il
+	// codice del prodotto
+	Letto string
+	// Univoca, Evidenze: la candidatura univoca del Motore A, con le sue evidenze, se c'e'
+	Univoca  bool
+	Evidenze []propostabom.EvidenzaCandidatura
+	// LasciaA: il codice dell'altro prodotto da cui lo STEP passa a questo (sposta_da del corpo)
+	LasciaA string
 }
 
-// motivoConTraccia: il motivo della riga di S8 con la traccia del server al posto del motivo dell'utente, che manca (con
-// la correzione della sorgente dichiarata, la causa sorgente_errata resta in testa, come in motivoRegistrato).
-func (r RichiestaS8) motivoConTraccia(traccia string) string {
-	m := r.Motivo
-	if m == "" {
-		m = traccia
+// Serve: almeno una ragione vuole la traccia nel motivo della riga di S8.
+func (g RagioniS8) Serve() bool {
+	return g.SoloProdotto || g.Radice != "" || g.Letto != "" || g.LasciaA != ""
+}
+
+// TracciaS8: la traccia del gesto, per esempio «gesto di PS da «Conferma la sorgente»: lo STEP «ACME-1.stp» è la sorgente
+// di 9120001A; codice letto dal file «9120001», il documento prende quello del prodotto; candidatura univoca dello STEP del
+// finito; evidenze: nome_file 9120001 (base uguale, marcatore compatibile)». Senza ragioni (Serve falso) e' la traccia
+// base, che dice solo il gesto.
+func TracciaS8(g RagioniS8) string {
+	parti := []string{"lo STEP «" + strings.TrimSpace(g.NomeFile) + "» è la sorgente di " + strings.TrimSpace(g.CodiceProdotto)}
+	if g.SoloProdotto {
+		parti = append(parti, "partenza dal solo prodotto (analisi: "+strings.TrimSpace(g.StatoAnalisi)+")")
 	}
-	if r.CorrezioneSorgente {
-		return confermabom.MotivoConCausa(confermabom.CausaSorgenteErrata, m)
+	if g.Radice != "" {
+		t := "codice della radice dello STEP " + strings.ReplaceAll(g.Radice, "_", " ")
+		if c := strings.TrimSpace(g.CodiceRadice); c != "" {
+			t += " («" + c + "»)"
+		}
+		parti = append(parti, t)
 	}
-	return m
+	if g.Letto != "" {
+		parti = append(parti, "codice letto dal file «"+strings.TrimSpace(g.Letto)+"», il documento prende quello del prodotto")
+	}
+	if g.LasciaA != "" {
+		parti = append(parti, "lo STEP lascia "+strings.TrimSpace(g.LasciaA))
+	}
+	var ev []string
+	if g.Letto != "" && g.Univoca {
+		parti = append(parti, "candidatura univoca dello STEP del finito")
+		for _, e := range g.Evidenze {
+			var esiti []string
+			if e.EsitoBase != "" {
+				esiti = append(esiti, "base "+e.EsitoBase)
+			}
+			if e.EsitoMarcatore != "" {
+				esiti = append(esiti, "marcatore "+e.EsitoMarcatore)
+			}
+			x := strings.TrimSpace(strings.TrimSpace(e.Selettore) + " " + strings.TrimSpace(e.CodiceLetto))
+			if len(esiti) > 0 {
+				x = strings.TrimSpace(x + " (" + strings.Join(esiti, ", ") + ")")
+			}
+			ev = append(ev, x)
+		}
+	}
+	return traccia.Gesto(MaxTracciaS8, g.Sigla, WidgetConfermaSorgente, strings.Join(parti, "; "), ev...)
+}
+
+// codiceDellaRadice: il codice proposto della voce della radice del registro ("" se non c'e').
+func codiceDellaRadice(c importazione.Contenuto) string {
+	for _, v := range c.Proposta.Nodi {
+		if c.EVoceDellaRadice(v) {
+			return v.CodiceProposto
+		}
+	}
+	return ""
+}
+
+// ragioniS8: le ragioni della traccia (RagioniS8), lette in una transazione di sola lettura.
+func ragioniS8(ctx context.Context, pool distintabozza.Avviatore, allegato, utente uuid.UUID, r RichiestaS8, c Contesto, prep Preparazione) (RagioniS8, error) {
+	g := RagioniS8{NomeFile: c.NomeFile, CodiceProdotto: c.Prodotto.Codice}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return g, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // sola lettura
+	q := db.New(tx)
+	if g.Sigla, err = traccia.Sigla(ctx, q, utente); err != nil {
+		return g, err
+	}
+	if r.Partenza == PartenzaSoloProdotto {
+		g.SoloProdotto, g.StatoAnalisi = true, r.StatoAnalisi
+	} else if prep.Proposta != nil {
+		reg := prep.Proposta.Registro
+		if propostabom.MotivoFonteObbligatorio(reg.Contenuto, c.Prodotto.Codice) {
+			g.Radice = propostabom.ConfrontoDelCodice(reg.Contenuto, c.Prodotto.Codice)
+			g.CodiceRadice = codiceDellaRadice(reg.Contenuto)
+		}
+	}
+	pr, err := q.GetPropostaDocumentoDiAllegato(ctx, allegato)
+	switch {
+	case err == nil:
+		if l := strings.TrimSpace(pr.Codice.String); l != "" && !strings.EqualFold(l, strings.TrimSpace(c.Prodotto.Codice)) {
+			g.Letto = l
+			m := candidatoDelMotore(prep, allegato, r.ProdottoID)
+			g.Univoca, g.Evidenze = m.univoca, m.evidenze
+		}
+	case !errors.Is(err, pgx.ErrNoRows):
+		return g, err
+	}
+	if r.SpostaDa != nil {
+		a, err := q.GetComponente(ctx, *r.SpostaDa)
+		switch {
+		case err == nil:
+			g.LasciaA = a.Codice
+		case errors.Is(err, pgx.ErrNoRows):
+			g.LasciaA = r.SpostaDa.String()
+		default:
+			return g, err
+		}
+	}
+	return g, nil
+}
+
+// conTraccia: la richiesta con la traccia del gesto (messaggio 46 [U]) se il corpo non porta il motivo: la traccia piena
+// quando una ragione la vuole (RagioniS8.Serve), e sempre la traccia base per gli eventi che vogliono un motivo.
+func conTraccia(ctx context.Context, pool distintabozza.Avviatore, allegato, utente uuid.UUID, r RichiestaS8, c Contesto, prep Preparazione) (RichiestaS8, error) {
+	if r.Motivo != "" {
+		return r, nil
+	}
+	g, err := ragioniS8(ctx, pool, allegato, utente, r, c, prep)
+	if err != nil {
+		return r, err
+	}
+	r.tracciaBase = TracciaS8(RagioniS8{Sigla: g.Sigla, NomeFile: g.NomeFile, CodiceProdotto: g.CodiceProdotto})
+	if g.Serve() {
+		r.traccia = TracciaS8(g)
+	}
+	return r, nil
 }
 
 // stessoMotivoDelPasso2: la riga di S8 gia' scritta con la chiave del passo ha il motivo di questo corpo: quello
-// registrato, oppure, senza il motivo dell'utente, la traccia del Motore A (il reinvio dello stesso corpo e' «gia' fatto»).
+// dell'utente, oppure la traccia esatta che il server genera con gli stessi dati (il reinvio dello stesso corpo e' «gia'
+// fatto»; un altro motivo e' CHIAVE_RIUSATA). Mai un confronto per prefisso.
 func (r RichiestaS8) stessoMotivoDelPasso2(registrato string) bool {
-	if registrato == r.motivoRegistrato() {
-		return true
-	}
-	return r.Motivo == "" && strings.HasPrefix(registrato, r.motivoConTraccia(PrefissoTracciaMotore+":"))
+	return registrato == r.motivoRegistrato()
 }
 
 // passo2: il documento confermato e la riga conferma_documento di S8 (commento di testa), con lo spostamento dello STEP da
-// un altro componente se serve (sposta.go). Restituisce l'esito del passo, la copia sul NAS e lo spostamento. motore: lo
-// STEP e' il candidato univoco del prodotto per il Motore A (candidatoDelMotore); allora il codice della vecchia lettura
-// del file prende quello del prodotto senza il motivo, e la riga di S8 ha la traccia delle evidenze come motivo.
-func passo2(ctx context.Context, pool distintabozza.Avviatore, thread, allegato, utente uuid.UUID, r RichiestaS8, motore candidaturaDelMotore) (string, string, *EsitoSpostamento, error) {
+// un altro componente se serve (sposta.go). Restituisce l'esito del passo, la copia sul NAS e lo spostamento. Il codice
+// della vecchia lettura del file, se non e' quello del prodotto, prende quello del prodotto: la conferma e' il gesto
+// esplicito dell'utente, e la riga di S8 ha come motivo il suo o la traccia del server (messaggio 46 [U]; conTraccia).
+func passo2(ctx context.Context, pool distintabozza.Avviatore, thread, allegato, utente uuid.UUID, r RichiestaS8) (string, string, *EsitoSpostamento, error) {
 	k2 := ChiavePasso(r.ChiaveIdempotenza, "2")
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -862,14 +983,9 @@ func passo2(ctx context.Context, pool distintabozza.Avviatore, thread, allegato,
 		if err != nil {
 			return "", "", nil, err
 		}
-		// la correzione del codice senza il motivo dell'utente: solo con la candidatura univoca del Motore A, e con la
-		// traccia delle evidenze nel motivo della riga di S8 (candidatoDelMotore)
-		correggi := r.Motivo != ""
-		if letto := strings.TrimSpace(p.Codice.String); !correggi && motore.univoca && letto != "" &&
-			!strings.EqualFold(letto, strings.TrimSpace(c.Prodotto.Codice)) {
-			correggi = true
-			fonte.Motivo = r.motivoConTraccia(tracciaCodiceDalMotore(letto, c.Prodotto.Codice, motore.evidenze))
-		}
+		// la correzione del codice: con il motivo dell'utente (client di prima) o con la traccia del gesto, che il server
+		// scrive quando il codice letto dal file non e' quello del prodotto (messaggio 46 [U]; conTraccia)
+		correggi := r.motivoEffettivo() != ""
 		es, err := confermadoc.Conferma(ctx, q, confermadoc.Richiesta{Utente: utente, Proposta: p, Allegato: a, Messaggio: m, Tipo: db.TipoDocumentoCad3d,
 			Codice: p.Codice.String, Rev: p.Rev.String, Componente: uuid.NullUUID{UUID: r.ProdottoID, Valid: true}, Correggi: correggi,
 			Scelta: confermadoc.Scelta{Data: true}, Fonte: fonte})
@@ -877,8 +993,9 @@ func passo2(ctx context.Context, pool distintabozza.Avviatore, thread, allegato,
 			var rf fascicolo.Rifiuto
 			if errors.As(err, &rf) {
 				if strings.HasPrefix(string(rf), "codice diverso") {
-					return "", "", nil, &distintabozza.Errore{Codice: distintabozza.CodiceMotivoObbligatorio, Campo: "motivo",
-						Messaggio: "il codice letto dal file non e' quello del prodotto: la conferma della sorgente vuole il motivo (" + string(rf) + ")"}
+					// il codice letto dal file e' cambiato dopo la traccia (conTraccia legge fuori dal lucchetto): si rilegge
+					return "", "", nil, &distintabozza.Errore{Codice: distintabozza.CodiceAnteprimaSuperata, Campo: "allegato", Anteprima: "prodotto",
+						Messaggio: "il codice letto dal file e' cambiato mentre confermavi: rileggi la pagina (" + string(rf) + ")"}
 				}
 				return "", "", nil, errCorpo("allegato", MotivoConfermaRifiutata, "%s", string(rf))
 			}
@@ -949,7 +1066,7 @@ func passo3(ctx context.Context, pool distintabozza.Avviatore, thread, allegato,
 		// la bozza manuale e uno STEP senza struttura importabile: la sorgente solo_prodotto sulla stessa bozza (Controlla
 		// ammette solo la bozza senza sorgente)
 		v, err := distintabozza.SoloProdottoSuBozzaFormato3(ctx, pool, distintabozza.SoloProdottoSuBozza3{ThreadID: thread, UtenteID: utente,
-			Comune: comune("3", c.Aperta.BozzaID, int(c.Aperta.Versione)), Sorgente: sorgente, Motivo: r.Motivo, PresaDAttoAnalisi: r.StatoAnalisi,
+			Comune: comune("3", c.Aperta.BozzaID, int(c.Aperta.Versione)), Sorgente: sorgente, Motivo: r.motivoRegistrato(), PresaDAttoAnalisi: r.StatoAnalisi,
 			PrimaDelCommit: gancio})
 		if err != nil {
 			return chiudiParziale(ctx, pool, thread, utente, r, impronta, out, PassoBozza, err)
@@ -1069,6 +1186,10 @@ func bozzaNataNellaGara(ctx context.Context, pool distintabozza.Avviatore, threa
 func motivoCambio(r RichiestaS8) string {
 	if m := r.motivoRegistrato(); m != "" {
 		return m
+	}
+	// l'evento del cambio della fonte vuole sempre un motivo (trg_dbv_fonte_motivata): la traccia base del gesto
+	if r.tracciaBase != "" {
+		return r.tracciaBase
 	}
 	return "conferma della sorgente (S8)"
 }

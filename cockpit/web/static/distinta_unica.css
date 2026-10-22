@@ -17,7 +17,7 @@
   --du-info: #2B5F8A; --du-info-soft: #E4EEF7; --du-info-line: #B9CDE0;
   --du-bozza: #A3366F; --du-bozza-soft: #F8E8F0; --du-bozza-line: #DDA9C4;
   --du-sciolto: #6B3FB5; --du-sciolto-soft: #F1ECF9; --du-sciolto-line: #B7A3DA;
-  --du-file-line: #8A939E; --du-dots: #D5DBE1; --du-vp-bg: #FBFCFD;
+  --du-file-line: #8A939E; --du-dots: #D5DBE1; --du-vp-bg: #FBFCFD; --du-carta-2d: #FFFFFF;
   --du-scrim: rgba(20, 26, 33, .36);
   --du-sh1: 0 1px 2px rgba(20, 26, 33, .07);
   --du-sh2: 0 8px 28px rgba(20, 26, 33, .16);
@@ -127,7 +127,10 @@
 .du .du-seg button { border: 0; background: transparent; padding: 6px 12px; border-radius: var(--du-r2); font: 700 var(--du-t-sm)/1.2 var(--du-f-cond); color: var(--du-ink2); cursor: pointer; }
 .du .du-seg button[aria-pressed="true"] { background: var(--du-acc); color: var(--du-acc-ink); box-shadow: var(--du-sh1); }
 .du .du-seg button[disabled] { opacity: .55; cursor: not-allowed; }
-.du .du-avviso { padding: 8px 12px; border: 1px solid var(--du-line2); border-radius: var(--du-r2); background: var(--du-surf); font-size: var(--du-t-ms); overflow-wrap: anywhere; }
+.du .du-avviso { padding: 8px 12px; border: 1px solid var(--du-line2); border-radius: var(--du-r2); background: var(--du-surf); font-size: var(--du-t-ms); overflow-wrap: anywhere; line-height: 1.5; min-height: calc(1.5em + 18px); box-sizing: border-box; }
+/* UI46 (controllo di stabilità del 21/10): la striscia dell'esito tiene il suo posto anche vuota, così un esito che
+   compare o sparisce non spinge giù la pagina; un testo di più righe allarga solo di quelle righe */
+.du .du-avviso[hidden] { display: block !important; visibility: hidden; border-color: transparent; background: transparent; }
 .du .du-avviso[data-esito="ok"] { border-color: var(--du-ok-line); background: var(--du-ok-soft); }
 .du .du-avviso[data-esito="no"], .du .du-avviso[data-esito="conflitto"] { border-color: var(--du-ver-line); background: var(--du-ver-soft); }
 .du .du-avviso[data-esito="errore"], .du .du-avviso[data-esito="da_verificare"], .du .du-avviso[data-esito="non_registrato"] { border-color: var(--du-ko-line); background: var(--du-ko-soft); }
@@ -209,11 +212,15 @@
 .du .du-oq .du-q { padding: 0 5px; font-size: 13.5px; line-height: 19px; font-weight: 700; color: var(--du-ink); }
 .du .du-oq .du-q--bozza { color: var(--du-bozza); }
 .du .du-oq .du-q--conf { color: var(--du-ok); }
+.du .du-oq { display: inline-flex; gap: 3px; }
+.du .du-oq .du-q--da { font: 600 11.5px/19px var(--du-f-body); color: var(--du-ink2); border-style: solid; background: var(--du-surf2); }
 .du .du-vuoto { padding: 16px; color: var(--du-ink2); display: grid; gap: 8px; justify-items: start; }
 
-/* le schede dei nodi (dal mockup v3), orizzontali: codice completo in alto, descrizione, tipo e stato, piede */
-.du .du-nc { position: absolute; text-align: left; background: var(--du-surf); color: var(--du-ink); border: 1.5px solid var(--du-line2); border-left-width: 6px; border-radius: var(--du-r2); padding: 4px 6px 4px 7px; box-shadow: var(--du-sh1);
-  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px 16px 20px 18px; row-gap: 1px; overflow: hidden; cursor: pointer; }
+/* le schede dei nodi: tipo e stato, codice completo, descrizione, l'anteprima del 2D (la pagina 1 vera del PDF, come
+   nella pagina di prima: messaggio 46 [U]), i segni. L'altezza è fissa (CH della pagina): l'anteprima prende il resto */
+.du .du-nc { position: absolute; text-align: left; background: var(--du-surf); color: var(--du-ink); border: 1.5px solid var(--du-line2); border-left-width: 6px; border-radius: var(--du-r2); padding: 6px 8px 6px 8px; box-shadow: var(--du-sh1);
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 19px 20px 16px minmax(0, 1fr) 16px; row-gap: 3px; overflow: hidden; cursor: pointer; }
+.du .du-nc--stub { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: var(--du-t-sm); color: var(--du-ink2); border-style: dashed; }
 .du .du-nc > * { min-width: 0; }
 .du .du-nc--finito { border-left-color: var(--du-acc); }
 .du .du-nc--sottoassieme { border-left-color: var(--du-info); }
@@ -228,13 +235,14 @@
 .du .du-nc--drop { background: var(--du-acc-soft); outline: 3px dashed var(--du-acc); outline-offset: 3px; }
 .du .du-nc--nodrop { outline: 3px dashed var(--du-ko); outline-offset: 3px; }
 .du .du-nc--trascinato { opacity: .4; }
-.du .du-nc-cod { display: flex; gap: 0 6px; align-items: baseline; width: 100%; padding: 0 24px 0 0; border: 0; background: none; text-align: left; cursor: pointer; color: var(--du-ink); font: 600 15px/20px var(--du-f-mono); letter-spacing: -.01em; white-space: nowrap; overflow: hidden; }
+.du .du-nc-cod { display: flex; gap: 0 6px; align-items: baseline; width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; color: var(--du-ink); font: 600 15px/20px var(--du-f-mono); letter-spacing: -.01em; white-space: nowrap; overflow: hidden; }
 .du .du-nc-cod--l { font-size: 12.5px; }
 .du .du-nc-c { flex: none; }
 .du .du-nc-rev { font: 500 11.5px/1 var(--du-f-body); color: var(--du-ink2); flex: none; }
 .du .du-nc-bz { color: var(--du-bozza); font-weight: 700; flex: none; }
 .du .du-nc-desc { font-size: 12.5px; color: var(--du-ink2); line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.du .du-nc-chips { display: flex; gap: 4px; align-items: center; min-width: 0; overflow: hidden; }
+.du .du-nc-chips { display: flex; gap: 4px; align-items: center; min-width: 0; overflow: hidden; padding-right: 20px; }
+.du .du-tipo--proposto { border-style: dashed; }
 .du .du-nc-chips .du-tipo { font: 700 11px/1.45 var(--du-f-cond); padding: 0 5px; }
 .du .du-nc-st { font: 600 11px/1.4 var(--du-f-cond); padding: 0 4px; border-radius: var(--du-r1); border: 1px solid var(--du-line2); color: var(--du-ink3); white-space: nowrap; }
 .du .du-nc-st--bozza { color: var(--du-bozza); border-color: var(--du-bozza-line); background: var(--du-bozza-soft); }
@@ -242,10 +250,40 @@
 .du .du-nc-st--prop { color: var(--du-prop); border-color: var(--du-prop-line); border-style: dashed; }
 .du .du-nc-piede { display: flex; flex-wrap: nowrap; gap: 3px; align-items: center; overflow: hidden; }
 .du .du-nc-piede .du-segno { font-size: 10.5px; line-height: 15px; padding: 0 4px; }
-.du .du-nc-sel { position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; margin: 0; accent-color: var(--du-bozza); cursor: pointer; }
-.du .du-vp--lontano .du-nc { grid-template-rows: 1fr auto; padding: 6px 8px; }
+.du .du-nc-sel { position: absolute; right: 5px; top: 6px; width: 16px; height: 16px; margin: 0; accent-color: var(--du-bozza); cursor: pointer; }
+/* da lontano: il codice grande e il disegno, che è quello che si riconosce a colpo d'occhio */
+.du .du-vp--lontano .du-nc { grid-template-rows: 30px minmax(0, 1fr) 16px; }
 .du .du-vp--lontano .du-nc-desc, .du .du-vp--lontano .du-nc-chips, .du .du-vp--lontano .du-nc-piede .du-segno:not(.du-segno--cad) { display: none; }
-.du .du-vp--lontano .du-nc-cod { font-size: 20px; line-height: 1.2; align-self: center; }
+.du .du-vp--lontano .du-nc-cod { font-size: 22px; line-height: 30px; }
+/* l'anteprima del 2D nella scheda e, grande, nel pannello del nodo */
+.du .du-nc-mini { display: grid; place-items: center; width: 100%; height: 100%; min-height: 0; background: var(--du-carta-2d); border: 1px solid var(--du-line2); border-radius: 4px; overflow: hidden;
+  color: var(--du-ink3); font-size: 11.5px; line-height: 1.3; text-align: center; padding: 0; }
+.du .du-nc-mini img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.du .du-nc-mini--na { background: var(--du-sunken); color: var(--du-ink3); padding: 4px 6px; }
+.du .du-nc-mini--chiuso { grid-template-rows: auto auto; align-content: center; gap: 2px; text-align: center; }
+.du .du-nc-mini-nome { font-family: var(--du-f-mono); color: var(--du-ink2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.du .du-nc-mini[data-du-stato="attesa"] { font-style: italic; }
+.du .du-nc-mini--grande { aspect-ratio: 420 / 297; height: auto; cursor: zoom-in; }
+.du .du-nc-mini--grande.du-nc-mini--na { cursor: default; }
+/* l'etichetta che segue il puntatore durante il trascinamento */
+.du .du-fantasma { position: fixed; z-index: 60; pointer-events: none; max-width: 320px; padding: 4px 8px; border-radius: var(--du-r2); background: var(--du-ink); color: var(--du-surf); font-size: var(--du-t-sm); box-shadow: var(--du-sh1); }
+/* la legenda sotto l'organigramma, come nella pagina di prima */
+.du .du-legenda { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: var(--du-t-sm); color: var(--du-ink2); padding: 2px 2px 0; }
+.du .du-legenda > span { display: inline-flex; align-items: center; gap: 6px; }
+.du .du-leg-linea { display: inline-block; width: 28px; height: 0; border-top: 2px solid var(--du-line2); }
+.du .du-leg-linea--prop { border-top: 2px dashed var(--du-prop); }
+.du .du-leg-linea--conf { border-top: 2.5px solid var(--du-ok); }
+.du .du-leg-linea--bozza { border-top: 3px solid var(--du-bozza); }
+.du .du-leg-box { display: inline-block; width: 22px; height: 12px; border: 1.5px solid var(--du-ink3); border-radius: 3px; }
+.du .du-leg-box--tratt { border-style: dashed; background: var(--du-surf2); }
+/* il menu del nodo (clic destro) */
+.du .du-menu-nodo { position: fixed; z-index: 70; min-width: 230px; max-width: 340px; display: grid; padding: 4px; background: var(--du-surf); border: 1px solid var(--du-line2); border-radius: var(--du-r2); box-shadow: var(--du-sh2, var(--du-sh1)); }
+.du .du-menu-nodo-t { font: 600 var(--du-t-sm)/1.4 var(--du-f-mono); color: var(--du-ink2); padding: 3px 8px 5px; border-bottom: 1px solid var(--du-line); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.du .du-menu-voce { display: grid; text-align: left; border: 0; background: none; padding: 5px 8px; border-radius: var(--du-r1); font-size: var(--du-t-ms); color: var(--du-ink); cursor: pointer; }
+.du .du-menu-voce:hover, .du .du-menu-voce:focus-visible { background: var(--du-acc-soft); outline: none; }
+.du .du-menu-voce[disabled] { color: var(--du-ink4); cursor: default; background: none; }
+.du .du-menu-voce .du-perche { font-size: var(--du-t-xs); }
+.du .du-menu-voce.du-btn--danger { color: var(--du-ko); }
 
 /* ---------------------------------------------------------------- nodi segnalati e selezione multipla (LS-02) */
 .du .du-segnalati { border: 1.5px solid var(--du-ver-line); border-radius: var(--du-r2); background: var(--du-surf); display: grid; min-width: 0; }
@@ -256,6 +294,8 @@
 .du .du-segnalato input { margin-top: 3px; accent-color: var(--du-bozza); }
 .du .du-segnalato-n { font: 600 var(--du-t-sm)/1.3 var(--du-f-mono); overflow-wrap: anywhere; }
 .du .du-segnalato-s { grid-column: 2; color: var(--du-ink2); overflow-wrap: anywhere; }
+/* UI46 (controllo di stabilità del 21/10): il posto della barra «N nodi selezionati» è riservato anche senza selezione */
+.du .du-selezione-posto { min-height: 41px; }
 .du .du-selezione { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 10px; border: 1.5px solid var(--du-bozza-line); border-radius: var(--du-r2); background: var(--du-bozza-soft); font-size: var(--du-t-ms); }
 
 /* ---------------------------------------------------------------- elenco */
@@ -287,10 +327,17 @@
 .du .du-non-v1 { display: grid; gap: 4px; justify-items: start; }
 /* il visore dei PDF (MAT FL-03, PN-04): la pagina disegnata da pdf.js, mai più larga della finestra */
 .du-finestra .du-visore-tela { overflow: auto; max-height: 70vh; border: 1px solid var(--du-line); border-radius: var(--du-r2); background: var(--du-sunken); padding: 6px; }
-.du-finestra .du-visore-tela canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #FFFFFF; }
+.du-finestra .du-visore-tela canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: var(--du-carta-2d); }
 .du .du-nodo-cod { font: 600 var(--du-t-lg)/1.2 var(--du-f-mono); overflow-wrap: anywhere; }
 .du .du-sez { border-top: 1px solid var(--du-line); padding-top: 9px; display: grid; gap: 6px; min-width: 0; }
 .du .du-sez > h3 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.du details.du-sez { display: block; }
+.du details.du-sez > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
+.du details.du-sez > summary::-webkit-details-marker { display: none; }
+.du details.du-sez > summary::before { content: "▸"; color: var(--du-ink3); font-size: 11px; width: 10px; }
+.du details.du-sez[open] > summary::before { content: "▾"; }
+.du details.du-sez > summary h3 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0; }
+.du .du-sez-c { display: grid; gap: 6px; min-width: 0; margin-top: 6px; }
 .du .du-dl, .du-finestra .du-dl, .du-wizard .du-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; font-size: var(--du-t-sm); margin: 0; }
 .du .du-dl dt, .du-finestra .du-dl dt, .du-wizard .du-dl dt { color: var(--du-ink3); }
 .du .du-dl dd, .du-finestra .du-dl dd, .du-wizard .du-dl dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
@@ -303,6 +350,8 @@
 .du .du-barra:empty { display: none; }
 .du .du-salva { position: sticky; bottom: 8px; z-index: 15; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 12px; border-radius: var(--du-r2); border: 1.5px solid var(--du-ver-line); background: var(--du-ver-soft); box-shadow: var(--du-sh2); font-size: var(--du-t-ms); min-width: 0; }
 .du .du-salva--sorg { border-color: var(--du-prop-line); background: var(--du-prop-soft); }
+/* «Vai alla Revisione →» non va a capo da solo (collaudo UI46, minore) */
+.du .du-salva--sorg #du-vai-revisione { white-space: nowrap; flex: 0 0 auto; }
 .du .du-salva-stato { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-weight: 600; }
 .du .du-salva-conti { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-right: auto; min-width: 0; color: var(--du-ink2); }
 .du .du-salva-conti b { font-family: var(--du-f-mono); }
@@ -313,8 +362,16 @@
 .du-finestra { position: fixed; z-index: 64; left: 50%; top: 6vh; transform: translateX(-50%); width: min(620px, calc(100vw - 24px)); max-height: 88vh; overflow: auto; overscroll-behavior: contain;
   background: var(--du-surf); color: var(--du-ink); border: 1.5px solid var(--du-line2); border-radius: var(--du-r3); box-shadow: var(--du-sh2); padding: 14px 16px; display: grid; gap: 10px;
   font: var(--du-t-base)/1.5 var(--du-f-body); }
-.du-finestra .du-fin-t { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
-.du-finestra .du-fin-t h2 { margin-right: auto; font-size: var(--du-t-lg); }
+/* la × resta in alto a destra anche con un titolo lungo (messaggio 46, D34) */
+.du-finestra .du-fin-t { display: flex; flex-wrap: nowrap; gap: 6px 10px; align-items: flex-start; }
+.du-finestra .du-fin-t h2 { margin-right: auto; font-size: var(--du-t-lg); flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.du-finestra .du-fin-t > .du-btn { flex: 0 0 auto; }
+/* che cosa si conferma: codici e struttura nel dialogo della sorgente (messaggio 46, D09) */
+.du-finestra .du-riass-box { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--du-line2); border-radius: var(--du-r2); background: var(--du-sunken); min-width: 0; }
+.du-finestra .du-riass { display: grid; gap: 4px; min-width: 0; }
+.du-finestra .du-riass-elenco { display: grid; gap: 1px; max-height: 240px; overflow: auto; font-size: var(--du-t-sm); }
+.du-finestra .du-riass-riga { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.du-finestra .du-esito--info { border-color: var(--du-info-line); background: var(--du-info-soft); }
 .du-finestra .du-campo, .du-wizard .du-campo { display: grid; gap: 3px; font-size: var(--du-t-sm); min-width: 0; }
 .du-finestra .du-campo > span, .du-wizard .du-campo > span { color: var(--du-ink3); font-size: var(--du-t-xs); }
 .du-finestra .du-campo input, .du-finestra .du-campo select, .du-finestra .du-campo textarea,
@@ -354,6 +411,7 @@
 .du-wizard .du-esito--ok, .du-finestra .du-esito--ok { border-color: var(--du-ok-line); background: var(--du-ok-soft); }
 .du-wizard .du-esito--ver, .du-finestra .du-esito--ver { border-color: var(--du-ver-line); background: var(--du-ver-soft); }
 .du-wizard .du-esito--ko, .du-finestra .du-esito--ko { border-color: var(--du-ko-line); background: var(--du-ko-soft); }
+.du-wizard .du-esito--info { border-color: var(--du-info-line); background: var(--du-info-soft); }
 
 @media (prefers-reduced-motion: no-preference) {
   .du .du-btn, .du .du-passo, .du .du-seg button, .du .du-ptab, .du-finestra .du-btn, .du-wizard .du-btn { transition: background-color .13s ease, border-color .13s ease, color .13s ease, box-shadow .13s ease; }
@@ -407,6 +465,10 @@
 .du .du-sg-gruppo { padding: 8px 2px 2px; font-family: var(--du-f-cond); font-size: var(--du-t-xs); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--du-ink3); }
 .du .du-sg-vuoto { padding: 10px 2px; }
 .du .du-sg-gruppo-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--du-acc-line); border-radius: var(--du-r2); background: var(--du-acc-soft); }
+/* i gesti che non valgono per la selezione: una riga ripiegata, non un muro di pulsanti spenti (messaggio 46, D18) */
+.du .du-sg-nonvale > summary { font-size: var(--du-t-xs); color: var(--du-ink3); }
+.du .du-sg-nonvale[open] { flex-basis: 100%; }
+.du .du-stato-sorgente { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-start; justify-content: space-between; }
 .du .du-sg-prodotto { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--du-line); border-radius: var(--du-r2); background: var(--du-surf2); }
 .du .du-sg-prodotto-t { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .du .du-sg-prodotto-c { display: grid; gap: 6px; }
@@ -423,6 +485,7 @@
 .du .du-sg[data-larga="1"] .du-sg-spazio { grid-template-columns: 264px 40px minmax(0, 1fr); }
 .du .du-sg[data-larga="1"] .du-sg-elenco > * { visibility: hidden; }
 .du .du-sg-anteprima { display: grid; gap: 8px; min-width: 0; }
+.du .du-rev-anteprima { justify-self: stretch; width: 100%; min-width: 0; }
 .du .du-sg-anteprima-c { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); align-items: start; min-width: 0; }
 @media (max-width: 1439.98px) {
   .du .du-sg-spazio { grid-template-columns: 216px minmax(0, 1fr) 344px; }

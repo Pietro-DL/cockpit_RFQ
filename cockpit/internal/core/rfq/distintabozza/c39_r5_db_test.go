@@ -531,13 +531,13 @@ func TestV1D39R5ZeroFigliDB(t *testing.T) {
 	if x := stepDi(t, p, s.altroFinito); !x.Valid || x.UUID != doc {
 		t.Fatal("promozione")
 	}
-	// la dichiarazione mono_pezzo in una seconda conferma (da-conferma-1)
+	// la dichiarazione mono_pezzo in una seconda conferma (da-conferma-1), senza il motivo dell'utente (messaggio 46 [U])
 	c2, err := creaDB(t, p, s, s.altroFinito, uuid.New(), map[string]any{"partenza": PartenzaConferma})
 	if err != nil {
 		t.Fatalf("da-conferma-1: %v", err)
 	}
 	m, _ := snapshotDellaVersione(t, p, c2.BozzaID, 1)
-	d := map[string]any{"id": "d-mono", "tipo": "mono_pezzo", "motivo": "pezzo unico saldato"}
+	d := map[string]any{"id": "d-mono", "tipo": "mono_pezzo"}
 	m["decisioni"] = append(m["decisioni"].([]any), d)
 	sc := scena3DB{scenaDB: s, p: p}
 	if _, err := sc.salva3Su(t, c2.BozzaID, s.altroFinito, 1, uuid.New(), m, []Azione{{Azione: AzDecisioneAggiunta, Dopo: mustJSON(d), Origine: "utente"}}); err != nil {
@@ -553,6 +553,16 @@ func TestV1D39R5ZeroFigliDB(t *testing.T) {
 	}
 	if !out.MonoPezzo || out.CriterioVerifica != confermabom.CriterioMonoPezzo || out.NumeroConferma != 2 || out.Fonte.Promossa {
 		t.Fatalf("mono_pezzo: %+v", out)
+	}
+	// ck_conferma_mono_pezzo vuole il motivo: la traccia del gesto scritta dal server
+	if n := conta3(t, p, `SELECT count(*) FROM conferma_strutturale WHERE prodotto_id = $1 AND numero = 2 AND mono_pezzo AND mono_pezzo_motivo = $2`, s.altroFinito,
+		"gesto di DBZ da «Dichiara mono_pezzo»: il prodotto è un pezzo unico: dichiarazione mono_pezzo della bozza, registrata con la conferma n. 2"); n != 1 {
+		t.Fatalf("il motivo della dichiarazione mono_pezzo senza il motivo dell'utente: %d", n)
+	}
+	for _, x := range rp.VerificaPrevista.Motivi {
+		if x == confermabom.MotivoMonoPezzoSenzaMotivo {
+			t.Fatalf("R4: la dichiarazione della bozza trattata come senza motivo: %+v", rp.VerificaPrevista)
+		}
 	}
 }
 

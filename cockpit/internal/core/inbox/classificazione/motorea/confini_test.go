@@ -11,8 +11,9 @@ import (
 // L1 — i confini del codice (A1a-CNF pubblica; piano A, par.4.4.5 e 4.7.2; v3 §1.5, §7.4; T2-T5, T13-T15;
 // D-05, R25 f): codici accanto ad altri codici e a separatori, codice dopo le cifre di un prefisso, due basi
 // in un nome di pacchetto, offset in byte con accenti, emoji e spazio non separabile accanto, nessuna lettura
-// dentro una parola, e le cinque classi di confine (la quinta, alnum_ascii_o_trattino, dal 17/10: LS-03 A),
-// ognuna con il caso che la giustifica e con la lettura in più che darebbe la grammatica senza la classe.
+// dentro una parola, e le sei classi di confine (la quinta, alnum_ascii_o_trattino, dal 17/10: LS-03 A; la
+// sesta, parola_ascii_spazio_o_trattino, dal 21/10: D-G48-01 B), ognuna con il caso che la giustifica e con la
+// lettura in più che darebbe la grammatica senza la classe.
 //
 // I clienti di questi test sono inventati: il repository è pubblico, e le famiglie di codice dei clienti veri
 // sono un dato dell'azienda. Le grammatiche sono quelle ACME di sintetiche_test.go.
@@ -405,7 +406,8 @@ func TestConfiniClasseAlnumASCIIOTrattinoASinistra(t *testing.T) {
 // fuori dal contratto non è nota al motore.
 func TestConfiniRegexEGoConcordano(t *testing.T) {
 	classi := []grammatica.ClasseConfine{grammatica.ConfineAlnumASCII, grammatica.ConfineParolaASCII,
-		grammatica.ConfineAlnumASCIIOSpazio, grammatica.ConfineParolaASCIIOPuntoCifra, grammatica.ConfineAlnumASCIIOTrattino}
+		grammatica.ConfineAlnumASCIIOSpazio, grammatica.ConfineParolaASCIIOPuntoCifra, grammatica.ConfineAlnumASCIIOTrattino,
+		grammatica.ConfineParolaASCIISpazioOTrattino}
 	dopo := []string{"", "-", "--", "-x", "—", "–", "‐", "−", " ", " ", "\t", "\n", ".", ".5", ".x", "(", ")", "_",
 		"$", "/", "A", "z", "0", "9", "è", "😀", "\xff"}
 	for _, c := range classi {
@@ -430,8 +432,160 @@ func TestConfiniRegexEGoConcordano(t *testing.T) {
 			t.Errorf("alnum_ascii_o_trattino, dopo il codice %q: vietato %v", d, vietati[d])
 		}
 	}
-	if _, ok := frammentoDestro("alnum_ascii_o_trattini"); ok || classeNota("alnum_ascii_o_trattini") {
-		t.Error("una classe fuori dal contratto è nota al motore")
+	// La tabella della sesta classe (D-G48-01 B), ai due lati: a destra con la regex e con il Go, a sinistra con
+	// il controllo in Go sulla runa prima del codice.
+	vietatiSesta := map[string]bool{"-": true, "--": true, "-x": true, " ": true, "_": true, "A": true, "z": true,
+		"0": true, "9": true}
+	sesta := grammatica.ConfineParolaASCIISpazioOTrattino
+	for _, d := range dopo {
+		if confineDestro(sesta, d, 0) == vietatiSesta[d] {
+			t.Errorf("parola_ascii_spazio_o_trattino, dopo il codice %q: vietato %v", d, vietatiSesta[d])
+		}
+		if d == "" {
+			continue
+		}
+		// a sinistra conta l'ultimo carattere prima del codice: vietato se è una lettera, una cifra, «_», uno
+		// spazio o un «-» ASCII
+		u := d[len(d)-1]
+		vietato := u < 0x80 && (('0' <= u && u <= '9') || ('A' <= u && u <= 'Z') || ('a' <= u && u <= 'z') ||
+			strings.IndexByte("_ -", u) >= 0)
+		if confineSinistro(sesta, d+"1", len(d)) == vietato {
+			t.Errorf("parola_ascii_spazio_o_trattino, prima del codice %q: vietato %v", d, vietato)
+		}
+	}
+	for _, nome := range []grammatica.ClasseConfine{"alnum_ascii_o_trattini", "parola_ascii_spazio_o_trattini", "parola_ascii_o_spazio_o_trattino"} {
+		if _, ok := frammentoDestro(nome); ok || classeNota(nome) {
+			t.Errorf("la classe %s, fuori dal contratto, è nota al motore", nome)
+		}
+	}
+}
+
+// famNomeNudo: acme-nudo (D-G48-01 B, 21/10). Base di otto cifre; la forma «nome» legge il nome del file che è
+// solo il codice seguito subito dall'estensione («<base>.pdf», «<base>.stp»), con il confine sinistro
+// parola_ascii_spazio_o_trattino. Senza la classe la forma leggerebbe il codice anche dopo un prefisso separato
+// da «_», da «-» o da uno spazio. Codici, prefissi ed estensioni sono inventati: riproducono il meccanismo (un
+// nome che è solo il codice), non la convenzione di un cliente.
+func famNomeNudo() grammatica.FamigliaCodice {
+	nome := forma("nome", sel("nome_file"), pBase(), pSep(".pdf", ".PDF", ".stp"))
+	nome.ConfinePrima = classe(grammatica.ConfineParolaASCIISpazioOTrattino)
+	return grammatica.FamigliaCodice{
+		ID: "acme-nudo", Namespace: "acme-nudo",
+		Ruoli: []grammatica.Ruolo{grammatica.RuoloProdotto, grammatica.RuoloComponente},
+		Base:  base(segPattern("codice", "[0-9]{8}", "")),
+		Forme: []grammatica.FormaCodice{nome},
+		Esempi: []grammatica.EsempioCodice{
+			positivo("e-nome", "nome_file", "12345678.pdf", grammatica.LetturaAttesa{Forma: "nome", Base: "12345678"}),
+			negativo("n-sottolineato", "nome_file", "Offerta_12345678.pdf"),
+			negativo("n-trattino", "nome_file", "DDT-12345678.pdf"),
+			negativo("n-anno", "nome_file", "2026-12345678.pdf"),
+			negativo("n-spazio", "nome_file", "report 12345678.pdf"),
+		},
+	}
+}
+
+// TestConfiniClasseParolaASCIISpazioOTrattino: con il confine sinistro parola_ascii_spazio_o_trattino la forma
+// legge «<base>.pdf» all'inizio del testo e dopo i caratteri che la classe non vieta, e non legge niente dopo
+// una lettera, una cifra, «_», uno spazio o «-» ASCII. Il «.», «#», le parentesi, «/» e i caratteri fuori
+// dall'ASCII (anche i trattini lunghi e lo spazio non separabile) restano confini, come dice il contratto. Con
+// una delle classi di prima a sinistra un esempio negativo si legge e la grammatica non si attiva.
+func TestConfiniClasseParolaASCIISpazioOTrattino(t *testing.T) {
+	m, _ := compilaBene(t, grammaticaACME(famNomeNudo()))
+	for _, c := range []struct {
+		testo  string
+		inizio int // -1: nessuna lettura
+	}{
+		{"12345678.pdf", 0},
+		{"12345678.PDF", 0},
+		{"12345678.stp", 0},
+		{"Offerta_12345678.pdf", -1},
+		{"DDT-12345678.pdf", -1},
+		{"2026-12345678.pdf", -1},
+		{"report 12345678.pdf", -1},
+		{"_12345678.pdf", -1},
+		{"-12345678.pdf", -1},
+		{" 12345678.pdf", -1},
+		{"x12345678.pdf", -1},
+		{"012345678.pdf", -1}, // nove cifre: nessuna lettura dentro il numero
+		{"fattura.12345678.pdf", len("fattura.")},
+		{"#12345678.pdf", 1},
+		{"(12345678.pdf", 1},
+		{"cartella/12345678.pdf", len("cartella/")},
+		{"—12345678.pdf", len("—")},
+		{"‐12345678.pdf", len("‐")},
+		{" 12345678.pdf", len(" ")}, // spazio non separabile: fuori dall'ASCII
+		{"è12345678.pdf", len("è")},
+		{"12345678_A.pdf", -1}, // a destra il separatore dell'estensione viene subito dopo il codice
+		{"12345678.pdfx", -1},  // confine destro della forma: alnum_ascii
+	} {
+		letture, _ := riconosci(t, m, "nome_file", c.testo)
+		if c.inizio < 0 {
+			if len(letture) != 0 {
+				t.Errorf("%q: nessuna lettura attesa, trovate %s", c.testo, riassunto(letture))
+			}
+			continue
+		}
+		if len(letture) != 1 || letture[0].Famiglia != "acme-nudo" || letture[0].Forma != "nome" ||
+			letture[0].Intervallo.Inizio != c.inizio || letture[0].Base.Normalizzata != "12345678" {
+			t.Errorf("%q: attesa la lettura acme-nudo/nome da %d, trovate %s", c.testo, c.inizio, riassunto(letture))
+		}
+	}
+
+	// Con le classi di prima a sinistra almeno un esempio negativo si legge: la grammatica non si attiva.
+	for _, v := range []struct {
+		nome string
+		c    *grammatica.ClasseConfine
+	}{
+		{"senza classe a sinistra", nil},
+		{"alnum_ascii", classe(grammatica.ConfineAlnumASCII)},
+		{"parola_ascii", classe(grammatica.ConfineParolaASCII)},
+		{"alnum_ascii_o_spazio", classe(grammatica.ConfineAlnumASCIIOSpazio)},
+		{"alnum_ascii_o_trattino", classe(grammatica.ConfineAlnumASCIIOTrattino)},
+	} {
+		t.Run(v.nome, func(t *testing.T) {
+			f := famNomeNudo()
+			f.Forme[0].ConfinePrima = v.c
+			compilaErrore(t, grammaticaACME(f), CodiceEsempioInEccesso)
+		})
+	}
+}
+
+// TestConfiniClasseParolaASCIISpazioOTrattinoADestra: la classe vale anche come confine destro (non è fra le
+// classi solo a destra, e nemmeno solo a sinistra): dopo il codice vieta lettere, cifre, «_», spazio e «-»
+// ASCII, e ammette il «.», la punteggiatura, i caratteri fuori dall'ASCII e la fine del testo.
+func TestConfiniClasseParolaASCIISpazioOTrattinoADestra(t *testing.T) {
+	cod := forma("codice", sel("nome_file"), pBase())
+	cod.ConfineDopo = classe(grammatica.ConfineParolaASCIISpazioOTrattino)
+	f := grammatica.FamigliaCodice{
+		ID: "acme-nudo-destro", Namespace: "acme-nudo",
+		Ruoli: []grammatica.Ruolo{grammatica.RuoloProdotto, grammatica.RuoloComponente},
+		Base:  base(segPattern("codice", "[0-9]{8}", "")),
+		Forme: []grammatica.FormaCodice{cod},
+		Esempi: []grammatica.EsempioCodice{
+			positivo("e-codice", "nome_file", "12345678.pdf", grammatica.LetturaAttesa{Forma: "codice", Base: "12345678"}),
+			negativo("n-sottolineato-dopo", "nome_file", "12345678_A.pdf"),
+		},
+	}
+	m, _ := compilaBene(t, grammaticaACME(f))
+	for _, c := range []struct {
+		testo string
+		letta bool
+	}{
+		{"12345678", true}, {"12345678.pdf", true}, {"12345678(1).pdf", true}, {"12345678#2.pdf", true},
+		{"12345678—x.pdf", true}, {"12345678 x.pdf", true}, {"12345678èx.pdf", true},
+		{"12345678_A.pdf", false}, {"12345678-A.pdf", false}, {"12345678 A.pdf", false}, {"12345678A.pdf", false},
+		{"123456789.pdf", false},
+	} {
+		letture, _ := riconosci(t, m, "nome_file", c.testo)
+		if !c.letta {
+			if len(letture) != 0 {
+				t.Errorf("%q: nessuna lettura attesa, trovate %s", c.testo, riassunto(letture))
+			}
+			continue
+		}
+		if len(letture) != 1 || letture[0].Forma != "codice" || letture[0].Intervallo.Inizio != 0 ||
+			letture[0].Intervallo.Fine != len("12345678") {
+			t.Errorf("%q: attesa la lettura codice in [0,8), trovate %s", c.testo, riassunto(letture))
+		}
 	}
 }
 

@@ -105,7 +105,7 @@ func leggiIngressiR4(ctx context.Context, q *db.Queries, thread uuid.UUID, r Ric
 		righeSha: map[string][]db.ListRigheStrutturaR4Row{}, archiNI: map[string][]db.ListArchiPerShaChiaveRow{}}
 	if _, err := q.GetThread(ctx, thread); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, &Errore{Codice: CodiceRFQInesistente, Messaggio: "la RFQ non c'e'"}
+			return nil, &Errore{Codice: CodiceRFQInesistente, Messaggio: "la RFQ non c'è"}
 		}
 		return nil, err
 	}
@@ -128,16 +128,16 @@ func leggiIngressiR4(ctx context.Context, q *db.Queries, thread uuid.UUID, r Ric
 	if r.BozzaID != nil {
 		b, err := q.GetDistintaBozza(ctx, db.GetDistintaBozzaParams{BozzaID: *r.BozzaID, ThreadID: thread})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fuori("bozza_id", "la bozza %s non e' di questa RFQ", *r.BozzaID)
+			return nil, fuori("bozza_id", "la bozza %s non è di questa RFQ", *r.BozzaID)
 		}
 		if err != nil {
 			return nil, err
 		}
 		if b.ProdottoID != s.ProdottoID {
-			return nil, fuori("bozza_id", "la bozza %s non e' del prodotto %s", *r.BozzaID, s.ProdottoID)
+			return nil, fuori("bozza_id", "la bozza %s non è del prodotto %s", *r.BozzaID, s.ProdottoID)
 		}
 		if b.Formato != FormatoSnapshot3 {
-			return nil, corpoMotivo("bozza_id", MotivoFormatoDaConvertire, "la bozza %s e' formato %d: si converte con converti_da (R2)", *r.BozzaID, b.Formato)
+			return nil, corpoMotivo("bozza_id", MotivoFormatoDaConvertire, "la bozza %s è formato %d: si converte con converti_da (R2)", *r.BozzaID, b.Formato)
 		}
 		ver := int(b.Versione)
 		if r.BozzaVersione > 0 {
@@ -227,7 +227,7 @@ func leggiIngressiR4(ctx context.Context, q *db.Queries, thread uuid.UUID, r Ric
 			return nil, err
 		}
 		if len(rr) == 0 {
-			return nil, fuori("sorgente.importazione", "il registro %s non e' del prodotto in questa RFQ", s.Sorgente.Importazione)
+			return nil, fuori("sorgente.importazione", "il registro %s non è del prodotto in questa RFQ", s.Sorgente.Importazione)
 		}
 		reg, _, err := RileggiImportazione(db.GetDistintaImportazioneRow(rr[0]))
 		if err != nil {
@@ -441,7 +441,7 @@ func riferimentiDellaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID, s
 			return nil
 		}
 		if _, ok := st.Componente(*id); !ok {
-			return fuori(campo, "il componente %s non e' di questa RFQ", *id)
+			return fuori(campo, "il componente %s non è di questa RFQ", *id)
 		}
 		return nil
 	}
@@ -475,7 +475,7 @@ func riferimentiDellaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID, s
 	}
 	for _, id := range ids {
 		if !citati[id].DellaRfq {
-			return fuori("allegato_id", "l'allegato %s non e' di questa RFQ", id)
+			return fuori("allegato_id", "l'allegato %s non è di questa RFQ", id)
 		}
 	}
 	return nil

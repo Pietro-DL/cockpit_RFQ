@@ -301,7 +301,9 @@ func confermaCorrente(r *Risultato, p *Pagina, prodotto uuid.UUID, m *propostabo
 		out.PropostaNonConfrontata = MotivoRegistroNonImportato
 		return out
 	}
-	out.PropostaAggiornata = propostabom.PropostaAggiornataDi(reg, adesso)
+	// le differenze che nascono solo dalla conferma (i componenti che ha creato o legato, letti adesso come
+	// decisione_esistente) non sono una proposta aggiornata (collaudo UI46, rilievo B2 [T])
+	out.PropostaAggiornata = propostabom.SenzaGliEffettiDellaConferma(propostabom.PropostaAggiornataDi(reg, adesso), adesso, propostabom.ComponentiDellaMappa(c.Mappa))
 	return out
 }
 

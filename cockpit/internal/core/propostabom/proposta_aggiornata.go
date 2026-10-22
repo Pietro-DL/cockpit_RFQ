@@ -1,6 +1,7 @@
 package propostabom
 
 import (
+	"encoding/json"
 	"strings"
 
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
@@ -109,4 +110,97 @@ func PropostaAggiornataDi(conferma, adesso importazione.Contenuto) *PropostaAggi
 	}
 	return &PropostaAggiornata{ImprontaContenuto: adesso.ImprontaContenuto, Gruppo: adesso.Gruppo.Chiave, Differenze: x.Differenze,
 		PerTipo: ClassiDelleDifferenze(x.Differenze), RegoleCambiate: conferma.ImprontaRegole != adesso.ImprontaRegole}
+}
+
+// campiDellaConferma: i campi di una voce che la conferma stessa cambia quando crea o lega il componente del pezzo (EM §6.1
+// P-3: dopo R5 il motore legge il componente della working come decisione_esistente, e il tipo e l'abbinamento proposti
+// che ne seguono).
+var campiDellaConferma = map[string]bool{"decisione_esistente": true, "tipo_proposto": true, "abbinamento_proposto": true}
+
+// SenzaGliEffettiDellaConferma: la proposta aggiornata senza le differenze che nascono solo dalla conferma (messaggio 46,
+// collaudo UI46, rilievo B2 [T]). Subito dopo «Conferma BOM» i pezzi creati o legati dalla conferma sono componenti della
+// working, e la proposta di adesso li dice con decisione_esistente o con abbinamento_proposto (con il tipo che ne segue)
+// sulle stesse voci: senza questo, la pagina diceva «Proposta aggiornata: 6 differenze da valutare» per una BOM appena
+// confermata identica alla proposta. Una voce cambiata solo in campiDellaConferma, con la decisione_esistente di adesso
+// su un componente della mappa della conferma (componenti), o con l'abbinamento proposto ai soli componenti della mappa,
+// non è una differenza; le altre restano com'erano. nil quando
+// non resta nessuna differenza del contenuto: niente segno.
+func SenzaGliEffettiDellaConferma(pa *PropostaAggiornata, adesso importazione.Contenuto, componenti map[string]bool) *PropostaAggiornata {
+	if pa == nil || len(componenti) == 0 {
+		return pa
+	}
+	dellaConferma := map[string]bool{}
+	for _, v := range adesso.Proposta.Nodi {
+		if len(v.DecisioneEsistente) > 0 {
+			var de struct {
+				ComponenteID string `json:"componente_id"`
+			}
+			if json.Unmarshal(v.DecisioneEsistente, &de) == nil && componenti[strings.ToLower(de.ComponenteID)] {
+				dellaConferma[v.Voce] = true
+			}
+		}
+		// l'abbinamento proposto ai soli componenti della conferma (abbinamento_per_base sui pezzi appena creati)
+		if len(v.AbbinamentoProposto) > 0 {
+			var ab struct {
+				Componenti []string `json:"componenti"`
+			}
+			if json.Unmarshal(v.AbbinamentoProposto, &ab) == nil && len(ab.Componenti) > 0 {
+				tutti := true
+				for _, c := range ab.Componenti {
+					tutti = tutti && componenti[strings.ToLower(c)]
+				}
+				if tutti {
+					dellaConferma[v.Voce] = true
+				}
+			}
+		}
+	}
+	out := *pa
+	out.Differenze.Nodi = nil
+	tolte := false
+	for _, n := range pa.Differenze.Nodi {
+		if n.Tipo != DifferenzaCambiato || !dellaConferma[n.Voce] {
+			out.Differenze.Nodi = append(out.Differenze.Nodi, n)
+			continue
+		}
+		var resto []string
+		for _, c := range n.Campi {
+			if !campiDellaConferma[c] {
+				resto = append(resto, c)
+			}
+		}
+		if len(resto) == len(n.Campi) {
+			out.Differenze.Nodi = append(out.Differenze.Nodi, n)
+			continue
+		}
+		tolte = true
+		if len(resto) > 0 {
+			n.Campi = resto
+			out.Differenze.Nodi = append(out.Differenze.Nodi, n)
+		}
+	}
+	if !tolte {
+		return pa
+	}
+	if out.Differenze.Vuote() {
+		return nil
+	}
+	out.PerTipo = ClassiDelleDifferenze(out.Differenze)
+	return &out
+}
+
+// ComponentiDellaMappa: i componenti della mappa chiave_bozza → componente di una conferma (in minuscolo); vuoto se la
+// mappa non si legge.
+func ComponentiDellaMappa(mappa []byte) map[string]bool {
+	m := map[string]string{}
+	if len(mappa) == 0 || json.Unmarshal(mappa, &m) != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, c := range m {
+		if c != "" {
+			out[strings.ToLower(c)] = true
+		}
+	}
+	return out
 }

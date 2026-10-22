@@ -120,11 +120,11 @@ type esitoMotore struct {
 func erroreMotoreDa(err error) *ErroreMotoreR4 {
 	switch {
 	case errors.Is(err, ErrMotoreOccupato), errors.Is(err, ErrMotoreNonPronto):
-		return &ErroreMotoreR4{Codice: MotoreErroreOccupato, Testo: "Il motore e' occupato o non pronto: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
+		return &ErroreMotoreR4{Codice: MotoreErroreOccupato, Testo: "Il motore è occupato o non pronto: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
 	case errors.Is(err, ErrMotoreScaduto):
-		return &ErroreMotoreR4{Codice: MotoreErroreScaduto, Testo: "Il calcolo del motore non e' finito in tempo: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
+		return &ErroreMotoreR4{Codice: MotoreErroreScaduto, Testo: "Il calcolo del motore non è finito in tempo: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
 	default:
-		return &ErroreMotoreR4{Codice: MotoreErroreCalcolo, Testo: "Il calcolo del motore non e' riuscito: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
+		return &ErroreMotoreR4{Codice: MotoreErroreCalcolo, Testo: "Il calcolo del motore non è riuscito: gli avvisi del motore non sono calcolati. Riprova il riepilogo."}
 	}
 }
 
@@ -137,7 +137,7 @@ func (a *analisiR4) motore() esitoMotore {
 	em := a.in.esitoMotore
 	switch {
 	case em == nil:
-		out.errore = &ErroreMotoreR4{Codice: MotoreErroreCalcolo, Testo: "Il motore non e' stato calcolato per questo riepilogo: riprova."}
+		out.errore = &ErroreMotoreR4{Codice: MotoreErroreCalcolo, Testo: "Il motore non è stato calcolato per questo riepilogo: riprova."}
 		return out
 	case em.Err != nil:
 		out.errore = erroreMotoreDa(em.Err)
@@ -169,11 +169,11 @@ func (a *analisiR4) motore() esitoMotore {
 		case propostabom.ComeAssente:
 			x := gc
 			avvisi = append(avvisi, AvvisoMotoreR4{Codice: AvvisoMotorePropostaCambiata, Motivo: PropostaCambiataGruppoNonProposto, GruppoCorrente: &x,
-				AllegatoID: gc.AllegatoID, Testo: "Il motore non propone piu' la struttura da cui viene la bozza: la bozza resta tua, ma la proposta di adesso e' un'altra."})
+				AllegatoID: gc.AllegatoID, Testo: "Il motore non propone più la struttura da cui viene la bozza: la bozza resta tua, ma la proposta di adesso è un'altra."})
 		case propostabom.ComeAltraOccorrenza:
 			x := gc
 			avvisi = append(avvisi, AvvisoMotoreR4{Codice: AvvisoMotorePropostaCambiata, Motivo: PropostaCambiataAltraOccorrenza, GruppoCorrente: &x,
-				AllegatoID: gc.AllegatoID, Testo: "La struttura della bozza e' ora la BOM di lavoro su un'altra copia dello stesso file."})
+				AllegatoID: gc.AllegatoID, Testo: "La struttura della bozza è ora la BOM di lavoro su un'altra copia dello stesso file."})
 		case propostabom.ComeStessaOccorrenza:
 			if ing.Importa == nil {
 				out.errore = &ErroreMotoreR4{Codice: MotoreErroreCalcolo, Testo: "La proposta di adesso non si legge: gli avvisi del motore non sono calcolati."}
@@ -189,7 +189,7 @@ func (a *analisiR4) motore() esitoMotore {
 				x := gc
 				av := AvvisoMotoreR4{Codice: AvvisoMotorePropostaCambiata, Motivo: PropostaCambiataContenuto, GruppoCorrente: &x,
 					Differenze: &RiassuntoDifferenze{Nodi: len(conf.Differenze.Nodi), Archi: len(conf.Differenze.Archi), Gruppo: conf.Differenze.Gruppo},
-					Testo:      "La proposta del motore e' cambiata da quando la bozza l'ha importata: con «Aggiorna proposta» la rivedi, la conferma non la cambia."}
+					Testo:      "La proposta del motore è cambiata da quando la bozza l'ha importata: con «Aggiorna proposta» la rivedi, la conferma non la cambia."}
 				av.Nodi = a.nodiNonToccatiCambiati(conf.Differenze.Nodi)
 				avvisi = append(avvisi, av)
 			}
@@ -219,7 +219,7 @@ func (a *analisiR4) motore() esitoMotore {
 		sort.Slice(prodotti, func(i, j int) bool { return prodotti[i].String() < prodotti[j].String() })
 		al := d.Casella.AllegatoID
 		avvisi = append(avvisi, AvvisoMotoreR4{Codice: AvvisoMotoreNonInclusoCondiviso, AllegatoID: &al, Chiavi: []string{d.Casella.Rif}, Prodotti: prodotti,
-			Testo: "Lo STEP del nodo non incluso e' anche la struttura di altri prodotti: la non inclusione vale solo per questa BOM."})
+			Testo: "Lo STEP del nodo non incluso è anche la struttura di altri prodotti: la non inclusione vale solo per questa BOM."})
 	}
 	for _, av := range avvisi {
 		b, err := json.Marshal(av)

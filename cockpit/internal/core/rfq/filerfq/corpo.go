@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/text/unicode/norm"
+
+	"promatec/cockpit/internal/core/rfq/traccia"
 )
 
 // MaxCorpo: il corpo JSON dei gesti della Sorgente (EM §10.9: ≤ 64 KiB, 413 TROPPO_GRANDE).
@@ -47,8 +49,9 @@ const (
 var reImpronta = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // LeggiCorpo legge e controlla il corpo di un gesto della Sorgente, senza leggere il database (EM §10.9): JSON stretto,
-// un valore solo, al piu' MaxCorpo byte (413), i campi del gesto e le loro forme (422 CORPO_NON_VALIDO con il campo;
-// 422 MOTIVO_OBBLIGATORIO per «Scarta» senza motivo). Il motivo esce in NFC (un testo umano, EM §3.10).
+// un valore solo, al piu' MaxCorpo byte (413), i campi del gesto e le loro forme (422 CORPO_NON_VALIDO con il campo). Il
+// motivo esce in NFC (un testo umano, EM §3.10). Dal messaggio 46 [U] nessun gesto lo vuole: per «Scarta», che lo deve
+// registrare (ck_fre_coerente), senza il motivo dell'utente lo scrive il server come traccia del gesto (Scarta).
 func LeggiCorpo(r io.Reader, gesto string) (CorpoGesto, *Rifiuto) {
 	var c CorpoGesto
 	grezzo, err := io.ReadAll(io.LimitReader(r, MaxCorpo+1))
@@ -89,10 +92,6 @@ func LeggiCorpo(r io.Reader, gesto string) (CorpoGesto, *Rifiuto) {
 			}
 			c.Motivo = &m
 		}
-	}
-	if gesto == GestoScarta && c.Motivo == nil {
-		return c, rifiuto(http.StatusUnprocessableEntity, "MOTIVO_OBBLIGATORIO", "«Scarta» vuole il motivo: niente è cambiato.",
-			extra("campo", "motivo"))
 	}
 	if gesto == GestoScarta || gesto == GestoAltriFile {
 		if c.ImprontaDipendenze == nil || !reImpronta.MatchString(*c.ImprontaDipendenze) {
@@ -148,6 +147,15 @@ func (c CorpoGesto) motivo() string {
 		return ""
 	}
 	return *c.Motivo
+}
+
+// WidgetScarta: il gesto della pagina che la traccia di «Scarta» nomina (messaggio 46 [U]).
+const WidgetScarta = "Scarta"
+
+// TracciaScarta: la traccia di «Scarta» senza il motivo dell'utente (messaggio 46 [U]), per esempio «gesto di PS da
+// «Scarta»: il file «schema.pdf» esce dai file attivi della RFQ».
+func TracciaScarta(sigla, nomeFile string) string {
+	return traccia.Gesto(MaxMotivo, sigla, WidgetScarta, "il file «"+strings.TrimSpace(nomeFile)+"» esce dai file attivi della RFQ")
 }
 
 // soloContenitore: il gesto riguarda solo l'archivio, non le sue voci (perimetro contenitore, U2 §3.10).

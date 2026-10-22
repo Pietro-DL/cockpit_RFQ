@@ -47,6 +47,51 @@ func contiTabelleVietate(t *testing.T, p *pgxpool.Pool) map[string]int {
 	return out
 }
 
+// Messaggio 46 [U] (21/10), corsia MOTIVO: crea con la partenza step e il codice della radice dello STEP che non coincide
+// con quello del prodotto, senza il motivo dell'utente: la bozza nasce, e il motivo della scelta della fonte (l'evento
+// sorgente_scelta e la riga «scelta» di fonte_step_evento) e' la traccia del gesto scritta dal server; il reinvio dello
+// stesso corpo e' riproposto. Con il motivo di un client di prima vale il suo. Dati sintetici.
+func TestV1M46CreaStepConLaRadiceDiversa(t *testing.T) {
+	p, s := poolPulito(t)
+	id := idSintetici3()
+	sorgente := map[string]any{"allegato_id": s.allegato, "gruppo": "bom"}
+	esegui3(t, p, `INSERT INTO documento (thread_id, componente_id, tipo, codice, nome_file, estensione, sha256, path_relativo, confermato_da)
+		VALUES ($1, $2, 'cad_3d', 'ACM-1000', 'ACM-1000.stp', 'stp', repeat('b', 64), '3D/ACM-1000.stp', $3)`, s.thread, s.prodotto, s.utente)
+	diverso := registroProva3(t, id)
+	diverso.Proposta.Nodi[0].CodiceProposto = "ACM-1001"
+	regDiverso, err := importazione.Componi(diverso)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chiave := uuid.New()
+	c, err := creaStepDB(t, p, s, chiave, regDiverso, sorgente, "", nil)
+	if err != nil {
+		t.Fatalf("crea step con la radice diversa, senza motivo: %v", err)
+	}
+	atteso := "gesto di DBZ da «Crea la bozza»: la bozza di ACM-1000 nasce dalla proposta dello STEP; codice della radice diverso"
+	ee := eventiDB(t, p, c.BozzaID, 1)
+	if len(ee) != 2 || ee[1].Azione != AzSorgenteScelta || ee[1].Motivo != atteso {
+		t.Fatalf("l'evento della scelta della fonte: %+v", ee)
+	}
+	if n := conta3(t, p, `SELECT count(*) FROM fonte_step_evento WHERE bozza_id = $1 AND azione = 'scelta' AND motivo = $2`, c.BozzaID, atteso); n != 1 {
+		t.Fatalf("la riga della scelta della fonte con la traccia: %d", n)
+	}
+	// il reinvio dello stesso corpo: riproposto, niente di nuovo
+	c2, err := creaStepDB(t, p, s, chiave, regDiverso, sorgente, "", nil)
+	if err != nil || c2.BozzaID != c.BozzaID || c2.NuovaVersione {
+		t.Fatalf("reinvio: %+v %v", c2, err)
+	}
+	// con il motivo di un client di prima, nella ripartenza dalla stessa sorgente, vale il suo
+	c3, err := creaStepDB(t, p, s, uuid.New(), regDiverso, sorgente, "scritto da un client di prima",
+		map[string]any{"bozza_id": c.BozzaID, "versione_attesa": 1})
+	if err != nil {
+		t.Fatalf("ripartenza con il motivo: %v", err)
+	}
+	if n := conta3(t, p, `SELECT count(*) FROM fonte_step_evento WHERE bozza_id = $1 AND azione = 'scelta' AND motivo = 'scritto da un client di prima'`, c3.BozzaID); n != 1 {
+		t.Fatalf("il motivo di un client di prima: %d", n)
+	}
+}
+
 func TestV1C3CreaStep(t *testing.T) {
 	p, s := poolPulito(t)
 	ctx := context.Background()
@@ -79,17 +124,8 @@ func TestV1C3CreaStep(t *testing.T) {
 	if e := codice3(t, err, CodiceCorpoNonValido, ""); e.Campo != "crea.sorgente.sha256" {
 		t.Fatalf("sha256: %+v", e)
 	}
-	// il codice letto dalla radice non coincide con quello del prodotto: il motivo e' obbligatorio
-	diverso := registroProva3(t, id)
-	diverso.Proposta.Nodi[0].CodiceProposto = "ACM-1001"
-	regDiverso, err := importazione.Componi(diverso)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = creaStepDB(t, p, s, uuid.New(), regDiverso, sorgente, "", nil)
-	if e := codice3(t, err, CodiceMotivoObbligatorio, ""); e.Campo != "crea.motivo" {
-		t.Fatalf("motivo: %+v", e)
-	}
+	// il codice letto dalla radice che non coincide con quello del prodotto non chiede piu' il motivo (messaggio 46 [U]):
+	// TestV1M46CreaStepConLaRadiceDiversa
 	if n := conta3(t, p, `SELECT count(*) FROM distinta_importazione`); n != 0 {
 		t.Fatalf("i rifiuti hanno scritto un registro: %d", n)
 	}

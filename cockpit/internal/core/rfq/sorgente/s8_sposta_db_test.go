@@ -222,7 +222,7 @@ func TestV1G39SpostaLaSorgenteSuQuestoProdotto(t *testing.T) {
 	}
 }
 
-func TestV1G39RiassociaDocumentoECopiaP1ConIlMotivo(t *testing.T) {
+func TestV1G39RiassociaDocumentoECopiaP1(t *testing.T) {
 	p, s := preparaS8(t)
 	ctx := context.Background()
 	// (1) lo STEP B e' un documento legacy di ACM-6000 (con la riga conferma_documento delle pagine di prima, senza S8)
@@ -238,20 +238,17 @@ func TestV1G39RiassociaDocumentoECopiaP1ConIlMotivo(t *testing.T) {
 	regB := registroRadice(t, s, s.stepB, s.shaB, "ACM-1000")
 	prepB := Preparazione{Proposta: &distintabozza.PropostaCalcolata{Registro: regB}}
 	prima := contiG39(t, p)
+	// messaggio 46 [U]: senza il gesto «Riassocia a ‹P›» (sposta_da) la riassociazione non parte, con il rimedio; il motivo
+	// scritto non serve piu'
 	_, err := s8(t, p, s, s.stepB, corpoStep(t, s, uuid.New(), regB, nil), prepB)
-	if e := codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, MotivoRiassociazione); e.AltroProdotto == nil || *e.AltroProdotto != s.altroFinito {
-		t.Fatalf("senza motivo: %+v", e)
+	if e := codiceDi(t, err, CodiceStepSorgenteDiAltroProdotto, MotivoRiassociazione); e.AltroProdotto == nil || *e.AltroProdotto != s.altroFinito {
+		t.Fatalf("senza «Riassocia»: %+v", e)
 	}
 	if dopo := contiG39(t, p); dopo != prima {
 		t.Fatalf("il rifiuto ha scritto: %s -> %s", prima, dopo)
 	}
-	// anche con sposta_da la riassociazione vuole il motivo scritto (rilievo minore della revisione G39): la causa da sola no
-	_, err = s8(t, p, s, s.stepB, corpoStep(t, s, uuid.New(), regB, map[string]any{"sposta_da": s.altroFinito}), prepB)
-	codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, MotivoRiassociazione)
-	if dopo := contiG39(t, p); dopo != prima {
-		t.Fatalf("il rifiuto con sposta_da ha scritto: %s -> %s", prima, dopo)
-	}
-	es, err := s8(t, p, s, s.stepB, corpoStep(t, s, uuid.New(), regB, map[string]any{"motivo": "era stato assegnato ad ACM-6000 per errore"}), prepB)
+	// con sposta_da, senza motivo: la riassociazione, e la riga di S8 di ACM-1000 ha la traccia del gesto
+	es, err := s8(t, p, s, s.stepB, corpoStep(t, s, uuid.New(), regB, map[string]any{"sposta_da": s.altroFinito}), prepB)
 	if err != nil || es.Esito != EsitoCompletata || es.Spostamento == nil || es.Spostamento.Caso != CasoDocumento || es.Spostamento.RevocaEvento == nil ||
 		es.Spostamento.DocumentoID == nil || *es.Spostamento.DocumentoID != docB {
 		t.Fatalf("la riassociazione del documento: %+v %v", es, err)
@@ -267,9 +264,9 @@ func TestV1G39RiassociaDocumentoECopiaP1ConIlMotivo(t *testing.T) {
 	if n := sorgentiValide(t, p, s, s.shaB); n != 1 {
 		t.Fatalf("sorgenti valide: %d", n)
 	}
-	if n := conta(t, p, `SELECT count(*) FROM fonte_step_evento WHERE prodotto_id = $1 AND azione = 'conferma_documento' AND motivo = 'era stato assegnato ad ACM-6000 per errore'`,
-		s.prodotto); n != 1 {
-		t.Fatal("la riga di S8 di ACM-1000 (il motivo della riassociazione, senza causa: non e' il gesto «sposta»)")
+	if n := conta(t, p, `SELECT count(*) FROM fonte_step_evento WHERE prodotto_id = $1 AND azione = 'conferma_documento' AND motivo = $2`,
+		s.prodotto, "gesto di S8P da «Conferma la sorgente»: lo STEP «ACM-1000_revB.stp» è la sorgente di ACM-1000; lo STEP lascia ACM-6000"); n != 1 {
+		t.Fatal("la riga di S8 di ACM-1000 (la traccia della riassociazione, senza causa: non e' il gesto «sposta»)")
 	}
 
 	// (2) la copia P1: uno STEP nuovo pre-assegnato ad ACM-6000 dalle pagine di prima (proposta aperta con la copia, senza AR)
@@ -281,14 +278,13 @@ func TestV1G39RiassociaDocumentoECopiaP1ConIlMotivo(t *testing.T) {
 	prepP1 := Preparazione{Proposta: &distintabozza.PropostaCalcolata{Registro: regP1}}
 	ar0, ev0 := conta(t, p, `SELECT count(*) FROM file_rfq_associazione`), conta(t, p, `SELECT count(*) FROM associazione_evento`)
 	_, err = s8(t, p, s, stepP1, corpoStep(t, s, uuid.New(), regP1, nil), prepP1)
-	if e := codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, MotivoRiassociazione); e.AltroProdotto == nil || *e.AltroProdotto != s.altroFinito {
-		t.Fatalf("la copia P1 senza motivo: %+v", e)
+	if e := codiceDi(t, err, CodiceStepSorgenteDiAltroProdotto, MotivoRiassociazione); e.AltroProdotto == nil || *e.AltroProdotto != s.altroFinito {
+		t.Fatalf("la copia P1 senza «Riassocia»: %+v", e)
 	}
-	_, err = s8(t, p, s, stepP1, corpoStep(t, s, uuid.New(), regP1, map[string]any{"sposta_da": s.altroFinito}), prepP1)
-	codiceDi(t, err, distintabozza.CodiceMotivoObbligatorio, MotivoRiassociazione)
 	if n := conta(t, p, `SELECT count(*) FROM documento_proposta WHERE allegato_id = $1 AND componente_id = $2 AND stato = 'aperta'`, stepP1, s.altroFinito); n != 1 {
 		t.Fatal("il rifiuto ha toccato la copia")
 	}
+	// un client di prima: il motivo scritto, senza sposta_da, riassocia ancora
 	es, err = s8(t, p, s, stepP1, corpoStep(t, s, uuid.New(), regP1, map[string]any{"motivo": "pre-assegnato al prodotto sbagliato"}), prepP1)
 	if err != nil || es.Esito != EsitoCompletata || es.Spostamento == nil || es.Spostamento.Caso != CasoCopiaP1 || !es.Spostamento.CopiaTolta {
 		t.Fatalf("la riassociazione della copia P1: %+v %v", es, err)

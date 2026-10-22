@@ -7,12 +7,13 @@
 //     ne legge solo la base 9123456, quella del finito) non sono candidati univoci del finito: R2 salva la PB verso il
 //     nodo del sottoassieme 9123456-100 (200), R4 con il motore non la blocca, S9 non li propone come sorgente del finito
 //     e la candidatura non vale l'esenzione dal motivo in S8 (UnivocaDel falso);
-//   - TestV1G39terS8VuoleIlMotivoSuiNomiDelSottoassiemeDB (D-2 (c) [U], G39-02 [U]): gli stessi quattro nomi, con i fatti
-//     di uno STEP importabile con la radice 9123456A (l'anteprima di S8 vuole una struttura del prodotto: è anche la
-//     struttura propria, che con il nome del sottoassieme dà una candidatura non univoca) e la vecchia lettura del nome
-//     (documento_proposta.codice 9123456-100): S8 verso il finito 9123456A senza il motivo non si completa, il passo 2
-//     vuole il motivo (MOTIVO_OBBLIGATORIO); il riscontro: lo STEP «9123456-001.stp», candidato univoco, si conferma
-//     senza il motivo;
+//   - TestV1G39terS8SuiNomiDelSottoassiemeDB (D-2 (c) [U], G39-02 [U]; dal messaggio 46 [U] senza il motivo): gli stessi
+//     quattro nomi, con i fatti di uno STEP importabile con la radice 9123456A (l'anteprima di S8 vuole una struttura del
+//     prodotto: è anche la struttura propria, che con il nome del sottoassieme dà una candidatura non univoca) e la vecchia
+//     lettura del nome (documento_proposta.codice 9123456-100): S8 verso il finito 9123456A si completa senza il motivo
+//     dell'utente (prima: MOTIVO_OBBLIGATORIO nel passo 2), e la riga di S8 ha la traccia del gesto senza le evidenze del
+//     motore (la candidatura non è univoca); il riscontro: lo STEP «9123456-001.stp», candidato univoco, si conferma con la
+//     traccia e le evidenze;
 //   - TestV1G39terStrutturaPropriaColNomeDelFiglioDB (G39-02 [U]): lo STEP «9110001-100.stp» con una sua struttura con
 //     la radice del finito 9110001A e il sottoassieme 9110001-100 nella RFQ resta una candidatura del finito, non
 //     univoca (non un file ordinario);
@@ -188,7 +189,7 @@ func TestV1G39terD2cNomiSenzaSeparatoreDB(t *testing.T) {
 	}
 }
 
-func TestV1G39terS8VuoleIlMotivoSuiNomiDelSottoassiemeDB(t *testing.T) {
+func TestV1G39terS8SuiNomiDelSottoassiemeDB(t *testing.T) {
 	type caso struct {
 		nome, letto string
 		motivo      bool
@@ -228,14 +229,16 @@ func TestV1G39terS8VuoleIlMotivoSuiNomiDelSottoassiemeDB(t *testing.T) {
 				"impronta_contenuto": impronta})
 			resp, testo := s.ad.chiediJSON(http.MethodPost, base+"/sorgente/step/"+step.String()+"/conferma-sorgente", string(raw))
 			completata := resp.StatusCode == http.StatusOK && strings.Contains(testo, `"esito":"completata"`)
-			if c.motivo {
-				if completata || !strings.Contains(testo, distintabozza.CodiceMotivoObbligatorio) {
-					t.Errorf("S8 senza il motivo sullo STEP %s verso il finito 9123456A: atteso MOTIVO_OBBLIGATORIO, avuto %d %.1200s", c.nome, resp.StatusCode, testo)
-				}
-				return
+			if !completata || strings.Contains(testo, distintabozza.CodiceMotivoObbligatorio) {
+				t.Fatalf("S8 senza il motivo sullo STEP %s verso il finito 9123456A (messaggio 46 [U]): %d %.1200s", c.nome, resp.StatusCode, testo)
 			}
-			if !completata {
-				t.Errorf("S8 senza il motivo sullo STEP univoco %s (riscontro): %d %.1200s", c.nome, resp.StatusCode, testo)
+			var motivo string
+			if err := b.pool.QueryRow(b.ctx, `SELECT coalesce(motivo, '') FROM fonte_step_evento WHERE azione = 'conferma_documento' AND prodotto_id = $1`, fin).Scan(&motivo); err != nil {
+				t.Fatalf("la riga di S8: %v", err)
+			}
+			univoca := strings.Contains(motivo, "candidatura univoca dello STEP del finito")
+			if !strings.HasPrefix(motivo, "gesto di ") || !strings.Contains(motivo, "codice letto dal file «"+c.letto+"»") || univoca == c.motivo {
+				t.Errorf("la traccia del gesto nella riga di S8 dello STEP %s (univoca: %v): %q", c.nome, !c.motivo, motivo)
 			}
 		})
 	}

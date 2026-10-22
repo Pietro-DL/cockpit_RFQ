@@ -118,6 +118,12 @@ Le prove (DU-Bnn), in sequenza sulla stessa RFQ (ognuna parte dallo stato lascia
      preassociazione
   dal rilievo del revisore del 20/10: 67 (dopo la 66) CREA_SU_ESISTENTE con «Riusa ‹C›» e «Riusa i componenti con lo stesso
      codice (n)» (riusa_esistente con R2), «Togli il riuso» nel pannello
+  dal messaggio 48 [U] (UI46, corsia wizard): W1 (solo se scelta, su un banco suo) il wizard scorso a metà non torna in
+     cima con la rilettura in sottofondo, le preassociazioni senza la chiave del nodo, i testi senza apostrofi per accenti
+  dal controllo di stabilità del 21/10 (UI46 [U]): X1-X9 (solo se scelte, su un banco loro) S1 riletto ogni 5 s senza
+     ridisegnare, la ricerca che non perde tasti, l'elenco della Sorgente e il pannello del nodo che non tornano in cima
+     dopo un gesto, il fuoco che torna sulla scheda senza far saltare la pagina, la barra della selezione e la striscia
+     dell'esito che non spostano la tela, il fuoco dopo «Guarda l'anteprima» e dopo un dialogo con la pagina ridisegnata
   49 (per ultima: esce dalla sessione) all'uscita («esci» del layout) le chiavi cockpit.du. della memoria della scheda
      si tolgono sulla pagina d'accesso, quelle dell'editor subito, le altre restano (richiesta R-3 della corsia)
 
@@ -136,6 +142,8 @@ from playwright.sync_api import expect, sync_playwright
 
 PROVE = []
 T_BREVE = 6000
+# la Revisione senza bozza: «nessuna bozza» o, con una conferma, la BOM confermata in sola lettura (UI46, messaggio 47 [U])
+SENZA_BOZZA = "#du-nessuna-bozza, #du-working"
 T_LUNGO = 20000
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
@@ -343,12 +351,19 @@ class Banco:
         self.cartella("step")
         suf = sid(allegato) + ("" if not prodotto or prodotto == self.p1 else "-" + sid(prodotto))
         bt = self.page.locator("#du-guarda-" + suf).first
-        if bt.inner_text().startswith("In anteprima"):
+        if bt.inner_text().startswith("Chiudi l'anteprima"):
             # l'anteprima di questo STEP è già aperta (nel riquadro stretto): il gesto la chiude, il secondo la riapre allargata
             bt.click()
             expect(self.page.locator("#du-guarda-" + suf).first).to_contain_text("Guarda l'anteprima", timeout=T_BREVE)
         self.page.locator("#du-guarda-" + suf).first.click()
         expect(self.page.locator("#du-anteprima")).to_be_visible(timeout=T_LUNGO)
+
+    def altri_prodotti(self):
+        """Apre «Guardalo per un altro prodotto (n)» nel dettaglio di uno STEP (ripiegato dal messaggio 46, D27)."""
+        d = self.page.locator("#du-sg-dettaglio #du-sg-altri-prodotti")
+        expect(d).to_be_attached(timeout=T_LUNGO)
+        if d.get_attribute("open") is None:
+            d.locator("summary").click()
 
     def linguetta(self, nome):
         """La linguetta del pannello del nodo: «dettaglio» o «documenti» (MAT PN-02)."""
@@ -481,8 +496,11 @@ def b02(b):
     verifica(alt[0] <= alt[1] + 2, "la pagina scorre nella Sorgente: %s" % alt)
     a1 = b.al["ACM-1000_assieme.stp"]
     # SG-01: per ogni STEP le radici candidate, la compatibilità, lo stato della struttura (LS-01) e i nodi segnalati
-    expect(p.locator("#du-step-" + sid(a1))).to_contain_text("candidata ACM-1000 · compatibile · struttura completa · segnalati: 3")
-    expect(p.locator("#du-step-" + sid(b.al["ACM-1000_rev2.stp"]))).to_contain_text("candidata ACM-1000-R2")
+    # messaggio 46 (D47): nella riga la candidata in breve, la diagnostica del motore nel titolo
+    c1 = p.locator("#du-step-" + sid(a1) + " [data-du-candidata='%s']" % b.p1)
+    expect(c1).to_contain_text("candidata per ACM-1000 · compatibile")
+    verifica("struttura completa" in (c1.get_attribute("title") or "") and "segnalati: 3" in (c1.get_attribute("title") or ""), "la diagnostica della candidata non è nel titolo")
+    expect(p.locator("#du-step-" + sid(b.al["ACM-1000_rev2.stp"]) + " [data-du-radice='ACM-1000-R2']")).to_contain_text("candidata per ACM-1000")
     # «Da controllare» senza bozza: la fascia «Prima conferma una sorgente» (D-V5-01 A′)
     b.cartella("dc")
     expect(p.locator("#du-sg-prima-sorgente")).to_contain_text("Prima conferma una sorgente")
@@ -504,9 +522,9 @@ def b02(b):
     b.scheda("k-9")
     expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-9")
     expect(p.locator("#du-sez-proposta")).to_contain_text("400123")
-    expect(p.locator("#du-sez-proposta")).to_contain_text("partner:beta")
+    expect(p.locator("#du-sez-proposta")).to_contain_text("fornitore beta")
     expect(p.locator("#du-sez-riferimenti")).to_contain_text("documentale")
-    expect(p.locator("#du-sez-riferimenti")).to_contain_text("documentato_da")
+    expect(p.locator("#du-sez-riferimenti")).to_contain_text("documentato da")
     expect(p.locator("#du-sez-provenienza")).to_contain_text("ACM-1000_assieme.stp")
     verifica(p.locator("#du-sez-decisione").count() == 0, "nella Sorgente il pannello ha la decisione dell'ingegnere")
     verifica(b.indirizzo().get("nodo") == "k-9", "il nodo scelto non è nell'indirizzo: %s" % b.indirizzo())
@@ -608,13 +626,12 @@ def b62(b):
     p.click("#du-conferma-sorgente")
     expect(b.finestra()).to_contain_text("riconcilia la bozza senza STEP", timeout=T_LUNGO)
     expect(p.locator("#f-effetto")).to_contain_text("nodi che entrano")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "arriva lo STEP del cliente")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     b.ok_finestra()
     expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
     c = b.corpi(i, "POST", r"/conferma-sorgente$")[0]
     verifica(c["bozza"]["versione_attesa"] == 4 and c["codice_atteso"] == "ACM-1000" and c.get("sha256") and c["gruppo"].startswith("cand:") and "partenza" not in c
-             and "componente_atteso" not in c and c["motivo"], "corpo di S8 sulla bozza senza STEP: %s" % c)
+             and "componente_atteso" not in c and "motivo" not in c, "corpo di S8 sulla bozza senza STEP: %s" % c)
     s6 = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
     verifica(s6 and "bozza=" in s6[-1]["query"], "l'effetto non è stato letto con S6 ?bozza=: %s" % [r["query"] for r in s6])
     expect(b.avviso()).to_contain_text("Abbinamenti da decidere nella Revisione: 1")
@@ -687,14 +704,13 @@ def b62(b):
     expect(p.locator("#f-revoca-bozza")).to_have_attribute("data-nata", "1")
     expect(p.locator("#f-revoca-bozza")).to_contain_text("la revoca annulla la bozza")
     verifica("non cambia la BOM confermata, la bozza" not in b.finestra().inner_text(), "il dialogo della revoca dice ancora che la bozza non cambia")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "STEP del prodotto sbagliato")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     i = b.segna()
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Sorgente revocata per ACM-1000", timeout=T_LUNGO)
-    expect(b.avviso()).to_contain_text("la bozza nata da questo STEP è annullata")
+    expect(b.avviso()).to_contain_text("bozza nata da questo STEP è annullata")
     rv = b.corpi(i, "POST", r"/sorgente/step/[^/]+/revoca-sorgente$")
-    verifica(len(rv) == 1 and rv[0]["prodotto_id"] == b.p1 and rv[0]["motivo"] == "STEP del prodotto sbagliato" and re.fullmatch(UUID, rv[0]["chiave_idempotenza"])
+    verifica(len(rv) == 1 and rv[0]["prodotto_id"] == b.p1 and "motivo" not in rv[0] and re.fullmatch(UUID, rv[0]["chiave_idempotenza"])
              and rv[0].get("sorgente_errata") is True and rv[0].get("bozza") == {"bozza_id": b.stato()["bozze"][b.p1]["bozza_id"], "versione_attesa": 7}
              and ("/step/%s/" % a1) in b.richieste_da(i, "POST", r"/revoca-sorgente$")[0]["path"], "corpo della revoca: %s" % rv)
     verifica(not b.richieste_da(i, "POST", r"/step-strutturale"), "la revoca è passata dall'atto legacy")
@@ -721,7 +737,7 @@ def b62(b):
         b.page.request.post(b.url + "/__banco/analisi-step", data=json.dumps({"nome": "ACM-1000_rev2.stp", "stato": "letto"}), headers={"Content-Type": "application/json"})
     # 9. lo stato delle prove che seguono: la bozza abbandonata (dalla revoca, G39-03), la sorgente revocata
     b.passo("revisione")
-    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator(SENZA_BOZZA)).to_be_visible(timeout=T_LUNGO)
     expect(p.locator("#du-da-vuota")).to_be_enabled()
     p.click("#du-aggiorna")
     expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
@@ -736,6 +752,10 @@ def b68(b):
     pdf = b.al["ACM-1100_A.pdf"]
     if p.locator("#du-anteprima-chiudi").count():
         p.click("#du-anteprima-chiudi")
+    # la proposta come prima di ogni S8: la sequenza arriva qui con la sorgente di ACM-1000 revocata (DU-B62), e dopo il
+    # messaggio 46 [U] per uno STEP revocato la pagina mostra lo stato della revoca, non la domanda «lo confermi?» (DU-B72)
+    r = p.request.post(b.url + "/__banco/sorgente-s8-da-parte", data=json.dumps({"prodotto": b.p1}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 204, "la sonda sorgente-s8-da-parte ha risposto %d" % r.status)
     b.interruttore("step-proposto", True)
     try:
         p.click("#du-aggiorna")
@@ -813,9 +833,10 @@ def b68(b):
         # si torna allo stato delle prove che seguono: la bozza abbandonata, l'interruttore spento
         p.click("#du-abbandona")
         b.ok_finestra()
-        expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+        expect(p.locator(SENZA_BOZZA)).to_be_visible(timeout=T_LUNGO)
     finally:
         b.interruttore("step-proposto", False)
+        p.request.post(b.url + "/__banco/sorgente-s8-da-parte", data=json.dumps({"prodotto": b.p1, "rimetti": True}), headers={"Content-Type": "application/json"})
     p.click("#du-aggiorna")
     expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
     expect(p.locator("#du-step-proposto-rev")).to_have_count(0)
@@ -825,8 +846,11 @@ def b68(b):
 
 # DU-B69 e DU-B70 girano solo se scelte (--prove 69, --prove 70), ciascuna su un banco suo: TestDistintaUnicaG39NelBrowser
 # (lo spostamento cambia le sorgenti dei due prodotti, che le prove della sequenza lunga non si aspettano) e
-# TestDistintaUnicaG39ProvenienzaNelBrowser (parte da un banco senza bozze)
-SOLO_SE_SCELTE = {"69", "70"}
+# TestDistintaUnicaG39ProvenienzaNelBrowser (parte da un banco senza bozze); DU-BW1 solo con --prove W1, su un banco suo:
+# TestDistintaUnicaWizardScorrimentoNelBrowser (UI46, messaggio 48); DU-BX1…DU-BX9 solo con --prove X1,…,X9, su un banco
+# loro: TestDistintaUnicaStabilitaNelBrowser (UI46, controllo di stabilità del 21/10); DU-BX10…DU-BX13 (secondo giro del
+# controllo) e DU-BX14 (seconda rimisura: la barra in fondo durante il salvataggio) con loro
+SOLO_SE_SCELTE = {"69", "70", "71", "72", "73", "74", "75", "W1", "X1", "X2", "X3", "X4", "X5", "X6", "X7", "X8", "X9", "X10", "X11", "X12", "X13", "X14"}
 
 
 @prova("69", "G39-03 [U]: lo STEP della BOM confermato per errore come sorgente di ACM-2000: S8 su ACM-1000 rifiutato (sorgente_spostabile) con il rimedio «Sposta la sorgente su ACM-1000…»; con la BOM di ACM-2000 confermata rifiuto bom_confermata con «Apri la revisione di ACM-2000»; la proposta con sorgente_di e lo spostamento (sposta_da, la revoca «sorgente errata» e la bozza annullata di là); «Usa nuovo STEP…» con la correzione della sorgente dichiarata e il segno nel riepilogo; la revoca che annulla la bozza nata dallo STEP")
@@ -858,14 +882,13 @@ def b69(b):
     verifica(b.stato()["s8"][b.p2]["valida"] is True and b.stato()["bozze"][b.p2]["stato"] == "aperta", "il rifiuto ha scritto")
     c0 = b.corpi(i, "POST", r"/conferma-sorgente$")
     verifica(len(c0) == 1 and "sposta_da" not in c0[0], "S8 senza il gesto ha mandato sposta_da: %s" % c0)
-    # 3. il rimedio apre il dialogo dello spostamento: la spiegazione, il motivo obbligatorio
+    # 3. il rimedio apre il dialogo dello spostamento: la spiegazione, nessun motivo (messaggio 46 [U])
     p.click("#f-rimedio-sposta")
     expect(b.finestra()).to_contain_text("Sposta la sorgente su ACM-1000", timeout=T_LUNGO)
     expect(p.locator("#f-sposta")).to_have_attribute("data-sposta-da", b.p2)
-    expect(p.locator("#f-sposta")).to_contain_text("revoca la sorgente di ACM-2000 con il motivo «sorgente errata»")
+    expect(p.locator("#f-sposta")).to_contain_text("revoca la sorgente di ACM-2000 come «sorgente errata»")
     expect(p.locator("#f-sposta")).to_contain_text("annulla la bozza di ACM-2000")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "lo STEP della BOM è di ACM-1000, non di ACM-2000")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     # 4. ACM-2000 ha già confermato la BOM con quello STEP: 422 bom_confermata, niente spostamento, il rimedio della revisione
     b.interruttore("bom-confermata-altro", True)
     try:
@@ -874,7 +897,7 @@ def b69(b):
         expect(p.locator("#du-finestra-errore")).to_contain_text("è nella BOM confermata di ACM-2000", timeout=T_LUNGO)
         expect(p.locator("#f-rimedio-revisione")).to_contain_text("Apri la revisione di ACM-2000")
         c1 = b.corpi(i, "POST", r"/conferma-sorgente$")
-        verifica(len(c1) == 1 and c1[0].get("sposta_da") == b.p2 and c1[0].get("motivo"), "corpo dello spostamento: %s" % c1)
+        verifica(len(c1) == 1 and c1[0].get("sposta_da") == b.p2 and "motivo" not in c1[0], "corpo dello spostamento: %s" % c1)
         verifica(b.stato()["s8"][b.p2]["valida"] is True and b.stato()["bozze"][b.p2]["stato"] == "aperta", "bom_confermata ha scritto")
         p.click("#f-rimedio-revisione")
         expect(b.finestra()).to_be_hidden(timeout=T_BREVE)
@@ -901,12 +924,11 @@ def b69(b):
     i = b.segna()
     p.click("#du-conferma-proposto-sg")
     expect(b.finestra()).to_contain_text("Sposta la sorgente su ACM-1000", timeout=T_LUNGO)
-    p.fill("#f-motivo", "lo STEP della BOM è di ACM-1000, non di ACM-2000")
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Spostamento:", timeout=T_LUNGO)
     expect(b.avviso()).to_contain_text("bozza di ACM-2000 annullata")
     c2 = b.corpi(i, "POST", r"/conferma-sorgente$")
-    verifica(len(c2) == 1 and c2[0].get("sposta_da") == b.p2 and c2[0].get("motivo") == "lo STEP della BOM è di ACM-1000, non di ACM-2000" and "correzione_sorgente" not in c2[0],
+    verifica(len(c2) == 1 and c2[0].get("sposta_da") == b.p2 and "motivo" not in c2[0] and "correzione_sorgente" not in c2[0],
              "corpo dello spostamento: %s" % c2)
     st = b.stato()
     verifica(st["s8"][b.p2]["valida"] is False and st["s8"][b.p2].get("causa") == "sorgente_errata" and st["bozze"][b.p2]["stato"] == "abbandonata"
@@ -922,7 +944,6 @@ def b69(b):
     expect(p.locator("#f-correzione")).not_to_be_checked()
     expect(p.locator("#f-correzione-riga")).to_contain_text("una revisione interna, non una revisione del cliente")
     p.check("#f-correzione")
-    p.fill("#f-motivo", "lo STEP di prima era sbagliato")
     i = b.segna()
     b.ok_finestra()
     expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
@@ -941,10 +962,9 @@ def b69(b):
         p.click("#du-sg-prodotto-apri")
     p.click("#du-revoca-sorgente")
     expect(p.locator("#f-revoca-bozza")).to_have_attribute("data-nata", "1", timeout=T_LUNGO)
-    p.fill("#f-motivo", "anche questo STEP è sbagliato")
     i = b.segna()
     b.ok_finestra()
-    expect(b.avviso()).to_contain_text("la bozza nata da questo STEP è annullata", timeout=T_LUNGO)
+    expect(b.avviso()).to_contain_text("bozza nata da questo STEP è annullata", timeout=T_LUNGO)
     rv = b.corpi(i, "POST", r"/revoca-sorgente$")
     verifica(len(rv) == 1 and rv[0].get("sorgente_errata") is True and rv[0].get("bozza", {}).get("bozza_id") == b.stato()["bozze"][b.p1]["bozza_id"], "corpo della revoca: %s" % rv)
     verifica(b.stato()["bozze"][b.p1]["stato"] == "abbandonata", "la revoca non ha annullato la bozza nata dalla sorgente")
@@ -1095,6 +1115,848 @@ def b70(b):
     verifica(pb[0].get("provenienza") == "manuale" and not pb[0].get("importazione"), "la PB legacy spostata non è «manuale»: %s" % pb)
 
 
+def testi_grezzi_wizard(p, chiavi):
+    """UI46 [U] (messaggio 48): i testi del wizard che chi legge non deve vedere: le chiavi interne dei nodi, gli UUID,
+    null, undefined, NaN, [object Object] e gli apostrofi al posto degli accenti («finche'», «e'», «gia'»)."""
+    t = p.locator("#du-wizard").inner_text()
+    out = []
+    for k in sorted(set(chiavi)):
+        if re.search(r"(?<![\w-])" + re.escape(k) + r"(?![\w-])", t):
+            out.append("chiave " + k)
+    for nome, pat in (("UUID", UUID), ("null", r"\bnull\b"), ("undefined", r"\bundefined\b"), ("NaN", r"\bNaN\b"), ("[object Object]", r"\[object Object\]"),
+                      ("apostrofo per accento", r"[A-Za-z][aeiouAEIOU]'(?=[\s.,;:)»]|$)"), ("e' per è", r"(?<![A-Za-z'])[eE]'(?=\s)")):
+        m = re.search(pat, t)
+        if m:
+            out.append("%s: «…%s…»" % (nome, t[max(0, m.start() - 40):m.end() + 20].replace("\n", " ")))
+    return out
+
+
+@prova("W1", "UI46 [U] (messaggio 48): il wizard aperto e scorso a metà non torna in cima né si ridisegna con la rilettura in sottofondo (R1 ?ingressi=1); una notifica nuova e la presa d'atto tengono scorrimento e fuoco; le preassociazioni mostrano codice e descrizione, mai la chiave del nodo, e i testi non hanno apostrofi al posto degli accenti")
+def bW1(b):
+    p = b.page
+    a1 = b.al["ACM-1000_assieme.stp"]
+    a2 = b.al["ACM-1100_A.pdf"]
+    a3 = b.al["ACM-1120_B.pdf"]
+    # la bozza dallo STEP confermato (S8) e due preassociazioni accettate dalla proposta (Elenco), come DU-B70
+    b.guarda(a1)
+    expect(p.locator("#du-conferma-sorgente")).to_be_enabled(timeout=T_LUNGO)
+    p.click("#du-conferma-sorgente")
+    b.ok_finestra()
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    b.passo("revisione")
+    b.vista("elenco")
+    p.click("#du-accetta-" + sid(a2))
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    p.click("#du-accetta-" + sid(a3))
+    b.attendi(lambda: {d["allegato_id"] for d in b.stato()["bozze"][b.p1]["snapshot"].get("documenti_preassociati", [])} >= {a2, a3}, "le preassociazioni accettate non sono salvate")
+    expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+    b.vista("org")
+    chiavi = [n["chiave_bozza"] for n in b.stato()["bozze"][b.p1]["snapshot"]["nodi"]]
+    p.set_viewport_size({"width": 1024, "height": 640})
+    try:
+        b.apri_wizard()
+        grezzi = testi_grezzi_wizard(p, chiavi)
+        verifica(not grezzi, "fase 1 del wizard con testi grezzi: %s" % grezzi)
+        p.click("#du-wz-fase2")
+        riga = p.locator("#du-wz-documenti [data-du-pb='%s']" % a2)
+        expect(riga).to_be_visible(timeout=T_LUNGO)
+        # la riga della preassociazione: il codice del pezzo (ACM-1100) e la sua descrizione, non «(k-7)»
+        verifica("ACM-1100" in riga.inner_text(), "la preassociazione non nomina il codice del pezzo: %r" % riga.inner_text())
+        grezzi = testi_grezzi_wizard(p, chiavi)
+        b.foto("BW1_wizard_fase2.png")
+        riga.scroll_into_view_if_needed()
+        b.foto("BW1_preassociazioni.png")
+        verifica(not grezzi, "fase 2 del wizard con testi grezzi: %s" % grezzi)
+        # lo scorrimento a metà del corpo del wizard; un segno sull'elemento dice se viene ridisegnato
+        corpo = p.locator("#du-wz-corpo")
+        alto = corpo.evaluate("c => { c.__segnoUI46 = 1; c.scrollTop = Math.round((c.scrollHeight - c.clientHeight) / 2); return c.scrollTop; }")
+        verifica(alto > 50, "il corpo del wizard non scorre a 1024×640 (scrollTop %s): la prova non prova niente" % alto)
+        # la rilettura in sottofondo con il wizard aperto (R1 ?ingressi=1, ogni 10 s) non cambia niente: il wizard resta com'è
+        i = b.segna()
+        b.attendi(lambda: [x for x in b.richieste_da(i, "GET", r"/motore-a/bozza$") if "ingressi=1" in x["query"]], "nessuna rilettura R1 ?ingressi=1 con il wizard aperto", ms=25000)
+        p.wait_for_timeout(800)
+        st = corpo.evaluate("c => ({ top: c.scrollTop, segno: c.__segnoUI46 === 1 })")
+        b.foto("BW1_dopo_rilettura.png")
+        verifica(abs(st["top"] - alto) <= 2, "la rilettura in sottofondo ha spostato lo scorrimento del wizard: da %s a %s" % (alto, st["top"]))
+        verifica(st["segno"], "la rilettura in sottofondo ha ridisegnato il wizard senza che niente cambiasse")
+        # un documento nuovo in analisi (N1): il wizard si ridisegna con la notifica, lo scorrimento non torna in cima
+        r = p.request.post(b.url + "/__banco/documento-nuovo", data=json.dumps({"nome": "ACM-NOTA_W1.pdf"}), headers={"Content-Type": "application/json"})
+        verifica(r.status == 200, "la sonda non ha aggiunto il documento: %d" % r.status)
+        expect(p.locator("#du-wz-n1")).to_contain_text("ACM-NOTA_W1.pdf", timeout=25000)
+        top = p.locator("#du-wz-corpo").evaluate("c => c.scrollTop")
+        verifica(top >= alto - 2, "con la notifica N1 il wizard è tornato su: scrollTop %s, prima %s" % (top, alto))
+        # la presa d'atto spuntata da tastiera: il wizard si ridisegna, scorrimento e fuoco restano
+        p.focus("#du-wz-presa-analisi")
+        alto = p.locator("#du-wz-corpo").evaluate("c => { c.scrollTop = Math.round((c.scrollHeight - c.clientHeight) / 2); return c.scrollTop; }")
+        p.keyboard.press("Space")
+        expect(p.locator("#du-wz-presa-analisi")).to_be_checked()
+        st = p.evaluate("() => ({ top: document.querySelector('#du-wz-corpo').scrollTop, fuoco: document.activeElement && document.activeElement.id })")
+        verifica(abs(st["top"] - alto) <= 2, "la presa d'atto ha spostato lo scorrimento del wizard: da %s a %s" % (alto, st["top"]))
+        verifica(st["fuoco"] == "du-wz-presa-analisi", "la presa d'atto ha perso il fuoco: %r" % st["fuoco"])
+        # cambiare fase riporta in cima (è un'altra pagina del wizard)
+        p.click("#du-wz-fase1")
+        verifica(p.locator("#du-wz-corpo").evaluate("c => c.scrollTop") == 0, "la fase 1 non parte dall'inizio")
+        p.request.post(b.url + "/__banco/analisi-conclusa", data=json.dumps({"nome": "ACM-NOTA_W1.pdf", "cambia": False}), headers={"Content-Type": "application/json"})
+        p.click("#du-wz-chiudi")
+        expect(p.locator("#du-wizard")).to_be_hidden()
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+# ---------------------------------------------------------------- UI46, controllo di stabilità del 21/10 (X1-X6)
+# «Controlla che l'UI non abbia problemi come "rileggeva i dati ogni 5-10 secondi" o problemi che quando si clicca un box
+# o bottone la UI fa dei refresh che spostano la pagina» [U]. Una prova per ogni difetto trovato dai controllori
+# sull'anteprima 2cedb10 (S1, S2, S3, R2 e i minori): ognuna misura scorrimento, fuoco e ridisegni prima e dopo il gesto,
+# con clic veri del mouse sulle coordinate (senza lo scorrimento automatico di Playwright, che sporcherebbe la misura).
+# Girano solo se scelte (--prove X1,...), in quest'ordine, su un banco loro: TestDistintaUnicaStabilitaNelBrowser.
+
+SONDA_X = r"""() => {
+  const c = document.querySelector('#du-corpo');
+  if (!c) return false;
+  if (window.__x) window.__x.oss.disconnect();
+  const x = window.__x = { ridisegni: 0, oss: null };
+  x.oss = new MutationObserver((ms) => { for (const m of ms) if (m.type === 'childList' && (m.addedNodes.length || m.removedNodes.length)) x.ridisegni++; });
+  x.oss.observe(c, { childList: true });
+  return true;
+}"""
+
+
+def x_sonda(p):
+    verifica(p.evaluate(SONDA_X), "la sonda dei ridisegni non trova #du-corpo")
+
+
+def x_ridisegni(p):
+    return p.evaluate("() => window.__x ? window.__x.ridisegni : -1")
+
+
+def x_top(p, sel):
+    return p.evaluate("(s) => { const e = document.querySelector(s); return e ? Math.round(e.scrollTop) : null; }", sel)
+
+
+def x_meta(p, sel, minimo=40):
+    """Porta a metà lo scorrimento del riquadro sel; la prova non prova niente se il riquadro non scorre."""
+    r = p.evaluate("(s) => { const e = document.querySelector(s); if (!e) return null; const max = e.scrollHeight - e.clientHeight;"
+                   " e.scrollTop = Math.round(max / 2); return { top: Math.round(e.scrollTop), max }; }", sel)
+    verifica(r is not None, "%s non c'è" % sel)
+    verifica(r["max"] >= minimo, "%s non scorre abbastanza (max %s): la prova non prova niente" % (sel, r["max"]))
+    p.wait_for_timeout(150)
+    return r["top"]
+
+
+def x_fuoco(p):
+    return p.evaluate("() => { const a = document.activeElement; return a && a !== document.body ? (a.id || a.tagName) : 'BODY'; }")
+
+
+def x_y(p, sel):
+    return p.evaluate("(s) => { const e = document.querySelector(s); return e ? Math.round(e.getBoundingClientRect().top) : null; }", sel)
+
+
+def x_ancora(p, sel, filtro="[id]"):
+    """La prima riga o sezione con un id che comincia dentro il riquadro sel (sotto la testata appiccicata dell'elenco):
+    il punto che chi legge sta guardando."""
+    return p.evaluate("""([s, f]) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect();
+      const t = e.querySelector('.du-sg-elenco-t'); const su = b.top + (t ? t.getBoundingClientRect().height : 0);
+      for (const x of e.querySelectorAll(f)) { if (x.closest('.du-sg-elenco-t')) continue; const r = x.getBoundingClientRect();
+        if (r.height && r.top >= su && r.bottom <= b.bottom) return x.id; } return null; }""", [sel, filtro])
+
+
+def x_y_id(p, ident):
+    return p.evaluate("(i) => { const e = document.getElementById(i); return e ? Math.round(e.getBoundingClientRect().top) : null; }", ident)
+
+
+def x_fermo(p, sel, fai, cosa, filtro="[id]"):
+    """Il gesto fai non sposta quello che si vede nel riquadro sel (scorso a metà prima): l'ancora resta alla stessa
+    altezza sullo schermo e il riquadro non torna in cima."""
+    alto = x_meta(p, sel)
+    anc = x_ancora(p, sel, filtro)
+    verifica(anc, "nessuna ancora con un id in vista in %s" % sel)
+    y0 = x_y_id(p, anc)
+    fai()
+    p.wait_for_timeout(400)
+    y1 = x_y_id(p, anc)
+    top = x_top(p, sel)
+    verifica(y1 is not None and abs(y1 - y0) <= 2 and (top or 0) > 0,
+             "%s ha spostato %s: %s da y %s a %s, scrollTop da %s a %s" % (cosa, sel, anc, y0, y1, alto, top))
+    return anc
+
+
+def x_clic(p, sel, **kw):
+    """Clic vero del mouse al centro dell'elemento, che deve essere già nel riquadro."""
+    bb = p.locator(sel).first.bounding_box()
+    vh = p.viewport_size["height"]
+    verifica(bb is not None and bb["y"] >= 0 and bb["y"] + bb["height"] <= vh, "%s non è nel riquadro (%s)" % (sel, bb))
+    p.mouse.click(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2, **kw)
+
+
+def x_riga_visibile(p, escludi=()):
+    """Una riga dell'elenco della Sorgente tutta visibile nel riquadro dell'elenco, sotto la testata appiccicata."""
+    return p.evaluate("""(escludi) => {
+      const box = document.querySelector('#du-sg-elenco'); if (!box) return null;
+      const b = box.getBoundingClientRect(); const t = box.querySelector('.du-sg-elenco-t');
+      const su = b.top + (t ? t.getBoundingClientRect().height : 0) + 4;
+      const righe = [...box.querySelectorAll('[role=row][id^=du-file-]')].filter((r) => !escludi.includes(r.id));
+      const vis = righe.filter((r) => { const q = r.getBoundingClientRect(); return q.top >= su && q.bottom <= b.bottom - 4; });
+      return vis.length ? vis[Math.floor(vis.length / 2)].id : null; }""", list(escludi))
+
+
+def x_in_analisi(b, nome):
+    """Un PDF nuovo in analisi (sonda documento-nuovo) e la pagina riletta: S1 si rilegge ogni 5 s finché resta in analisi."""
+    p = b.page
+    r = p.request.post(b.url + "/__banco/documento-nuovo", data=json.dumps({"nome": nome}), headers={"Content-Type": "application/json"})
+    verifica(r.status == 200, "la sonda non ha aggiunto il documento: %d" % r.status)
+    b.apri()
+    if p.locator("#du-passo-sorgente[aria-current=step]").count() == 0:
+        b.passo("sorgente")
+    i = b.segna()
+    b.attendi(lambda: [x for x in b.richieste_da(i, "GET", r"/sorgente$") if "scartati" in x["query"]], "S1 non si rilegge con un file in analisi", ms=15000)
+
+
+def x_conclusa(b, nome):
+    b.page.request.post(b.url + "/__banco/analisi-conclusa", data=json.dumps({"nome": nome, "cambia": False}), headers={"Content-Type": "application/json"})
+
+
+def x_bozza(b):
+    """La Revisione con la bozza dallo STEP confermato (S8), come DU-BW1; la crea solo se non c'è."""
+    p = b.page
+    if not b.stato()["bozze"].get(b.p1):
+        b.guarda(b.al["ACM-1000_assieme.stp"])
+        expect(p.locator("#du-conferma-sorgente")).to_be_enabled(timeout=T_LUNGO)
+        p.click("#du-conferma-sorgente")
+        b.ok_finestra()
+        expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    if p.locator("#du-passo-revisione[aria-current=step]").count() == 0:
+        b.passo("revisione")
+    b.vista("org")
+    expect(p.locator("#nc-k-12")).to_be_visible(timeout=T_LUNGO)
+
+
+@prova("X1", "UI46 [U] (stabilità, S1): con un file in analisi S1 si rilegge ogni 5 s per 60 s senza ridisegnare la Sorgente: l'elenco scorso a metà resta dov'è e il fuoco resta sulla riga")
+def bX1(b):
+    p = b.page
+    nome = "ACM-NOTA_X1.pdf"
+    p.set_viewport_size({"width": 1280, "height": 600})
+    try:
+        x_in_analisi(b, nome)
+        b.cartella("tutti")
+        p.wait_for_timeout(300)
+        alto = x_meta(p, "#du-sg-elenco")
+        riga = x_riga_visibile(p)
+        verifica(riga, "nessuna riga visibile nell'elenco scorso")
+        p.evaluate("(id) => document.getElementById(id).focus({ preventScroll: true })", riga)
+        alto = x_top(p, "#du-sg-elenco")
+        x_sonda(p)
+        i = b.segna()
+        p.wait_for_timeout(60000)
+        letture = [x for x in b.richieste_da(i, "GET", r"/sorgente$") if "scartati" in x["query"]]
+        n = x_ridisegni(p)
+        top = x_top(p, "#du-sg-elenco")
+        fuoco = x_fuoco(p)
+        b.foto("BX1_dopo_60s.png")
+        verifica(len(letture) >= 10, "in 60 s S1 si è riletto %d volte: il ciclo di 5 s non gira, la prova non prova niente" % len(letture))
+        verifica(n == 0, "in 60 s con %d riletture di S1 senza cambiamenti la Sorgente si è ridisegnata %d volte" % (len(letture), n))
+        verifica(abs(top - alto) <= 2, "l'elenco scorso a metà si è spostato da solo: scrollTop da %s a %s" % (alto, top))
+        verifica(fuoco == riga, "il fuoco non è più sulla riga %s: %s" % (riga, fuoco))
+        # la fine dell'analisi cambia la firma di S1: un ridisegno (voluto), l'elenco resta nella stessa cartella e dov'era
+        riga_nuova = p.locator("#du-sg-elenco [role=row][data-allegato]", has_text=nome)
+        verifica(riga_nuova.count() == 1 and "in analisi" in riga_nuova.inner_text(), "la riga di %s non dice «in analisi»: %r" % (nome, riga_nuova.inner_text() if riga_nuova.count() else None))
+        x_conclusa(b, nome)
+        b.attendi(lambda: x_ridisegni(p) > 0, "la fine dell'analisi non ha ridisegnato la Sorgente", ms=15000)
+        p.wait_for_timeout(1200)
+        top = x_top(p, "#du-sg-elenco")
+        verifica(abs(top - alto) <= 2, "alla fine dell'analisi l'elenco è tornato su: scrollTop da %s a %s" % (alto, top))
+        # e quello che si vede è aggiornato: la riga non è più in analisi e «Dal sistema» lo dice
+        b.attendi(lambda: "in analisi" not in riga_nuova.inner_text(), "alla fine dell'analisi la riga di %s dice ancora «in analisi»" % nome, ms=8000)
+        sis = p.locator("#du-sg-sistema").inner_text()
+        verifica(nome in sis and "letto dal Motore A" in sis, "«Dal sistema» non dice che %s è stato letto: %r" % (nome, sis))
+    finally:
+        x_conclusa(b, nome)
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X2", "UI46 [U] (stabilità, S1): con un file in analisi la ricerca della Sorgente scritta con la tastiera non perde tasti né il fuoco quando S1 si rilegge fra un tasto e l'altro")
+def bX2(b):
+    p = b.page
+    nome = "ACM-NOTA_X2.pdf"
+    p.set_viewport_size({"width": 1280, "height": 600})
+    try:
+        x_in_analisi(b, nome)
+        testo = "ACM-1100"
+        c = p.locator("#du-sg-cerca")
+        c.click()
+        c.fill("")
+        x_sonda(p)
+        i = b.segna()
+        # i primi tasti, ciascuno seguito da una rilettura di S1 (il ciclo di 5 s) prima del tasto dopo; poi gli altri,
+        # uno ogni 1,2 s come chi scrive piano
+        for n, t in enumerate(testo):
+            p.keyboard.type(t)
+            if n < 3:
+                p.wait_for_timeout(400)
+                k = len([x for x in b.richieste_da(i, "GET", r"/sorgente$") if "scartati" in x["query"]])
+                b.attendi(lambda: len([x for x in b.richieste_da(i, "GET", r"/sorgente$") if "scartati" in x["query"]]) > k, "S1 non si rilegge durante la digitazione", ms=12000)
+                p.wait_for_timeout(500)
+            else:
+                p.wait_for_timeout(1200)
+        letture = [x for x in b.richieste_da(i, "GET", r"/sorgente$") if "scartati" in x["query"]]
+        valore = p.locator("#du-sg-cerca").input_value()
+        fuoco = x_fuoco(p)
+        b.foto("BX2_ricerca.png")
+        verifica(valore == testo, "la ricerca ha perso dei tasti: «%s» invece di «%s» (%d riletture di S1, %d ridisegni)" % (valore, testo, len(letture), x_ridisegni(p)))
+        verifica(fuoco == "du-sg-cerca", "la ricerca ha perso il fuoco: %s" % fuoco)
+        p.keyboard.press("Escape")
+    finally:
+        x_conclusa(b, nome)
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X3", "UI46 [U] (stabilità, S3): nella Sorgente scegliere un file, spuntarlo, «Togli le spunte» e «+ Aggiungi file» nella stessa cartella non spostano l'elenco; la riga scelta resta in vista e il fuoco resta; un'altra cartella riparte dall'inizio")
+def bX3(b):
+    p = b.page
+    el = "#du-sg-elenco"
+    righe = "[role=row][id^=du-file-]"
+    p.set_viewport_size({"width": 1280, "height": 600})
+    try:
+        b.apri()
+        if p.locator("#du-passo-sorgente[aria-current=step]").count() == 0:
+            b.passo("sorgente")
+        b.cartella("tutti")
+        p.wait_for_timeout(300)
+        # scegliere un file a metà dell'elenco: la riga scelta resta dov'è, in vista, con il fuoco
+        stato = {}
+
+        def scegli():
+            stato["riga"] = x_riga_visibile(p)
+            x_clic(p, "#%s .du-fr-nome" % stato["riga"])
+            expect(p.locator("#du-sg-file")).to_have_attribute("data-allegato", p.locator("#" + stato["riga"]).get_attribute("data-allegato"), timeout=T_BREVE)
+        x_fermo(p, el, scegli, "scegliere un file", righe)
+        riga = stato["riga"]
+        vis = p.evaluate("(id) => { const r = document.getElementById(id).getBoundingClientRect(); const b = document.querySelector('#du-sg-elenco').getBoundingClientRect(); return r.top >= b.top && r.bottom <= b.bottom; }", riga)
+        b.foto("BX3_scelta.png")
+        verifica(vis, "la riga scelta %s è fuori vista" % riga)
+        verifica(x_fuoco(p) == riga, "dopo la scelta il fuoco non è sulla riga: %s" % x_fuoco(p))
+
+        # spuntare un'altra riga (compare la barra delle azioni di gruppo)
+        def spunta():
+            stato["altra"] = x_riga_visibile(p, escludi=(riga,))
+            x_clic(p, "#%s .du-sg-spunta" % stato["altra"])
+            expect(p.locator("#%s .du-sg-spunta" % stato["altra"])).to_be_checked()
+        x_fermo(p, el, spunta, "la spunta", righe)
+        altra = stato["altra"]
+        b.foto("BX3_spunta.png")
+        verifica(x_fuoco(p) == altra + "-spunta", "dopo la spunta il fuoco non è sulla casella: %s" % x_fuoco(p))
+
+        # una seconda spunta: il dettaglio mostra la selezione con le sue azioni
+        def spunta2():
+            stato["terza"] = x_riga_visibile(p, escludi=(riga, altra))
+            x_clic(p, "#%s .du-sg-spunta" % stato["terza"])
+            expect(p.locator("#%s .du-sg-spunta" % stato["terza"])).to_be_checked()
+        x_fermo(p, el, spunta2, "la seconda spunta", righe)
+
+        # «Togli le spunte» (dal dettaglio, dove la selezione è in vista)
+        def togli():
+            x_clic(p, "#du-sg-togli-spunte-d")
+            expect(p.locator("#%s .du-sg-spunta" % altra)).not_to_be_checked()
+        x_fermo(p, el, togli, "«Togli le spunte»", righe)
+
+        # «+ Aggiungi file» aperto e chiuso
+        def aggiungi():
+            x_clic(p, "#du-sg-aggiungi")
+            expect(p.locator("#du-carica-file")).to_be_attached(timeout=T_BREVE)
+            x_clic(p, "#du-sg-aggiungi")
+            expect(p.locator("#du-carica-file")).to_have_count(0)
+        x_fermo(p, el, aggiungi, "«+ Aggiungi file»", righe)
+        verifica(x_fuoco(p) == "du-sg-aggiungi", "dopo «+ Aggiungi file» il fuoco non è sul pulsante: %s" % x_fuoco(p))
+        # un'altra cartella riparte dall'inizio (gesto voluto)
+        b.cartella("step")
+        b.cartella("tutti")
+        verifica(x_top(p, el) == 0, "tornando alla cartella l'elenco non riparte dall'inizio")
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X4", "UI46 [U] (stabilità, S2): il pannello del nodo scorso a metà resta dov'è con la stessa scheda cliccata, la casella di selezione, «Confronto», l'OK di «Quantità…» e la chiusura del wizard; un altro nodo riparte dall'inizio")
+def bX4(b):
+    p = b.page
+    p.set_viewport_size({"width": 1280, "height": 640})
+    pn = ".du-zona--nodo"
+    try:
+        x_bozza(b)
+        b.scheda("k-12")
+        expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-12", timeout=T_BREVE)
+        # la tela in vista nella finestra (il pannello resta appiccicato accanto)
+        p.evaluate("() => { const v = document.getElementById('du-vp'); window.scrollTo(0, Math.max(0, v.getBoundingClientRect().top + scrollY - 10)); }")
+        p.wait_for_timeout(200)
+        x_fermo(p, pn, lambda: x_clic(p, "#nc-k-12 .du-nc-mini"), "la stessa scheda cliccata di nuovo")
+        x_fermo(p, pn, lambda: x_clic(p, "#sel-k-31"), "la casella di selezione (spunta)")
+        x_fermo(p, pn, lambda: x_clic(p, "#sel-k-31"), "la casella di selezione (toglie)")
+        x_fermo(p, pn, lambda: x_clic(p, "#du-confronto"), "«Confronto» acceso")
+        x_fermo(p, pn, lambda: x_clic(p, "#du-confronto"), "«Confronto» spento")
+        # un altro nodo riparte dall'inizio del pannello (gesto voluto)
+        b.scheda("k-41")
+        expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-41", timeout=T_BREVE)
+        verifica(x_top(p, pn) == 0, "un altro nodo non riparte dall'inizio del pannello")
+        # l'OK di «Quantità…» su k-41: il salvataggio R2, poi R4 in sottofondo
+        p.click("#du-quantita")
+        expect(b.finestra()).to_be_visible()
+        p.fill("#f-qta", "5")
+
+        def ok_quantita():
+            i = b.segna()
+            b.ok_finestra()
+            b.attendi(lambda: b.richieste_da(i, "POST", r"/motore-a/bozza$"), "l'OK di Quantità non ha salvato")
+            expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+            p.wait_for_timeout(2500)
+        x_fermo(p, pn, ok_quantita, "l'OK di Quantità")
+        b.foto("BX4_dopo_quantita.png")
+        # e quello che si vede è aggiornato: ×5 sul legame nella tela e nel pannello
+        pillole = p.locator("#du-vp .du-oq").evaluate_all("xs => xs.map(x => x.getAttribute('aria-label') || '')")
+        verifica(any("×5" in x for x in pillole), "dopo l'OK di Quantità nessun legame dice ×5: %s" % pillole)
+        verifica("×5" in p.locator("#du-pannello").inner_text(), "dopo l'OK di Quantità il pannello di k-41 non dice ×5")
+
+        # il wizard aperto e chiuso con il pannello scorso: il pannello resta, il fuoco torna al pulsante che lo apre
+        def wizard():
+            b.apri_wizard()
+            p.click("#du-wz-chiudi")
+            expect(p.locator("#du-wizard")).to_be_hidden()
+        x_fermo(p, pn, wizard, "la chiusura del wizard")
+        verifica(x_fuoco(p) == "du-cta-bom", "chiuso il wizard il fuoco non torna a «Rivedi e conferma BOM»: %s" % x_fuoco(p))
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+def x_trascina(p, da, su):
+    s = p.locator("#nc-" + da).bounding_box()
+    d = p.locator("#nc-" + su).bounding_box()
+    p.mouse.move(s["x"] + 40, s["y"] + 10)
+    p.mouse.down()
+    p.mouse.move(s["x"] + 60, s["y"] + 30, steps=4)
+    p.mouse.move(d["x"] + 40, d["y"] + 30, steps=10)
+    p.mouse.up()
+
+
+@prova("X5", "UI46 [U] (stabilità, R2): chiuso il dialogo aperto trascinando una scheda, la pagina non salta verso un pulsante lontano e il fuoco torna sulla scheda; lo stesso per il dialogo aperto dal menu del nodo")
+def bX5(b):
+    p = b.page
+    p.set_viewport_size({"width": 1280, "height": 480})
+    try:
+        x_bozza(b)
+        b.scheda("k-12")
+        p.wait_for_timeout(300)
+        # il fuoco su un pulsante in alto, poi la pagina scorsa fino alla tela
+        p.evaluate("() => { window.scrollTo(0, 0); document.getElementById('du-aggiorna').focus(); }")
+        p.evaluate("() => { const v = document.getElementById('du-vp'); window.scrollTo(0, Math.max(0, v.getBoundingClientRect().top + scrollY - 20)); }")
+        p.wait_for_timeout(200)
+        y0 = p.evaluate("() => Math.round(scrollY)")
+        verifica(y0 > 100, "la pagina non scorre abbastanza a 1280×480 (scrollY %s): la prova non prova niente" % y0)
+        aperto = False
+        for dest in ("k-40", "k-11", "k-root"):
+            if p.locator("#nc-" + dest).count() == 0:
+                continue
+            x_trascina(p, "k-12", dest)
+            p.wait_for_timeout(500)
+            if b.finestra().is_visible():
+                aperto = True
+                break
+        verifica(aperto, "il trascinamento di k-12 non ha aperto il dialogo «Sposta…»")
+        y1 = p.evaluate("() => Math.round(scrollY)")
+        p.keyboard.press("Escape")
+        expect(b.finestra()).to_be_hidden()
+        p.wait_for_timeout(200)
+        y2 = p.evaluate("() => Math.round(scrollY)")
+        fuoco = x_fuoco(p)
+        b.foto("BX5_dopo_esc.png")
+        verifica(abs(y2 - y1) <= 2, "chiuso il dialogo del trascinamento la pagina è saltata: scrollY da %s a %s" % (y1, y2))
+        verifica(fuoco == "oc-k-12", "chiuso il dialogo del trascinamento il fuoco non torna sulla scheda: %s" % fuoco)
+        # il dialogo dal menu del nodo
+        bb = p.locator("#nc-k-41").bounding_box()
+        p.mouse.click(bb["x"] + 30, bb["y"] + 30, button="right")
+        expect(p.locator("#du-menu-nodo")).to_be_visible()
+        voce = p.locator("#du-menu-nodo button:not([disabled])", has_text="Quantit")
+        verifica(voce.count() > 0, "il menu del nodo di k-41 non ha «Quantità…»")
+        y1 = p.evaluate("() => Math.round(scrollY)")
+        voce.first.click()
+        expect(b.finestra()).to_be_visible()
+        p.keyboard.press("Escape")
+        expect(b.finestra()).to_be_hidden()
+        p.wait_for_timeout(200)
+        y2 = p.evaluate("() => Math.round(scrollY)")
+        fuoco = x_fuoco(p)
+        verifica(abs(y2 - y1) <= 2, "chiuso il dialogo del menu del nodo la pagina è saltata: scrollY da %s a %s" % (y1, y2))
+        verifica(fuoco == "oc-k-41", "chiuso il dialogo del menu del nodo il fuoco non torna sulla scheda: %s" % fuoco)
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X6", "UI46 [U] (stabilità, minore): la barra «N nodi selezionati» che compare alla prima spunta e sparisce con «Svuota» non sposta la tela")
+def bX6(b):
+    p = b.page
+    p.set_viewport_size({"width": 1280, "height": 820})
+    try:
+        b.apri()
+        x_bozza(b)
+        p.click("#du-zoom-adatta")
+        p.evaluate("window.scrollTo(0, 0)")
+        p.wait_for_timeout(300)
+        verifica(p.locator("#du-selezione").count() == 0, "c'è già una selezione: la prova non prova niente")
+        y0 = x_y(p, "#du-vp")
+        x_clic(p, "#sel-k-31")
+        expect(p.locator("#du-selezione")).to_contain_text("1 nodi selezionati")
+        y1 = x_y(p, "#du-vp")
+        b.foto("BX6_selezione.png")
+        verifica(abs(y1 - y0) <= 2, "la barra «N nodi selezionati» ha spostato la tela: y da %s a %s" % (y0, y1))
+        x_clic(p, "#du-svuota-selezione")
+        expect(p.locator("#du-selezione")).to_have_count(0)
+        y2 = x_y(p, "#du-vp")
+        verifica(abs(y2 - y0) <= 2, "«Svuota» ha spostato la tela: y da %s a %s" % (y0, y2))
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X7", "UI46 [U] (stabilità, minore): la striscia dell'esito di un trascinamento rifiutato, con la pagina in cima, non spinge giù la tela")
+def bX7(b):
+    p = b.page
+    p.set_viewport_size({"width": 1280, "height": 820})
+    try:
+        b.apri()
+        x_bozza(b)
+        p.click("#du-zoom-adatta")
+        p.evaluate("window.scrollTo(0, 0)")
+        p.wait_for_timeout(300)
+        verifica(not b.avviso().is_visible(), "la striscia dell'esito è già visibile: la prova non prova niente")
+        y0 = x_y(p, "#du-vp")
+        x_trascina(p, "k-12", "k-41")
+        expect(b.avviso()).to_be_visible()
+        expect(b.avviso()).to_contain_text("Lo spostamento non si fa")
+        y1 = x_y(p, "#du-vp")
+        b.foto("BX7_esito.png")
+        verifica(abs(y1 - y0) <= 2, "la striscia dell'esito ha spinto giù la tela: y da %s a %s" % (y0, y1))
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X8", "UI46 [U] (stabilità, minore): dopo «Guarda l'anteprima» dalla riga dello STEP il fuoco va sull'anteprima, non sul body")
+def bX8(b):
+    p = b.page
+    b.apri()
+    b.guarda(b.al["ACM-1000_assieme.stp"])
+    p.wait_for_timeout(300)
+    fuoco = x_fuoco(p)
+    b.foto("BX8_anteprima.png")
+    verifica(fuoco != "BODY", "dopo «Guarda l'anteprima» il fuoco è sul body")
+    verifica(p.evaluate("() => document.getElementById('du-anteprima').contains(document.activeElement) || document.activeElement.id === 'du-sg-riduci'"),
+             "dopo «Guarda l'anteprima» il fuoco non è sull'anteprima: %s" % fuoco)
+
+
+@prova("X9", "UI46 [U] (stabilità, R2): un dialogo della Sorgente chiuso con Esc dopo che la fine di un'analisi ha ridisegnato la pagina sotto riporta il fuoco al pulsante che l'ha aperto (ritrovato per id), senza far scorrere niente")
+def bX9(b):
+    p = b.page
+    nome = "ACM-NOTA_X9.pdf"
+    a = b.al["collaudo_interno.pdf"]
+    try:
+        x_in_analisi(b, nome)
+        b.azione("scarta", a)
+        expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
+        x_sonda(p)
+        # la fine dell'analisi cambia la firma di S1: la Sorgente si ridisegna sotto il dialogo aperto
+        x_conclusa(b, nome)
+        b.attendi(lambda: x_ridisegni(p) > 0, "la fine dell'analisi non ha ridisegnato la Sorgente", ms=15000)
+        p.wait_for_timeout(900)
+        expect(b.finestra()).to_be_visible()
+        y0 = p.evaluate("() => Math.round(scrollY)")
+        p.keyboard.press("Escape")
+        expect(b.finestra()).to_be_hidden()
+        fuoco = x_fuoco(p)
+        verifica(fuoco == "du-scarta-" + sid(a), "chiuso il dialogo il fuoco non torna a «Scarta…»: %s" % fuoco)
+        verifica(abs(p.evaluate("() => Math.round(scrollY)") - y0) <= 2, "chiuso il dialogo la pagina è scorsa")
+    finally:
+        x_conclusa(b, nome)
+
+
+def x_idc(p):
+    """L'id. cliente nel pannello del nodo (sezione «Decisione dell'ingegnere»), o None se non c'è."""
+    return p.evaluate("() => { const e = document.querySelector('#du-pannello #du-sez-decisione [data-du-idc]'); return e ? e.dataset.duIdc : null; }")
+
+
+def x_codice(p, k):
+    """Il codice sulla scheda del pezzo (la prima riga del pulsante #oc-‹k›)."""
+    return (p.locator("#oc-" + sid(k)).inner_text().strip().splitlines() or [""])[0].strip()
+
+
+@prova("X10", "UI46 [U] (stabilità, secondo giro, bloccante): dopo «Correggi…» e dopo «Annulla» l'id. cliente del pannello del nodo segue il codice della scheda, senza un altro gesto; la stessa scheda cliccata non lascia un id. cliente vecchio")
+def bX10(b):
+    p = b.page
+    p.set_viewport_size({"width": 1280, "height": 720})
+    try:
+        x_bozza(b)
+        b.scheda("k-41")
+        expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-41", timeout=T_BREVE)
+        # l'id. cliente lo dà R4, che parte dopo il primo salvataggio: all'apertura il pannello può non averlo
+        cod0 = x_codice(p, "k-41")
+        verifica(cod0 and cod0 != "ACM-1888", "codice della scheda k-41 inatteso: %r" % cod0)
+        p.click("#du-correggi")
+        expect(b.finestra()).to_be_visible()
+        p.fill("#f-codice", "ACM-1888")
+        b.ok_finestra()
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        b.attendi(lambda: x_codice(p, "k-41").startswith("ACM-1888"), "dopo «Correggi…» la scheda non dice ACM-1888")
+        b.attendi(lambda: "ACM-1888" in (x_idc(p) or ""), "dopo «Correggi…» il pannello resta sull'id. cliente di prima: %r" % x_idc(p), ms=8000)
+        b.foto("BX10_dopo_correggi.png")
+        p.click("#du-annulla")
+        b.attendi(lambda: x_codice(p, "k-41") == cod0, "dopo «Annulla» la scheda non torna a %s" % cod0)
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        b.attendi(lambda: cod0 in (x_idc(p) or "") and "ACM-1888" not in (x_idc(p) or ""), "dopo «Annulla» il pannello resta su un id. cliente vecchio: %r (scheda %s)" % (x_idc(p), cod0), ms=8000)
+        # la stessa scheda cliccata adesso: l'id. cliente resta quello giusto
+        x_clic(p, "#nc-k-41 .du-nc-mini")
+        p.wait_for_timeout(500)
+        verifica(cod0 in (x_idc(p) or ""), "la stessa scheda cliccata mostra un id. cliente vecchio: %r" % x_idc(p))
+        b.foto("BX10_dopo_annulla.png")
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X11", "UI46 [U] (stabilità, secondo giro): con il fuoco su un gesto del pannello di un nodo, il clic su un'altra scheda non lascia il fuoco sul gesto con lo stesso id del nodo nuovo (un Invio non apre il suo dialogo): va sulla scheda")
+def bX11(b):
+    p = b.page
+    p.set_viewport_size({"width": 1280, "height": 720})
+    try:
+        x_bozza(b)
+        for gesto in ("du-quantita", "du-correggi"):
+            b.scheda("k-41")
+            expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-41", timeout=T_BREVE)
+            # il gesto aperto e chiuso con Esc: il fuoco torna sul suo pulsante nel pannello di k-41
+            p.locator("#" + gesto).focus()
+            p.keyboard.press("Enter")
+            expect(b.finestra()).to_be_visible()
+            p.keyboard.press("Escape")
+            expect(b.finestra()).to_be_hidden()
+            verifica(x_fuoco(p) == gesto, "chiuso il dialogo il fuoco non torna su %s: %s" % (gesto, x_fuoco(p)))
+            x_clic(p, "#nc-k-12 .du-nc-mini")
+            expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-12", timeout=T_BREVE)
+            p.wait_for_timeout(300)
+            fuoco = x_fuoco(p)
+            p.keyboard.press("Enter")
+            p.wait_for_timeout(400)
+            aperto = b.finestra().is_visible()
+            titolo = p.locator("#du-finestra-titolo").inner_text() if aperto else ""
+            if aperto:
+                p.keyboard.press("Escape")
+                expect(b.finestra()).to_be_hidden()
+            verifica(not aperto, "dopo il clic sulla scheda k-12 (fuoco su %s) un Invio ha aperto «%s»" % (fuoco, titolo))
+            verifica(fuoco == "oc-k-12", "dopo il clic sulla scheda k-12 il fuoco è su %s (attesa la scheda oc-k-12)" % fuoco)
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X12", "UI46 [U] (stabilità, secondo giro, [U] M32): con il posto della striscia dell'esito riservato, la pagina della Sorgente non scorre fra 620 e 660 px di altezza (come prima della correzione)")
+def bX12(b):
+    p = b.page
+    try:
+        b.apri()
+        if p.locator("#du-passo-sorgente[aria-current=step]").count() == 0:
+            b.passo("sorgente")
+        b.cartella("tutti")
+        fuori = []
+        for w in (1366, 1920):
+            for hh in (620, 640, 660):
+                p.set_viewport_size({"width": w, "height": hh})
+                p.wait_for_timeout(350)
+                ecc = p.evaluate("() => document.documentElement.scrollHeight - innerHeight")
+                if ecc > 1:
+                    fuori.append((w, hh, ecc, p.evaluate("""() => { const a = document.getElementById('du-avviso'), s = document.getElementById('du-sg');
+                      return 'avviso ' + (a.hidden ? 'vuoto ' : 'pieno ') + Math.round(a.getBoundingClientRect().height) + ', spazio ' + s.style.height + ' da y ' + Math.round(s.getBoundingClientRect().top + scrollY); }""")))
+        b.foto("BX12_sorgente.png")
+        verifica(not fuori, "la pagina della Sorgente scorre (larghezza, altezza, eccesso in px): %s" % fuori)
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+@prova("X13", "UI46 [U] (stabilità, secondo giro, tastiera): il fuoco non finisce sul body dopo la spunta nel cassetto «Nodi segnalati», «Annulla» nella barra, l'Invio su una linguetta del pannello del nodo, «Togli le spunte» della Sorgente e un ridisegno con il fuoco su un <summary>")
+def bX13(b):
+    p = b.page
+    nome = "ACM-NOTA_X13.pdf"
+    p.set_viewport_size({"width": 1280, "height": 720})
+    try:
+        x_bozza(b)
+        # il cassetto «Nodi segnalati»: la casella spuntata tiene il fuoco
+        if not p.locator("#du-seleziona-segnalati").is_visible():
+            p.click("#du-segnalati-apri")
+        cb = p.locator("#du-segnalati input[type=checkbox]:not([disabled])")
+        verifica(cb.count() > 0, "nessuna casella nel cassetto «Nodi segnalati»: la prova non prova niente")
+        cb.first.click()
+        expect(p.locator("#du-selezione")).to_contain_text("1 nodi selezionati")
+        p.wait_for_timeout(200)
+        verifica(p.evaluate("() => { const a = document.activeElement; return !!a && a.type === 'checkbox' && !!a.closest('#du-segnalati'); }"),
+                 "dopo la spunta nel cassetto il fuoco è su %s" % x_fuoco(p))
+        p.click("#du-svuota-selezione")
+        expect(p.locator("#du-selezione")).to_have_count(0)
+        # «Annulla» nella barra (con due gesti in pila resta acceso): il fuoco resta sul pulsante
+        b.scheda("k-41")
+        for q in ("6", "7"):
+            p.click("#du-quantita")
+            expect(b.finestra()).to_be_visible()
+            p.fill("#f-qta", q)
+            b.ok_finestra()
+            expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        p.click("#du-annulla")
+        expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
+        p.wait_for_timeout(2500)
+        verifica(x_fuoco(p) == "du-annulla", "dopo «Annulla» nella barra il fuoco è su %s" % x_fuoco(p))
+        # le linguette del pannello del nodo («Dettaglio», «Documenti»): con il fuoco da tastiera sulla linguetta, l'Invio
+        # cambia la vista e il fuoco resta sulla linguetta (seconda rimisura)
+        expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-41", timeout=T_BREVE)
+        for k in ("documenti", "dettaglio"):
+            p.locator("#du-ling-" + k).evaluate("e => e.focus({ preventScroll: true })")
+            verifica(x_fuoco(p) == "du-ling-" + k, "la linguetta du-ling-%s non prende il fuoco: %s" % (k, x_fuoco(p)))
+            p.keyboard.press("Enter")
+            expect(p.locator("#du-ling-" + k)).to_have_attribute("aria-selected", "true", timeout=T_BREVE)
+            p.wait_for_timeout(400)
+            verifica(x_fuoco(p) == "du-ling-" + k, "dopo l'Invio sulla linguetta du-ling-%s il fuoco è su %s" % (k, x_fuoco(p)))
+        # «Togli le spunte» della Sorgente: il pulsante sparisce, il fuoco va sulla riga attiva
+        b.passo("sorgente")
+        b.cartella("tutti")
+        r1 = x_riga_visibile(p)
+        x_clic(p, "#%s .du-fr-nome" % r1)
+        r2 = x_riga_visibile(p, escludi=(r1,))
+        x_clic(p, "#%s .du-sg-spunta" % r2)
+        r3 = x_riga_visibile(p, escludi=(r1, r2))
+        x_clic(p, "#%s .du-sg-spunta" % r3)
+        expect(p.locator("#du-sg-togli-spunte-d")).to_be_visible()
+        p.click("#du-sg-togli-spunte-d")
+        expect(p.locator("#du-sg-elenco .du-sg-spunta:checked")).to_have_count(0)
+        verifica(x_fuoco(p) == r1, "dopo «Togli le spunte» il fuoco è su %s (attesa la riga attiva %s)" % (x_fuoco(p), r1))
+        # un <summary> di un <details> con un id (nel dettaglio di un file), con il fuoco, quando la fine di un'analisi
+        # ridisegna la Sorgente
+        x_in_analisi(b, nome)
+        b.cartella("tutti")
+        trova = """() => { for (const d of document.querySelectorAll('#du-corpo details[id]')) { const s = d.querySelector(':scope > summary');
+            if (s && !s.id && s.getClientRects().length) { s.focus({ preventScroll: true }); return d.id; } } return null; }"""
+        som = None
+        for rid in p.locator("#du-sg-elenco [role=row][id^=du-file-]").evaluate_all("rs => rs.map(r => r.id)")[:12]:
+            p.locator("#%s .du-fr-nome" % rid).click()
+            p.wait_for_timeout(150)
+            som = p.evaluate(trova)
+            if som:
+                break
+        verifica(som, "nessun <summary> senza id in un <details> con un id nel dettaglio dei file: la prova non prova niente")
+        x_sonda(p)
+        x_conclusa(b, nome)
+        b.attendi(lambda: x_ridisegni(p) > 0, "la fine dell'analisi non ha ridisegnato la Sorgente", ms=15000)
+        p.wait_for_timeout(600)
+        dove = p.evaluate("() => { const a = document.activeElement; return a && a.tagName === 'SUMMARY' && a.parentElement ? a.parentElement.id : (a && a !== document.body ? a.id || a.tagName : 'BODY'); }")
+        verifica(dove == som, "dopo il ridisegno il fuoco non è sul <summary> di #%s: %s" % (som, dove))
+    finally:
+        x_conclusa(b, nome)
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
+# la sonda di DU-BX14: ogni ~50 ms (e a ogni cambio della barra o del corpo, e al frame dopo) lo scorrimento della pagina,
+# il riquadro della tela #du-vp e l'altezza della barra in fondo; conta le risposte di R4 (/bom/riepilogo) arrivate
+SONDA_X14 = r"""() => {
+  if (window.__x14) { clearInterval(window.__x14.id); window.__x14.oss.disconnect(); }
+  const x = window.__x14 = { c: [], r4: 0, id: 0, oss: null };
+  const misura = (cosa) => { const v = document.getElementById('du-vp'), s = document.getElementById('du-salva');
+    const b = v ? v.getBoundingClientRect() : null;
+    x.c.push([cosa, Math.round(performance.now()), scrollY, b ? b.top : null, b ? b.left : null, s ? s.getBoundingClientRect().height : null]); };
+  x.id = setInterval(() => misura('t'), 50);
+  x.oss = new MutationObserver(() => { misura('m'); requestAnimationFrame(() => misura('f')); });
+  for (const sel of ['#du-barra', '#du-corpo']) { const e = document.querySelector(sel); if (e) x.oss.observe(e, { childList: true, subtree: true }); }
+  if (!window.__x14f) {
+    window.__x14f = 1;
+    const f0 = window.fetch;
+    window.fetch = function (u) {
+      const s = typeof u === 'string' ? u : (u && u.url) || '';
+      const r = f0.apply(this, arguments);
+      if (/\/bom\/riepilogo/.test(s)) r.then(() => setTimeout(() => { if (window.__x14) window.__x14.r4++; }, 0), () => {});
+      return r;
+    };
+  }
+  misura('0');
+  return true;
+}"""
+
+
+def x14_r4(p):
+    return p.evaluate("() => window.__x14 ? window.__x14.r4 : -1")
+
+
+def x14_dopo_r4(b, n0, cosa):
+    """Il salvataggio finito e R4 arrivato (una risposta in più di n0), con i conti nella barra; poi ancora 700 ms, per il
+    ridisegno del pannello che R4 può chiedere."""
+    p = b.page
+    b.attendi(lambda: x14_r4(p) > n0 and p.locator("#du-salvataggio").get_attribute("data-du-salvataggio") == "salvata"
+              and "blocchi" in (p.locator("#du-conti").inner_text() or ""),
+              "dopo %s R4 non è arrivato (risposte %s, barra %r)" % (cosa, x14_r4(p), p.locator("#du-salva").inner_text()))
+    p.wait_for_timeout(700)
+
+
+def x14_in_fondo(p):
+    """La pagina scorsa fino in fondo, senza lo scorrimento automatico di Playwright, e la sonda accesa da lì."""
+    p.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
+    p.wait_for_timeout(400)
+    y0, maxy = p.evaluate("() => [scrollY, document.documentElement.scrollHeight - innerHeight]")
+    verifica(maxy > 40 and abs(y0 - maxy) <= 1, "la pagina non scorre fino in fondo (scrollY %s, massimo %s): la prova non prova niente" % (y0, maxy))
+    p.evaluate(SONDA_X14)
+
+
+def x14_ferma(b, cosa, foto, minimo):
+    """Nessun campione della sonda con lo scorrimento della pagina o la tela spostati di più di 1 px dal primo."""
+    p = b.page
+    c = p.evaluate("() => { clearInterval(window.__x14.id); window.__x14.oss.disconnect(); return window.__x14.c; }")
+    verifica(len([x for x in c if x[0] == "t"]) >= minimo, "la sonda ha preso troppo pochi campioni: %d" % len(c))
+    rif = c[0]
+    fuori = [x for x in c if abs(x[2] - rif[2]) > 1 or (x[3] is not None and rif[3] is not None and abs(x[3] - rif[3]) > 1)]
+    alte = sorted({round(x[5]) for x in c if x[5] is not None})
+    print("         DU-BX14, %s: %d campioni, altezze della barra viste %s" % (cosa, len(c), alte))
+    b.foto(foto)
+    verifica(not fuori, "con la pagina scorsa in fondo, %s l'hanno spostata durante il salvataggio (cosa, ms, scrollY, #du-vp top e "
+             "left, altezza della barra; riferimento %s, altezze della barra viste %s): %s" % (cosa, rif, alte, fuori[:8]))
+
+
+@prova("X14", "UI46 [U] (stabilità, seconda rimisura): con la pagina della Revisione scorsa fino in fondo a 1280×720, «Correggi…» e poi «Annulla» dalla barra non spostano la pagina né la tela di più di 1 px in nessun momento del salvataggio, fino all'arrivo di R4 (la barra in fondo non si accorcia con «conti in calcolo…»); lo stesso per «Ripeti» dopo aver ridimensionato la finestra a 1320 px")
+def bX14(b):
+    p = b.page
+    p.set_viewport_size({"width": 1280, "height": 720})
+    try:
+        x_bozza(b)
+        b.scheda("k-41")
+        expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-41", timeout=T_BREVE)
+        p.evaluate(SONDA_X14)
+        # prima di misurare, la barra con i conti di R4 (alta come quando li ha): un gesto salvato, se non ci sono ancora
+        if "blocchi" not in (p.locator("#du-conti").inner_text() or ""):
+            n = x14_r4(p)
+            p.click("#du-quantita")
+            expect(b.finestra()).to_be_visible()
+            p.fill("#f-qta", "5")
+            b.ok_finestra()
+            x14_dopo_r4(b, n, "il primo gesto")
+        cod0 = x_codice(p, "k-41")
+        verifica(cod0 and not cod0.startswith("ACM-1444"), "codice della scheda k-41 inatteso: %r" % cod0)
+        x14_in_fondo(p)
+        n = x14_r4(p)
+        p.locator("#du-correggi").evaluate("e => e.click()")
+        expect(b.finestra()).to_be_visible()
+        p.fill("#f-codice", "ACM-1444")
+        b.ok_finestra()
+        x14_dopo_r4(b, n, "«Correggi…»")
+        verifica(x_codice(p, "k-41").startswith("ACM-1444"), "dopo «Correggi…» la scheda non dice ACM-1444: %r" % x_codice(p, "k-41"))
+        n = x14_r4(p)
+        x_clic(p, "#du-annulla")
+        x14_dopo_r4(b, n, "«Annulla»")
+        verifica(x_codice(p, "k-41") == cod0, "dopo «Annulla» la scheda non torna a %s: %r" % (cod0, x_codice(p, "k-41")))
+        x14_ferma(b, "«Correggi…» e «Annulla»", "BX14_in_fondo.png", 40)
+        # la finestra ridimensionata, senza un render della barra: il primo «Ripeti» dopo non la accorcia lo stesso
+        p.set_viewport_size({"width": 1320, "height": 720})
+        p.wait_for_timeout(600)
+        x14_in_fondo(p)
+        n = x14_r4(p)
+        x_clic(p, "#du-ripeti")
+        x14_dopo_r4(b, n, "«Ripeti» dopo il ridimensionamento")
+        verifica(x_codice(p, "k-41").startswith("ACM-1444"), "dopo «Ripeti» la scheda non dice ACM-1444: %r" % x_codice(p, "k-41"))
+        x14_ferma(b, "«Ripeti» a 1320 px, dopo il ridimensionamento", "BX14_ridimensionata.png", 20)
+    finally:
+        p.set_viewport_size({"width": 1440, "height": 900})
+
+
 @prova("03","S8 «Conferma questo STEP come sorgente di ‹P›»: 409 al passo 0, «parziale» ritentabile con la stessa chiave, i tre passi; niente «Autorizza» (direttiva 39)")
 def b03(b):
     p = b.page
@@ -1106,7 +1968,7 @@ def b03(b):
     p.click("#du-conferma-sorgente")
     expect(b.finestra()).to_contain_text("Conferma ACM-1000_assieme.stp come sorgente di ACM-1000")
     expect(b.finestra()).to_contain_text("Non è la conferma della BOM né del fascicolo")
-    expect(b.finestra()).to_contain_text("cambiano solo con «Conferma BOM»")
+    expect(b.finestra()).to_contain_text("cambia solo con «Conferma BOM»")
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("La proposta è cambiata mentre guardavi", timeout=T_LUNGO)
     expect(b.avviso()).to_have_attribute("data-esito", "conflitto")
@@ -1128,7 +1990,9 @@ def b03(b):
     esito = p.locator("#du-sg-esito-s8")
     expect(esito).to_have_attribute("data-esito", "parziale", timeout=T_LUNGO)
     expect(esito).to_contain_text("Non riuscito: bozza")
-    expect(esito).to_contain_text("Riuscito: associazione, conferma della sorgente")
+    # collaudo UI46: l'associazione che non serve non è «riuscita»
+    expect(esito).to_contain_text("Riuscito: conferma della sorgente")
+    verifica("Riuscito: associazione" not in esito.inner_text(), "l'esito di S8 dice riuscita l'associazione che non serve: %r" % esito.inner_text())
     expect(p.locator("#du-sg-c-p_" + sid(b.p1))).to_have_attribute("aria-selected", "true")
     riprova = p.locator("#du-riprova-sorgente_" + sid(b.p1))
     expect(riprova).to_be_visible(timeout=T_LUNGO)
@@ -1138,7 +2002,9 @@ def b03(b):
     i = b.segna()
     riprova.click()
     expect(esito).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
-    expect(esito).to_contain_text("Sorgente confermata: la bozza di ACM-1000 è pronta da rivedere. La BOM non è confermata.")
+    # messaggio 46 (D23): il riquadro dice i passi, il testo intero dell'esito sta in «Ultima mossa» (una volta sola)
+    expect(esito).to_contain_text("✓ Sorgente confermata.")
+    expect(p.locator("#du-sg-mossa")).to_contain_text("Sorgente confermata: la bozza di ACM-1000 è pronta da rivedere. La BOM non è confermata.")
     rip = b.corpi(i, "POST", r"/conferma-sorgente$")
     verifica(len(rip) == 1 and rip[0]["chiave_idempotenza"] == chiave1, "«Riprova» non rimanda la stessa chiave: %s" % rip)
     p.locator("#du-sg-esito-s8 summary").click()
@@ -1194,7 +2060,8 @@ def b05(b):
     expect(riga).to_contain_text("◇ proposto")
     expect(riga).to_contain_text("ACM-1100_A.pdf")
     expect(riga.locator("button", has_text="Conferma il documento")).to_be_disabled()
-    verifica("V3" in (riga.locator("button", has_text="Conferma il documento").get_attribute("title") or ""), "«Conferma il documento» senza il motivo")
+    # collaudo UI46, I7 (6c8d9fb): il motivo non dice più la versione del progetto («V3»), ma dove si fa il gesto
+    verifica("Rivedi e conferma fascicolo" in (riga.locator("button", has_text="Conferma il documento").get_attribute("title") or ""), "«Conferma il documento» senza il motivo")
     expect(p.locator("#du-cta-bom")).to_be_disabled()
     verifica("Organigramma" in (p.locator("#du-cta-bom").get_attribute("title") or ""), "il CTA nell'Elenco senza il motivo")
     expect(p.locator("#du-cta-fascicolo")).to_be_disabled()
@@ -1244,8 +2111,7 @@ def b06(b):
     i = b.segna()
     p.click("#du-non-includere")
     expect(p.locator("#f-elenco input:checked")).to_have_count(3)
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "cordoni di saldatura del CAD")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     b.ok_finestra()
     expect(p.locator('#du-vp .du-nc[data-du-stato="non incluso (bozza)"]')).to_have_count(3)
     b.salvata(3)
@@ -1259,7 +2125,10 @@ def b06(b):
     verifica(len(ids) == 1 and re.fullmatch(UUID, list(ids)[0] or ""), "azione_id del gesto: %s" % ids)
     for a in az[-3:]:
         d = a["dopo"]
-        verifica(d["tipo"] == "non_includere" and d["motivo_codice"] == "elemento_cad" and d["motivo"] and d["casella"]["allegato_id"] == a1
+        # messaggio 46 [U]: l'utente non sceglie né scrive il motivo; la pagina scrive motivo_codice dal segnale visto
+        # (il possibile elemento CAD: «elemento_cad») e la traccia del gesto [T]
+        verifica(d["tipo"] == "non_includere" and d["motivo_codice"] == "elemento_cad" and d["motivo"].startswith("gesto ") and "da «Non includere nella BOM»: «" in d["motivo"]
+                 and d["casella"]["allegato_id"] == a1
                  and d["casella"]["gruppo"].startswith("cand:") and d["casella"]["rif"].startswith("nodo:"), "decisione: %s" % d)
         verifica(d["segnale_visto"] == {"codice": "ancoraggio.possibile_elemento_cad", "regola": "elemento_cad_nome_foglia_v1", "versione_servizio": "ancoraggio-3"},
                  "segnale_visto: %s" % d.get("segnale_visto"))
@@ -1320,12 +2189,11 @@ def b08(b):
     b.scheda("k-12")
     expect(p.locator("#du-pannello")).to_have_attribute("data-k", "k-12")
     expect(p.locator("#du-sez-proposta")).to_contain_text("nessuna lettura")
-    expect(p.locator("#du-sez-decisione")).to_contain_text("da_decidere")
+    expect(p.locator("#du-sez-decisione")).to_contain_text("da decidere")
     i = b.segna()
     p.click("#du-correggi")
     p.fill("#f-codice", "ACM-1130")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "codice dal disegno del cliente")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     # il server risponde dopo un secondo e mezzo: la barra dice «Salvataggio…» mentre R2 è in volo
     b.ritardo("POST /thread/{id}/motore-a/bozza", 1500)
     b.ok_finestra()
@@ -1337,7 +2205,7 @@ def b08(b):
     b.salvata(10)
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
     dec = [a for a in az if a["azione"] == "decisione_aggiunta"][0]["dopo"]
-    verifica(dec["tipo"] == "identita" and dec["modo"] == "correzione" and dec["identita"]["codice"] == "ACM-1130" and dec["motivo"], "decisione: %s" % dec)
+    verifica(dec["tipo"] == "identita" and dec["modo"] == "correzione" and dec["identita"]["codice"] == "ACM-1130" and "motivo" not in dec, "decisione: %s" % dec)
     mod = [a for a in az if a["azione"] == "nodo_modificato"][0]
     verifica(mod["dopo"]["identita"]["modo"] == "decisione" and mod["dopo"]["identita"]["decisione"] == dec["id"], "nodo_modificato: %s" % mod)
     expect(p.locator("#du-sez-decisione")).to_contain_text("ACM-1130")
@@ -1442,7 +2310,9 @@ def b12(b):
     expect(p.locator("#du-wz-noninclusi")).to_contain_text("nessuna cascata sui figli")
     p.click("#du-wz-fase2")
     expect(p.locator("#du-wz-confermabile")).to_contain_text("La BOM è confermabile.")
-    expect(p.locator("#du-wz-avvisi")).to_contain_text("VERIFICA_DOPO_COMMIT")
+    # collaudo UI46, I4 (giro 2, C2-I1): gli avvisi si dicono con il testo del server, il codice resta in data-codice
+    expect(p.locator("#du-wz-avvisi [data-codice=VERIFICA_DOPO_COMMIT]")).to_be_visible()
+    expect(p.locator("#du-wz-avvisi")).not_to_contain_text("VERIFICA_DOPO_COMMIT")
     expect(p.locator("#du-wz-motore")).to_contain_text("calcolati con il riepilogo e firmati")
     expect(p.locator("#du-wz-conflitti-motore")).to_have_attribute("data-n", "0")
     expect(p.locator("#du-wz-criterio")).to_contain_text("nessuno")
@@ -1508,7 +2378,6 @@ def b63(b):
         b.linguetta("dettaglio")
         p.click("#du-correggi")
         p.fill("#f-rev", rev)
-        p.fill("#f-motivo", "prova di D-ASS-01")
         b.ok_finestra()
         expect(b.finestra()).to_contain_text("I file collegati non corrispondono più", timeout=T_LUNGO)
         expect(p.locator("#f-discordanti [data-du-discordante='%s']" % a2)).to_have_attribute("data-tipo", "pb")
@@ -1551,13 +2420,12 @@ def b63(b):
     p.click("#du-wz-rimedio-riconosci-" + sid(a11))
     expect(b.finestra()).to_contain_text("Riconosci la preassociazione legacy", timeout=T_LUNGO)
     expect(b.finestra()).to_contain_text("non si annulla")
-    p.fill("#f-motivo-riconosci", "cartiglio verificato")
     b.ok_finestra()
     b.attendi(lambda: b.corpi(i, "POST", r"/motore-a/bozza$"), "«Riconosci…» non ha salvato")
     c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
     az = c["azioni"]
     verifica(len(az) == 1 and az[0]["azione"] == "file_riconosciuto" and az[0]["prima"] == {"allegato_id": a11, "chiave_bozza": "k-41"}
-             and az[0]["dopo"] == {"allegato_id": a11, "chiave_bozza": "k-41", "motivo": "cartiglio verificato"}, "«Riconosci…»: %s" % az)
+             and az[0]["dopo"] == {"allegato_id": a11, "chiave_bozza": "k-41"}, "«Riconosci…»: %s" % az)
     verifica(not any(d.get("verificata") for d in c["snapshot"]["documenti_preassociati"]), "la pagina ha dichiarato la verifica: %s" % c["snapshot"]["documenti_preassociati"])
     ver = p.locator("#du-wz-gruppo-legacy_verificate [data-du-pb='%s']" % a11)
     expect(ver).to_have_attribute("data-motivo", "gia_associata_altrove", timeout=T_LUNGO)
@@ -1956,7 +2824,7 @@ def b60(b):
     p = b.page
     if p.locator("#du-wizard").is_visible():
         p.click("#du-wz-chiudi")
-    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator(SENZA_BOZZA)).to_be_visible(timeout=T_LUNGO)
     b.proposta_cambia()
     p.click("#du-aggiorna")
     seg = p.locator("#du-proposta-aggiornata")
@@ -1966,8 +2834,7 @@ def b60(b):
     p.click("#du-pa-rifiuta")
     expect(b.finestra()).to_contain_text("Rifiuta la proposta aggiornata di ACM-1000")
     expect(b.finestra()).to_contain_text("non cambia la verifica corrente")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "la lettura nuova del codice non è affidabile")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     # la proposta cambia ancora mentre il dialogo è aperto: 409 ANTEPRIMA_SUPERATA, niente scritto, il segno riletto
     b.proposta_cambia()
     i = b.segna()
@@ -1976,10 +2843,9 @@ def b60(b):
     verifica(b.stato()["conti"].get("R15", 0) == 0, "R15 ha scritto con l'impronta vecchia")
     r15 = b.corpi(i, "POST", r"/proposta-aggiornata/rifiuta$")
     verifica(len(r15) == 1 and r15[0]["prodotto_id"] == b.p1 and r15[0]["conferma_id"] and r15[0]["gruppo"].startswith("cand:") and len(r15[0]["impronta_contenuto"]) == 64
-             and r15[0]["motivo"] and re.fullmatch(UUID, r15[0]["chiave_idempotenza"]), "corpo di R15: %s" % r15)
+             and "motivo" not in r15[0] and re.fullmatch(UUID, r15[0]["chiave_idempotenza"]), "corpo di R15: %s" % r15)
     expect(seg).to_have_attribute("data-du-proposta", "aperta", timeout=T_LUNGO)
     p.click("#du-pa-rifiuta")
-    p.fill("#f-motivo", "la lettura nuova del codice non è affidabile")
     i = b.segna()
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Proposta aggiornata rifiutata: la BOM confermata resta com'è.", timeout=T_LUNGO)
@@ -1996,7 +2862,7 @@ def b15(b):
     p = b.page
     if p.locator("#du-wizard").is_visible():
         p.click("#du-wz-chiudi")
-    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator(SENZA_BOZZA)).to_be_visible(timeout=T_LUNGO)
     p.click("#du-da-conferma")
     b.salvata(1)
     expect(p.locator("#du-vp .du-nc[data-k]")).to_have_count(2)
@@ -2087,7 +2953,6 @@ def b16(b):
     b.scheda("k-root")
     i = b.segna()
     p.click("#du-fissa-emittente")
-    p.fill("#f-motivo", "il codice del prodotto è del cliente")
     b.ok_finestra()
     b.salvata(3)
     az = b.ultime_azioni(i)
@@ -2188,9 +3053,35 @@ def b17(b):
     expect(b.finestra()).to_contain_text("non si riapre")
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
-    expect(p.locator("#du-nessuna-bozza")).to_be_visible()
+    expect(p.locator(SENZA_BOZZA)).to_be_visible()
     r3 = b.richieste_da(i, "POST", r"/motore-a/bozza/[^/]+/abbandona$")
     verifica(len(r3) == 1 and json.loads(r3[0]["corpo"]) == {"versione_attesa": 2}, "R3: %s" % [r["corpo"] for r in r3])
+
+
+def working_altrove(route):
+    """/dati con fonte.autorizzata falsa: la working su un altro STEP (risposta finta dichiarata; il banco non ha il caso).
+    Dopo 911d90e (collaudo UI46, B3) con la BOM confermata su uno STEP e nessuna bozza la Sorgente non offre più
+    «Riprendi: crea la bozza» ma «Vai alla Revisione»: le prove che vogliono una bozza importata dallo STEP dopo una
+    conferma (DU-B18, DU-B54) la chiedono con la working altrove."""
+    r = route.fetch()
+    try:
+        dati = r.json()
+    except Exception:
+        route.fulfill(response=r)
+        return
+
+    def giro(x):
+        if isinstance(x, dict):
+            fo = x.get("fonte")
+            if isinstance(fo, dict) and "autorizzata" in fo:
+                fo["autorizzata"] = False
+            for v in x.values():
+                giro(v)
+        elif isinstance(x, list):
+            for v in x:
+                giro(v)
+    giro(dati)
+    route.fulfill(response=r, body=json.dumps(dati))
 
 
 @prova("18", "proposta cambiata: striscia, «Vedi le differenze», «Aggiorna alla proposta di oggi…»")
@@ -2198,10 +3089,22 @@ def b18(b):
     p = b.page
     a1 = b.al["ACM-1000_assieme.stp"]
     b.guarda(a1)
-    expect(p.locator("#du-conferma-sorgente")).to_have_text("Riprendi: crea la bozza di ACM-1000", timeout=T_LUNGO)
-    p.click("#du-conferma-sorgente")
-    b.ok_finestra()
-    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    # collaudo UI46, B3 (911d90e): con la BOM confermata su questo STEP e nessuna bozza non c'è niente da riprendere; il
+    # gesto porta alla Revisione, dove le modifiche partono dalla BOM confermata
+    expect(p.locator("#du-conferma-sorgente")).to_have_text("Vai alla Revisione di ACM-1000 →", timeout=T_LUNGO)
+    # il resto della prova (la proposta cambiata dopo l'importazione) vuole una bozza importata dallo STEP: con la working
+    # su un altro STEP (working_altrove) il gesto torna «Riprendi: crea la bozza», come prima dell'unione
+    p.route("**/motore-a/dati*", working_altrove)
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        b.guarda(a1)
+        expect(p.locator("#du-conferma-sorgente")).to_have_text("Riprendi: crea la bozza di ACM-1000", timeout=T_LUNGO)
+        p.click("#du-conferma-sorgente")
+        b.ok_finestra()
+        expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    finally:
+        p.unroute("**/motore-a/dati*", working_altrove)
     b.passo("revisione")
     b.salvata(1)
     verifica(p.locator("#du-proposta-cambiata").count() == 0, "striscia della proposta cambiata su una bozza appena importata")
@@ -2210,20 +3113,22 @@ def b18(b):
     expect(p.locator("#du-proposta-cambiata")).to_contain_text("La proposta del Motore A è cambiata dopo l'importazione.", timeout=T_LUNGO)
     i = b.segna()
     p.click("#du-differenze")
-    expect(p.locator("#f-differenze")).to_contain_text("k-11: cambiato", timeout=T_LUNGO)
+    # collaudo UI46, B2: la differenza con il codice del pezzo e a parole, mai la chiave della bozza né i nomi dei campi
+    # (il pezzo si nomina con il codice che ha nella bozza: dopo le prove di prima, nel banco è ACM-1120 o ACM-1121)
+    expect(p.locator("#f-differenze")).to_contain_text(re.compile(r"ACM-112[01]: cambia [(]codice letto, codice[)]"), timeout=T_LUNGO)
+    verifica("k-11" not in p.locator("#f-differenze").inner_text() and "codice_proposto" not in p.locator("#f-differenze").inner_text(), "le differenze mostrano la chiave o i campi del registro")
     verifica([r for r in b.richieste_da(i, "GET", r"/motore-a/bozza$") if "confronto=1" in r["query"]], "«Vedi le differenze» senza R1 ?confronto=1")
     b.chiudi_finestra()
     p.click("#du-riallinea")
     expect(b.finestra()).to_contain_text("Aggiorna la bozza alla proposta di oggi", timeout=T_LUNGO)
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "la proposta di oggi corregge la traversa")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     i = b.segna()
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Bozza aggiornata alla proposta di oggi.", timeout=T_LUNGO)
     expect(p.locator("#du-ultima-forma")).to_contain_text("identità aggiornate: 1")
     expect(p.locator("#du-proposta-cambiata")).to_have_count(0)
     c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
-    verifica("riallinea_proposta" in c and "snapshot" not in c and "azioni" not in c and c["riallinea_proposta"]["motivo"] and len(c["riallinea_proposta"]["impronta_contenuto"]) == 64,
+    verifica("riallinea_proposta" in c and "snapshot" not in c and "azioni" not in c and "motivo" not in c["riallinea_proposta"] and len(c["riallinea_proposta"]["impronta_contenuto"]) == 64,
              "corpo di riallinea_proposta: %s" % c)
     b.salvata(2)
 
@@ -2236,7 +3141,7 @@ def b19(b):
     b.guarda(a10)
     s6 = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
     verifica(s6 and "bozza=" in s6[-1]["query"], "S6 senza la bozza: %s" % [r["query"] for r in s6])
-    expect(p.locator("#du-anteprima")).to_contain_text("diversa dal prodotto")
+    expect(p.locator("#du-anteprima-codici")).to_contain_text("diverso dal codice del prodotto")
     # direttiva 39 §2: lo STEP della working (promosso dalle conferme della BOM) non si revoca prima del cambio: la working
     # resta su di lui fino alla prossima «Conferma BOM»; «Usa nuovo STEP» è subito disponibile
     verifica(b.stato()["fonte"]["autorizzata"] is True, "la working non ha lo STEP di prima: %s" % b.stato()["fonte"])
@@ -2248,18 +3153,19 @@ def b19(b):
     expect(eff).to_contain_text("nodi che restano: 1", timeout=T_LUNGO)
     expect(eff).to_contain_text("nodi che escono: 1")
     expect(eff).to_contain_text("nodi che entrano: 3")
-    expect(eff).to_contain_text("(k-12)")
+    # integrazione UI46 (revisione della corsia SORGENTE, rilievo 1): i pezzi per nome, mai la chiave della bozza («k-…»)
+    expect(eff).to_contain_text("ACM-1000")
+    verifica(not re.search(r"\bk-(root|\d+)\b", eff.inner_text()), "l'effetto sulla bozza mostra le chiavi della bozza: %r" % eff.inner_text())
     expect(p.locator("#f-sostituisci")).to_contain_text("ACM-1000_assieme.stp")
     # l'effetto è quello di S6 riletto adesso con la bozza (MAT §1.5, SG-04)
     s6b = b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$")
     verifica(s6b and "bozza=" in s6b[-1]["query"], "«Usa nuovo STEP…» non rilegge S6 con la bozza prima del dialogo: %s" % [r["query"] for r in s6b])
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "lo STEP rev D sostituisce la rev C")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     i = b.segna()
     b.ok_finestra()
     expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
     c = b.corpi(i, "POST", r"/conferma-sorgente$")[0]
-    verifica(c["motivo"] and c["bozza"]["versione_attesa"] == 2 and c["sostituisci"] == {"conferma": True} and "/step/%s/" % a10 in b.richieste_da(i, "POST", r"/conferma-sorgente$")[0]["path"],
+    verifica("motivo" not in c and c["bozza"]["versione_attesa"] == 2 and c["sostituisci"] == {"conferma": True} and "/step/%s/" % a10 in b.richieste_da(i, "POST", r"/conferma-sorgente$")[0]["path"],
              "S8 del cambio: %s" % c)
     verifica(b.stato()["conti"].get("R2", 0) == 0 or not b.corpi(i, "POST", r"/motore-a/bozza$"), "il cambio della sorgente passa da R2: lo fa S8")
     verifica(not b.richieste_da(i, "POST", r"/step-strutturale"), "il cambio della sorgente ha chiamato l'autorizzazione o la revoca legacy")
@@ -2303,18 +3209,17 @@ def b20(b):
     p.click("#du-riparti")
     expect(b.finestra()).to_contain_text("Niente della bozza di adesso passa alla nuova")
     expect(b.finestra()).to_contain_text("Le preassociazioni non passano alla bozza nuova.")
-    # la radice dello STEP rev D non ha il codice del prodotto: il motivo vale anche per la creazione (MAT SG-05)
+    # la radice dello STEP rev D non ha il codice del prodotto: la pagina lo dice, senza chiedere un motivo (messaggio 46 [U])
     expect(p.locator("#f-radice-diversa")).to_contain_text("ACM-1000-R2")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "si riparte dalla proposta della rev D")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Bozza ripartita dalla proposta dello STEP", timeout=T_LUNGO)
     b.salvata(1)
     expect(p.locator("#du-vp .du-nc", has_text="ACM-1500")).to_have_count(0)
     c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
     verifica(c["bozza_id"] is None and c["versione_attesa"] == 0 and c["crea"]["partenza"] == "step" and c["crea"]["sorgente"]["allegato_id"] == a10
-             and c["crea"]["abbandona"]["versione_attesa"] == 4 and c["crea"]["abbandona"]["motivo"] and len(c["crea"]["impronta_contenuto"]) == 64
-             and c["crea"].get("motivo") == c["crea"]["abbandona"]["motivo"], "corpo della ripartenza: %s" % c)
+             and c["crea"]["abbandona"]["versione_attesa"] == 4 and "motivo" not in c["crea"]["abbandona"] and len(c["crea"]["impronta_contenuto"]) == 64
+             and "motivo" not in c["crea"], "corpo della ripartenza: %s" % c)
     verifica(b.richieste_da(i, "GET", r"/sorgente/step/[^/]+/anteprima$"), "«Riparti» senza la proposta di oggi della sorgente (S6)")
     verifica(b.stato()["conti"].get("ripartenze") == 1, "il banco non ha visto la ripartenza")
 
@@ -2330,17 +3235,17 @@ def b21(b):
     # sorgente»), fra le «Non disponibili»
     b.file(a["ACM-1000_rev2.stp"])
     nd = p.locator("#du-sg-nondisp")
-    expect(nd.locator('[data-azione="scarta"]')).to_contain_text("È un documento confermato")
-    expect(nd.locator('[data-azione="altri"]')).to_contain_text("È un documento confermato")
+    # messaggio 46 (D18, D29): il perché in parole, senza le versioni del progetto
+    expect(nd.locator('[data-azione="scarta"]')).to_contain_text("è la sorgente di ACM-1000: prima revocala")
+    expect(nd.locator('[data-azione="altri"]')).to_contain_text("è la sorgente di ACM-1000")
     verifica(p.locator("#du-sg-dettaglio #du-scarta-" + sid(a["ACM-1000_rev2.stp"])).count() == 0, "«Scarta» offerto sullo STEP sorgente")
     # direttiva 39 §2, §5: lo STEP superato come sorgente da «Usa nuovo STEP» resta un documento confermato (S8 non
     # sostituisce): non si scarta da qui
     b.file(a["ACM-1000_assieme.stp"])
-    expect(nd.locator('[data-azione="scarta"]')).to_contain_text("È un documento confermato")
+    expect(nd.locator('[data-azione="scarta"]')).to_contain_text("è un documento confermato")
     # D-7: il file associato a un componente (AR) vuole «Scollega e scarta»
     b.azione("scarta", a["ACM-1400_A.pdf"])
     expect(p.locator('#f-dipendenze li[data-codice="D-7"]')).to_be_visible(timeout=T_LUNGO)
-    p.fill("#f-motivo", "prova")
     expect(ok).to_be_disabled()
     verifica("Scollega e scarta" in (ok.get_attribute("title") or ""), "Scarta spento senza il motivo D-7")
     b.chiudi_finestra()
@@ -2349,13 +3254,12 @@ def b21(b):
     b.azione("scarta", a["collaudo_interno.pdf"])
     expect(p.locator("#f-unica")).to_be_visible(timeout=T_LUNGO)
     expect(b.finestra()).to_contain_text("La mail originale, i documenti confermati e la storia non si toccano. Se il file è in Altri file, anche la sua copia nella cartella ALTRO della RFQ sul NAS viene eliminata. Non si annulla: per riaverlo dovrai ricaricarlo.")
-    p.fill("#f-motivo", "collaudo superato dalla versione nuova")
     expect(ok).to_be_disabled()
     p.locator("#f-unica").check()
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Scarto registrato; rimozione dallo staging ancora da completare.", timeout=T_LUNGO)
     s2 = b.corpi(i, "POST", r"/scarta$")
-    verifica(len(s2) == 1 and s2[0].get("conferma_unica_copia") is True and s2[0]["motivo"] and re.fullmatch(UUID, s2[0]["chiave_idempotenza"])
+    verifica(len(s2) == 1 and s2[0].get("conferma_unica_copia") is True and "motivo" not in s2[0] and re.fullmatch(UUID, s2[0]["chiave_idempotenza"])
              and len(s2[0]["impronta_dipendenze"]) == 64 and s2[0]["versione_attesa"] == 0, "corpo di S2: %s" % s2)
     expect(p.locator("#du-sg-c-scartati .du-sg-conto")).to_have_text("1", timeout=T_LUNGO)
     b.cartella("scartati")
@@ -2371,7 +3275,6 @@ def b21(b):
     i = b.segna()
     b.azione("scarta", a["pacchetto.zip"])
     expect(p.locator("#f-scarta-zip")).to_contain_text("si scarta solo il contenitore", timeout=T_LUNGO)
-    p.fill("#f-motivo", "archivio duplicato")
     b.ok_finestra()
     expect(p.locator("#du-finestra-errore")).to_contain_text("Lo ZIP ha 2 file estratti ancora attivi (voce_1.pdf, voce_2.pdf)", timeout=T_LUNGO)
     b.chiudi_finestra()
@@ -2384,15 +3287,13 @@ def b21(b):
     i = b.segna()
     p.click("#du-sg-elenco #du-g-scarta")
     expect(p.locator("#f-gruppo li")).to_have_count(2, timeout=T_LUNGO)
-    expect(ok).to_be_disabled()
-    verifica("il motivo" in (ok.get_attribute("title") or ""), "Scarta (2) spento senza la ragione: %s" % ok.get_attribute("title"))
-    p.fill("#f-motivo", "voci dell'archivio duplicato")
+    # messaggio 46 [U]: nessun motivo, «Scarta (2)» è acceso subito
+    expect(ok).to_be_enabled()
     b.ok_finestra()
     expect(p.locator("#du-sg-mossa")).to_contain_text("2 file → Scartati", timeout=T_LUNGO)
     c2 = b.corpi(i, "POST", r"/scarta$")
-    verifica(len(c2) == 2 and len({c["chiave_idempotenza"] for c in c2}) == 2 and all(c["motivo"] == "voci dell'archivio duplicato" for c in c2), "S2 di gruppo: %s" % c2)
+    verifica(len(c2) == 2 and len({c["chiave_idempotenza"] for c in c2}) == 2 and all("motivo" not in c for c in c2), "S2 di gruppo: %s" % c2)
     b.azione("scarta", a["pacchetto.zip"])
-    p.fill("#f-motivo", "archivio duplicato")
     b.ok_finestra()
     expect(p.locator("#du-sg-c-scartati .du-sg-conto")).to_have_text("4", timeout=T_LUNGO)
     expect(p.locator("#du-sg-mossa")).to_contain_text("pacchetto.zip → Scartati")
@@ -2490,7 +3391,6 @@ def b22(b):
     try:
         b.azione("scarta", a4)
         expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
-        p.fill("#f-motivo", "schema generale superato")
         b.ok_finestra()
         expect(b.avviso()).to_have_attribute("data-esito", "da_verificare", timeout=T_LUNGO)
         expect(b.avviso()).to_contain_text("Verificato: il gesto su SCHEMA_GENERALE.pdf è registrato.", timeout=T_LUNGO)
@@ -2656,6 +3556,7 @@ def b26(b):
     # direttiva 39 §3: lo STEP senza struttura per ACM-2000 si guarda lo stesso (S6 dice «nessuna struttura importabile») e
     # si può confermare come sorgente partendo dal solo prodotto, con la presa d'atto; qui solo guardato
     i = b.segna()
+    b.altri_prodotti()
     p.click("#du-sg-dettaglio #du-guarda-nc-" + sid(b.p2) + "-" + sid(a10))
     expect(p.locator("#du-anteprima")).to_be_visible(timeout=T_LUNGO)
     expect(p.locator("#du-struttura-step")).to_have_attribute("data-struttura", "nessuna_struttura")
@@ -2819,7 +3720,6 @@ def b30(b):
     b.scheda("k-12")
     p.click("#du-correggi")
     p.fill("#f-codice", "ACM-1130")
-    p.fill("#f-motivo", "codice dal disegno del cliente")
     b.ok_finestra()
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     verifica("≠ proposta" not in p.locator("#du-vp").inner_text(), "«≠ proposta» senza il confronto acceso")
@@ -2882,7 +3782,7 @@ def b32(b):
         p.click("#du-sg-prodotto-apri")
     expect(p.locator("#du-step-secondario")).to_contain_text("STEP secondario disponibile")
     expect(p.locator("#du-step-secondario")).to_contain_text("ACM-1000_rev2.stp")
-    expect(p.locator("#du-step-secondario")).to_contain_text("V5")
+    expect(p.locator("#du-step-secondario")).to_contain_text("non si accettano ancora")
     verifica(p.locator("#du-nessuna-candidata").count() == 0, "«nessuna candidata» per un prodotto con candidate")
     b.cartella("p:" + b.p2)
     if p.locator("#du-nessuna-candidata").count() == 0:
@@ -3026,7 +3926,6 @@ def b36(b):
     expect(p.locator("#f-escludi-confermati")).to_contain_text("ACM-1400_ASSIEME.pdf")
     expect(p.locator("#f-escludi-pb")).to_contain_text("1 file preassociati vanno in «Da ricollocare»")
     verifica(p.locator("#du-finestra input[name=f-ar]:checked").count() == 0, "una scelta per le associazioni registrate è preselezionata")
-    p.fill("#f-motivo", "il supporto arriva già montato")
     expect(ok).to_be_disabled()
     verifica("scegli come gestire le associazioni registrate" in (ok.get_attribute("title") or ""), "«Escludi» spento senza il motivo della scelta")
     p.check("#f-ar-mantieni")
@@ -3044,10 +3943,10 @@ def b36(b):
     verifica([forma(a) for a in az] == [("file_svincolato", "nodo_escluso"), ("nodo_modificato", "esclude"), ("decisione_aggiunta", "escludi"), ("decisione_aggiunta", "scollega_documento")],
              "«Escludi» con «Scollega alla conferma»: %s" % [forma(a) for a in az])
     es, sv = az[2]["dopo"], az[3]["dopo"]
-    # PE-27: lo svincolo cita l'esclusione in da_decisione, al posto della convenzione .svN; il motivo è quello
-    # dell'esclusione
+    # PE-27: lo svincolo cita l'esclusione in da_decisione, al posto della convenzione .svN; nessuno dei due ha un motivo
+    # (messaggio 46 [U])
     verifica(sv["allegato_id"] == b.al["ACM-1400_A.pdf"] and sv.get("da_decisione") == es["id"] and ".sv" not in sv["id"] and sv["componente_id"] == es["componente_id"]
-             and sv.get("motivo") == es["motivo"], "svincolo dell'esclusione: %s" % sv)
+             and "motivo" not in sv and "motivo" not in es, "svincolo dell'esclusione: %s" % sv)
     # la chiave_bozza degli eventi di escludi e scollega_documento, tipi senza il campo: null, come la deduce il server
     # (EM §9.2, tabella delle forme; RPC PD-08)
     verifica(az[2]["chiave_bozza"] is None and az[3]["chiave_bozza"] is None and az[0]["chiave_bozza"] == "k-40" and az[1]["chiave_bozza"] == "k-40",
@@ -3165,7 +4064,7 @@ def b37(b):
     i = b.segna()
     p.click("#du-cambia-tipo")
     p.select_option("#f-tipo", "commerciale")
-    expect(b.finestra()).to_contain_text("Il tipo non toglie il 2D: l'unica esenzione è la minuteria confermata da una persona")
+    expect(b.finestra()).to_contain_text("Anche il commerciale chiede il 2D: non lo chiede solo la minuteria confermata da una persona")
     b.ok_finestra()
     az = b.ultime_azioni(i)
     verifica([(a["azione"], a["dopo"]) for a in az] == [("nodo_modificato", {"tipo": "commerciale"})], "«Cambia tipo»: %s" % az)
@@ -3233,15 +4132,14 @@ def b38(b):
     i = b.segna()
     bt.click()
     expect(b.finestra()).to_contain_text("400777")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "il P/N del fornitore è un riferimento, non il codice del pezzo")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     b.ok_finestra()
     expect(p.locator("#nc-k-41")).to_have_attribute("data-du-stato", "decisa in bozza", timeout=T_LUNGO)
     az = b.ultime_azioni(i)
     dec = az[0]["dopo"]
     verifica([a["azione"] for a in az] == ["decisione_aggiunta", "nodo_modificato"] and dec["tipo"] == "identita" and dec["modo"] == "alternativa"
              and dec["chiave_lettura"].endswith("/l:#41") and dec["lettura"]["letterale"] == "ACM-1410" and dec["identita"]["codice"] == "ACM-1410"
-             and dec["motivo"] and len(dec["importazione"]) == 64 and az[1]["dopo"]["identita"]["decisione"] == dec["id"]
+             and "motivo" not in dec and len(dec["importazione"]) == 64 and az[1]["dopo"]["identita"]["decisione"] == dec["id"]
              and az[0]["chiave_bozza"] == "k-41", "rifiuto del P/N K4: %s" % az)
     # la copia compatta della lettura come la rilegge il registro (R-7 della persistenza): i soli campi della copia, i
     # vuoti tolti anche dentro qualificatori e revisione (qui qualificatori {affissi: []} e revisione null: assenti)
@@ -3257,7 +4155,6 @@ def b38(b):
     i = b.segna()
     rif.locator("button", has_text="Adotta come codice").click()
     expect(b.finestra()).to_contain_text("400777")
-    p.fill("#f-motivo", "il disegno del fornitore porta il suo P/N: è il codice del pezzo")
     b.ok_finestra()
     az = b.ultime_azioni(i)
     dec = az[1]["dopo"] if len(az) > 1 else {}
@@ -3271,7 +4168,6 @@ def b38(b):
     expect(li).to_contain_text("ACM-1125")
     i = b.segna()
     li.locator("button", has_text="Adotta come codice").click()
-    p.fill("#f-motivo", "il codice corretto a mano dall'operatore è quello giusto")
     b.ok_finestra()
     az = b.ultime_azioni(i)
     dec = az[0]["dopo"]
@@ -3288,7 +4184,6 @@ def b39(b):
     b.scheda("k-33")
     b.linguetta("dettaglio")
     p.click("#du-non-includere-nodo")
-    p.fill("#f-motivo", "cordone di saldatura")
     b.ok_finestra()
     expect(noninc).to_have_count(1, timeout=T_LUNGO)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
@@ -3307,7 +4202,6 @@ def b39(b):
     b.scheda("k-32")
     b.linguetta("dettaglio")
     p.click("#du-non-includere-nodo")
-    p.fill("#f-motivo", "cordone di saldatura")
     b.ok_finestra()
     expect(noninc).to_have_count(1, timeout=T_LUNGO)
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
@@ -3377,7 +4271,6 @@ def b39(b):
     b.scheda("k-7")
     b.linguetta("dettaglio")
     p.click("#du-non-includere-nodo")
-    p.fill("#f-motivo", "prova della proposta non richiesta")
     b.ok_finestra()
     expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
     b.vista("elenco")
@@ -3454,8 +4347,9 @@ def b40(b):
     expect(p.locator("#du-cambia-sorgente")).to_be_enabled(timeout=T_LUNGO)
     s8_prima = b.stato()["conti"].get("S8", 0)
     casi = [
-        ({"esito": "rifiutato", "codice": "STEP_SORGENTE_DI_ALTRO_PRODOTTO", "testo": "Questo STEP è già la sorgente di ACM-2000"}, 422, "in V1 uno STEP è la sorgente di un solo prodotto", False),
-        ({"esito": "rifiutato", "codice": "MOTIVO_OBBLIGATORIO", "campo": "motivo", "testo": "serve il motivo"}, 422, "Serve il motivo.", False),
+        ({"esito": "rifiutato", "codice": "STEP_SORGENTE_DI_ALTRO_PRODOTTO", "testo": "Questo STEP è già la sorgente di ACM-2000"}, 422, "uno STEP è la sorgente di un solo prodotto", False),
+        # un server di prima del messaggio 46 che chiede ancora il motivo: la pagina lo dice, niente scritto
+        ({"esito": "rifiutato", "codice": "MOTIVO_OBBLIGATORIO", "campo": "motivo", "testo": "serve il motivo"}, 422, "Il server chiede ancora un motivo scritto", False),
         ({"esito": "conflitto", "codice": "BOZZA_VERSIONE", "motivo": "altra_bozza_aperta", "testo": "la bozza è cambiata"}, 409, "La bozza è cambiata altrove", True),
     ]
     for corpo, stato, testo, chiude in casi:
@@ -3466,7 +4360,6 @@ def b40(b):
                 b.guarda(a1)
             p.click("#du-cambia-sorgente")
             expect(p.locator("#f-effetto")).to_be_visible(timeout=T_LUNGO)
-            p.fill("#f-motivo", "la BOM segue lo STEP del cliente")
             i = b.segna()
             b.ok_finestra()
             if chiude:
@@ -3489,7 +4382,6 @@ def b40(b):
             b.guarda(a1)
         p.click("#du-cambia-sorgente")
         expect(p.locator("#f-effetto")).to_be_visible(timeout=T_LUNGO)
-        p.fill("#f-motivo", "la BOM segue lo STEP del cliente")
         b.ok_finestra()
         riprova = p.locator("#du-riprova-sorgente_" + sid(b.p1))
         expect(riprova).to_be_visible(timeout=T_LUNGO)
@@ -3607,7 +4499,6 @@ def b41(b):
     try:
         b.azione("scarta", v3)
         expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
-        p.fill("#f-motivo", "doppione")
         b.ok_finestra()
         voci = p.locator("#f-dipendenze-attive li")
         expect(voci).to_have_count(2, timeout=T_LUNGO)
@@ -3632,7 +4523,6 @@ def b41(b):
     try:
         b.azione("scarta", v3)
         expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
-        p.fill("#f-motivo", "doppione")
         b.ok_finestra()
         expect(b.avviso()).to_contain_text("(l'esito di allora non è più conservato)", timeout=T_LUNGO)
     finally:
@@ -3644,6 +4534,7 @@ def b41(b):
     # l'anteprima per quel prodotto, poi S8; nessun gesto «Associa lo STEP…» e nessuna richiesta a …/associa
     a10 = b.al["ACM-1000_rev2.stp"]
     b.file(a10, "step")
+    b.altri_prodotti()
     expect(p.locator("#du-sg-dettaglio #du-guarda-nc-" + sid(b.p2) + "-" + sid(a10))).to_be_visible(timeout=T_LUNGO)
     verifica(p.locator("[id^='du-associa-step']").count() == 0, "la pagina offre ancora S7 («Associa lo STEP…»)")
     verifica("Associa lo STEP" not in p.locator("#du-sg-dettaglio").inner_text(), "il dettaglio dello STEP nomina ancora S7")
@@ -3693,12 +4584,11 @@ def b42(b):
     verifica("la base è superata" in (p.locator("#du-cta-bom").get_attribute("title") or ""), "il CTA con la base superata senza il motivo")
     i = b.segna()
     p.click("#du-rebase")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "la conferma di un collega ha cambiato la base")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     b.ok_finestra()
     expect(p.locator("#du-base-superata")).to_have_count(0, timeout=T_LUNGO)
     c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
-    verifica(c["rebase"]["motivo"] and "base" in c["rebase"] and [a["azione"] for a in c["azioni"]] == ["rebase"], "il salvataggio del rebase: %s" % c)
+    verifica("motivo" not in c["rebase"] and "base" in c["rebase"] and [a["azione"] for a in c["azioni"]] == ["rebase"], "il salvataggio del rebase: %s" % c)
     b.interruttore("congelata", True)
     p.click("#du-aggiorna")
     fascia = p.locator("#du-congelata")
@@ -3730,7 +4620,9 @@ def b43(b):
     nv = p.locator("#du-doc-non-v1")
     for testo in ("Conferma il documento", "Conferma 2D", "Correggi il codice di un file", "Deroga", "Revoca la deroga", "Sostituisci il principale con questo"):
         expect(nv.locator("button", has_text=testo).first).to_be_disabled()
-    for motivo in ("I documenti si confermano solo con «Rivedi e conferma fascicolo» (V3)", "R10 (V4)", "Le deroghe non sono in questa pagina", "La sostituzione dei documenti non è in V1"):
+    # collaudo UI46, I7: i motivi senza le versioni del progetto
+    for motivo in ("I documenti si confermano con «Rivedi e conferma fascicolo», non da questa pagina", "La correzione di un file non è in questa pagina", "Le deroghe non sono in questa pagina",
+                   "La sostituzione dei documenti non è in questa pagina"):
         expect(nv).to_contain_text(motivo)
     expect(p.locator("#du-completezza")).to_contain_text("2D previsti all'importazione")
     # il visore dalla linguetta dei documenti (PN-04); un contenuto che non c'è (410, risposta finta) lo dice
@@ -3753,7 +4645,6 @@ def b43(b):
     b.linguetta("dettaglio")
     p.click("#du-correggi")
     p.fill("#f-codice", "ACM-1401")
-    p.fill("#f-motivo", "codice nuovo del supporto")
     b.ok_finestra()
     # D-ASS-01 [U]: il file registrato non corrisponde più al codice nuovo; «Mantieni i collegamenti»: segue il codice nuovo
     expect(p.locator("#f-discordanti [data-du-discordante='%s']" % b.al["ACM-1400_A.pdf"])).to_have_attribute("data-tipo", "ar", timeout=T_LUNGO)
@@ -3792,22 +4683,20 @@ def b43(b):
     p.click("#du-gestisci-sorgente")
     expect(p.locator("#du-passo-sorgente")).to_have_attribute("aria-current", "step")
     b.vista("org")
-    # una sola candidata incerta: niente in vista all'apertura, ma la si sceglie e la si usa (SG-02)
+    # una sola candidata incerta: messaggio 46 [U] (supera SG-02 per l'anteprima): «Guarda l'anteprima» la mette in vista
+    # subito, con la struttura e il gesto della conferma; la conferma resta il gesto separato
     a1 = b.al["ACM-1000_assieme.stp"]
     b.interruttore("s6-incerta", True)
     try:
         p.click("#du-aggiorna")
         b.cartella("step")
-        expect(p.locator("#du-step-" + sid(a1))).to_contain_text("incerta", timeout=T_LUNGO)
+        # la riga dice «incerta» solo se lo STEP non ha lo stato di una sorgente (messaggio 46: uno stato per prodotto)
+        riga_a1 = p.locator("#du-step-" + sid(a1))
+        expect(riga_a1).to_be_visible(timeout=T_LUNGO)
+        b.attendi(lambda: "incerta" in riga_a1.inner_text() or "sorgente" in riga_a1.inner_text(), "la riga dello STEP non dice né la candidata incerta né lo stato della sorgente")
         b.guarda(a1)
-        expect(p.locator("#du-nessuna-in-vista")).to_be_visible(timeout=T_LUNGO)
-        scelte = p.locator("#du-strutture button")
-        expect(scelte).to_have_count(1)
-        expect(scelte).to_have_attribute("aria-pressed", "false")
-        verifica(p.locator("#du-cambia-sorgente").count() == 0 and p.locator("#du-riallinea-da-step").count() == 0 and p.locator("#du-anteprima .du-vp").count() == 0,
-                 "una candidata incerta in vista all'apertura")
-        scelte.click()
         expect(p.locator("#du-anteprima .du-vp")).to_be_visible(timeout=T_LUNGO)
+        verifica(p.locator("#du-nessuna-in-vista").count() == 0, "una candidata incerta sola non è in vista all'apertura")
         expect(p.locator("#du-riallinea-da-step, #du-cambia-sorgente").first).to_be_visible()
     finally:
         b.interruttore("s6-incerta", False)
@@ -3930,27 +4819,25 @@ def b47(b):
     expect(p.locator("#du-abbandona-f2")).to_be_enabled()
     i = b.segna()
     p.click("#du-converti")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "la bozza va lavorata nel formato nuovo")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Bozza convertita.", timeout=T_LUNGO)
     c = b.corpi(i, "POST", r"/motore-a/bozza$")[0]
-    verifica(c["bozza_id"] is None and c["versione_attesa"] == 0 and c["converti_da"]["versione_attesa"] == 3 and c["converti_da"]["motivo"]
+    verifica(c["bozza_id"] is None and c["versione_attesa"] == 0 and c["converti_da"]["versione_attesa"] == 3 and "motivo" not in c["converti_da"]
              and "snapshot" not in c and "azioni" not in c, "corpo della conversione: %s" % c)
     b.salvata(1)
-    # mono_pezzo: il prodotto senza figli (avviso), il motivo obbligatorio, una decisione salvata e il riepilogo riletto
+    # mono_pezzo: il prodotto senza figli (avviso), senza motivo (messaggio 46 [U]), una decisione salvata e il riepilogo riletto
     b.vista("org")
     b.apri_wizard()
     p.click("#du-wz-fase2")
-    expect(p.locator("#du-wz-avvisi")).to_contain_text("PRODOTTO_SENZA_FIGLI", timeout=T_LUNGO)
+    expect(p.locator("#du-wz-avvisi [data-codice=PRODOTTO_SENZA_FIGLI]")).to_be_visible(timeout=T_LUNGO)
     p.locator("#du-wz-corpo button", has_text="Dichiara mono_pezzo").click()
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "è un pezzo unico")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     i = b.segna()
     b.ok_finestra()
     d = b.ultime_azioni(i)[0]["dopo"]
-    verifica(d["tipo"] == "mono_pezzo" and d["motivo"], "decisione mono_pezzo: %s" % d)
-    expect(p.locator("#du-wz-avvisi")).not_to_contain_text("PRODOTTO_SENZA_FIGLI", timeout=T_LUNGO)
+    verifica(d["tipo"] == "mono_pezzo" and "motivo" not in d, "decisione mono_pezzo: %s" % d)
+    expect(p.locator("#du-wz-avvisi [data-codice=PRODOTTO_SENZA_FIGLI]")).to_have_count(0, timeout=T_LUNGO)
     p.click("#du-wz-chiudi")
     expect(p.locator("#du-stato-conferma")).to_contain_text("mono_pezzo proposto in bozza")
     # la bozza convertita non ha uno STEP sorgente: il gate della direttiva 39 spegne la conferma, con il rimedio
@@ -3981,10 +4868,11 @@ def b47(b):
     p.click("#du-abbandona")
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Bozza abbandonata.", timeout=T_LUNGO)
-    reg = p.locator("#du-da-registrato")
-    expect(reg).to_be_disabled()
-    verifica("conferma del formato 3" in (reg.get_attribute("title") or ""), "«Parti dalla BOM registrata» spento senza il motivo: %r" % reg.get_attribute("title"))
-    expect(p.locator("#du-nessuna-bozza")).to_contain_text("il prodotto ha già una conferma del formato 3")
+    # UI46 (messaggi 46-47): senza bozza la Revisione mostra la BOM confermata (#du-working) e le partenze non ammesse non
+    # compaiono più, nemmeno spente con la spiegazione lunga [T]
+    expect(p.locator("#du-working")).to_be_visible(timeout=T_LUNGO)
+    verifica(p.locator("#du-da-registrato").count() == 0, "«Parti dalla BOM registrata» offerta con una conferma formato 3")
+    verifica("conferma del formato 3" not in p.locator("#du-working").inner_text(), "la spiegazione lunga della partenza spenta è ancora sulla pagina")
     expect(p.locator("#du-da-conferma")).to_be_enabled()
     # una bozza «registrato» aperta altrove sullo stesso prodotto (la pagina nuova non la offre, ma una bozza così può
     # esserci): la base è l'ultima conferma valida formato 3 e non ci sono gesti, quindi CTA e «Conferma BOM» spenti
@@ -4094,7 +4982,7 @@ def b52_corpo(b):
     tab_prodotto(b, b.p2).click()
     expect(tab_prodotto(b, b.p2)).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
     b.passo("revisione")
-    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator(SENZA_BOZZA)).to_be_visible(timeout=T_LUNGO)
     expect(p.locator("#du-da-registrato")).to_be_enabled()
     expect(p.locator("#du-da-conferma")).to_be_enabled()
     # «Modifica la BOM confermata» su una base formato 2: senza modifiche il CTA è acceso, la prima conferma formato 3
@@ -4113,7 +5001,7 @@ def b52_corpo(b):
     try:
         b.apri_wizard()
         p.click("#du-wz-fase2")
-        expect(p.locator("#du-wz-avvisi")).to_contain_text("PRODOTTO_SENZA_FIGLI", timeout=T_LUNGO)
+        expect(p.locator("#du-wz-avvisi [data-codice=PRODOTTO_SENZA_FIGLI]")).to_be_visible(timeout=T_LUNGO)
         expect(p.locator("#du-wz-conferma")).to_be_enabled(timeout=T_LUNGO)
         letture = re.compile(r"/motore-a/(dati|bozza|conferme)(\?|$)")
         g = rispondi_json(500, {"esito": "errore", "testo": "errore interno"}, metodo="GET", volte=100)
@@ -4131,12 +5019,12 @@ def b52_corpo(b):
         expect(p.locator("#du-wizard-titolo")).to_contain_text("ACM-2000")
         verifica(not errori, "errori JavaScript dopo la conferma dalla fase 2: %s" % errori)
         p.click("#du-wz-chiudi")
-        expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+        expect(p.locator(SENZA_BOZZA)).to_be_visible(timeout=T_LUNGO)
     finally:
         p.remove_listener("pageerror", ascolta)
     # adesso il secondo prodotto ha una conferma formato 3: «Parti dalla BOM registrata» non si offre, e la bozza dalla
     # conferma senza modifiche ha il CTA spento
-    expect(p.locator("#du-da-registrato")).to_be_disabled()
+    expect(p.locator("#du-da-registrato")).to_have_count(0)
     p.click("#du-da-conferma")
     b.salvata(1)
     cta = p.locator("#du-cta-bom")
@@ -4282,11 +5170,18 @@ def b54(b):
     try:
         # una bozza nuova dalla proposta dello STEP, con il segnale anche sulla voce della radice
         a1 = b.al["ACM-1000_assieme.stp"]
-        b.guarda(a1)
-        expect(p.locator("#du-conferma-sorgente")).to_be_enabled(timeout=T_LUNGO)
-        p.click("#du-conferma-sorgente")
-        b.ok_finestra()
-        expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+        # la BOM è confermata su a1: la bozza importata dallo STEP con la working altrove (vedi working_altrove)
+        p.route("**/motore-a/dati*", working_altrove)
+        try:
+            p.click("#du-aggiorna")
+            expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+            b.guarda(a1)
+            expect(p.locator("#du-conferma-sorgente")).to_have_text("Riprendi: crea la bozza di ACM-1000", timeout=T_LUNGO)
+            p.click("#du-conferma-sorgente")
+            b.ok_finestra()
+            expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+        finally:
+            p.unroute("**/motore-a/dati*", working_altrove)
         b.passo("revisione")
         b.salvata(1)
         b.vista("org")
@@ -4424,7 +5319,6 @@ def b56(b):
     b.scheda("k-11")
     p.click("#du-correggi")
     p.fill("#f-codice", "")
-    p.fill("#f-motivo", "prova del codice vuoto")
     expect(ok).to_be_disabled()
     verifica("codice è obbligatorio" in (ok.get_attribute("title") or ""), "«Correggi» con il codice vuoto: %r" % ok.get_attribute("title"))
     b.chiudi_finestra()
@@ -4457,7 +5351,6 @@ def b56(b):
         expect(p.locator("#du-salvataggio")).to_have_attribute("data-du-salvataggio", "salvata", timeout=T_LUNGO)
         p.click("#du-correggi")
         p.fill("#f-codice", "ACM-1401")
-        p.fill("#f-motivo", "codice nuovo del supporto")
         expect(ok).to_be_disabled()
         verifica("minuscole" in (ok.get_attribute("title") or ""), "ricodifica con la rev minuscola: %r" % ok.get_attribute("title"))
         p.fill("#f-rev", "b")
@@ -4475,7 +5368,6 @@ def b56(b):
     i = b.segna()
     bt.click()
     expect(b.finestra()).to_contain_text("400123 rev B")
-    p.fill("#f-motivo", "il codice del DXF del fornitore")
     b.ok_finestra()
     az = b.ultime_azioni(i)
     dec = az[0]["dopo"]
@@ -4510,7 +5402,6 @@ def b56(b):
         i = b.segna()
         li.locator("button", has_text="Adotta come codice").click()
         expect(b.finestra()).to_contain_text("ACM-1125 rev a")
-        p.fill("#f-motivo", "il codice corretto a mano")
         b.ok_finestra()
         az = b.ultime_azioni(i)
         adottata = az[0]["dopo"]
@@ -4520,7 +5411,6 @@ def b56(b):
         n_r2 = b.stato()["conti"]["R2"]
         p.click("#du-correggi")
         p.fill("#f-codice", "ACM-1126")
-        p.fill("#f-motivo", "codice nuovo")
         expect(ok).to_be_disabled()
         verifica("minuscole" in (ok.get_attribute("title") or ""), "«Correggi» con un codice nuovo e la rev minuscola del codice manuale: %r" % ok.get_attribute("title"))
         verifica(b.stato()["conti"]["R2"] == n_r2, "«Correggi» con la rev minuscola ha scritto la bozza")
@@ -4544,7 +5434,6 @@ def b56(b):
     b.linguetta("dettaglio")
     expect(p.locator("#nc-k-40")).to_contain_text("rev a")
     p.click("#du-fissa-emittente")
-    p.fill("#f-motivo", "prova dell'emittente")
     expect(ok).to_be_enabled()
     b.chiudi_finestra()
 
@@ -4567,7 +5456,6 @@ def b56(b):
         b.scheda("k-40")
         b.linguetta("dettaglio")
         p.click("#du-fissa-emittente")
-        p.fill("#f-motivo", "prova dell'emittente")
         expect(ok).to_be_disabled()
         verifica("minuscole" in (ok.get_attribute("title") or ""), "«Fissa l'emittente» di un nodo modifica con la rev minuscola: %r" % ok.get_attribute("title"))
         b.chiudi_finestra()
@@ -4685,15 +5573,14 @@ def b59(b):
         expect(tab.locator('tr[data-k="k-9"]')).to_contain_text("2D richiesto")
     p.click("#du-wz-chiudi")
     expect(p.locator("#du-wizard")).to_be_hidden()
-    # «Non è minuteria…»: il motivo è obbligatorio, la decisione di prima si sostituisce nello stesso gesto
+    # «Non è minuteria…»: senza motivo (messaggio 46 [U]), la decisione di prima si sostituisce nello stesso gesto
     b.scheda("k-12")
     p.click("#du-non-minuteria")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "è un pezzo a disegno, non di serie")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled()
     i = b.segna()
     b.ok_finestra()
     az = b.ultime_azioni(i)
-    verifica([a["azione"] for a in az] == ["decisione_tolta", "decisione_aggiunta"] and az[1]["dopo"]["esito"] == "rifiuto" and az[1]["dopo"]["motivo"], "«Non è minuteria…»: %s" % az)
+    verifica([a["azione"] for a in az] == ["decisione_tolta", "decisione_aggiunta"] and az[1]["dopo"]["esito"] == "rifiuto" and "motivo" not in az[1]["dopo"], "«Non è minuteria…»: %s" % az)
     expect(p.locator("#du-sez-categoria")).to_contain_text("non è minuteria", timeout=T_LUNGO)
     b.salvata(b.stato()["bozze"][b.p1]["versione"])
 
@@ -4885,6 +5772,344 @@ def b49(b):
     verifica("prova.altra.chiave" in chiavi, "l'uscita ha tolto anche una chiave che non è della pagina: %s" % chiavi)
     verifica(not [k for k in chiavi if k.startswith("cockpit.editor.")], "dopo l'uscita restano bozze dell'editor: %s" % chiavi)
     verifica("cockpit.uscita" not in chiavi, "dopo l'uscita resta la marca: %s" % chiavi)
+
+
+# ---- messaggio 46 dell'utente (21/10), corsia SORGENTE: le prove dei difetti visti a schermo (l'elenco D01…D47 dei
+# fotogrammi del video dell'utente), ognuna su un banco suo (distinta_unica_ui46_browser_test.go). Ogni controllo porta il
+# codice del difetto e non ferma la prova: alla fine la prova fallisce con l'elenco dei difetti ancora visibili, così su
+# 342010f si vede che fallisce ogni controllo, uno per uno. Le foto UI46_B7n_*.png si fanno PRIMA dei controlli: su
+# 342010f mostrano il difetto, dopo la correzione lo stato giusto.
+
+class Difetti:
+    def __init__(self, b):
+        self.b = b
+        self.ko = []
+        self.visti = []
+
+    def controlla(self, codice, fn, messaggio=""):
+        """fn: un expect (che solleva) o una funzione che torna False se il difetto si vede."""
+        self.visti.append(codice)
+        try:
+            if fn() is False:
+                raise Rotto(messaggio or "falso")
+        except Exception as e:
+            riga = (messaggio or (str(e).splitlines()[0] if str(e) else repr(e))).replace("\n", " / ")
+            self.ko.append((codice, riga[:200]))
+
+    def fine(self):
+        if self.ko:
+            codici = sorted({c for c, _ in self.ko})
+            raise Rotto("difetti ancora visibili: %s (%d di %d controlli)\n%s" % (", ".join(codici), len(self.ko), len(self.visti), "\n".join("%s (%s)" % x for x in self.ko)))
+
+
+def ui46_conferma_nel_dialogo(b):
+    """Il dialogo di S8 aperto: il motivo, se il dialogo lo chiede ancora (la corsia MOTIVO lo toglie), poi la conferma."""
+    p = b.page
+    expect(b.finestra()).to_contain_text("come sorgente di ACM-1000", timeout=T_LUNGO)
+    if p.locator("#du-finestra #f-motivo").count():
+        p.fill("#du-finestra #f-motivo", "prova")
+    b.ok_finestra()
+    expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+
+
+def ui46_s8_dalla_proposta(b, a1):
+    b.file(a1, "step")
+    b.page.click("#du-sg-dettaglio #du-conferma-proposto-d")
+    ui46_conferma_nel_dialogo(b)
+
+
+def ui46_partenza(b, incerta=False):
+    p = b.page
+    b.interruttore("step-proposto", True)
+    if incerta:
+        b.interruttore("s6-incerta", True)
+    p.click("#du-aggiorna")
+    expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+    b.passo("sorgente")
+    b.cartella("step")
+
+
+@prova("71", "messaggio 46 [U] punto 3: l'anteprima dello STEP con la candidata incerta in vista da sola (D08, D31, D32, D33) e la striscia che non resta dopo la chiusura (D24); il dialogo di conferma con la struttura e i codici, senza identificativi interni (D09, D17), la × accanto al titolo (D34), l'attesa nel dialogo (D26); l'esito una volta sola (D23)")
+def b71(b):
+    p = b.page
+    d = Difetti(b)
+    a1 = b.al["ACM-1000_assieme.stp"]
+    ui46_partenza(b, incerta=True)
+    b.file(a1, "step")
+    p.click("#du-sg-dettaglio #du-guarda-proposto-d")
+    expect(p.locator("#du-anteprima")).to_be_visible(timeout=T_LUNGO)
+    p.wait_for_timeout(700)
+    b.foto("UI46_B71_anteprima.png")
+    ant = p.locator("#du-anteprima")
+    # D08: la struttura in vista senza un altro clic; D32: il gesto della conferma dall'anteprima
+    d.controlla("D08", lambda: expect(p.locator("#du-anteprima .du-vp")).to_be_visible(), "l'anteprima della candidata incerta non mostra la struttura")
+    d.controlla("D08", lambda: p.locator("#du-nessuna-in-vista").count() == 0, "l'anteprima dice «Nessuna struttura in vista»")
+    d.controlla("D32", lambda: expect(p.locator("#du-anteprima #du-conferma-sorgente")).to_be_visible(), "dall'anteprima non si conferma")
+    # D31: il codice letto dalla radice si dice, mai «non determinabile» con la struttura in vista
+    d.controlla("D31", lambda: "non determinabile" not in ant.inner_text(), "l'anteprima dice «Radice letta: non determinabile»")
+    # D33: «Riduci» senza il carattere che si vede come una parentesi
+    d.controlla("D33", lambda: "⟩" not in p.locator("#du-sg-riduci").inner_text(), "il pulsante è «%s»" % p.locator("#du-sg-riduci").inner_text())
+    # D24: chiusa l'anteprima, la striscia «Proposta dello STEP in vista» non resta
+    p.click("#du-anteprima-chiudi")
+    p.wait_for_timeout(300)
+    d.controlla("D24", lambda: not b.avviso().is_visible() or "in vista" not in b.avviso().inner_text(), "dopo la chiusura la striscia dice «%s»" % b.avviso().inner_text())
+    # D09, D17, D34: il dialogo dice che cosa si conferma
+    b.ritardo("POST /thread/{id}/sorgente/step/{a}/conferma-sorgente", 1500)
+    b.file(a1, "step")
+    p.click("#du-sg-dettaglio #du-conferma-proposto-d")
+    fin = b.finestra()
+    expect(fin).to_contain_text("Conferma ACM-1000_assieme.stp come sorgente di ACM-1000", timeout=T_LUNGO)
+    p.wait_for_timeout(400)
+    b.foto("UI46_B71_dialogo.png")
+    d.controlla("D17", lambda: "cand:" not in fin.inner_text() and "nodo:" not in fin.inner_text(), "il dialogo mostra l'identificativo interno della struttura")
+    d.controlla("D09", lambda: expect(p.locator("#f-struttura")).to_have_attribute("data-nodi", "10"), "il dialogo non mostra la struttura che si conferma")
+    d.controlla("D09", lambda: expect(p.locator("#f-codici")).to_contain_text("codice letto dalla radice dello STEP"), "il dialogo non dice il codice letto e quello del prodotto")
+
+    def x_accanto():
+        t = p.locator("#du-finestra-titolo").bounding_box()
+        x = p.locator("#du-finestra .du-fin-t > button").bounding_box()
+        return x["y"] < t["y"] + t["height"] and x["x"] >= t["x"] + t["width"] - 2
+    # D34: con un titolo che va a capo (lo schermo stretto: nel video era il nome lungo del file) la × resta in alto a destra
+    p.set_viewport_size({"width": 420, "height": 900})
+    p.wait_for_timeout(300)
+    b.foto("UI46_B71_dialogo_stretto.png")
+    d.controlla("D34", x_accanto, "la × del dialogo non sta accanto al titolo")
+    p.set_viewport_size({"width": 1440, "height": 900})
+    p.wait_for_timeout(300)
+    if p.locator("#du-finestra #f-motivo").count():
+        p.fill("#du-finestra #f-motivo", "prova")
+    b.ok_finestra()
+    # D26: l'attesa si vede nel dialogo
+    d.controlla("D26", lambda: expect(p.locator("#f-in-corso")).to_be_visible(timeout=1200), "durante la conferma il dialogo non dice che è in corso")
+    b.foto("UI46_B71_attesa.png")
+    esito = p.locator("#du-sg-esito-s8")
+    expect(esito).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
+    p.wait_for_timeout(300)
+    b.foto("UI46_B71_esito.png")
+    # D23: l'esito non si ripete tre volte (striscia, riquadro, ultima mossa)
+    d.controlla("D23", lambda: not b.avviso().is_visible(), "la striscia ripete l'esito: %s" % b.avviso().inner_text())
+    d.controlla("D23", lambda: "pronta da rivedere" not in esito.inner_text(), "il riquadro ripete l'esito: %s" % esito.inner_text())
+    expect(p.locator("#du-sg-mossa")).to_contain_text("Sorgente confermata")
+    d.fine()
+
+
+@prova("72", "messaggio 46 [U] punto 4: uno stato solo per lo STEP sorgente dopo la conferma e dopo la revoca, mai «confermato» con «da confermare» o «proposto» (D10, D11, D27, D28, D47), il riquadro dello stato al posto della domanda, la revoca senza gergo (D29, D46)")
+def b72(b):
+    p = b.page
+    d = Difetti(b)
+    a1 = b.al["ACM-1000_assieme.stp"]
+    ui46_partenza(b)
+    # D47: prima della conferma, la riga dice la candidata in breve (la diagnostica del motore sta nel titolo)
+    d.controlla("D47", lambda: "segnalati" not in p.locator("#du-step-" + sid(a1)).inner_text(), "la riga della candidata ha la diagnostica del motore")
+    # D28: prima della conferma, nel dettaglio dello STEP la conferma e l'anteprima per ACM-1000 una volta sola (la proposta)
+    b.file(a1, "step")
+    det0 = p.locator("#du-sg-dettaglio")
+    d.controlla("D28", lambda: det0.get_by_role("button", name="Conferma questo STEP come sorgente di ACM-1000").count() <= 1 and det0.get_by_role("button", name="Guarda l'anteprima per ACM-1000").count() <= 1,
+                "la conferma o l'anteprima per ACM-1000 ripetute nel dettaglio")
+    ui46_s8_dalla_proposta(b, a1)
+    b.file(a1, "step")
+    riga = p.locator("#du-step-" + sid(a1))
+    det = p.locator("#du-sg-dettaglio")
+    p.wait_for_timeout(300)
+    b.foto("UI46_B72_confermata.png")
+    d.controlla("D11", lambda: expect(riga).to_contain_text("sorgente di ACM-1000"), "la riga della sorgente non dice «sorgente di ACM-1000»")
+    d.controlla("D11", lambda: "✓ confermato" not in riga.inner_text() and "candidata" not in riga.inner_text(), "la riga della sorgente dice più stati: %s" % riga.inner_text())
+    d.controlla("D27", lambda: "Il Motore A non propone" not in det.inner_text(), "accanto allo STEP sorgente «Il Motore A non propone questo STEP per nessun prodotto»")
+    d.controlla("D11", lambda: "lo confermi come sorgente" not in det.inner_text() and "✓ confermato" not in det.inner_text(), "il dettaglio della sorgente dice più stati")
+    d.controlla("D11", lambda: expect(det.locator("#du-stato-sorgente-" + sid(b.p1))).to_have_attribute("data-stato", "confermata"), "il dettaglio non ha il riquadro dello stato")
+    d.controlla("D28", lambda: det.get_by_role("button", name="Guarda l'anteprima per ACM-1000").count() <= 1, "«Guarda l'anteprima» ripetuto nel dettaglio")
+    d.controlla("D27", lambda: det.get_by_role("button", name="Guarda l'anteprima per ACM-2000").count() == 0 or not det.get_by_role("button", name="Guarda l'anteprima per ACM-2000").first.is_visible(),
+                "l'anteprima per ogni altro prodotto è in vista nel dettaglio")
+    d.controlla("D29", lambda: "working" not in det.inner_text() and "(S8)" not in det.inner_text(), "il dettaglio ha il gergo («working», «(S8)»)")
+    # la revoca
+    p.click("#du-sg-dettaglio #du-revoca-sorgente-" + sid(a1))
+    expect(b.finestra()).to_contain_text("Revoca", timeout=T_LUNGO)
+    if p.locator("#du-finestra #f-motivo").count():
+        p.fill("#du-finestra #f-motivo", "prova")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Sorgente revocata per ACM-1000", timeout=T_LUNGO)
+    av = b.avviso().inner_text()
+    d.controlla("D46", lambda: "(S8)" not in av and "working" not in av, "la striscia della revoca ha il gergo: %s" % av)
+    b.file(a1, "step")
+    p.wait_for_timeout(300)
+    b.foto("UI46_B72_revocata.png")
+    d.controlla("D10", lambda: expect(riga).to_contain_text("sorgente revocata per ACM-1000"), "la riga non dice la revoca")
+    d.controlla("D10", lambda: "✓ confermato" not in riga.inner_text(), "la riga dopo la revoca dice «✓ confermato»: %s" % riga.inner_text())
+    d.controlla("D10", lambda: "lo confermi come sorgente" not in det.inner_text() and "✓ confermato" not in det.inner_text(), "il dettaglio dopo la revoca dice confermato e da confermare")
+    d.controlla("D10", lambda: expect(det.locator("#du-stato-sorgente-" + sid(b.p1) + " #du-riconferma-" + sid(b.p1))).to_contain_text("Conferma di nuovo come sorgente di ACM-1000"),
+                "il dettaglio dopo la revoca non offre «Conferma di nuovo come sorgente»")
+    # la cartella del prodotto: niente «Sorgente confermata» di prima accanto alla revoca, il riquadro dello stato
+    b.cartella("p:" + b.p1)
+    if p.locator("#du-stato-sorgente-sg").count() == 0 and p.locator("#du-step-proposto-sg").count() == 0 and p.locator("#du-sg-prodotto-apri").count():
+        p.click("#du-sg-prodotto-apri")
+    p.wait_for_timeout(300)
+    b.foto("UI46_B72_prodotto.png")
+    d.controlla("D10", lambda: p.locator("#du-sg-esito-s8").count() == 0, "la cartella del prodotto mostra ancora l'esito «Sorgente confermata»")
+    d.controlla("D10", lambda: p.locator("#du-step-proposto-sg").count() == 0, "la cartella del prodotto chiede ancora «lo confermi?» dopo la revoca")
+    d.fine()
+
+
+@prova("73", "messaggio 46: la barra dei gesti sulle selezioni senza il muro di «non vale per …» (D18), con la conferma come gesto principale dello STEP candidato (D19), le spunte tolte dopo la conferma (D20)")
+def b73(b):
+    p = b.page
+    d = Difetti(b)
+    a1 = b.al["ACM-1000_assieme.stp"]
+    ui46_partenza(b)
+    p.check("#du-step-" + sid(a1) + " .du-sg-spunta")
+    barra = p.locator("#du-sg-elenco #du-sg-gruppo")
+    expect(barra).to_be_visible(timeout=T_BREVE)
+    b.foto("UI46_B73_candidata.png")
+    d.controlla("D18", lambda: "non vale per" not in barra.inner_text() and "non ammesso in questo stato" not in barra.inner_text(), "la barra elenca i gesti che non valgono")
+    d.controlla("D18", lambda: barra.locator("button[disabled]").count() == 0, "la barra ha pulsanti spenti")
+    d.controlla("D19", lambda: expect(barra.locator("#du-g-principale")).to_contain_text("Conferma questo STEP come sorgente di ACM-1000"), "la conferma non è nella barra")
+    if barra.locator("#du-g-principale").count():
+        barra.locator("#du-g-principale").click()
+    else:
+        b.file(a1, "step")
+        p.click("#du-sg-dettaglio #du-conferma-proposto-d")
+    ui46_conferma_nel_dialogo(b)
+    b.cartella("step")
+    d.controlla("D20", lambda: p.locator("#du-sg-elenco .du-sg-spunta:checked").count() == 0, "le spunte restano dopo la conferma")
+    # la sorgente spuntata: i gesti che non valgono stanno ripiegati, con il perché in breve
+    if p.locator("#du-step-" + sid(a1) + " .du-sg-spunta:checked").count() == 0:
+        p.check("#du-step-" + sid(a1) + " .du-sg-spunta")
+    expect(barra).to_be_visible(timeout=T_BREVE)
+    b.foto("UI46_B73_sorgente.png")
+    d.controlla("D18", lambda: "non vale per" not in barra.inner_text() and "(non in V1)" not in barra.inner_text(), "la barra della sorgente elenca i gesti che non valgono")
+    d.controlla("D18", lambda: expect(barra.locator("#du-sg-nonvale")).to_contain_text("è la sorgente di ACM-1000"), "il perché dei gesti che non valgono non si dice in breve")
+    d.fine()
+
+
+@prova("74", "messaggio 46: il prodotto scelto dalle linguette porta con sé la cartella, la striscia e l'ultima mossa parlano del loro prodotto (D21, D22); l'identificativo del cliente come testo (D12); la bozza da rivedere senza il colore d'allarme (D35)")
+def b74(b):
+    p = b.page
+    d = Difetti(b)
+    a1 = b.al["ACM-1000_assieme.stp"]
+    ui46_partenza(b)
+    ui46_s8_dalla_proposta(b, a1)
+    el = p.locator("#du-sg-elenco")
+    expect(el).to_contain_text("ACM-1100_A.pdf", timeout=T_LUNGO)
+    b.foto("UI46_B74_prodotto1.png")
+    d.controlla("D12", lambda: "[object Object]" not in el.inner_text(), "le righe dicono «id. cliente [object Object]»")
+    d.controlla("D12", lambda: expect(el).to_contain_text("id. cliente ACM-1100/A"), "le righe non dicono l'identificativo del cliente")
+    cls = p.locator("#du-passo-revisione .du-st").first.get_attribute("class") or ""
+    d.controlla("D35", lambda: "du-st--bozza" not in cls and "du-st--ko" not in cls, "la bozza da rivedere ha il colore d'allarme: %s" % cls)
+    # una striscia che parla di ACM-1000: l'anteprima del suo STEP (l'esito riuscito di S8 non ha più la striscia, D23)
+    b.guarda(a1)
+    expect(b.avviso()).to_contain_text("Proposta dello STEP in vista", timeout=T_LUNGO)
+    b.cartella("p:" + b.p1)
+    tab2 = p.locator('.du-ptab[data-prodotto="%s"]' % b.p2)
+    tab2.click()
+    expect(tab2).to_have_attribute("aria-current", "true", timeout=T_LUNGO)
+    p.wait_for_timeout(500)
+    b.foto("UI46_B74_prodotto2.png")
+    d.controlla("D21", lambda: expect(p.locator("#du-sg-titolo")).to_contain_text("ACM-2000"), "dopo la linguetta di ACM-2000 l'elenco resta su ACM-1000")
+    d.controlla("D21", lambda: expect(p.locator("#du-sg-c-p_" + sid(b.p2))).to_have_attribute("aria-selected", "true"), "la cartella di ACM-2000 non è scelta")
+    d.controlla("D22", lambda: not b.avviso().is_visible(), "la striscia parla ancora di ACM-1000: %s" % b.avviso().inner_text())
+    d.controlla("D22", lambda: expect(p.locator("#du-sg-mossa")).to_contain_text("Ultima mossa · ACM-1000"), "l'ultima mossa non dice che è di ACM-1000")
+    d.fine()
+
+
+@prova("75", "messaggio 46, revisione della corsia SORGENTE: niente «null» nell'intestazione di un prodotto senza sorgente (R1); niente versioni del progetto nel dettaglio di uno STEP candidato (R2); la sorgente superata senza «adesso è un altro STEP» (R5); una pillola sola per lo stato della sorgente nella riga e il separatore in «Destinazioni» (R6)")
+def b75(b):
+    p = b.page
+    d = Difetti(b)
+    a1 = b.al["ACM-1000_assieme.stp"]
+    a2 = b.al["ACM-1100_A.pdf"]
+    a10 = b.al["ACM-1000_rev2.stp"]
+
+    def grezzo(testo):
+        return [l for l in testo.splitlines() if l.strip() in ("null", "undefined")] + (["[object Object]"] if "[object Object]" in testo else [])
+
+    def intestazione(k):
+        b.cartella(k)
+        if p.locator("#du-sg-prodotto .du-sg-prodotto-c").count() == 0 and p.locator("#du-sg-prodotto-apri").count():
+            p.click("#du-sg-prodotto-apri")
+        p.wait_for_timeout(300)
+        return p.locator("#du-sg-elenco")
+
+    ui46_partenza(b)
+    # R2: il «Rifiuta la candidata…» spento nel dettaglio di uno STEP candidato (non proposto) non dice la versione in cui
+    # arriva, né «rifiuto motivato» (il motivo dell'utente si toglie da ogni widget, messaggio 46 [U] punto 1)
+    b.file(a10, "step")
+    det = p.locator("#du-sg-dettaglio")
+    expect(det).to_contain_text("Rifiuta la candidata", timeout=T_LUNGO)
+    p.wait_for_timeout(300)
+    b.foto("UI46_B75_candidata.png")
+
+    def versioni():
+        return [l for l in det.inner_text().splitlines() if re.search(r"\bV[1-9]\b", l)]
+    d.controlla("R2", lambda: not versioni(), "il dettaglio dello STEP candidato dice una versione del progetto: %s" % versioni())
+    d.controlla("R2", lambda: "rifiuto motivato" not in det.inner_text(), "il dettaglio dello STEP candidato dice «rifiuto motivato»")
+    # R1: l'intestazione del secondo prodotto, che non ha sorgente né bozza
+    el = intestazione("p:" + b.p2)
+    b.foto("UI46_B75_prodotto2.png")
+    d.controlla("R1", lambda: not grezzo(el.inner_text()), "testo grezzo nell'intestazione di ACM-2000: %s" % grezzo(el.inner_text()))
+    # R6: dopo la conferma, nella riga dello STEP sorgente lo stato una volta sola (la cartella di ACM-1000 riporta il
+    # prodotto scelto, D21)
+    b.cartella("p:" + b.p1)
+    ui46_s8_dalla_proposta(b, a1)
+    intestazione("p:" + b.p1)
+    riga = p.locator('#du-sg-elenco li[data-allegato="%s"]' % a1).first
+    expect(riga).to_be_visible(timeout=T_LUNGO)
+    b.foto("UI46_B75_riga_sorgente.png")
+
+    def stati_sorgente():
+        return [t for t in riga.locator(".du-st").all_inner_texts() if "sorgente" in t]
+    d.controlla("R6", lambda: len(stati_sorgente()) == 1, "la riga dello STEP sorgente dice lo stato %d volte: %s" % (len(stati_sorgente()), stati_sorgente()))
+    # R6: «Destinazioni» con « · » fra la revisione e l'identificativo del cliente
+    b.file(a2)
+    dest = p.locator("#du-sg-destinazioni")
+    expect(dest).to_contain_text("id. cliente", timeout=T_LUNGO)
+    d.controlla("R6", lambda: re.search(r"(?<!· )id\. cliente", dest.inner_text()) is None, "in «Destinazioni» manca il separatore: %s" % dest.inner_text())
+    # R1: l'intestazione del primo prodotto dopo la revoca (nessuna sorgente valida, la bozza annullata)
+    b.file(a1, "step")
+    p.click("#du-sg-dettaglio #du-revoca-sorgente-" + sid(a1))
+    expect(b.finestra()).to_contain_text("Revoca", timeout=T_LUNGO)
+    if p.locator("#du-finestra #f-motivo").count():
+        p.fill("#du-finestra #f-motivo", "prova")
+    b.ok_finestra()
+    expect(b.avviso()).to_contain_text("Sorgente revocata per ACM-1000", timeout=T_LUNGO)
+    el = intestazione("p:" + b.p1)
+    b.foto("UI46_B75_prodotto1_revocato.png")
+    d.controlla("R1", lambda: not grezzo(el.inner_text()), "testo grezzo nell'intestazione di ACM-1000 dopo la revoca: %s" % grezzo(el.inner_text()))
+    # R5: il server dice «superata» anche per il documento sostituito; la conferma di S8 di ACM-1000 vista superata
+    # (la lettura di /dati ritoccata qui: il banco non ha il caso)
+
+    def superata(route):
+        r = route.fetch()
+        try:
+            dati = r.json()
+        except Exception:
+            route.fulfill(response=r)
+            return
+
+        def giro(x):
+            if isinstance(x, dict):
+                s8 = x.get("sorgente_s8")
+                if isinstance(s8, dict) and str(s8.get("allegato_id", "")).lower() == a1.lower():
+                    s8["valida"] = False
+                    s8["motivo"] = "superata"
+                for v in x.values():
+                    giro(v)
+            elif isinstance(x, list):
+                for v in x:
+                    giro(v)
+        giro(dati)
+        route.fulfill(response=r, body=json.dumps(dati))
+    p.route("**/motore-a/dati*", superata)
+    try:
+        p.click("#du-aggiorna")
+        expect(b.avviso()).to_contain_text("Pagina riletta", timeout=T_LUNGO)
+        b.file(a1, "step")
+        st = p.locator("#du-sg-dettaglio #du-stato-sorgente-" + sid(b.p1))
+        d.controlla("R5", lambda: expect(st).to_have_attribute("data-stato", "sostituita", timeout=T_LUNGO), "il dettaglio non ha il riquadro della sorgente superata")
+        b.foto("UI46_B75_superata.png")
+        d.controlla("R5", lambda: "un'altra conferma" not in p.locator("#du-passo-sorgente").inner_text(), "la testata dice «%s»" % p.locator("#du-passo-sorgente").inner_text())
+        d.controlla("R5", lambda: "adesso è un altro STEP" not in p.locator("#du-sg-dettaglio").inner_text(), "la sorgente superata dice «%s»" % p.locator("#du-sg-dettaglio").inner_text().replace("\n", " "))
+    finally:
+        p.unroute("**/motore-a/dati*", superata)
+    d.fine()
 
 
 def main():

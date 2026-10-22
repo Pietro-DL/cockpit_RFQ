@@ -112,7 +112,8 @@ const DEDICATE = {
   // le rotte di U2 (EM §9.5-bis, §10.9; MAT §1.3): S8 la conferma della sorgente, S9 lo smistamento di tutti i prodotti
   // (una variante di /dati, ?sorgente=1), R15 il rifiuto della proposta aggiornata
   confermaSorgente: "POST /thread/{id}/sorgente/step/{u}/conferma-sorgente",
-  // la revoca della sorgente della bozza (direttiva 39 §2; EM App. I.4): lo STEP scelto per errore, con il motivo
+  // la revoca della sorgente della bozza (direttiva 39 §2; EM App. I.4): lo STEP scelto per errore (senza motivo dal
+  // messaggio 46 [U]: lo scrive il server)
   revocaSorgente: "POST /thread/{id}/sorgente/step/{u}/revoca-sorgente",
   leggiSmistamento: "GET /thread/{id}/motore-a/dati",
   rifiutaProposta: "POST /thread/{id}/motore-a/proposta-aggiornata/rifiuta",
@@ -176,7 +177,8 @@ const RIFIUTI = {
   // GIA_DOCUMENTO (CodiciServerS8): lo stesso contenuto è già un documento di un altro componente, senza componente o
   // sostituito
   confermaSorgente: ["FUORI_RFQ", "NON_STEP", "FILE_NON_ATTIVO", "RFQ_UNITA", "MOTIVO_OBBLIGATORIO", "CORPO_NON_VALIDO", "STEP_SORGENTE_DI_ALTRO_PRODOTTO", "GIA_DOCUMENTO"],
-  // la revoca: il motivo obbligatorio; nessuna_sorgente_da_revocare e prodotto_non_ammesso sono motivi di CORPO_NON_VALIDO
+  // la revoca: MOTIVO_OBBLIGATORIO resta nell'elenco solo per un server di prima del messaggio 46 [U] (la pagina non manda
+  // il motivo); nessuna_sorgente_da_revocare e prodotto_non_ammesso sono motivi di CORPO_NON_VALIDO
   revocaSorgente: ["FUORI_RFQ", "MOTIVO_OBBLIGATORIO", "CORPO_NON_VALIDO"],
   leggiSmistamento: ["FUORI_RFQ", "CORPO_NON_VALIDO"],
   rifiutaProposta: ["FUORI_RFQ", "CORPO_NON_VALIDO", "MOTIVO_OBBLIGATORIO"],
@@ -1047,12 +1049,13 @@ export async function confermaSorgente(allegato, corpo) {
 }
 
 // revocaSorgente: la revoca della sorgente della bozza, POST …/sorgente/step/{allegato}/revoca-sorgente con {prodotto_id,
-// motivo} (direttiva 39 §2; EM App. I.4; motore_a_sorgente_v1.go): per uno STEP scelto per errore, con il motivo. Non
+// motivo?} (direttiva 39 §2; EM App. I.4; motore_a_sorgente_v1.go): per uno STEP scelto per errore. Dal messaggio 46 [U] il
+// motivo non c'è (lo scrive il server); se c'è (un chiamante di prima) è un testo non vuoto. Non
 // tocca la working, il documento, il NAS né la bozza; fino a una nuova S8 la conferma della BOM resta bloccata. Stessa
 // risorsa di S8 («sorgente:<prodotto>»): una revoca e una conferma dello stesso prodotto non sono mai in volo insieme.
 export async function revocaSorgente(allegato, corpo) {
   const c = corpoFile("revocaSorgente", allegato, corpo);
-  if (!c || !uuid(c.prodotto_id) || typeof c.motivo !== "string" || !c.motivo.trim()) {
+  if (!c || !uuid(c.prodotto_id) || (c.motivo !== undefined && (typeof c.motivo !== "string" || !c.motivo.trim()))) {
     return Object.assign(nonPartita("La revoca della sorgente non è partita: STEP, prodotto o motivo non validi."), { chiave: "" });
   }
   // G39-03 [U]: la causa sorgente_errata è un sì; la bozza dichiarata ha bozza_id e versione_attesa (almeno 1)
@@ -1064,10 +1067,10 @@ export async function revocaSorgente(allegato, corpo) {
 }
 
 // rifiutaProposta: R15, POST …/motore-a/proposta-aggiornata/rifiuta con {prodotto_id, conferma_id, gruppo,
-// impronta_contenuto, motivo} (U2 §5.7; EM §9.5-bis). Solo senza bozza: con la bozza il rifiuto è «Mantieni» per tutte
+// impronta_contenuto, motivo?} (U2 §5.7; EM §9.5-bis; dal messaggio 46 [U] senza motivo: lo scrive il server). Solo senza bozza: con la bozza il rifiuto è «Mantieni» per tutte
 // nel riallineamento (BZ-17). Non è uno scarto (file) né un abbandono (bozza).
 export async function rifiutaProposta(corpo) {
-  if (!oggetto(corpo) || !uuid(corpo.prodotto_id) || !uuid(corpo.conferma_id) || typeof corpo.motivo !== "string" || !corpo.motivo.trim() ||
+  if (!oggetto(corpo) || !uuid(corpo.prodotto_id) || !uuid(corpo.conferma_id) || (corpo.motivo !== undefined && (typeof corpo.motivo !== "string" || !corpo.motivo.trim())) ||
     Object.prototype.hasOwnProperty.call(corpo, "chiave_idempotenza")) {
     return Object.assign(nonPartita("Il rifiuto non è partito: prodotto, conferma o motivo non validi."), { chiave: "" });
   }

@@ -190,7 +190,7 @@ func pianificaR5(ctx context.Context, q *db.Queries, thread uuid.UUID, s Snapsho
 			p.daCreare = append(p.daCreare, k)
 			continue
 		default:
-			p.nonApplicabili = append(p.nonApplicabili, nonApplicabile("nodo_senza_componente", "Il nodo non e' un pezzo nuovo e non cita un componente.", k, nil))
+			p.nonApplicabili = append(p.nonApplicabili, nonApplicabile("nodo_senza_componente", "Il nodo non è un pezzo nuovo e non cita un componente.", k, nil))
 			continue
 		}
 		p.esistenti[k] = id
@@ -201,11 +201,11 @@ func pianificaR5(ctx context.Context, q *db.Queries, thread uuid.UUID, s Snapsho
 		}
 		switch {
 		case !ok:
-			p.nonApplicabili = append(p.nonApplicabili, nonApplicabile("componente_assente", "Il componente del nodo non c'e' nella RFQ.", k, uid(id)))
+			p.nonApplicabili = append(p.nonApplicabili, nonApplicabile("componente_assente", "Il componente del nodo non c'è nella RFQ.", k, uid(id)))
 		case n.Identita.Codice != codiceAtteso(c, ricodificaDi):
 			// difesa: R4 lo blocca (IDENTITA_INCOMPATIBILE, RIUSO_INCOMPATIBILE «codice»)
 			p.nonApplicabili = append(p.nonApplicabili, nonApplicabile("identita_diversa_dal_registrato",
-				"Il codice deciso per il nodo ("+n.Identita.Codice+") non e' quello di "+c.CodiceLetterale+" nella working.", k, uid(id)))
+				"Il codice deciso per il nodo ("+n.Identita.Codice+") non è quello di "+c.CodiceLetterale+" nella working.", k, uid(id)))
 		}
 	}
 	sort.Strings(p.daCreare)
@@ -282,7 +282,7 @@ func pianificaR5(ctx context.Context, q *db.Queries, thread uuid.UUID, s Snapsho
 		c, _ := st.Componente(id)
 		for _, k := range kk[1:] {
 			if !uguali(kk[0], k, c.Descrizione) {
-				r := nonApplicabile("nodi_sullo_stesso_componente", "Piu' nodi dello stesso componente hanno dati diversi.", "", uid(id))
+				r := nonApplicabile("nodi_sullo_stesso_componente", "Più nodi dello stesso componente hanno dati diversi.", "", uid(id))
 				r.Chiavi = kk
 				p.nonApplicabili = append(p.nonApplicabili, r)
 				break

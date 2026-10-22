@@ -828,9 +828,8 @@ func (rc *riconciliatore3) applica(campo string, a Azione) (Evento, error) {
 		if rc.r.Rebase != nil {
 			return ev, corpo(campo, "un salvataggio porta al piu' un rebase")
 		}
-		if ev.Motivo == "" {
-			return ev, corpo(campo+".motivo", "il rebase vuole il motivo")
-		}
+		// il rebase della sola base non chiede piu' il motivo (messaggio 46 [U]): la fonte non cambia, e l'evento lo
+		// ammette vuoto
 		if e := chiave(""); e != nil {
 			return ev, e
 		}

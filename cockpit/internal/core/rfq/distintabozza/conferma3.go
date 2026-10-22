@@ -122,7 +122,7 @@ func LeggiRichiestaR5(raw []byte) (RichiestaR5, error) {
 		return out, e
 	}
 	if m == nil {
-		return out, corpo("richiesta", "il corpo e' un oggetto JSON {firma_anteprima, bozza}")
+		return out, corpo("richiesta", "il corpo è un oggetto JSON {firma_anteprima, bozza}")
 	}
 	for k := range m {
 		switch k {
@@ -132,7 +132,7 @@ func LeggiRichiestaR5(raw []byte) (RichiestaR5, error) {
 		}
 	}
 	if json.Unmarshal(m["firma_anteprima"], &out.FirmaAnteprima) != nil || !reSha256.MatchString(out.FirmaAnteprima) {
-		return out, corpo("firma_anteprima", "firma_anteprima e' la firma del riepilogo letto (64 esadecimali)")
+		return out, corpo("firma_anteprima", "firma_anteprima è la firma del riepilogo letto (64 esadecimali)")
 	}
 	rb, ok := m["bozza"]
 	if !ok || !presenteValore(rb) {
@@ -140,7 +140,7 @@ func LeggiRichiestaR5(raw []byte) (RichiestaR5, error) {
 	}
 	var bm map[string]json.RawMessage
 	if json.Unmarshal(rb, &bm) != nil || bm == nil {
-		return out, corpo("bozza", "bozza e' un oggetto JSON")
+		return out, corpo("bozza", "bozza è un oggetto JSON")
 	}
 	if id, ok := bm["bozza_id"]; !ok || !presenteValore(id) {
 		return out, corpoMotivo("bozza.bozza_id", MotivoBozzaObbligatoria,
@@ -155,7 +155,7 @@ func LeggiRichiestaR5(raw []byte) (RichiestaR5, error) {
 			"la conferma formato 3 chiude sempre una versione salvata con R2: senza bozza_id non ci sono autore e motivo delle decisioni")
 	}
 	if b.BozzaVersione == 0 {
-		return out, corpo("bozza.bozza_versione", "bozza_versione e' la versione salvata che la conferma chiude")
+		return out, corpo("bozza.bozza_versione", "bozza_versione è la versione salvata che la conferma chiude")
 	}
 	if b.ChiaveIdempotenza == nil {
 		return out, corpo("bozza.chiave_idempotenza", "la conferma vuole la chiave d'idempotenza (un UUID)")
@@ -165,13 +165,13 @@ func LeggiRichiestaR5(raw []byte) (RichiestaR5, error) {
 	if p, ok := m["presa_d_atto_in_analisi"]; ok && strings.TrimSpace(string(p)) != "null" {
 		out.PresaDAttoPresente = true
 		if json.Unmarshal(p, &presa) != nil {
-			return out, corpo("presa_d_atto_in_analisi", "presa_d_atto_in_analisi e' un elenco di allegato_id")
+			return out, corpo("presa_d_atto_in_analisi", "presa_d_atto_in_analisi è un elenco di allegato_id")
 		}
 		visti := map[uuid.UUID]bool{}
 		for _, s := range presa {
 			id, err := uuid.Parse(s)
 			if err != nil || id == uuid.Nil {
-				return out, corpo("presa_d_atto_in_analisi", "presa_d_atto_in_analisi e' un elenco di allegato_id")
+				return out, corpo("presa_d_atto_in_analisi", "presa_d_atto_in_analisi è un elenco di allegato_id")
 			}
 			if !visti[id] {
 				visti[id] = true
@@ -337,7 +337,7 @@ func Conferma3(ctx context.Context, pool AvviatoreR5, thread uuid.UUID, r Richie
 func traduciR5(err error) error {
 	switch sqlstate(err) {
 	case "40P01", "55P03", "40001":
-		return rifiutoRiprova("un'altra operazione sulla stessa RFQ era in corso: niente e' stato scritto, riprova con la stessa chiave")
+		return rifiutoRiprova("un'altra operazione sulla stessa RFQ era in corso: niente è stato scritto, riprova con la stessa chiave")
 	}
 	return err
 }
@@ -355,7 +355,7 @@ func tentativoR5(ctx context.Context, pool AvviatoreR5, thread uuid.UUID, r Rich
 	q := db.New(tx)
 	if _, err := q.BloccaThread(ctx, thread); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return zero, false, &Errore{Codice: CodiceRFQInesistente, Messaggio: "la RFQ non c'e'"}
+			return zero, false, &Errore{Codice: CodiceRFQInesistente, Messaggio: "la RFQ non c'è"}
 		}
 		return zero, false, err
 	}
@@ -369,17 +369,17 @@ func tentativoR5(ctx context.Context, pool AvviatoreR5, thread uuid.UUID, r Rich
 	}
 	b, err := q.BloccaDistintaBozza(ctx, db.BloccaDistintaBozzaParams{BozzaID: *s.BozzaID, ThreadID: thread})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return zero, false, fuori("bozza.bozza_id", "la bozza %s non e' di questa RFQ", *s.BozzaID)
+		return zero, false, fuori("bozza.bozza_id", "la bozza %s non è di questa RFQ", *s.BozzaID)
 	}
 	if err != nil {
 		return zero, false, err
 	}
 	if b.ProdottoID != prodotto {
 		// R5 ha FUORI_RFQ, non BOZZA_ALTRO_PRODOTTO (EM §9.5, catalogo confermaBom del ponte) [T-39]
-		return zero, false, fuori("bozza.bozza_id", "la bozza %s e' di un altro prodotto", b.BozzaID)
+		return zero, false, fuori("bozza.bozza_id", "la bozza %s è di un altro prodotto", b.BozzaID)
 	}
 	if int(b.Formato) != FormatoSnapshot3 {
-		return zero, false, corpoMotivo("bozza.bozza_id", MotivoFormatoDaConvertire, "la bozza e' nel formato %d: si converte con converti_da (R2)", b.Formato)
+		return zero, false, corpoMotivo("bozza.bozza_id", MotivoFormatoDaConvertire, "la bozza è nel formato %d: si converte con converti_da (R2)", b.Formato)
 	}
 	if b.Stato != StatoAperta || int(b.Versione) != s.BozzaVersione {
 		return zero, false, conflittoVersione(b, s.BozzaVersione)
@@ -394,7 +394,7 @@ func tentativoR5(ctx context.Context, pool AvviatoreR5, thread uuid.UUID, r Rich
 	}
 	if !uguali3(senzaProvenienza(salvato), senzaProvenienza(s.Snapshot)) {
 		c := conflittoVersione(b, s.BozzaVersione)
-		c.Motivo, c.Messaggio = MotivoSnapshotDiverso, "la bozza del corpo non e' la versione salvata che dichiara: salvala (R2) e rileggi il riepilogo prima di confermare"
+		c.Motivo, c.Messaggio = MotivoSnapshotDiverso, "la bozza del corpo non è la versione salvata che dichiara: salvala (R2) e rileggi il riepilogo prima di confermare"
 		return zero, false, c
 	}
 	// S: la funzione condivisa di R4 sulla versione salvata, il piano di R5 e H_S, in sola lettura dopo il lucchetto
@@ -422,7 +422,7 @@ func tentativoR5(ctx context.Context, pool AvviatoreR5, thread uuid.UUID, r Rich
 	} else if !g.Valida {
 		return zero, false, rifiutoBlocchi([]Rilievo{rilievoGate(g, salvato)})
 	} else if rp.Sorgente.DocumentoID == nil || g.DocumentoID == nil || *g.DocumentoID != *rp.Sorgente.DocumentoID {
-		return zero, false, rifiutoRiprova("la sorgente della bozza e' cambiata mentre confermavi: rileggi il riepilogo")
+		return zero, false, rifiutoRiprova("la sorgente della bozza è cambiata mentre confermavi: rileggi il riepilogo")
 	}
 	st, err := confermabom.LeggiStatoRFQ(ctx, q, thread)
 	if err != nil {
@@ -433,7 +433,7 @@ func tentativoR5(ctx context.Context, pool AvviatoreR5, thread uuid.UUID, r Rich
 		return zero, false, err
 	}
 	if !uguali(pS.confronto(), pT.confronto()) {
-		return zero, false, rifiutoRiprova("lo stato della RFQ letto sotto il lucchetto non e' quello del riepilogo: riprova")
+		return zero, false, rifiutoRiprova("lo stato della RFQ letto sotto il lucchetto non è quello del riepilogo: riprova")
 	}
 	// le scritture
 	sc := &scrittureR5{ctx: ctx, tx: tx, q: q, thread: thread, utente: op.UtenteID, chiave: chiave, snap: salvato, impronta: impronta,
@@ -481,11 +481,11 @@ func intentoR5(ctx context.Context, q *db.Queries, thread, chiave uuid.UUID, imp
 	switch {
 	case err == nil:
 		if ei.ThreadID != thread {
-			return ConfermaR5{}, false, fuori("bozza.chiave_idempotenza", "la chiave %s e' di un'altra RFQ", chiave)
+			return ConfermaR5{}, false, fuori("bozza.chiave_idempotenza", "la chiave %s è di un'altra RFQ", chiave)
 		}
 		if ei.Gesto != GestoConfermaBomV3 || strings.TrimSpace(ei.ImprontaCorpo) != impronta || ei.UtenteID != utente {
 			return ConfermaR5{}, false, &Errore{Codice: CodiceChiaveRiusata, Campo: "bozza.chiave_idempotenza",
-				Messaggio: "questa chiave d'intento ha gia' registrato un altro corpo: per riprovare serve una chiave nuova"}
+				Messaggio: "questa chiave d'intento ha già registrato un altro corpo: per riprovare serve una chiave nuova"}
 		}
 		var out ConfermaR5
 		if err := json.Unmarshal(ei.Esito, &out); err != nil {
@@ -512,7 +512,7 @@ func intentoR5(ctx context.Context, q *db.Queries, thread, chiave uuid.UUID, imp
 		Formato: int(c.Formato), ConfermaID: c.ConfermaID, NumeroConferma: int(c.Numero), ProdottoID: c.ProdottoID,
 		ArchiAggiunti: []ArcoScritto{}, ArchiTolti: []ArcoScritto{}, ArchiModificati: []ArcoScritto{}, IdentitaCreate: []uuid.UUID{},
 		IdentitaRiusate: []uuid.UUID{}, IdentitaArchiviate: []uuid.UUID{}, IdentitaAccettate: []string{}, IdentitaCorrette: []string{},
-		EsclusiCondivisi: []uuid.UUID{}, Testo: fmt.Sprintf("Conferma n. %d gia' registrata con questa chiave.", c.Numero)}
+		EsclusiCondivisi: []uuid.UUID{}, Testo: fmt.Sprintf("Conferma n. %d già registrata con questa chiave.", c.Numero)}
 	if c.BozzaID.Valid {
 		out.BozzaID = c.BozzaID.UUID
 	}
@@ -532,7 +532,7 @@ func connessioneS(ctx context.Context, pool AvviatoreR5, thread uuid.UUID, r Ric
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(cctx.Err(), context.DeadlineExceeded) {
 			return RiepilogoR4{}, nil, "", &RifiutoR5{Err: &Errore{Codice: CodiceCalcoloOccupato,
-				Messaggio: "il server e' occupato: la conferma non e' partita, niente e' stato scritto; riprova con la stessa chiave"}, NonRegistrato: true}
+				Messaggio: "il server è occupato: la conferma non è partita, niente è stato scritto; riprova con la stessa chiave"}, NonRegistrato: true}
 		}
 		return RiepilogoR4{}, nil, "", err
 	}
@@ -592,13 +592,13 @@ func rifiutoMotore(err error) *RifiutoR5 {
 	switch {
 	case errors.Is(err, ErrMotoreOccupato), errors.Is(err, ErrMotoreNonPronto):
 		return &RifiutoR5{Err: &Errore{Codice: CodiceCalcoloOccupato,
-			Messaggio: "il motore e' occupato: la conferma non e' partita, niente e' stato scritto; riprova con la stessa chiave"}, NonRegistrato: true, Causa: err}
+			Messaggio: "il motore è occupato: la conferma non è partita, niente è stato scritto; riprova con la stessa chiave"}, NonRegistrato: true, Causa: err}
 	case errors.Is(err, ErrMotoreScaduto):
 		return &RifiutoR5{Err: &Errore{Codice: CodiceCalcoloScaduto,
-			Messaggio: "il calcolo del motore non e' finito in tempo: niente e' stato scritto; riprova con la stessa chiave"}, NonRegistrato: true, Causa: err}
+			Messaggio: "il calcolo del motore non è finito in tempo: niente è stato scritto; riprova con la stessa chiave"}, NonRegistrato: true, Causa: err}
 	default:
 		return &RifiutoR5{Err: &Errore{Codice: CodiceErroreCalcolo,
-			Messaggio: "il calcolo del motore non e' riuscito: niente e' stato scritto"}, NonRegistrato: true, Causa: err}
+			Messaggio: "il calcolo del motore non è riuscito: niente è stato scritto"}, NonRegistrato: true, Causa: err}
 	}
 }
 
@@ -636,7 +636,7 @@ func partePropostaR5(ctx context.Context, q *db.Queries, thread, prodotto uuid.U
 func controlliSenzaMotore(rp RiepilogoR4) error {
 	if rp.Base.Stato == BaseSuperata {
 		return &Errore{Codice: CodiceBaseSuperata, Motivi: append([]string(nil), rp.Base.Motivi...), VersioneCorrente: &rp.VersioneCorrente,
-			Messaggio: "la distinta del prodotto e' cambiata dopo la tua lettura: la bozza resta, rileggi la base e riconferma"}
+			Messaggio: "la distinta del prodotto è cambiata dopo la tua lettura: la bozza resta, rileggi la base e riconferma"}
 	}
 	if len(trova3(rp.Blocchi, BloccoStepSorgenteNonConfermata)) > 0 {
 		return rifiutoBlocchi(rp.Blocchi)
@@ -649,7 +649,7 @@ func controlliSenzaMotore(rp RiepilogoR4) error {
 func controlliR5(r RichiestaR5, rp RiepilogoR4, p *pianoR5) error {
 	if rp.Base.Stato == BaseSuperata {
 		return &Errore{Codice: CodiceBaseSuperata, Motivi: append([]string(nil), rp.Base.Motivi...), VersioneCorrente: &rp.VersioneCorrente,
-			Messaggio: "la distinta del prodotto e' cambiata dopo la tua lettura: la bozza resta, rileggi la base e riconferma"}
+			Messaggio: "la distinta del prodotto è cambiata dopo la tua lettura: la bozza resta, rileggi la base e riconferma"}
 	}
 	// il gate prima della firma [T-39]: una bozza senza sorgente S8 valida e' 422 BLOCCHI anche con un riepilogo superato
 	// (per esempio la revoca di B dopo R4), con tutti i blocchi di adesso
@@ -659,7 +659,7 @@ func controlliR5(r RichiestaR5, rp RiepilogoR4, p *pianoR5) error {
 	if rp.FirmaAnteprima != r.FirmaAnteprima {
 		x := rp
 		return &RifiutoR5{Err: &Errore{Codice: CodiceAnteprimaSuperata, Motivo: AnteprimaRiepilogoBom, Anteprima: AnteprimaRiepilogoBom,
-			Messaggio: "quello che la conferma farebbe e' cambiato da quando hai letto il riepilogo: guarda il riepilogo nuovo e conferma di nuovo"}, Riepilogo: &x}
+			Messaggio: "quello che la conferma farebbe è cambiato da quando hai letto il riepilogo: guarda il riepilogo nuovo e conferma di nuovo"}, Riepilogo: &x}
 	}
 	if len(rp.Blocchi) > 0 {
 		return rifiutoBlocchi(rp.Blocchi)
@@ -682,7 +682,7 @@ func controlliR5(r RichiestaR5, rp RiepilogoR4, p *pianoR5) error {
 		}
 	}
 	if rp.UgualeAllaBase {
-		return &Errore{Codice: CodiceNessunaModifica, Messaggio: "la bozza non cambia niente rispetto alla conferma di base: non c'e' niente da confermare"}
+		return &Errore{Codice: CodiceNessunaModifica, Messaggio: "la bozza non cambia niente rispetto alla conferma di base: non c'è niente da confermare"}
 	}
 	if len(p.nonApplicabili) > 0 {
 		return rifiutoBlocchi(p.nonApplicabili)
@@ -781,7 +781,7 @@ func erroreAlCommit(err error) error {
 	case strings.HasPrefix(c, "P4X") || strings.HasPrefix(c, "23") || strings.HasPrefix(c, "BOM"):
 		// il dettaglio tecnico (vincolo, componente) resta nell'errore avvolto per il log, non nel testo per chi legge
 		return &RifiutoR5{Err: &Errore{Codice: CodiceControlloFinale, Motivo: c,
-			Messaggio: "il controllo finale della conferma non e' passato: niente e' stato registrato"}, NonRegistrato: true, Causa: err}
+			Messaggio: "il controllo finale della conferma non è passato: niente è stato registrato"}, NonRegistrato: true, Causa: err}
 	}
 	return err
 }

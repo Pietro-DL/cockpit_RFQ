@@ -113,6 +113,58 @@ func TestV1LeDiciassetteDecisioni(t *testing.T) {
 	}
 }
 
+// Messaggio 46 [U] (21/10), corsia MOTIVO: nessuna decisione vuole piu' il motivo dell'utente (mono_pezzo, escludi,
+// ricodifica, la correzione dell'identita', il codice manuale adottato); un motivo vuoto o null e' come assente. Se c'e'
+// (un client di prima) vale com'e'. Dati inventati.
+func TestV1M46LeDecisioniSenzaMotivo(t *testing.T) {
+	cambia := func(tipo string, f func(d map[string]any)) map[string]any {
+		d := decisioniValide()[tipo]
+		var c map[string]any
+		b, _ := json.Marshal(d)
+		_ = json.Unmarshal(b, &c)
+		f(c)
+		return c
+	}
+	casi := []struct {
+		nome string
+		d    map[string]any
+	}{
+		{"mono_pezzo senza motivo", cambia(DecisioneMonoPezzo, func(d map[string]any) { delete(d, "motivo") })},
+		{"escludi senza motivo", cambia(DecisioneEscludi, func(d map[string]any) { delete(d, "motivo") })},
+		{"escludi con motivo vuoto", cambia(DecisioneEscludi, func(d map[string]any) { d["motivo"] = "" })},
+		{"escludi con motivo null", cambia(DecisioneEscludi, func(d map[string]any) { d["motivo"] = nil })},
+		{"ricodifica senza motivo", cambia(DecisioneRicodifica, func(d map[string]any) { delete(d, "motivo") })},
+		{"codice manuale senza motivo", cambia(DecisioneIdentita, func(d map[string]any) {
+			delete(d, "chiave_lettura")
+			delete(d, "lettura")
+			delete(d, "motivo")
+			d["riferimento"] = "manuale_legacy"
+			d["identita"] = map[string]any{"emittente": EmittenteCliente(idDi("cliente")), "codice": "ACM-1900"}
+		})},
+		{"correzione senza motivo", cambia(DecisioneIdentita, func(d map[string]any) {
+			d["modo"] = ModoCorrezione
+			delete(d, "chiave_lettura")
+			delete(d, "lettura")
+			delete(d, "motivo")
+		})},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			d, e := leggiDecisioneProva(t, c.d)
+			if e != nil {
+				t.Fatalf("rifiutata: %+v", e)
+			}
+			if d.Motivo != "" {
+				t.Fatalf("un motivo che nessuno ha scritto: %q", d.Motivo)
+			}
+		})
+	}
+	conMotivo := cambia(DecisioneEscludi, func(d map[string]any) { d["motivo"] = "scritto da un client di prima" })
+	if d, e := leggiDecisioneProva(t, conMotivo); e != nil || d.Motivo != "scritto da un client di prima" {
+		t.Fatalf("il motivo di un client di prima: %+v %q", e, d.Motivo)
+	}
+}
+
 func TestV1LaFormaChiusaDelleDecisioni(t *testing.T) {
 	cambia := func(tipo string, f func(d map[string]any)) map[string]any {
 		d := decisioniValide()[tipo]
@@ -131,9 +183,9 @@ func TestV1LaFormaChiusaDelleDecisioni(t *testing.T) {
 		{"campo di un altro tipo", "decisioni[0].chiave_bozza", cambia(DecisioneScollegaDocumento, func(d map[string]any) { d["chiave_bozza"] = "k-1" })},
 		{"campo di un altro tipo in mono_pezzo", "decisioni[0].componente_id", cambia(DecisioneMonoPezzo, func(d map[string]any) { d["componente_id"] = uuidD1 })},
 		{"campo sconosciuto", "decisioni[0].effetto", cambia(DecisioneDaValutare, func(d map[string]any) { d["effetto"] = "nessuno" })},
-		{"escludi senza motivo", "decisioni[0].motivo", cambia(DecisioneEscludi, func(d map[string]any) { delete(d, "motivo") })},
-		{"escludi con motivo vuoto", "decisioni[0].motivo", cambia(DecisioneEscludi, func(d map[string]any) { d["motivo"] = "" })},
-		{"escludi con motivo null", "decisioni[0].motivo", cambia(DecisioneEscludi, func(d map[string]any) { d["motivo"] = nil })},
+		// messaggio 46 [U]: escludi senza motivo passa (TestV1M46LeDecisioniSenzaMotivo); non_includere resta l'eccezione [T]
+		{"non_includere senza motivo", "decisioni[0].motivo", cambia(DecisioneNonIncludere, func(d map[string]any) { delete(d, "motivo") })},
+		{"non_includere senza motivo_codice", "decisioni[0].motivo_codice", cambia(DecisioneNonIncludere, func(d map[string]any) { delete(d, "motivo_codice") })},
 		{"mono_pezzo con motivo di soli spazi", "decisioni[0].motivo", cambia(DecisioneMonoPezzo, func(d map[string]any) { d["motivo"] = "   " })},
 		{"motivo oltre 1000", "decisioni[0].motivo", cambia(DecisioneMonoPezzo, func(d map[string]any) { d["motivo"] = strings.Repeat("m", 1001) })},
 		{"ricodifica senza emittente", "decisioni[0].emittente_dopo", cambia(DecisioneRicodifica, func(d map[string]any) { delete(d, "emittente_dopo") })},
@@ -171,20 +223,7 @@ func TestV1LaFormaChiusaDelleDecisioni(t *testing.T) {
 			delete(d, "lettura")
 			d["riferimento"] = "manuale_legacy"
 		})},
-		{"codice manuale senza motivo", "decisioni[0].motivo", cambia(DecisioneIdentita, func(d map[string]any) {
-			delete(d, "chiave_lettura")
-			delete(d, "lettura")
-			delete(d, "motivo")
-			d["riferimento"] = "manuale_legacy"
-			d["identita"] = map[string]any{"emittente": EmittenteCliente(idDi("cliente")), "codice": "ACM-1900"}
-		})},
 		{"correzione con una lettura", "decisioni[0]", cambia(DecisioneIdentita, func(d map[string]any) { d["modo"] = ModoCorrezione })},
-		{"correzione senza motivo", "decisioni[0].motivo", cambia(DecisioneIdentita, func(d map[string]any) {
-			d["modo"] = ModoCorrezione
-			delete(d, "chiave_lettura")
-			delete(d, "lettura")
-			delete(d, "motivo")
-		})},
 		{"correzione verso un partner senza registro", "decisioni[0].importazione", cambia(DecisioneIdentita, func(d map[string]any) {
 			d["modo"] = ModoCorrezione
 			delete(d, "chiave_lettura")

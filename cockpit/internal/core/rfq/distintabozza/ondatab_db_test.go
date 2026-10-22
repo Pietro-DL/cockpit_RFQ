@@ -978,11 +978,8 @@ func TestV1ConversioneFormato2(t *testing.T) {
 	snap3 := map[string]any{"formato": 3, "prodotto_id": s.prodotto.String(), "nodi": []any{}, "archi": []any{}, "decisioni": []any{}}
 	_, err := sc.salva3Su(t, b2, s.prodotto, 1, uuid.New(), snap3, nil)
 	codice3(t, err, CodiceCorpoNonValido, MotivoFormatoDaConvertire)
-	// il motivo e' obbligatorio
+	// il motivo non e' piu' obbligatorio (messaggio 46 [U]); qui quello di un client di prima, che resta intero
 	chiave := uuid.New()
-	_, err = Converti(ctx, p, Conversione3{ThreadID: s.thread, ProdottoID: s.prodotto, UtenteID: s.utente, BozzaID: b2, VersioneAttesa: 1,
-		ChiaveSalvataggio: chiave, ImprontaRichiesta: strings.Repeat("5", 64)})
-	codice3(t, err, CodiceMotivoObbligatorio, "")
 	motivo := strings.Repeat("m", MaxMotivo)
 	c, err := Converti(ctx, p, Conversione3{ThreadID: s.thread, ProdottoID: s.prodotto, UtenteID: s.utente, BozzaID: b2, VersioneAttesa: 1,
 		Motivo: motivo, ChiaveSalvataggio: chiave, ImprontaRichiesta: strings.Repeat("5", 64)})

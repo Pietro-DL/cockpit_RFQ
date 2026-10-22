@@ -107,7 +107,10 @@ type Base struct {
 //   - "parola_ascii_o_punto_cifra": come parola_ascii, e nemmeno «.» seguito da una cifra (solo a destra: la
 //     forma parziale non deve leggere dentro una forma completa);
 //   - "alnum_ascii_o_trattino": né lettera, né cifra ASCII, né «-» U+002D (dal 17/10, LS-03 A: la forma corta
-//     «<base>--» non deve leggere l'inizio di «<base>---…»). Vale ai due lati.
+//     «<base>--» non deve leggere l'inizio di «<base>---…»). Vale ai due lati;
+//   - "parola_ascii_spazio_o_trattino": né lettera, né cifra ASCII, né «_» U+005F, né spazio U+0020, né «-»
+//     U+002D (dal 21/10, D-G48-01 B: il codice che è tutto il nome del file, «<codice>.pdf», non deve leggersi
+//     dopo un prefisso come «Offerta_», «DDT-» o «2026-»). Vale ai due lati.
 //
 // Inizio e fine del testo sono confini per tutte le classi; le lettere, le cifre e i trattini fuori dall'ASCII
 // non sono vietati da nessuna (le classi sono solo ASCII). Le classi servono a evitare le letture annidate

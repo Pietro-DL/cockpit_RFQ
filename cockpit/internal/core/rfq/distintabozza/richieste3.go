@@ -9,8 +9,11 @@ package distintabozza
 // prodotto_id, versione_attesa, vocabolario 2 e chiave_salvataggio (UUID v4) sempre (EM §9.2). La versione attesa, forma
 // per forma: salvataggio, cambia_sorgente e riallinea_proposta portano la versione della bozza (bozza_id obbligatorio);
 // crea e converti_da portano 0 e bozza_id null (la versione annidata e' quella della bozza da abbandonare o da
-// convertire). Direttiva 35, blocco C-3 (R2 passo 6b): le quattro forme costruite dal server si leggono qui per intero;
-// i motivi obbligatori che mancano sono 422 MOTIVO_OBBLIGATORIO.
+// convertire). Direttiva 35, blocco C-3 (R2 passo 6b): le quattro forme costruite dal server si leggono qui per intero.
+// Messaggio 46 [U] (21/10): nessun motivo e' piu' obbligatorio nel corpo (abbandono nella ripartenza, cambio della fonte,
+// riallineamento, conversione). Se il corpo lo porta (i client di prima) vale il suo; dove lo schema vuole un motivo (la
+// sostituzione della fonte, ck_fonte_motivo, e l'evento motivato del cambio di fonte, trg_dbv_fonte_motivata) il server
+// scrive la traccia del gesto (core/rfq/traccia).
 
 import (
 	"encoding/json"
@@ -301,17 +304,6 @@ func motivoDichiarato(campo string, m *string) (string, *Errore) {
 	return x, nil
 }
 
-func motivoObbligatorio(campo string, m *string, cosa string) (string, *Errore) {
-	x, e := motivoDichiarato(campo, m)
-	if e != nil {
-		return "", e
-	}
-	if x == "" {
-		return "", &Errore{Codice: CodiceMotivoObbligatorio, Campo: campo, Messaggio: cosa + " vuole il motivo"}
-	}
-	return x, nil
-}
-
 func improntaDichiarata(campo string, s *string) (string, *Errore) {
 	if s == nil || !reSha256.MatchString(*s) {
 		return "", corpo(campo, "l'impronta del contenuto che il browser ha visto (V-7) e' di 64 cifre esadecimali minuscole")
@@ -365,7 +357,7 @@ func leggiCrea(raw json.RawMessage) (*CreaR2, *Errore) {
 		if a.VersioneAttesa == nil || *a.VersioneAttesa < 1 {
 			return nil, corpo("crea.abbandona.versione_attesa", "la ripartenza porta la versione corrente della bozza da abbandonare")
 		}
-		m, e := motivoObbligatorio("crea.abbandona.motivo", a.Motivo, "l'abbandono della bozza nella ripartenza")
+		m, e := motivoDichiarato("crea.abbandona.motivo", a.Motivo)
 		if e != nil {
 			return nil, e
 		}
@@ -422,7 +414,7 @@ func leggiCambiaSorgente(raw json.RawMessage) (*CambiaSorgenteR2, *Errore) {
 	if c.ImprontaContenuto, e = improntaDichiarata("cambia_sorgente.impronta_contenuto", in.ImprontaContenuto); e != nil {
 		return nil, e
 	}
-	if c.Motivo, e = motivoObbligatorio("cambia_sorgente.motivo", in.Motivo, "il cambio della fonte"); e != nil {
+	if c.Motivo, e = motivoDichiarato("cambia_sorgente.motivo", in.Motivo); e != nil {
 		return nil, e
 	}
 	if c.Scelte, e = leggiScelte("cambia_sorgente.scelte", in.Scelte); e != nil {
@@ -450,7 +442,7 @@ func leggiRiallinea(raw json.RawMessage) (*RiallineaR2, *Errore) {
 	if r.ImprontaContenuto, e = improntaDichiarata("riallinea_proposta.impronta_contenuto", in.ImprontaContenuto); e != nil {
 		return nil, e
 	}
-	if r.Motivo, e = motivoObbligatorio("riallinea_proposta.motivo", in.Motivo, "il riallineamento della proposta"); e != nil {
+	if r.Motivo, e = motivoDichiarato("riallinea_proposta.motivo", in.Motivo); e != nil {
 		return nil, e
 	}
 	if r.Scelte, e = leggiScelte("riallinea_proposta.scelte", in.Scelte); e != nil {
@@ -474,7 +466,7 @@ func leggiConverti(raw json.RawMessage) (*ConvertiR2, *Errore) {
 	if in.VersioneAttesa == nil || *in.VersioneAttesa < 1 {
 		return nil, corpo("converti_da.versione_attesa", "la conversione porta la versione corrente della bozza formato 2")
 	}
-	m, e := motivoObbligatorio("converti_da.motivo", in.Motivo, "la conversione")
+	m, e := motivoDichiarato("converti_da.motivo", in.Motivo)
 	if e != nil {
 		return nil, e
 	}

@@ -5,7 +5,15 @@ package distintabozza
 // l'identita' (codici, rev, emittenti, namespace) e le copie dal registro (la lettura compatta, il segnale visto) restano
 // byte per byte (EM §3.10, prova N-01). Le regole che vogliono il database o i registri (V-1...V-6, la regola unica
 // dell'emittente, l'appartenenza degli UUID alla RFQ) le controlla chi chiama.
-
+//
+// Messaggio 46 [U] (21/10): il motivo scritto dall'utente si toglie da ogni widget. Nessuna decisione lo vuole piu':
+// motivo e' facoltativo in mono_pezzo, escludi, ricodifica, nella correzione dell'identita', nell'adozione del codice
+// manuale e nella conferma della categoria; se la decisione lo porta (i client di prima) vale il suo, e dove lo schema
+// vuole un motivo lo scrive R5 (conferma_strutturale.mono_pezzo_motivo: la traccia del gesto). non_includere e'
+// l'eccezione [T]: lo snapshot confermato deve portare motivo_codice e motivo uguali alle righe di
+// conferma_strutturale_non_incluso (0023, controllo (iii)), quindi restano obbligatori nella decisione e li scrive la
+// pagina come traccia del gesto (motivo_codice «altro», la scelta da un vocabolario chiuso che la pagina presentava come
+// «motivo»), mai come testo dell'utente.
 import (
 	"bytes"
 	"encoding/json"
@@ -66,19 +74,23 @@ var formeDecisione = map[string]formaDecisione{
 	DecisioneD1AParticolare:      {[]string{"chiave_bozza"}, []string{"motivo"}},
 	DecisioneD1RestaSottoassieme: {[]string{"chiave_bozza"}, []string{"motivo"}},
 	DecisioneD1ASottoassieme:     {[]string{"chiave_bozza"}, nil},
-	DecisioneMonoPezzo:           {[]string{"motivo"}, nil},
+	DecisioneMonoPezzo:           {nil, []string{"motivo"}},
 	DecisioneTogliArco:           {[]string{"padre_id", "figlio_id"}, nil},
-	DecisioneEscludi:             {[]string{"componente_id", "motivo"}, nil},
+	DecisioneEscludi:             {[]string{"componente_id"}, []string{"motivo"}},
 	DecisioneSenzaPadre:          {[]string{"chiave_bozza"}, nil},
 	DecisioneRiusaEsistente:      {[]string{"chiave_bozza", "componente_id"}, nil},
 	DecisioneRiusaPerCanonico:    {[]string{"chiave_bozza", "componente_id"}, nil},
-	DecisioneRicodifica:          {[]string{"componente_id", "codice_prima", "codice_dopo", "motivo", "emittente_dopo"}, []string{"namespace_dopo"}},
+	DecisioneRicodifica:          {[]string{"componente_id", "codice_prima", "codice_dopo", "emittente_dopo"}, []string{"namespace_dopo", "motivo"}},
 	DecisioneArcoCondiviso:       {[]string{"padre_id", "figlio_id", "qta", "prodotti"}, nil},
 	DecisioneDaValutare:          {[]string{"chiave_bozza"}, nil},
 	DecisioneCambiaTipo:          {[]string{"componente_id", "tipo_nuovo", "firma_effetto"}, nil},
 	// evidenza_documentale: solo nella correzione (U2 §7.7, U2-P20)
 	DecisioneIdentita: {[]string{"chiave_bozza", "modo", "identita"}, []string{"importazione", "chiave_lettura", "riferimento", "lettura", "motivo",
 		"evidenza_documentale"}},
+	// non_includere tiene motivo_codice e motivo obbligatori: il controllo (iii) di conferma_strutturale_contenuto (0023)
+	// vuole le righe di conferma_strutturale_non_incluso uguali alle decisioni dello snapshot, e ck_csni_origine le vuole
+	// non vuote; dal messaggio 46 [U] li scrive la pagina, non l'utente: motivo_codice «altro» e la traccia del gesto
+	// («gesto di <sigla> da «Non includere nella BOM»: …») [T]
 	DecisioneNonIncludere: {[]string{"casella", "motivo_codice", "motivo", "azione_id"}, []string{"importazione", "segnale_visto"}},
 	// da_decisione: l'id della decisione escludi da cui nasce lo svincolo (PE-27 dell'ondata A, decisione [T]
 	// dell'integratore, 18/10): «↺ Ripristina» toglie l'esclusione e gli svincoli che la citano nello stesso gesto
@@ -470,9 +482,6 @@ func (d *Decisione3) validaIdentita(campo string) *Errore {
 			if !strings.HasPrefix(id.Emittente, "cliente:") || id.Namespace != "" {
 				return corpo(campo+".identita.emittente", "il codice manuale e' del cliente, presunto, senza namespace")
 			}
-			if d.Motivo == "" {
-				return corpo(campo+".motivo", "adottare il codice manuale vuole un motivo")
-			}
 		}
 	case ModoCorrezione:
 		if d.ChiaveLettura != "" || d.Riferimento != "" || d.Lettura != nil {
@@ -482,9 +491,6 @@ func (d *Decisione3) validaIdentita(campo string) *Errore {
 			if e := validaEvidenza(campo+".evidenza_documentale", *d.EvidenzaDocumentale); e != nil {
 				return e
 			}
-		}
-		if d.Motivo == "" {
-			return corpo(campo+".motivo", "una correzione dell'identita' vuole un motivo")
 		}
 		if strings.HasPrefix(id.Emittente, "partner:") && d.Importazione == "" {
 			return corpo(campo+".importazione", "una correzione verso un partner cita il registro in cui il partner e' attivo")

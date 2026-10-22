@@ -134,6 +134,27 @@ def fase1(b):
     expect(p.locator("#du-wizard")).to_be_hidden()
 
 
+def controlla_scheda_e_testata(b, codice):
+    """Messaggio 46, rilievi 2 e 3 della revisione ALBERO, sul server vero subito dopo S8: la scheda del pezzo a cui il
+    motore dà il 2D primario non dice «nessun 2D associato» (ha la miniatura o dice «anteprima non disponibile» con il
+    motivo di S1); la testata dice il motivo della verifica in una frase, non il codice del motore in minuscolo."""
+    p = b.page
+    expect(p.locator("#du-vp .du-nc[data-k]").first).to_be_visible(timeout=T_LUNGO)
+    b.attendi(lambda: p.locator("#du-vp .du-nc-mini").evaluate_all(
+        "(ls, c) => ls.some(l => { const n = l.closest('.du-nc').querySelector('.du-nc-c'); return n && n.innerText.trim() === c && l.dataset.duStato !== 'attesa'; })", codice),
+        "la scheda di %s non ha lo spazio del 2D" % codice)
+    m = p.locator("#du-vp .du-nc-mini").evaluate_all(
+        "(ls, c) => ls.filter(l => { const n = l.closest('.du-nc').querySelector('.du-nc-c'); return n && n.innerText.trim() === c; })"
+        ".map(l => [l.dataset.duStato || '', l.innerText.replace(/\\s+/g, ' ').trim(), l.getAttribute('title') || ''])", codice)
+    print("      2D della scheda %s dopo S8: %s" % (codice, m))
+    verifica(m and all(x[0] in ("pronta", "chiuso", "errore") and "nessun 2D" not in x[1] for x in m), "la scheda di %s dopo S8: %s" % (codice, m))
+    va = p.locator("#du-verifica-adesso")
+    expect(va).to_be_visible(timeout=T_LUNGO)
+    t = va.inner_text()
+    print("      testata dopo S8: %s" % t)
+    verifica("fonte strutturale" not in t and "_" not in t, "la testata dice il codice del motore: %r" % t)
+
+
 def fase2(b):
     p = b.page
     pdf = b.al["9120020A_1.pdf"]
@@ -149,8 +170,8 @@ def fase2(b):
     i = b.segna()
     p.click("#du-conferma-sorgente")
     expect(b.finestra()).to_contain_text("riconcilia la bozza senza STEP", timeout=T_LUNGO)
-    if p.locator("#du-finestra #f-motivo").count():
-        p.fill("#du-finestra #f-motivo", "arriva lo STEP del cliente")
+    # messaggio 46 [U]: nessun motivo nel dialogo
+    verifica(p.locator("#du-finestra #f-motivo").count() == 0, "il dialogo di S8 chiede ancora il motivo")
     b.ok_finestra()
     esito = p.locator("#du-sg-esito-s8")
     expect(esito).to_be_visible(timeout=T_LUNGO)
@@ -160,6 +181,7 @@ def fase2(b):
     verifica(c["bozza"]["versione_attesa"] == 2 and c["codice_atteso"] == "9120001" and "componente_atteso" not in c, "corpo di S8: %s" % c)
     # la revisione: la PB va sul particolare
     b.passo("revisione")
+    controlla_scheda_e_testata(b, "9120020A")
     b.passo("sorgente")
     b.azione("sposta", pdf)
     expect(b.finestra()).to_contain_text("Sposta «9120020A_1.pdf» a un altro nodo", timeout=T_LUNGO)
@@ -204,6 +226,75 @@ def fase2(b):
     # e in «Tutti i file» il file si dice associato (l'associazione registrata letta da S9)
     b.cartella("tutti")
     expect(p.locator("#du-sg-elenco li[data-allegato='%s']" % pdf)).to_contain_text("associato", timeout=T_LUNGO)
+    working_dopo_r5(b)
+
+
+def working_dopo_r5(b):
+    """Messaggio 47 [U] (UI46, corsia WORKING): dopo «Conferma BOM» la BOM non scompare. La pagina riaperta da capo, senza
+    bozza aperta, mostra nel tab Revisione la BOM confermata, cioè la working, in sola lettura: la testata che lo dice,
+    le schede della conferma (R7 &conferma=), la stessa vista Organigramma / Elenco e il pannello del nodo senza gesti
+    di scrittura; il gesto è «Modifica la BOM confermata», e le partenze non ammesse non compaiono (lettura [T] del
+    messaggio 46: niente gesti spenti con la spiegazione lunga)."""
+    p = b.page
+    pdf = b.al["9120020A_1.pdf"]
+    b.apri()
+    b.passo("revisione")
+    b.vista("org")
+    w = p.locator("#du-working")
+    expect(w).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-working-testa")).to_contain_text("BOM confermata (working) · v1 del", timeout=T_LUNGO)
+    expect(p.locator("#du-working-nota")).to_contain_text("È la distinta ufficiale")
+    chip = p.locator("#du-passo-revisione")
+    expect(chip).to_contain_text("BOM confermata · v1")
+    verifica("nessuna bozza" not in chip.inner_text(), "il chip della Revisione dice ancora «nessuna bozza»: %r" % chip.inner_text())
+    schede = w.locator("#du-vp .du-nc[data-k]")
+    expect(schede.first).to_be_visible(timeout=T_LUNGO)
+    p.click("#du-zoom-adatta")
+    b.foto("ui46_working_revisione_org.png")
+    testi = schede.all_inner_texts()
+    print("      la working nella Revisione (%d schede): %s" % (len(testi), [t.replace("\n", " ")[:60] for t in testi]))
+    for cod in ("9120001", "9120010", "9120020"):
+        verifica(any(cod in t for t in testi), "la scheda di %s non c'è nella working: %s" % (cod, testi))
+    verifica(all(x == "confermato" for x in schede.evaluate_all("(ls) => ls.map(l => l.dataset.duStato)")), "stato delle schede della working")
+    # sola lettura: niente caselle di selezione, niente «+ Assieme», quantità spente, niente CTA della bozza
+    verifica(w.locator(".du-nc-sel").count() == 0, "caselle di selezione sulla working")
+    verifica(p.locator("#du-nuovo-ass, #du-nuovo-par, #du-nuovo-com, #du-cta-bom, #du-abbandona").count() == 0, "gesti di scrittura della bozza sulla working")
+    verifica(w.locator(".du-oq:not([disabled])").count() == 0, "una quantità della working si può cambiare")
+    # i gesti: solo «Modifica la BOM confermata»; le partenze non ammesse non compaiono (con la conferma formato 3)
+    expect(p.locator("#du-da-conferma")).to_be_enabled()
+    verifica(p.locator("#du-da-registrato").count() == 0 and p.locator("#du-da-vuota").count() == 0, "partenze non ammesse ancora mostrate")
+    verifica("si parte da quella" not in w.inner_text(), "la spiegazione lunga della partenza spenta è ancora sulla pagina")
+    # il pannello del nodo, in sola lettura: il particolare, con il suo PDF associato da R5 (la AR letta da S9)
+    scelta = schede.filter(has_text="9120020").first
+    scelta.locator(".du-nc-cod").click()
+    pan = p.locator("#du-pannello")
+    expect(pan).to_contain_text("9120020", timeout=T_LUNGO)
+    verifica(pan.locator("#du-correggi, #du-escludi, #du-sez-decisione").count() == 0, "gesti di scrittura nel pannello della working")
+    b.linguetta("documenti")
+    expect(p.locator("#du-doc-nodo")).to_contain_text("9120020A_1.pdf", timeout=T_LUNGO)
+    verifica(p.locator("#du-doc-nodo [data-du-doc='associato'], #du-doc-nodo [data-du-doc='confermato']").count() == 1, "la AR di %s nel pannello" % pdf)
+    b.linguetta("dettaglio")
+    # l'Elenco della stessa working
+    b.vista("elenco")
+    expect(p.locator("#du-working #du-elenco")).to_contain_text("9120010", timeout=T_LUNGO)
+    b.foto("ui46_working_revisione_elenco.png")
+    b.vista("org")
+    # l'indagine del punto 5: che cosa dice la proposta aggiornata subito dopo la conferma (solo un'uscita, nessuna verifica)
+    j = p.evaluate("async (u) => { const r = await fetch(u, { headers: { Accept: 'application/json' } }); return r.json(); }",
+                   "/thread/%s/motore-a/dati" % b.thread)
+    cc = (j or {}).get("conferma_corrente") or {}
+    pa = cc.get("proposta_aggiornata")
+    print("      conferma_corrente dopo R5: numero=%s valida=%s proposta_non_confrontata=%r" % (cc.get("numero"), cc.get("valida"), cc.get("proposta_non_confrontata")))
+    if pa:
+        print("      proposta aggiornata: per_tipo=%s regole_cambiate=%s" % (pa.get("per_tipo"), pa.get("regole_cambiate")))
+        for x in (pa.get("differenze") or {}).get("nodi") or []:
+            print("        nodo %s: %s %s" % (x.get("voce"), x.get("tipo"), x.get("campi")))
+        for x in (pa.get("differenze") or {}).get("archi") or []:
+            print("        arco %s -> %s: %s %s" % (x.get("padre"), x.get("figlio"), x.get("tipo"), x.get("campi")))
+        if (pa.get("differenze") or {}).get("gruppo"):
+            print("        gruppo: %s" % (pa.get("differenze") or {}).get("gruppo"))
+    else:
+        print("      proposta aggiornata: nessuna")
 
 
 def fase3(b):
@@ -221,7 +312,6 @@ def fase3(b):
     i = b.segna()
     gesto.click()
     expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
-    p.fill("#du-finestra #f-motivo", "lo STEP rev 2 del cliente sostituisce il primo")
     b.ok_finestra()
     esito = p.locator("#du-sg-esito-s8")
     expect(esito).to_be_visible(timeout=T_LUNGO)
@@ -317,13 +407,13 @@ def fase_g39(b):
     b.passo("sorgente")
     b.cartella("step")
     b.file(step, "step")
+    b.altri_prodotti()
     p.click("#du-sg-dettaglio #du-guarda-nc-" + sid(b.p2) + "-" + sid(step))
     expect(p.locator("#du-anteprima")).to_be_visible(timeout=T_LUNGO)
     expect(p.locator("#du-conferma-solo-prodotto")).to_be_enabled(timeout=T_LUNGO)
     p.click("#du-conferma-solo-prodotto")
     expect(b.finestra()).to_contain_text("come sorgente di 9130001", timeout=T_LUNGO)
     p.check("#f-presa")
-    p.fill("#du-finestra #f-motivo", "STEP scelto per 9130001 (per errore)")
     b.ok_finestra()
     esito = p.locator("#du-sg-esito-s8")
     expect(esito).to_be_visible(timeout=T_LUNGO)
@@ -358,14 +448,13 @@ def fase_g39(b):
     expect(p.locator("#f-sposta")).to_have_attribute("data-sposta-da", b.p2)
     if p.locator("#du-strutture button").count():
         p.locator("#du-strutture button").first.click()
-    p.fill("#du-finestra #f-motivo", "lo STEP è di 9120001, non di 9130001")
     b.ok_finestra()
     expect(esito).to_be_visible(timeout=T_LUNGO)
     print("      spostamento: %s · %s" % (esito.get_attribute("data-esito"), b.avviso().inner_text().replace("\n", " ")[:300]))
     expect(esito).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
     expect(b.avviso()).to_contain_text("Spostamento", timeout=T_LUNGO)
     c = b.corpi(i, "POST", r"/conferma-sorgente$")
-    verifica(len(c) == 1 and c[0].get("sposta_da") == b.p2 and c[0].get("motivo"), "corpo dello spostamento: %s" % c)
+    verifica(len(c) == 1 and c[0].get("sposta_da") == b.p2 and "motivo" not in c[0], "corpo dello spostamento: %s" % c)
 
 
 def fase_g39b(b):
@@ -434,7 +523,6 @@ def fase_g39c(b):
         p.click("#du-sg-prodotto-apri")
     p.click("#du-revoca-sorgente")
     expect(p.locator("#f-revoca-bozza")).to_have_attribute("data-nata", "1", timeout=T_LUNGO)
-    p.fill("#du-finestra #f-motivo", "prova della revoca dopo lo spostamento")
     i = b.segna()
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Sorgente revocata per 9120001", timeout=T_LUNGO)

@@ -997,18 +997,13 @@ func TestCO04ScaricaERiscarica(t *testing.T) {
 // ---------------------------------------------------------------- S2-S4 dalla rotta: la busta e l'intento
 
 // I gesti della Sorgente dalla rotta (EM §10.9, §10.10): l'esito 200 con gli stati, il reinvio con la stessa chiave e
-// lo stesso corpo (riproposto), la stessa chiave con un corpo diverso (409, busta «conflitto»), il motivo che manca
-// (422 MOTIVO_OBBLIGATORIO), il corpo oltre 64 KiB (413), la conservazione non configurata (503 NON_CONFIGURATO, AF-06
+// lo stesso corpo (riproposto), la stessa chiave con un corpo diverso (409, busta «conflitto»), «Scarta» senza motivo
+// (messaggio 46 [U]: la traccia del gesto nell'evento), il corpo oltre 64 KiB (413), la conservazione non configurata (503 NON_CONFIGURATO, AF-06
 // dalla rotta), la versione vecchia (409 FILE_VERSIONE); «Riattiva» e «Metti in Altri file» con i loro esiti.
 func TestGestiDellaSorgenteDallaRotta(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.sorgente(t, true)
 	a, _ := s.file(s.thread, "ACME-G1.pdf", byteCasuali("x.pdf", 100, 2_000), db.OrigineAllegatoOutlook)
-	// motivo obbligatorio per «Scarta»
-	c := s.corpo(s.thread, a, "scarta", "", nil)
-	if r := s.chiama(s.ad, http.MethodPost, rottaFile(s.thread, a, "scarta"), c, nil); r.stato != http.StatusUnprocessableEntity || r.mappa(t)["codice"] != "MOTIVO_OBBLIGATORIO" {
-		t.Errorf("Scarta senza motivo: %d %s", r.stato, r.corpo)
-	}
 	// corpo oltre il limite
 	grande := `{"versione_attesa": 0, "motivo": "` + strings.Repeat("x", 70<<10) + `"}`
 	if r := s.chiama(s.ad, http.MethodPost, rottaFile(s.thread, a, "scarta"), grande, nil); r.stato != http.StatusRequestEntityTooLarge || r.h.Get("X-Motivo") != "TROPPO_GRANDE" {
@@ -1057,8 +1052,9 @@ func TestGestiDellaSorgenteDallaRotta(t *testing.T) {
 	if r := s.chiama(s.ad, http.MethodPost, rottaFile(s.thread, a, "scarta"), vecchio, nil); r.stato != http.StatusConflict || r.mappa(t)["esito"] != "conflitto" || r.mappa(t)["codice"] != "FILE_VERSIONE" {
 		t.Errorf("versione vecchia: %d %s", r.stato, r.corpo)
 	}
-	// «Scarta», il reinvio, la chiave riusata con un altro corpo
-	r, corpo := s.gesto(s.thread, a, "scarta", "via", nil)
+	// «Scarta» senza motivo (messaggio 46 [U]), il reinvio, la chiave riusata con un altro corpo (il motivo di un client di
+	// prima)
+	r, corpo := s.gesto(s.thread, a, "scarta", "", nil)
 	m := r.mappa(t)
 	if r.stato != 200 || m["esito"] != "scartato" || m["riproposto"] != false || m["versione"] != float64(3) {
 		t.Fatalf("Scarta: %d %v", r.stato, m)
@@ -1085,5 +1081,13 @@ func TestGestiDellaSorgenteDallaRotta(t *testing.T) {
 	var eventi int
 	if err := s.pool.QueryRow(s.ctx, `SELECT count(*) FROM file_rfq_evento WHERE allegato_id = $1 AND azione = 'scarta'`, a).Scan(&eventi); err != nil || eventi != 1 {
 		t.Errorf("eventi di scarto: %d %v", eventi, err)
+	}
+	var motivo string
+	if err := s.pool.QueryRow(s.ctx, `SELECT e.motivo || '|' || u.sigla FROM file_rfq_evento e JOIN utente u ON u.utente_id = e.autore_id
+		WHERE e.allegato_id = $1 AND e.azione = 'scarta'`, a).Scan(&motivo); err != nil {
+		t.Fatal(err)
+	}
+	if i := strings.LastIndex(motivo, "|"); i < 0 || motivo[:i] != "gesto di "+motivo[i+1:]+" da «Scarta»: il file «ACME-G1.pdf» esce dai file attivi della RFQ" {
+		t.Errorf("il motivo dello scarto senza il motivo dell'utente: %q", motivo)
 	}
 }

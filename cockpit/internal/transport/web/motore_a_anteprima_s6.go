@@ -39,7 +39,13 @@ package web
 // prima (allegato_prima), come dopoLaRevisione nella versione scritta; ricollegati[] elenca le loro chiavi (il conteggio
 // registrati_della_fonte_precedente dell'evento di R2).
 //
-// [T-39] Limiti dichiarati: proposta.stato_di_partenza non c'è (P-1…P-8 della corsia persistenza, non esposti); le PB
+// Lo stato di partenza (messaggio 46 [U], 21/10: «le anteprime di quando si conferma uno step non compaiono»; collaudo UI46,
+// rilievo B1 [T]): proposta.stato_di_partenza è la versione 1 che la partenza step costruirebbe dal registro della proposta
+// (distintabozza.StatoDiPartenzaDellaProposta: VersioneDaRegistro, P-1…P-8, con lo stato della RFQ letto come lo legge
+// R2), in una seconda transazione in sola lettura dopo il calcolo. La pagina ne disegna l'albero nell'anteprima e nel
+// dialogo di S8; assente quando il registro non dà una partenza (l'anteprima lo dice, senza albero inventato).
+//
+// [T-39] Limiti dichiarati: le PB
 // iniziali e i suggerimenti che R2 scriverebbe (preassociazioni_iniziali[], preassociazioni_proposte[]) non sono
 // nell'anteprima (vogliono la versione scritta); un errore del calcolo diverso da occupato, scaduto e regole non pronte è
 // un 5xx come nelle rotte della bozza (non il 200 con «errore» di D-18).
@@ -81,8 +87,17 @@ var CodiciServerS6 = []CodiceRotta{
 // riconciliazione) prende il posto di quello di propostabom.Anteprima nel JSON.
 type RispostaS6 struct {
 	propostabom.Anteprima
-	EffettoSullaBozza *EffettoS6 `json:"effetto_sulla_bozza,omitempty"`
-	Testo             string     `json:"testo"`
+	// Proposta prende il posto di quella di propostabom.Anteprima nel JSON: la stessa, con lo stato di partenza
+	Proposta          *PropostaS6 `json:"proposta,omitempty"`
+	EffettoSullaBozza *EffettoS6  `json:"effetto_sulla_bozza,omitempty"`
+	Testo             string      `json:"testo"`
+}
+
+// PropostaS6: la proposta del gruppo (propostabom.PropostaAnteprima) con lo stato di partenza che la partenza step ne
+// costruirebbe (commento di testa), nil quando il registro non dà una partenza.
+type PropostaS6 struct {
+	propostabom.PropostaAnteprima
+	StatoDiPartenza *distintabozza.Snapshot3 `json:"stato_di_partenza,omitempty"`
 }
 
 // EffettoS6: effetto_sulla_bozza di S6, gli elenchi di R2 cambia_sorgente (commento di testa). Algoritmo: cambio-fonte-1
@@ -315,7 +330,21 @@ func (s *Server) anteprimaS6(w http.ResponseWriter, r *http.Request) {
 	if eff != nil {
 		eff.Sostituzione = let.sostituzione
 	}
-	s.scriviJSONBozzaV1(w, r, http.StatusOK, RispostaS6{Anteprima: a, EffettoSullaBozza: eff, Testo: testoS6(a)})
+	var prop *PropostaS6
+	if a.Proposta != nil {
+		prop = &PropostaS6{PropostaAnteprima: *a.Proposta}
+		if c := a.RegistroDellaProposta(); c != nil {
+			if err := s.inSolaLetturaV1(ctx, func(q *db.Queries) error {
+				var err error
+				prop.StatoDiPartenza, err = distintabozza.StatoDiPartenzaDellaProposta(ctx, q, thread, prodotto, *c)
+				return err
+			}); err != nil {
+				s.rispondiErroreBozzaV1(w, r, thread, err)
+				return
+			}
+		}
+	}
+	s.scriviJSONBozzaV1(w, r, http.StatusOK, RispostaS6{Anteprima: a, Proposta: prop, EffettoSullaBozza: eff, Testo: testoS6(a)})
 }
 
 // testoS6: una frase per la pagina, dal caso della struttura e dallo stato.

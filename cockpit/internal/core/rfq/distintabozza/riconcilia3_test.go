@@ -407,12 +407,12 @@ func TestV1Riconcilia3IlRebaseCambiaSoloLaBase(t *testing.T) {
 	if e := errore3(t, err); e.Motivo != MotivoRifScaduti || e.Campo != "azioni[0].dopo.rif_scaduti" {
 		t.Fatalf("rebase con rif scaduti dichiarati: %+v", e)
 	}
-	// il rebase senza motivo
+	// il rebase senza motivo passa (messaggio 46 [U]: la fonte non cambia, l'evento lo ammette vuoto)
 	c := a
 	c.Motivo = ""
-	_, err = Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{c}, Contesto3{N0: 4})
-	if e := errore3(t, err); e.Campo != "azioni[0].motivo" {
-		t.Fatalf("rebase senza motivo: %+v", e)
+	if r2, err := Riconcilia3(leggiProva3(t, base), leggiProva3(t, d), []Azione{c}, Contesto3{N0: 4}); err != nil || r2.Rebase == nil || r2.Rebase.Motivo != "" ||
+		rebaseCoerente3(&RebaseRichiesta3{Base: r2.Rebase.Base}, r2.Rebase) != nil {
+		t.Fatalf("rebase senza motivo: %v", err)
 	}
 	// il campo rebase della richiesta e l'azione devono dire la stessa cosa
 	if e := rebaseCoerente3(&RebaseRichiesta3{Base: r.Rebase.Base, Motivo: a.Motivo}, r.Rebase); e != nil {

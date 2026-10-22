@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	sorgentev1 "promatec/cockpit/internal/core/rfq/sorgente"
 )
 
 // i testi del motore per i casi della struttura (propostabom/struttura_step.go), copiati com'erano
@@ -198,8 +200,9 @@ func (b *bancoDU) s8D39(w http.ResponseWriter, r *http.Request) {
 	}
 	motivo := bdStr(corpo["motivo"])
 	// uno STEP è la sorgente di un solo prodotto; G39-03 [U] (core/rfq/sorgente/sposta.go): lo STEP legato a un altro
-	// prodotto si sposta (la sua sorgente S8 valida, non usata da una R5: sposta_da), si riassocia con il motivo (un
-	// documento dell'altro senza S8 valida: qui la sua sorgente S8 già revocata) o si rifiuta con il rimedio della revisione
+	// prodotto si sposta (la sua sorgente S8 valida, non usata da una R5: sposta_da), si riassocia con «Riassocia a ‹P›»
+	// (sposta_da; messaggio 46 [U]: senza motivo, o con il motivo di un client di prima; un documento dell'altro senza S8
+	// valida: qui la sua sorgente S8 già revocata) o si rifiuta con il rimedio della revisione
 	// (la BOM dell'altro confermata con lui: interruttore «bom-confermata-altro»)
 	spostaDa := bdStr(corpo["sposta_da"])
 	if spostaDa != "" && (spostaDa == prod || (spostaDa != bdP1 && spostaDa != bdP2)) {
@@ -236,9 +239,9 @@ func (b *bancoDU) s8D39(w http.ResponseWriter, r *http.Request) {
 			}
 			spostamento = m{"caso": "sorgente_s8", "da_prodotto_id": p, "da_codice": codA}
 		} else {
-			if motivo == "" {
-				bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "Questo STEP è un documento di "+codA+", non confermato come sua sorgente: per riassociarlo a "+cod+" scrivi il motivo. Lascerà "+codA+".",
-					m{"campo": "motivo", "motivo": "riassociazione", "altro_prodotto": p})
+			if motivo == "" && spostaDa != p {
+				bdKo(w, 422, "STEP_SORGENTE_DI_ALTRO_PRODOTTO", "Questo STEP è un documento di "+codA+", non confermato come sua sorgente: per riassociarlo a "+cod+" usa «Riassocia a "+cod+"». Lascerà "+codA+".",
+					m{"campo": "sposta_da", "motivo": "riassociazione", "altro_prodotto": p})
 				return
 			}
 			spostamento = m{"caso": "documento", "da_prodotto_id": p, "da_codice": codA}
@@ -255,18 +258,11 @@ func (b *bancoDU) s8D39(w http.ResponseWriter, r *http.Request) {
 			bdKo(w, 409, "ANTEPRIMA_SUPERATA", "La proposta è cambiata mentre guardavi: rivedila.", m{"anteprima": "proposta_step", "impronta_contenuto": reg["impronta_contenuto"]})
 			return
 		}
-		if a == bdA10 && motivo == "" {
-			bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "Il codice letto dalla radice dello STEP non è quello del prodotto: serve un motivo.", m{"campo": "motivo"})
-			return
-		}
+		// messaggio 46 [U]: il codice della radice diverso (bdA10) non chiede più il motivo: lo scrive il server
 	} else {
 		ss := b.strutturaStep(f, prod)
 		if bdStr(corpo["stato_analisi"]) != bdStr(ss["stato_analisi"]) || ss["partenza"] != "solo_prodotto" {
 			bdKo(w, 409, "ANTEPRIMA_SUPERATA", "Lo stato dell'analisi dello STEP è cambiato, o una struttura importabile c'è: rivedi l'anteprima.", m{"anteprima": "stato_analisi"})
-			return
-		}
-		if motivo == "" {
-			bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "Senza struttura importabile la partenza dal solo prodotto vuole il motivo.", m{"campo": "motivo"})
 			return
 		}
 	}
@@ -299,10 +295,6 @@ func (b *bancoDU) s8D39(w http.ResponseWriter, r *http.Request) {
 		case bdStr(cb["bozza_id"]) != bz.ID || bdNum(cb["versione_attesa"]) != bz.Versione:
 			bdKo(w, 409, "BOZZA_VERSIONE", fmt.Sprintf("la bozza aperta del prodotto è alla versione %d: rileggila", bz.Versione), m{"motivo": "versione_diversa", "campo": "bozza",
 				"conflitto": m{"bozza_id": bz.ID, "stato": "aperta", "versione": bz.Versione}})
-			return
-		}
-		if motivo == "" {
-			bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "Il cambio della sorgente di una bozza aperta vuole il motivo.", m{"campo": "motivo"})
 			return
 		}
 	}
@@ -613,10 +605,7 @@ func (b *bancoDU) revocaS8(w http.ResponseWriter, r *http.Request) {
 		bdJSON(w, http.StatusOK, rr)
 		return
 	}
-	if strings.TrimSpace(bdStr(corpo["motivo"])) == "" {
-		bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "la revoca della sorgente vuole il motivo", m{"campo": "motivo"})
-		return
-	}
+	// messaggio 46 [U]: la revoca non chiede più il motivo (lo scrive il server, sorgente.TracciaRevoca)
 	prod := bdStr(corpo["prodotto_id"])
 	if prod != bdP1 && prod != bdP2 {
 		bdKo(w, 422, "FUORI_RFQ", "il prodotto non è di questa RFQ", m{"campo": "prodotto_id"})
@@ -644,7 +633,15 @@ func (b *bancoDU) revocaS8(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	motivoReg := bdStr(corpo["motivo"])
+	motivoReg := strings.TrimSpace(bdStr(corpo["motivo"]))
+	if motivoReg == "" {
+		f := b.fileDi(a)
+		nome := a
+		if f != nil {
+			nome = f.Nome
+		}
+		motivoReg = sorgentev1.TracciaRevoca("PS", nome, map[string]string{bdP1: "ACM-1000", bdP2: "ACM-2000"}[prod])
+	}
 	if corpo["sorgente_errata"] == true {
 		motivoReg = "sorgente_errata: " + motivoReg
 		b.s8[prod]["causa"] = "sorgente_errata"
@@ -656,18 +653,18 @@ func (b *bancoDU) revocaS8(w http.ResponseWriter, r *http.Request) {
 	b.conti["revoche_s8"]++
 	cod := map[string]string{bdP1: "ACM-1000", bdP2: "ACM-2000"}[prod]
 	risposta := m{"esito": "revocata", "riproposto": false, "chiave_idempotenza": chiave, "prodotto_id": prod, "allegato_id": a, "documento_id": b.s8[prod]["documento_id"], "motivo": motivoReg,
-		"testo": "Sorgente revocata per " + cod + ": la working non cambia; la conferma della BOM aspetta una sorgente confermata di nuovo (S8)."}
+		"testo": "Sorgente revocata per " + cod + ". Per confermare la BOM serve di nuovo uno STEP confermato come sorgente."} // i testi di core/rfq/sorgente/revoca.go
 	if aperta {
 		if sb, _ := bz.Snapshot["sorgente"].(m); sb != nil && bdStr(sb["allegato_id"]) == a {
 			risposta["bozza_id"] = bz.ID
 			switch {
 			case usata:
 				risposta["usata_da_conferma"] = true
-				risposta["testo"] = "Sorgente revocata per " + cod + ": lo STEP è nella BOM confermata, quindi la working e la bozza non cambiano. Il cambio di sorgente è una revisione interna: conferma la sorgente giusta (S8), poi rivedi e conferma la BOM."
+				risposta["testo"] = "Sorgente revocata per " + cod + ". Lo STEP è nella BOM confermata: la BOM e la bozza restano come sono. Il cambio di sorgente è una revisione interna: conferma lo STEP giusto come sorgente, poi rivedi e conferma la BOM."
 			default:
 				bz.Stato = "abbandonata"
 				risposta["bozza_abbandonata"] = bz.ID
-				risposta["testo"] = "Sorgente revocata per " + cod + ": la bozza nata da questo STEP è annullata (la sua storia resta); la working non cambia. Conferma la sorgente giusta (S8): la bozza nuova nasce da lì."
+				risposta["testo"] = "Sorgente revocata per " + cod + ". La bozza nata da questo STEP è annullata (resta nella storia). Conferma lo STEP giusto come sorgente: la bozza nuova nasce da lì."
 			}
 		}
 	}
@@ -755,6 +752,26 @@ func (b *bancoDU) sondaD39(w http.ResponseWriter, r *http.Request) bool {
 				// fermo: l'analisi resta com'è finché la sonda non la cambia (S1 non la conclude da sola)
 				f.Analisi, f.fermo, f.letture = o.Stato, o.Stato != "letto", 0
 			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	case "/__banco/sorgente-s8-da-parte":
+		// {prodotto, rimetti}: dati di prova del messaggio 46 (la proposta di G39-02 vista come prima di ogni S8, DU-B68):
+		// l'ultima conferma di S8 del prodotto messa da parte, poi rimessa com'era
+		var o struct {
+			Prodotto string
+			Rimetti  bool
+		}
+		_ = json.NewDecoder(r.Body).Decode(&o)
+		k := "s8_da_parte_" + o.Prodotto
+		if o.Rimetti {
+			if s, ok := b.fonte[k].(m); ok {
+				b.s8[o.Prodotto] = s
+			}
+			delete(b.fonte, k)
+		} else if s := b.s8[o.Prodotto]; s != nil {
+			b.fonte[k] = s
+			delete(b.s8, o.Prodotto)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return true

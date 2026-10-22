@@ -42,12 +42,14 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/core/propostabom"
 	"promatec/cockpit/internal/core/rfq/distintabozza/importazione"
+	"promatec/cockpit/internal/core/rfq/traccia"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -392,6 +394,21 @@ func (c *cantiere) aggiornaIdentitaAnche(i int, nuova Identita, vecchio *importa
 // bozza (aperta, alla versione attesa, formato 3) → il registro nuovo e V-7 → la fonte confermata (FONTE_NON_CONFERMATA) →
 // le occorrenze del registro → cambio-fonte-1 → il registro trovato o scritto, la versione n+1, gli eventi,
 // fonte_step_evento.
+// WidgetCambioFonte: il gesto della pagina che la traccia del cambio della fonte nomina (S8 passa la sua traccia).
+const WidgetCambioFonte = "Usa nuovo STEP"
+
+// tracciaCambioFonte: la traccia del cambio della fonte senza il motivo dell'utente (messaggio 46 [U]), per esempio
+// «gesto di PS da «Usa nuovo STEP»: la bozza di ACME-1 passa allo STEP «ACME-1 rev B.stp»».
+func tracciaCambioFonte(ctx context.Context, q *db.Queries, thread, utente, allegato uuid.UUID, codiceProdotto string) (string, error) {
+	nome := allegato.String()
+	if a, err := q.GetAllegatoDellaRfq(ctx, db.GetAllegatoDellaRfqParams{AllegatoID: allegato, ThreadID: thread}); err == nil {
+		nome = a.NomeFile
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	return traccia.DelGesto(ctx, q, utente, MaxMotivo, WidgetCambioFonte, "la bozza di "+strings.TrimSpace(codiceProdotto)+" passa allo STEP «"+nome+"»")
+}
+
 func CambiaSorgenteFormato3(ctx context.Context, pool Avviatore, r CambioFonte3) (VersioneDelServer, error) {
 	var out VersioneDelServer
 	if !chiaveDelServer(r.Comune) {
@@ -415,7 +432,8 @@ func CambiaSorgenteFormato3(ctx context.Context, pool Avviatore, r CambioFonte3)
 		}
 		return riproponiVersioneDelServer(ctx, q, r.ThreadID, gia)
 	}
-	if _, err := prodottoDellaRfq(ctx, q, r.ThreadID, r.Comune.ProdottoID, true); err != nil {
+	prodotto, err := prodottoDellaRfq(ctx, q, r.ThreadID, r.Comune.ProdottoID, true)
+	if err != nil {
 		return out, err
 	}
 	b, prima, v, err := bozzaFormato3Bloccata(ctx, q, r.ThreadID, r.Comune)
@@ -431,6 +449,13 @@ func CambiaSorgenteFormato3(ctx context.Context, pool Avviatore, r CambioFonte3)
 	}
 	nuovo := r.Proposta.Registro
 	d := r.CambiaSorgente
+	// messaggio 46 [U]: senza il motivo dell'utente, la traccia del gesto (la sostituzione della fonte e l'evento del
+	// cambio di fonte vogliono un motivo: ck_fonte_motivo, trg_dbv_fonte_motivata)
+	if strings.TrimSpace(d.Motivo) == "" {
+		if d.Motivo, err = tracciaCambioFonte(ctx, q, r.ThreadID, r.UtenteID, d.Sorgente.AllegatoID, prodotto.Codice); err != nil {
+			return out, err
+		}
+	}
 	if nuovo.Contenuto.Proposta.Fonte.AllegatoID != d.Sorgente.AllegatoID.String() {
 		a, _ := uuid.Parse(nuovo.Contenuto.Proposta.Fonte.AllegatoID)
 		return out, &Errore{Codice: CodiceCorpoNonValido, Motivo: MotivoGruppoSuAltraOccorrenza, Campo: "cambia_sorgente.sorgente.gruppo", AllegatoID: &a,

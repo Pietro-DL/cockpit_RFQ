@@ -125,10 +125,18 @@ func TestV1S8LaFormaDellaRevoca(t *testing.T) {
 	if _, _, err := LeggiRichiestaRevoca(corpoL1(t, map[string]any{"chiave_idempotenza": k, "prodotto_id": prod, "motivo": "errore"})); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := LeggiRichiestaRevoca(corpoL1(t, map[string]any{"chiave_idempotenza": k, "prodotto_id": prod}))
+	// messaggio 46 [U]: la revoca senza motivo passa (il motivo della riga lo scrive il server, TracciaRevoca)
+	r, _, err := LeggiRichiestaRevoca(corpoL1(t, map[string]any{"chiave_idempotenza": k, "prodotto_id": prod, "sorgente_errata": true}))
+	if err != nil || r.Motivo != "" {
+		t.Fatalf("revoca senza motivo: %v %+v", err, r)
+	}
+	r.traccia = TracciaRevoca("PS", "ACM-1000.stp", "ACM-1000")
+	if m := r.motivoRegistrato(); m != "sorgente_errata: gesto di PS da «Revoca come sorgente»: lo STEP «ACM-1000.stp» non è più la sorgente confermata di ACM-1000" {
+		t.Fatalf("il motivo della revoca senza il motivo dell'utente: %q", m)
+	}
 	var e *distintabozza.Errore
-	if !errors.As(err, &e) || e.Codice != distintabozza.CodiceMotivoObbligatorio {
-		t.Fatalf("revoca senza motivo: %v", err)
+	if _, _, err := LeggiRichiestaRevoca(corpoL1(t, map[string]any{"chiave_idempotenza": k, "prodotto_id": prod, "motivo": strings.Repeat("x", 1001)})); !errors.As(err, &e) || e.Campo != "motivo" {
+		t.Fatalf("il motivo di un client di prima oltre 1000 caratteri passa: %v", err)
 	}
 	if _, _, err := LeggiRichiestaRevoca(corpoL1(t, map[string]any{"chiave_idempotenza": k, "prodotto_id": prod, "motivo": "m", "documento_id": uuid.New()})); err == nil {
 		t.Fatal("un campo in piu' passa")

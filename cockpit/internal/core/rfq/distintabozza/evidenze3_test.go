@@ -139,13 +139,6 @@ func TestV1ConfermaCategoriaForma(t *testing.T) {
 		{"ingresso mancante", "decisioni[0].ingresso", "", cambia(func(d map[string]any) { delete(d, "ingresso") })},
 		{"classe senza registro", "decisioni[0].importazione", "", cambia(func(d map[string]any) { delete(d, "importazione") })},
 		{"classe proposta con origine manuale", "decisioni[0].classe_proposta", "", cambia(func(d map[string]any) { d["origine_categoria"] = "manuale" })},
-		{"manuale senza motivo", "decisioni[0].motivo", "", cambia(func(d map[string]any) {
-			d["origine_categoria"] = "manuale"
-			delete(d, "classe_proposta")
-			delete(d, "importazione")
-			delete(d, "motivo")
-		})},
-		{"rifiuto senza motivo", "decisioni[0].motivo", "", cambia(func(d map[string]any) { d["esito"] = "rifiuto"; delete(d, "motivo") })},
 		{"da_conferma incompleto", "decisioni[0].da_conferma", "", cambia(func(d map[string]any) {
 			d["da_conferma"] = map[string]any{"conferma_id": uuidD1, "numero": 0, "decisione_id": "cc-0"}
 		})},
@@ -162,6 +155,20 @@ func TestV1ConfermaCategoriaForma(t *testing.T) {
 	senza := cambia(func(d map[string]any) { delete(d, "motivo") })
 	if _, e := leggiDecisioneProva(t, senza); e != nil {
 		t.Fatalf("classe accettata senza motivo: %v", e)
+	}
+	// messaggio 46 [U]: anche con l'origine manuale (o normativa) e con il rifiuto il motivo non si chiede piu'
+	manuale := cambia(func(d map[string]any) {
+		d["origine_categoria"] = "manuale"
+		delete(d, "classe_proposta")
+		delete(d, "importazione")
+		delete(d, "motivo")
+	})
+	if _, e := leggiDecisioneProva(t, manuale); e != nil {
+		t.Fatalf("categoria manuale senza motivo: %v", e)
+	}
+	rifiuto := cambia(func(d map[string]any) { d["esito"] = "rifiuto"; delete(d, "motivo") })
+	if _, e := leggiDecisioneProva(t, rifiuto); e != nil {
+		t.Fatalf("«non è minuteria» senza motivo: %v", e)
 	}
 }
 

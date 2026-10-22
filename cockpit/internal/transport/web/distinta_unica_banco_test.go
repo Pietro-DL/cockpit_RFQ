@@ -40,6 +40,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/rfq/filerfq"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -185,6 +186,9 @@ type bancoDU struct {
 	// bomConfermataAltro: il secondo prodotto ha confermato la BOM con lo STEP che è la sua sorgente S8 (G39-03 [U]: S8 sul
 	// primo rifiuta con bom_confermata e il rimedio della revisione; interruttore «bom-confermata-altro»)
 	bomConfermataAltro bool
+	// snapConferme: lo snapshot di ogni conferma di R5 (conferma_id → snapshot), per il dettaglio di R7 (&conferma=) che la
+	// Revisione legge per la BOM confermata (messaggio 47 [U], UI46)
+	snapConferme map[string]m
 }
 
 // nuovoBancoDU: il banco, con i dati di partenza. Il server del Cockpit è quello delle prove (template e statici
@@ -838,7 +842,7 @@ func bdStr(v any) string { s, _ := v.(string); return s }
 func (b *bancoDU) eventoServer(bz *bozzaBanco, azione string, dopo m) {
 	n := len(bz.Eventi) + 1
 	bz.Eventi = append(bz.Eventi, m{"n": n, "versione": bz.Versione, "vocabolario": 2, "azione": azione, "chiave": nil, "prima": nil, "dopo": dopo, "origine": "server", "motivo": nil,
-		"autore": "AD", "quando": time.Now().UTC()})
+		"autore": duUUID(77).String(), "quando": time.Now().UTC()})
 }
 
 // r2: le cinque forme di R2 (EM §9.2). L'ordine dei controlli è quello del contratto: la chiave_salvataggio prima
@@ -934,8 +938,9 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 			bdKo(w, 409, "BOZZA_VERSIONE", "La bozza da abbandonare è cambiata.", m{"motivo": "versione_diversa", "versione": vecchia.Versione})
 			return nil
 		}
-		if partenza != "step" || bdStr(abbandona["motivo"]) == "" {
-			bdKo(w, 422, "CORPO_NON_VALIDO", "la ripartenza è dalla proposta, con il motivo", m{"motivo": "partenza_non_ammessa"})
+		// messaggio 46 [U]: la ripartenza non chiede più il motivo
+		if partenza != "step" {
+			bdKo(w, 422, "CORPO_NON_VALIDO", "la ripartenza è dalla proposta", m{"motivo": "partenza_non_ammessa"})
 			return nil
 		}
 	} else if abbandona != nil {
@@ -970,10 +975,7 @@ func (b *bancoDU) r2Crea(w http.ResponseWriter, corpo m, prod string) m {
 			bdKo(w, 409, "ANTEPRIMA_SUPERATA", "La proposta è cambiata mentre guardavi: rivedila.", m{"anteprima": "proposta_step", "impronta_contenuto": reg["impronta_contenuto"]})
 			return nil
 		}
-		if a == bdA10 && bdStr(crea["motivo"]) == "" {
-			bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "Il codice letto dalla radice dello STEP non è quello del prodotto: serve un motivo.", m{"campo": "crea.motivo"})
-			return nil
-		}
+		// messaggio 46 [U]: il codice della radice diverso (bdA10) non chiede più il motivo (lo scrive il server)
 		imp := bdImpronta(reg)
 		b.registri[imp] = reg
 		bz.Registro = imp
@@ -1151,7 +1153,7 @@ func (b *bancoDU) r2Salva(w http.ResponseWriter, corpo m, prod string) m {
 		a := x.(m)
 		n := len(bz.Eventi) + 1
 		bz.Eventi = append(bz.Eventi, m{"n": n, "versione": bz.Versione, "vocabolario": 2, "azione": a["azione"], "chiave": a["chiave_bozza"], "prima": a["prima"], "dopo": a["dopo"],
-			"origine": a["origine"], "motivo": a["motivo"], "autore": "AD", "quando": time.Now().UTC()})
+			"origine": a["origine"], "motivo": a["motivo"], "autore": duUUID(77).String(), "quando": time.Now().UTC()})
 	}
 	return m{"bozza_id": bz.ID, "formato": 3, "versione": bz.Versione, "nuova_versione": true, "riproposto": false, "eventi": len(azioni), "impronta": bdSha(bdCanonico(bz.Snapshot)), "salvata_il": time.Now().UTC()}
 }
@@ -1443,10 +1445,6 @@ func (b *bancoDU) r2Converti(w http.ResponseWriter, corpo m, prod string) m {
 		bdKo(w, 409, "BOZZA_VERSIONE", "La bozza da convertire è cambiata.", m{"motivo": "versione_diversa", "versione": vecchia.Versione})
 		return nil
 	}
-	if bdStr(cd["motivo"]) == "" {
-		bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "La conversione vuole il motivo.", m{"campo": "converti_da.motivo"})
-		return nil
-	}
 	vecchia.Stato = "abbandonata"
 	b.nBozze++
 	bz := &bozzaBanco{ID: fmt.Sprintf("00000000-0000-4000-8000-0000000b%04d", b.nBozze), Stato: "aperta", Versione: 1, Creata: time.Now().UTC()}
@@ -1467,10 +1465,6 @@ func (b *bancoDU) r2CambiaSorgente(w http.ResponseWriter, corpo m, prod string) 
 		return nil
 	}
 	cs := corpo["cambia_sorgente"].(m)
-	if bdStr(cs["motivo"]) == "" {
-		bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "Il cambio della fonte vuole il motivo.", m{"campo": "cambia_sorgente.motivo"})
-		return nil
-	}
 	sorg, _ := cs["sorgente"].(m)
 	a := bdStr(sorg["allegato_id"])
 	f := b.fileDi(a)
@@ -1500,10 +1494,6 @@ func (b *bancoDU) r2Riallinea(w http.ResponseWriter, corpo m, prod string) m {
 	oggi := b.registro(reg["gruppo"].(m)["allegato_id"].(string), reg["gruppo"].(m)["sha256"].(string), b.versioneProposta)
 	if bdStr(rp["impronta_contenuto"]) != oggi["impronta_contenuto"] {
 		bdKo(w, 409, "ANTEPRIMA_SUPERATA", "La proposta è cambiata mentre guardavi.", m{"anteprima": "proposta_step"})
-		return nil
-	}
-	if bdStr(rp["motivo"]) == "" {
-		bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "L'aggiornamento vuole il motivo.", m{"campo": "riallinea_proposta.motivo"})
 		return nil
 	}
 	imp := bdImpronta(oggi)
@@ -1816,6 +1806,10 @@ func (b *bancoDU) r5(w http.ResponseWriter, r *http.Request) {
 	b.conti["R5"]++
 	b.propostaAllaConferma[prod] = b.versioneProposta
 	b.intenti[chiave] = intentoBanco{Gesto: "conferma_bom_v3", Impronta: impronta, Risposta: risposta, Creato: time.Now().UTC()}
+	if b.snapConferme == nil {
+		b.snapConferme = map[string]m{}
+	}
+	b.snapConferme[cid] = snap
 	b.conferme[prod] = append(b.conferme[prod], m{"conferma_id": cid, "numero": numero, "formato": 3, "senza_riepilogo_v2": false, "ultima": true, "valida": true,
 		"confermato_da": duUUID(77).String(), "confermato_da_nome": "AD", "confermato_il": time.Now().UTC(), "firma_struttura": strings.Repeat("3", 64), "criterio_verifica": "nessuno", "mono_pezzo": monoPezzo,
 		"origine": m{"rotta": "motore-a/bom/conferma"}, "bozza_id": bz.ID, "fonte": snap["sorgente"], "importazione_id": "00000000-0000-4000-8000-0000000b1001"})
@@ -1866,7 +1860,65 @@ func (b *bancoDU) r7(w http.ResponseWriter, r *http.Request) {
 	if conf == nil {
 		conf = []m{}
 	}
-	bdJSON(w, http.StatusOK, m{"prodotto_id": prod, "conferme": conf, "attestazioni": []any{}, "fonte": []any{}})
+	out := m{"prodotto_id": prod, "conferme": conf, "attestazioni": []any{}, "fonte": []any{}}
+	// &conferma=: il dettaglio (EM §9.7) nella forma che la Revisione legge per la BOM confermata (messaggio 47 [U]): lo
+	// snapshot registrato da R5 e le righe certificate (componenti e archi) ricavate da lui; niente registri (il banco non
+	// li cita). Una conferma senza snapshot nel banco (la formato 2 della sonda) ha le righe vuote
+	if c := r.URL.Query().Get("conferma"); c != "" {
+		var d m
+		for _, x := range conf {
+			if bdStr(x["conferma_id"]) == c {
+				d = m{}
+				for k, v := range x {
+					d[k] = v
+				}
+			}
+		}
+		if d == nil {
+			bdKo(w, 422, "FUORI_RFQ", "la conferma non è di questo prodotto", m{"campo": "conferma"})
+			return
+		}
+		snap := b.snapConferme[c]
+		d["snapshot"], d["non_inclusi"] = snap, []any{}
+		d["componenti"], d["archi"] = bdCertificati(snap, prod)
+		out["dettaglio"] = d
+	}
+	bdJSON(w, http.StatusOK, out)
+}
+
+// bdCertificati: le righe certificate di una conferma del banco dallo snapshot (formato 3: l'identità nel nodo; formato 2:
+// codice e rev nel nodo), i nodi esclusi fuori; un nodo senza componente ne prende uno inventato, stabile per la posizione.
+func bdCertificati(snap m, prod string) ([]any, []any) {
+	comps, archi := []any{}, []any{}
+	perChiave := map[string]string{}
+	nodi, _ := snap["nodi"].([]any)
+	for i, x := range nodi {
+		n, _ := x.(m)
+		if n == nil || bdStr(n["op"]) == "esclude" {
+			continue
+		}
+		cod, rev := bdStr(n["codice"]), bdStr(n["rev"])
+		if id, _ := n["identita"].(m); id != nil {
+			cod, rev = bdStr(id["codice"]), bdStr(id["rev"])
+		}
+		cid := bdStr(n["componente_id"])
+		if cid == "" {
+			cid = fmt.Sprintf("00000000-0000-4000-8000-%012x", 0xc0000+i)
+		}
+		k := bdStr(n["chiave_bozza"])
+		perChiave[k] = cid
+		comps = append(comps, m{"componente_id": cid, "radice": cid == prod, "chiave_bozza": k, "codice": cod, "rev": rev,
+			"descrizione": bdStr(n["descrizione"]), "tipo": bdStr(n["tipo"])})
+	}
+	ar, _ := snap["archi"].([]any)
+	for _, x := range ar {
+		a, _ := x.(m)
+		if a == nil || perChiave[bdStr(a["padre"])] == "" || perChiave[bdStr(a["figlio"])] == "" {
+			continue
+		}
+		archi = append(archi, m{"padre_id": perChiave[bdStr(a["padre"])], "figlio_id": perChiave[bdStr(a["figlio"])], "qta": bdNum(a["qta"]), "origine": bdStr(a["origine"])})
+	}
+	return comps, archi
 }
 
 func (b *bancoDU) r11(w http.ResponseWriter, _ *http.Request) {
@@ -1911,10 +1963,7 @@ func (b *bancoDU) r15(w http.ResponseWriter, r *http.Request) {
 		bdKo(w, 422, "FUORI_RFQ", "il prodotto non è di questa RFQ", m{"campo": "prodotto_id"})
 		return
 	}
-	if strings.TrimSpace(bdStr(corpo["motivo"])) == "" {
-		bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "Il rifiuto vuole il motivo.", m{"campo": "motivo"})
-		return
-	}
+	// messaggio 46 [U]: il rifiuto non chiede più il motivo (lo scrive il server, distintabozza.TracciaRifiutoR15)
 	cc := b.confermaCorrente(prod)
 	pa, _ := cc["proposta_aggiornata"].(m)
 	if cc == nil || pa == nil || bdStr(corpo["conferma_id"]) != bdStr(cc["conferma_id"]) {
@@ -2314,10 +2363,7 @@ func (b *bancoDU) s2(w http.ResponseWriter, r *http.Request) {
 		bdKo(w, 409, "FILE_VERSIONE", "Il file è già scartato.", m{"stato": f.Stato, "versione": f.Versione})
 		return
 	}
-	if bdStr(corpo["motivo"]) == "" {
-		bdKo(w, 422, "MOTIVO_OBBLIGATORIO", "«Scarta» vuole il motivo.", m{"campo": "motivo"})
-		return
-	}
+	// messaggio 46 [U]: «Scarta» non chiede più il motivo (lo scrive il server, filerfq.TracciaScarta)
 	if !b.controllaDipendenze(w, f, corpo, "scarta_file") {
 		return
 	}
@@ -2340,7 +2386,11 @@ func (b *bancoDU) s2(w http.ResponseWriter, r *http.Request) {
 		}
 		x.Stato, x.Versione = "scartato", x.Versione+1
 		x.Rimozione = m{"stato": "in_attesa", "motivo": "da_eseguire", "testo": "Scarto registrato; rimozione dallo staging ancora da completare.", "tentativi": 0}
-		x.Scarto = m{"autore": "AD", "quando": time.Now().UTC(), "motivo": corpo["motivo"]}
+		motivo := strings.TrimSpace(bdStr(corpo["motivo"]))
+		if motivo == "" {
+			motivo = filerfq.TracciaScarta("AD", x.Nome)
+		}
+		x.Scarto = m{"autore": "AD", "quando": time.Now().UTC(), "motivo": motivo}
 		x.letture = 0
 		rimozioni = append(rimozioni, m{"allegato_id": x.ID, "stato": "in_attesa", "motivo": "da_eseguire", "testo": x.Rimozione["testo"]})
 	}
@@ -2529,6 +2579,9 @@ func (b *bancoDU) s6(w http.ResponseWriter, r *http.Request) {
 		"versioni": m{"importazione": "importazione-1"}, "avvisi": []any{}, "testo": "", "struttura_step": ss}
 	if !incerta || q.Get("gruppo") == gruppo {
 		o["proposta"] = m{"contenuto": reg, "stato_di_partenza": b.statoDiPartenza(reg, bdImpronta(reg))}
+	} else {
+		// come il server (propostabom.Anteprima): senza una proposta in vista il confronto del codice non si determina
+		o["confronto"] = "non_determinabile"
 	}
 	if bz := q.Get("bozza"); bz != "" {
 		bb := b.bozze[bdP1]

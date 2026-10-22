@@ -15,9 +15,9 @@ import (
 func TestDistintaUnicaDirettiva39(t *testing.T) {
 	src := duFile(t, duPagina)
 	for _, v := range []string{
-		// S8 unico gesto, partenza dal solo prodotto con la presa d'atto, la revoca con il motivo
+		// S8 unico gesto, partenza dal solo prodotto con la presa d'atto, la revoca (senza motivo dal messaggio 46 [U])
 		`P.confermaSorgente(c.allegato_id, corpo)`, `partenza: "solo_prodotto", stato_analisi: ss.stato_analisi, presa_d_atto: true`,
-		`"Conferma come sorgente e parti dal solo prodotto…"`, `P.revocaSorgente(f.allegato_id, corpo)`, `const corpo = { prodotto_id: id, motivo, sorgente_errata: true };`, `"Revoca come sorgente…"`,
+		`"Conferma come sorgente e parti dal solo prodotto…"`, `P.revocaSorgente(f.allegato_id, corpo)`, `const corpo = { prodotto_id: id, sorgente_errata: true };`, `"Revoca come sorgente…"`,
 		`corpo.bozza = { bozza_id: S.bozza.bozza_id, versione_attesa: S.bozza.versione }`, `codice_atteso: cod || undefined`,
 		// la partenza vuota e il blocco della sorgente
 		`crea: { partenza: "vuota" }`, `"Parti dal solo prodotto…"`, `"STEP_SORGENTE_NON_CONFERMATA"`,
@@ -169,12 +169,13 @@ func TestBancoDistintaUnicaDirettiva39(t *testing.T) {
 	if !legato || len(p1["preassociazioni_proposte"].([]any)) == 0 || p1["bozza"].(m)["sorgente"] != bdA1 {
 		t.Errorf("S9 dopo S8: legato %v, suggerimenti %v, bozza %v", legato, p1["preassociazioni_proposte"], p1["bozza"])
 	}
-	// la revoca: motivo obbligatorio, poi la sorgente non vale più; una seconda revoca non ha niente da revocare
-	if e := b.bdChiedi(t, "POST", base+"/sorgente/step/"+bdA1+"/revoca-sorgente", m{"chiave_idempotenza": k(5), "prodotto_id": bdP1, "motivo": " "}, 422); e["codice"] != "MOTIVO_OBBLIGATORIO" {
-		t.Errorf("revoca senza motivo: %v", e)
-	}
-	rv := b.bdChiedi(t, "POST", base+"/sorgente/step/"+bdA1+"/revoca-sorgente", m{"chiave_idempotenza": k(6), "prodotto_id": bdP1, "motivo": "STEP sbagliato"}, 200)
+	// la revoca senza motivo (messaggio 46 [U]: il motivo lo scrive il server), poi la sorgente non vale più; una seconda
+	// revoca non ha niente da revocare
+	rv := b.bdChiedi(t, "POST", base+"/sorgente/step/"+bdA1+"/revoca-sorgente", m{"chiave_idempotenza": k(6), "prodotto_id": bdP1}, 200)
 	bdHaCampi(t, "revoca", rv, "esito", "riproposto", "chiave_idempotenza", "prodotto_id", "allegato_id", "documento_id", "testo")
+	if !strings.HasPrefix(bdStr(rv["motivo"]), "gesto di PS da «Revoca come sorgente»: ") {
+		t.Errorf("il motivo della revoca senza il motivo dell'utente: %v", rv["motivo"])
+	}
 	if e := b.bdChiedi(t, "POST", base+"/sorgente/step/"+bdA1+"/revoca-sorgente", m{"chiave_idempotenza": k(7), "prodotto_id": bdP1, "motivo": "di nuovo"}, 422); e["motivo"] != "nessuna_sorgente_da_revocare" {
 		t.Errorf("seconda revoca: %v", e)
 	}

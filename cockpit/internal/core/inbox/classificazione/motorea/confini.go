@@ -20,20 +20,26 @@ import (
 //   - alnum_ascii_o_trattino: in più niente «-» U+002D. Dal 17/10 (LS-03 A, addendum D-05), ai due lati. Serve
 //     dove il trattino continua una forma più lunga della stessa famiglia: senza, la forma corta «<base>--»
 //     leggerebbe l'inizio del nome della forma lunga «<base>---…» (ACME: «12345678--» dentro
-//     «12345678---7-ARC_12345678--»).
+//     «12345678---7-ARC_12345678--»);
+//   - parola_ascii_spazio_o_trattino: l'unione delle tre precedenti, cioè in più niente «_», niente spazio U+0020
+//     e niente «-» U+002D. Dal 21/10 (D-G48-01 B, addendum D-05), ai due lati. Serve dove la forma legge un nome
+//     che è solo il codice: senza, la forma «<codice>.pdf» leggerebbe il codice anche dopo un prefisso separato
+//     da «_», da «-» o da uno spazio («Offerta_<codice>.pdf», «DDT-<codice>.pdf», «2026-<codice>.pdf»). Il «.»
+//     non è vietato: a destra comincia l'estensione, e la classe resta usabile ai due lati.
 //
 // Il confine sinistro lo controlla il motore in Go sul testo intero, perché la ricerca su testo[i:] non vede
 // la runa prima (T4). Il destro lo scrive il compilatore in fondo alla regex, fuori dalla lettura; lo stesso
 // controllo in Go serve ad allungare una lettura (scansione.go). Le lettere e le cifre fuori dall'ASCII, lo
 // spazio non separabile e gli altri spazi sono confini per tutte le classi: le classi sono solo ASCII (T3,
 // T10). Per lo stesso motivo i trattini fuori dall'ASCII («—», «–», «‐», «−») non sono vietati dalla classe
-// _o_trattino. Una classe nuova è una modifica del contratto, con un commit dichiarato (4.10 n.2).
+// _o_trattino e parola_ascii_spazio_o_trattino. Una classe nuova è una modifica del contratto, con un commit dichiarato (4.10 n.2).
 
-// classeNota: la classe è una delle cinque del contratto.
+// classeNota: la classe è una delle sei del contratto.
 func classeNota(c grammatica.ClasseConfine) bool {
 	switch c {
 	case grammatica.ConfineAlnumASCII, grammatica.ConfineParolaASCII, grammatica.ConfineAlnumASCIIOSpazio,
-		grammatica.ConfineParolaASCIIOPuntoCifra, grammatica.ConfineAlnumASCIIOTrattino:
+		grammatica.ConfineParolaASCIIOPuntoCifra, grammatica.ConfineAlnumASCIIOTrattino,
+		grammatica.ConfineParolaASCIISpazioOTrattino:
 		return true
 	}
 	return false
@@ -53,6 +59,8 @@ func frammentoDestro(c grammatica.ClasseConfine) (string, bool) {
 		return `(?:[^.0-9A-Z_a-z]|\.[^0-9]|\.\z|\z)`, true
 	case grammatica.ConfineAlnumASCIIOTrattino:
 		return `(?:[^\-0-9A-Za-z]|\z)`, true
+	case grammatica.ConfineParolaASCIISpazioOTrattino:
+		return `(?:[^ \-0-9A-Z_a-z]|\z)`, true
 	}
 	return "", false
 }
@@ -68,6 +76,8 @@ func vietataAccanto(c grammatica.ClasseConfine, r rune) bool {
 		return alnum || r == ' '
 	case grammatica.ConfineAlnumASCIIOTrattino:
 		return alnum || r == '-'
+	case grammatica.ConfineParolaASCIISpazioOTrattino:
+		return alnum || r == '_' || r == ' ' || r == '-'
 	}
 	return alnum
 }

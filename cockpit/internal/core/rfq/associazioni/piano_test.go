@@ -144,6 +144,132 @@ func TestPianoEsitiDellePB(t *testing.T) {
 	}
 }
 
+// fattiDaPartner: i fatti di fattiPiano con un file dal nome «da partner» (BOM_9120001_1010_20260101_E.pdf): la lettura
+// generica del nome (documento_proposta, senza grammatica) non e' il codice del pezzo.
+func fattiDaPartner() (FattiPiano, uuid.UUID, uuid.UUID, uuid.UUID) {
+	f, a, c1, c9, _ := fattiPiano()
+	f.Occorrenze[a] = OccorrenzaPiano{DellaRfq: true, Attivo: true, Preassociabile: true, Sha256: "aa", NomeFile: "BOM_9120001_1010_20260101_E.pdf",
+		ConProposta: true, TipoProposto: "disegno_2d", CodiceLetto: "BOM_9120001_1010_20260101", RevLetta: "E"}
+	return f, a, c1, c9
+}
+
+// D-48-01 A [T] (preparata in attesa della risposta): la PB del motore rimasta intatta non passa per il confronto del
+// codice letto (codice_diverso, codice_non_letto); in attesa di codice e tutti i controlli di prima restano; la PB
+// manuale o corretta resta confrontata (D-48-02 aperta).
+func TestPianoPBDelMotoreIntatta(t *testing.T) {
+	f, a, c1, c9 := fattiDaPartner()
+	motore := VocePB{Allegato: a, ChiaveBozza: "k-9120001", Provenienza: ProvenienzaMotore, Codice: "9120001", Rev: "A", DalMotore: true}
+	if e := unaPB(f, motore); e.Esito != EsitoApplicabile || !e.Applica() || e.CodiceLetto != "BOM_9120001_1010_20260101" {
+		t.Fatalf("PB del motore intatta con il codice letto diverso: %+v", e)
+	}
+	for nome, cambia := range map[string]func(*OccorrenzaPiano){
+		"tipo da determinare":  func(o *OccorrenzaPiano) { o.TipoProposto = TipoDaDeterminare },
+		"senza proposta":       func(o *OccorrenzaPiano) { o.ConProposta, o.CodiceLetto, o.RevLetta = false, "", "" },
+		"codice letto vuoto":   func(o *OccorrenzaPiano) { o.CodiceLetto = "" },
+		"revisione differente": func(o *OccorrenzaPiano) { o.CodiceLetto, o.RevLetta = "9120001", "Z" },
+	} {
+		g, _, _, _ := fattiDaPartner()
+		o := g.Occorrenze[a]
+		cambia(&o)
+		g.Occorrenze[a] = o
+		if e := unaPB(g, motore); e.Esito != EsitoApplicabile {
+			t.Fatalf("PB del motore intatta, %s: %+v", nome, e)
+		}
+	}
+	senzaCodice := motore
+	senzaCodice.Codice = ""
+	if e := unaPB(f, senzaCodice); e.Esito != EsitoInAttesaCodice || !e.Blocca() {
+		t.Fatalf("PB del motore su un nodo senza codice: %+v", e)
+	}
+	nr := motore
+	nr.NonRichiesta = true
+	if e := unaPB(f, nr); e.Esito != EsitoNonRichiesta {
+		t.Fatalf("PB del motore non richiesta: %+v", e)
+	}
+
+	// i controlli che vengono prima restano
+	for nome, cambia := range map[string]func(*OccorrenzaPiano){
+		MotivoFuoriRFQ:                func(o *OccorrenzaPiano) { o.DellaRfq = false },
+		MotivoNaturaNonPreassociabile: func(o *OccorrenzaPiano) { o.Preassociabile = false },
+		MotivoLegatoComeSorgente:      func(o *OccorrenzaPiano) { o.LegatoComeSorgente = true },
+		MotivoStepCandidatoDelFinito:  func(o *OccorrenzaPiano) { o.StepCandidatoDelFinito = true },
+		MotivoFileNonAttivo:           func(o *OccorrenzaPiano) { o.Attivo = false },
+	} {
+		g, _, _, _ := fattiDaPartner()
+		o := g.Occorrenze[a]
+		cambia(&o)
+		g.Occorrenze[a] = o
+		if e := unaPB(g, motore); e.Esito != EsitoInConflitto || e.Motivo != nome {
+			t.Fatalf("PB del motore, %s: %+v", nome, e)
+		}
+	}
+	g, _, _, _ := fattiDaPartner()
+	delete(g.Occorrenze, a)
+	if e := unaPB(g, motore); e.Motivo != MotivoFuoriRFQ {
+		t.Fatalf("PB del motore su un file che la RFQ non ha: %+v", e)
+	}
+	conC1 := motore
+	conC1.Componente = &c1
+	altro := idPiano(12)
+	conAltro := motore
+	conAltro.Componente = &altro
+	g, _, _, _ = fattiDaPartner()
+	g.DelProdotto[altro] = true
+	g.Attive[a] = Associazione{ID: idPiano(50), Allegato: a, Componente: c1, Stato: StatoAttiva}
+	if e := unaPB(g, conC1); e.Esito != EsitoGiaApplicata {
+		t.Fatalf("PB del motore gia' applicata: %+v", e)
+	}
+	if e := unaPB(g, conAltro); e.Motivo != MotivoGiaAssociataAltrove || e.Variante != VarianteStessoProdotto {
+		t.Fatalf("PB del motore gia' associata nello stesso prodotto: %+v", e)
+	}
+	conAltro.Svincolata = true
+	if e := unaPB(g, conAltro); e.Esito != EsitoSostituzione {
+		t.Fatalf("PB del motore, sostituzione: %+v", e)
+	}
+	g.Attive[a] = Associazione{ID: idPiano(51), Allegato: a, Componente: c9, Stato: StatoAttiva}
+	if e := unaPB(g, conAltro); e.Motivo != MotivoGiaAssociataAltrove || e.Variante != VarianteAltroProdotto {
+		t.Fatalf("PB del motore gia' associata a un altro prodotto: %+v", e)
+	}
+	g, _, _, _ = fattiDaPartner()
+	g.CopieSenzaAR[a] = c9
+	if e := unaPB(g, conC1); e.Motivo != MotivoGiaAssociataAltrove || e.Variante != VarianteCopiaLegacy {
+		t.Fatalf("PB del motore e copia legacy: %+v", e)
+	}
+	g, _, _, _ = fattiDaPartner()
+	g.Documenti[a] = []DocumentoPiano{{Documento: idPiano(60)}}
+	if e := unaPB(g, conC1); e.Motivo != MotivoDocumentoSenzaComponente {
+		t.Fatalf("PB del motore, documento senza componente: %+v", e)
+	}
+	g.Documenti[a] = []DocumentoPiano{{Documento: idPiano(60), Componente: &c9}}
+	if e := unaPB(g, conC1); e.Motivo != MotivoDocumentoConfermatoAltrui {
+		t.Fatalf("PB del motore, documento di un altro componente: %+v", e)
+	}
+
+	// le PB dell'ingegnere (e una PB motore che chi chiama non dice intatta) restano confrontate
+	for _, prov := range []string{ProvenienzaManuale, ProvenienzaCorretta, ProvenienzaMotore} {
+		v := motore
+		v.Provenienza, v.DalMotore = prov, false
+		if e := unaPB(f, v); e.Esito != EsitoInConflitto || e.Motivo != MotivoCodiceDiverso {
+			t.Fatalf("PB %s (non intatta) con il codice letto diverso: %+v", prov, e)
+		}
+		g, _, _, _ := fattiDaPartner()
+		o := g.Occorrenze[a]
+		o.TipoProposto = TipoDaDeterminare
+		g.Occorrenze[a] = o
+		if e := unaPB(g, v); e.Motivo != MotivoCodiceNonLetto {
+			t.Fatalf("PB %s (non intatta) con il tipo da determinare: %+v", prov, e)
+		}
+	}
+	// il flag su una PB manuale o corretta non salta il confronto (D-48-02 aperta)
+	for _, prov := range []string{ProvenienzaManuale, ProvenienzaCorretta} {
+		v := motore
+		v.Provenienza = prov
+		if e := unaPB(f, v); e.Esito != EsitoInConflitto || e.Motivo != MotivoCodiceDiverso {
+			t.Fatalf("PB %s con DalMotore alzato: %+v", prov, e)
+		}
+	}
+}
+
 func TestPianoSvincoliEUscite(t *testing.T) {
 	f, a, c1, c9, _ := fattiPiano()
 	b := idPiano(2)

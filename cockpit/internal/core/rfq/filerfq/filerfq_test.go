@@ -33,6 +33,17 @@ func TestLeggiCorpoForma(t *testing.T) {
 	if _, rf := corpo(t, ok, GestoScarta); rf != nil {
 		t.Fatalf("corpo valido rifiutato: %v", rf)
 	}
+	// messaggio 46 [U]: «Scarta» senza motivo (o con soli spazi) passa; il motivo dell'evento lo scrive il server
+	// (TracciaScarta)
+	for _, s := range []string{`{"versione_attesa":0,"chiave_idempotenza":"` + chiaveV4 + `","impronta_dipendenze":"` + imp + `"}`,
+		`{"versione_attesa":0,"chiave_idempotenza":"` + chiaveV4 + `","motivo":"   ","impronta_dipendenze":"` + imp + `"}`} {
+		if c, rf := corpo(t, s, GestoScarta); rf != nil || c.Motivo != nil {
+			t.Fatalf("scarta senza motivo: %v %+v", rf, c.Motivo)
+		}
+	}
+	if tr := TracciaScarta("PS", " schema.pdf "); tr != "gesto di PS da «Scarta»: il file «schema.pdf» esce dai file attivi della RFQ" {
+		t.Fatalf("la traccia di «Scarta»: %q", tr)
+	}
 	casi := []struct {
 		nome, corpo, gesto, codice, campo string
 		stato                             int
@@ -42,8 +53,6 @@ func TestLeggiCorpoForma(t *testing.T) {
 		{"radice", `{"versione_attesa":0,"chiave_idempotenza":"` + chiaveV4 + `","impronta_dipendenze":"` + imp + `","radice":"x"}`, GestoAltriFile, "CORPO_NON_VALIDO", "radice", 422},
 		{"senza versione attesa", `{"chiave_idempotenza":"` + chiaveV4 + `","motivo":"x","impronta_dipendenze":"` + imp + `"}`, GestoScarta, "CORPO_NON_VALIDO", "versione_attesa", 422},
 		{"chiave non v4", `{"versione_attesa":0,"chiave_idempotenza":"00000000-0000-1000-8000-000000000001","motivo":"x","impronta_dipendenze":"` + imp + `"}`, GestoScarta, "CORPO_NON_VALIDO", "chiave_idempotenza", 422},
-		{"scarta senza motivo", `{"versione_attesa":0,"chiave_idempotenza":"` + chiaveV4 + `","impronta_dipendenze":"` + imp + `"}`, GestoScarta, "MOTIVO_OBBLIGATORIO", "motivo", 422},
-		{"scarta con il motivo di soli spazi", `{"versione_attesa":0,"chiave_idempotenza":"` + chiaveV4 + `","motivo":"   ","impronta_dipendenze":"` + imp + `"}`, GestoScarta, "MOTIVO_OBBLIGATORIO", "motivo", 422},
 		{"motivo oltre 1000 caratteri", `{"versione_attesa":0,"chiave_idempotenza":"` + chiaveV4 + `","motivo":"` + strings.Repeat("è", 1001) + `","impronta_dipendenze":"` + imp + `"}`, GestoScarta, "CORPO_NON_VALIDO", "motivo", 422},
 		{"senza impronta delle dipendenze", `{"versione_attesa":0,"chiave_idempotenza":"` + chiaveV4 + `","motivo":"x"}`, GestoScarta, "CORPO_NON_VALIDO", "impronta_dipendenze", 422},
 		{"riattiva con l'impronta delle dipendenze", `{"versione_attesa":1,"chiave_idempotenza":"` + chiaveV4 + `","impronta_dipendenze":"` + imp + `"}`, GestoRiattiva, "CORPO_NON_VALIDO", "impronta_dipendenze", 422},

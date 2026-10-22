@@ -152,7 +152,9 @@ func (a *analisiR4) avvisiDelRegistro() {
 					}
 					deciso := false
 					for _, d := range idd[k] {
-						if d.Modo == ModoAlternativa && strings.TrimSpace(d.Motivo) != "" {
+						// messaggio 46 [U]: il rifiuto dell'equivalente e' l'alternativa sulla lettura primaria, senza il
+						// motivo dell'utente (prima la pagina lo chiedeva sempre, quindi ogni alternativa lo aveva)
+						if d.Modo == ModoAlternativa {
 							deciso = true
 						}
 					}
@@ -161,7 +163,7 @@ func (a *analisiR4) avvisiDelRegistro() {
 					}
 					visti["eq|"+pn] = true
 					a.avvisa(Rilievo{Codice: AvvisoEquivalenteNonAdottato, ChiaveBozza: k, ComponenteID: n.ComponenteID, Valore: pn,
-						Testo: a.nome(k) + " va nella BOM con il suo codice, ma i cartigli dicono che il codice della parte e' " + pn +
+						Testo: a.nome(k) + " va nella BOM con il suo codice, ma i cartigli dicono che il codice della parte è " + pn +
 							": adottalo come codice, oppure rifiuta l'equivalente con il motivo.",
 						Rimedi: []string{"«Adotta come codice» il P/N (decisione identita, alternativa sulla lettura del P/N, con motivo)",
 							"rifiuta l'equivalente (decisione identita, alternativa sulla lettura primaria, con motivo)"}})
@@ -172,9 +174,9 @@ func (a *analisiR4) avvisiDelRegistro() {
 					}
 					visti["cc|"+r.AllegatoID+"|"+cod] = true
 					rl := Rilievo{Codice: AvvisoCorrezioneCartiglioNonAdottat, ChiaveBozza: k, ComponenteID: n.ComponenteID, Valore: cod,
-						Testo: "Il cartiglio di un disegno associato a " + a.nome(k) + " dice " + cod + ": la correzione non e' adottata.",
+						Testo: "Il cartiglio di un disegno associato a " + a.nome(k) + " dice " + cod + ": la correzione non è adottata.",
 						Rimedi: []string{"correggi il codice del nodo con il cartiglio (decisione identita, correzione, con motivo)",
-							"conferma l'identita' di adesso con una decisione"}}
+							"conferma l'identità di adesso con una decisione"}}
 					if id, err := uuid.Parse(r.AllegatoID); err == nil {
 						rl.AllegatoID = uid(id)
 					}
@@ -194,7 +196,7 @@ func (a *analisiR4) avvisiDelRegistro() {
 			continue
 		}
 		a.avvisa(Rilievo{Codice: AvvisoPreassociazioneEmittenteDiv, ChiaveBozza: p.ChiaveBozza, AllegatoID: uid(p.AllegatoID), Valore: em,
-			Testo: "Il file preassociato a " + a.nome(p.ChiaveBozza) + " e' letto con un altro emittente (" + em + ") rispetto a quello deciso per il nodo."})
+			Testo: "Il file preassociato a " + a.nome(p.ChiaveBozza) + " è letto con un altro emittente (" + em + ") rispetto a quello deciso per il nodo."})
 	}
 	// il segnale del registro della versione non e' quello visto dalla non_includere (EM §7.3)
 	for _, d := range a.dec[DecisioneNonIncludere] {
@@ -202,7 +204,7 @@ func (a *analisiR4) avvisiDelRegistro() {
 			continue
 		}
 		a.avvisa(Rilievo{Codice: AvvisoNonInclusoSegnaleCambiato, AllegatoID: uid(d.Casella.AllegatoID), Chiavi: []string{d.Casella.Rif},
-			Testo: "Il segnale del nodo non incluso e' cambiato rispetto a quello visto quando l'hai deciso: la decisione resta tua e resta valida."})
+			Testo: "Il segnale del nodo non incluso è cambiato rispetto a quello visto quando l'hai deciso: la decisione resta tua e resta valida."})
 	}
 }
 

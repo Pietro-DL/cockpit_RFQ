@@ -72,7 +72,8 @@ class BancoD1(dus.BancoVero):
         expect(p.locator("#du-corpo")).not_to_have_attribute("aria-busy", "true", timeout=T_LUNGO)
         out = {"salvataggio": p.locator("#du-salvataggio").get_attribute("data-du-salvataggio"),
                "versione": re.sub(r"\s+", " ", p.locator("#du-salvataggio").inner_text()).strip()}
-        if p.locator("#du-nessuna-bozza").count() == 0:
+        # senza bozza la Revisione mostra la BOM confermata (#du-working, messaggio 47 [U]): i nodi qui sono quelli della bozza
+        if p.locator("#du-nessuna-bozza, #du-working").count() == 0:
             self.vista("org")
             expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
             out["nodi"] = p.locator("#du-vp .du-nc[data-k]").evaluate_all(
@@ -177,9 +178,13 @@ def fase_f2(b):
 
 
 def nodo(b, testo):
-    """La chiave della scheda dell'organigramma il cui testo comincia con il testo dato (un codice o «(senza codice)»)."""
+    """La chiave della scheda dell'organigramma che comincia con il testo dato (un codice o «(senza codice) — Assieme»).
+    Non legge l'innerText della scheda, che dal messaggio 46 comincia con il tipo e lo stato: compone codice, descrizione
+    («—» se manca) e tipo dai campi della scheda (.du-nc-c, .du-nc-desc, .du-tipo)."""
     ks = b.page.locator("#du-vp .du-nc[data-k]").evaluate_all(
-        "(ls, t) => ls.filter(l => l.innerText.replace(/\\s+/g, ' ').trim().startsWith(t)).map(l => l.getAttribute('data-k'))", testo)
+        "(ls, t) => ls.filter(l => { const q = (s) => { const e = l.querySelector(s); return e ? e.innerText.replace(/\\s+/g, ' ').trim() : ''; };"
+        " return [q('.du-nc-c') || q('.du-nc-cod'), q('.du-nc-desc') || '—', q('.du-tipo')].join(' ').startsWith(t); })"
+        ".map(l => l.getAttribute('data-k'))", testo)
     verifica(len(ks) == 1, "la scheda di %s: %s" % (testo, ks))
     return ks[0]
 
@@ -211,7 +216,8 @@ def fase_f4(b):
     i = b.segna()
     p.click("#du-non-includere")
     expect(p.locator("#f-elenco input:checked")).to_have_count(2)
-    p.fill("#f-motivo", "cordoni di saldatura del CAD")
+    # messaggio 46 [U]: nessun motivo da scrivere o da scegliere
+    verifica(p.locator("#du-finestra #f-motivo, #du-finestra #f-motivo-codice").count() == 0, "«Non includere» chiede ancora il motivo")
     b.ok_finestra()
     noninc = p.locator('#du-vp .du-nc[data-du-stato="non incluso (bozza)"]')
     expect(noninc).to_have_count(2, timeout=T_LUNGO)
@@ -219,7 +225,10 @@ def fase_f4(b):
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
     dec = [a["dopo"] for a in az if a["azione"] == "decisione_aggiunta"]
     ids = {(a.get("dopo") or {}).get("azione_id") for a in az}
-    verifica(len(dec) == 2 and all(d["tipo"] == "non_includere" and d["motivo"] for d in dec) and len(ids) == 1 and list(ids)[0],
+    # la decisione porta la traccia del gesto e motivo_codice dal segnale visto (elemento_cad per il possibile elemento CAD) [T]
+    verifica(len(dec) == 2 and all(d["tipo"] == "non_includere" and d["motivo"].startswith("gesto ") and "da «Non includere nella BOM»" in d["motivo"]
+                                   and d["motivo_codice"] == ("elemento_cad" if (d.get("segnale_visto") or {}).get("codice") == "ancoraggio.possibile_elemento_cad" else "altro")
+                                   for d in dec) and len(ids) == 1 and list(ids)[0],
              "«Non includere»: %s" % [(a["azione"], (a.get("dopo") or {}).get("azione_id")) for a in az])
     # «Annulla» e «Ripeti» del gesto dopo la rilettura della pagina (la pila dalla bozza salvata)
     p.reload()
@@ -240,15 +249,15 @@ def fase_f4(b):
     salvata(b)
     az = b.corpi(i, "POST", r"/motore-a/bozza$")[0]["azioni"]
     verifica(az and all(a["azione"] == "rifai" for a in az), "«Ripeti»: %s" % [a["azione"] for a in az])
-    # «Correggi» del nodo non foglia senza codice (WELDED SUPPORT), con il motivo
+    # «Correggi» del nodo non foglia senza codice (WELDED SUPPORT), senza motivo (messaggio 46 [U])
     k_ws = nodo(b, "(senza codice) — Assieme")
     b.scheda(k_ws)
     b.linguetta("dettaglio")
     i = b.segna()
     p.click("#du-correggi")
     p.fill("#f-codice", "9120050")
-    expect(p.locator("#du-finestra #f-ok")).to_be_disabled()
-    p.fill("#f-motivo", "codice dal disegno del cliente")
+    verifica(p.locator("#du-finestra #f-motivo").count() == 0, "«Correggi» chiede ancora il motivo")
+    expect(p.locator("#du-finestra #f-ok")).to_be_enabled(timeout=T_LUNGO)
     b.ok_finestra()
     expect(p.locator("#nc-" + sid(k_ws))).to_contain_text("9120050", timeout=T_LUNGO)
     salvata(b)
@@ -401,9 +410,9 @@ def fase_f5(b):
     b.cartella("tutti")
     i = b.segna()
     b.azione("scarta", col)
-    expect(p.locator("#f-motivo")).to_be_visible(timeout=T_LUNGO)
+    expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
     print("      dialogo di Scarta del collaudo: %s" % testo_di(b.finestra()))
-    p.fill("#f-motivo", "collaudo superato dalla versione nuova")
+    verifica(p.locator("#du-finestra #f-motivo").count() == 0, "«Scarta» chiede ancora il motivo")
     unica = p.locator("#f-unica").count() > 0
     if unica:
         expect(ok).to_be_disabled()
@@ -412,18 +421,19 @@ def fase_f5(b):
     expect(b.avviso()).to_contain_text(SCARTATO, timeout=T_LUNGO)
     print("      Scarta: %s" % testo_di(b.avviso()))
     s2 = b.corpi(i, "POST", r"/scarta$")
-    verifica(len(s2) == 1 and s2[0]["motivo"], "S2: %s" % s2)
+    verifica(len(s2) == 1 and "motivo" not in s2[0], "S2: %s" % s2)
     b.cartella("scartati")
     riga = p.locator("#du-file-" + sid(col))
     expect(riga).to_have_attribute("data-stato", "scartato", timeout=T_LUNGO)
     expect(riga).to_contain_text("Scartato da AD")
+    # messaggio 46 [U]: la riga dice chi e quando, non la traccia del gesto che il server scrive come motivo
+    verifica("gesto di" not in riga.inner_text(), "la riga dello scartato mostra la traccia: %s" % testo_di(riga))
     print("      riga dello scartato: %s" % testo_di(riga))
     # lo scarto del PDF preassociato (la PB del motore): le dipendenze nel dialogo, il server rifiuta se si insiste
     pdf20 = a["9120020A_1.pdf"]
     b.cartella("tutti")
     b.azione("scarta", pdf20)
-    expect(p.locator("#f-motivo")).to_be_visible(timeout=T_LUNGO)
-    p.fill("#f-motivo", "prova dello scarto di un file preassociato")
+    expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
     dip = p.locator("#f-dipendenze li[data-codice]").evaluate_all("(ls) => ls.map(l => l.getAttribute('data-codice') + ': ' + l.innerText)")
     print("      dipendenze dello scarto di 9120020A_1.pdf: %s · conferma %s (%s)" % (dip, "accesa" if ok.is_enabled() else "spenta", ok.get_attribute("title") or ""))
     rifiuto_pdf = "dialogo"
@@ -459,8 +469,7 @@ def fase_f5(b):
     salvata(b)
     i = b.segna()
     b.azione("scarta", v40)
-    expect(p.locator("#f-motivo")).to_be_visible(timeout=T_LUNGO)
-    p.fill("#f-motivo", "voce dello zip non necessaria")
+    expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
     if p.locator("#f-unica").count():
         p.locator("#f-unica").check()
     b.ok_finestra()
@@ -495,19 +504,26 @@ def fase_f3(b):
     p.click("#du-conferma-sorgente")
     expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
     print("      dialogo di S8: %s" % b.finestra().inner_text().replace("\n", " · ")[:400])
-    if p.locator("#du-finestra #f-motivo").count():
-        p.fill("#du-finestra #f-motivo", "lo STEP del cliente")
+    verifica(p.locator("#du-finestra #f-motivo").count() == 0, "la conferma della sorgente chiede ancora il motivo")
     b.ok_finestra()
     esito = p.locator("#du-sg-esito-s8")
     expect(esito).to_be_visible(timeout=T_LUNGO)
     expect(esito).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
     print("      esito di S8: %s" % esito.inner_text().replace("\n", " ")[:300])
     c = b.corpi(i, "POST", r"/conferma-sorgente$")
-    verifica(len(c) == 1, "S8 inviata %d volte" % len(c))
+    verifica(len(c) == 1 and "motivo" not in c[0], "S8 inviata %d volte, o con il motivo: %s" % (len(c), c))
     print("      corpo di S8: %s" % {k: c[0][k] for k in c[0] if k not in ("chiave_idempotenza", "sha256")})
     b.passo("revisione")
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
     b.salvata(1)
+    # messaggio 46 (D05, rilievo della revisione ALBERO): sul server vero almeno una scheda porta la miniatura del suo 2D,
+    # disegnata da pdf.js con i byte di S5
+    fine = time.time() + 60
+    while time.time() < fine and not p.locator("#du-vp .du-nc-mini img").evaluate_all("(ls) => ls.some(i => i.complete && i.naturalWidth > 0)"):
+        p.wait_for_timeout(500)
+    mini = p.locator("#du-vp .du-nc-mini").evaluate_all("(ls) => ls.map(l => [l.closest('.du-nc').getAttribute('data-k'), l.dataset.duStato || '', l.textContent.trim()])")
+    print("      miniature dopo S8: %s" % mini)
+    verifica(any(m[1] == "pronta" for m in mini), "nessuna miniatura disegnata dopo S8: %s" % mini)
     dati(pagina=b.impronta_pagina())
 
 
@@ -558,7 +574,7 @@ def fase_f6b(b):
     print("      sostituzione detta dal dialogo (S6 ?bozza=): %s" % testo_di(sost))
     verifica(fin.locator("#f-effetto").count() == 0, "il dialogo mostra ancora gli elenchi del cambio della fonte")
     verifica(fin.locator("#f-correzione-riga").count() == 0, "il dialogo offre la correzione della sorgente prima di R5")
-    p.fill("#du-finestra #f-motivo", "lo STEP rev 2 del cliente sostituisce il primo")
+    verifica(fin.locator("#f-motivo").count() == 0, "«Usa nuovo STEP» chiede ancora il motivo")
     ok = fin.locator("#f-ok")
     expect(ok).to_be_disabled(timeout=T_LUNGO)
     verifica("presa d'atto della bozza sostituita" in (ok.get_attribute("title") or ""), "«Usa questo STEP» senza la presa d'atto: %s" % ok.get_attribute("title"))
@@ -572,7 +588,7 @@ def fase_f6b(b):
     expect(esito).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
     expect(b.avviso()).to_contain_text("sostituita", timeout=T_LUNGO)
     c = b.corpi(i, "POST", r"/conferma-sorgente$")
-    verifica(len(c) == 1 and c[0].get("bozza") and c[0].get("motivo") and (c[0].get("sostituisci") or {}).get("conferma") is True,
+    verifica(len(c) == 1 and c[0].get("bozza") and "motivo" not in c[0] and (c[0].get("sostituisci") or {}).get("conferma") is True,
              "corpo di S8 della sostituzione: %s" % c)
     b.passo("revisione")
     b.salvata(1)
@@ -591,24 +607,24 @@ def fase_f6c(b):
     i = b.segna()
     p.click("#du-conferma-sorgente")
     expect(b.finestra()).to_be_visible(timeout=T_LUNGO)
-    if p.locator("#du-finestra #f-motivo").count():
-        p.fill("#du-finestra #f-motivo", "lo STEP del secondo prodotto")
+    verifica(p.locator("#du-finestra #f-motivo").count() == 0, "la conferma della sorgente del secondo prodotto chiede ancora il motivo")
     b.ok_finestra()
     expect(p.locator("#du-sg-esito-s8")).to_have_attribute("data-esito", "completata", timeout=T_LUNGO)
     verifica(len(b.corpi(i, "POST", r"/conferma-sorgente$")) == 1, "S8 del secondo prodotto")
     b.passo("revisione")
     expect(p.locator("#du-vp")).to_be_visible(timeout=T_LUNGO)
     b.salvata(1)
-    # «Riparti dalla proposta…»: il motivo, la forma crea con «abbandona»
+    # «Riparti dalla proposta…»: la forma crea con «abbandona», senza motivo (messaggio 46 [U])
     i = b.segna()
     expect(p.locator("#du-riparti")).to_be_enabled(timeout=T_LUNGO)
     p.click("#du-riparti")
     expect(b.finestra()).to_contain_text("Le preassociazioni non passano alla bozza nuova", timeout=T_LUNGO)
-    p.fill("#du-finestra #f-motivo", "ripartenza di prova dalla proposta")
+    verifica(p.locator("#du-finestra #f-motivo").count() == 0, "«Riparti dalla proposta» chiede ancora il motivo")
     b.ok_finestra()
     expect(b.avviso()).to_contain_text("Bozza ripartita dalla proposta dello STEP", timeout=T_LUNGO)
     c = b.corpi(i, "POST", r"/motore-a/bozza$")
-    verifica(len(c) == 1 and c[0]["crea"]["partenza"] == "step" and c[0]["crea"]["abbandona"]["motivo"], "corpo di «Riparti»: %s" % c)
+    verifica(len(c) == 1 and c[0]["crea"]["partenza"] == "step" and c[0]["crea"]["abbandona"].get("bozza_id") and "motivo" not in c[0]["crea"]["abbandona"],
+             "corpo di «Riparti»: %s" % c)
     b.salvata(1)
     # «Abbandona la bozza…»
     i = b.segna()
@@ -675,6 +691,10 @@ def conferma_con_risposta_persa(b, blocchi, risolti):
     p = b.page
     cta = p.locator("#du-wz-conferma")
     nonincl = testo_di(p.locator("#du-wz-noninclusi"))
+    # messaggio 46 [U]: il wizard non mostra il motivo dei non inclusi (né la colonna né la traccia del gesto), ma chi ha deciso
+    intest = [t.strip().lower() for t in p.locator("#du-wz-noninclusi thead th").all_inner_texts()]
+    righe_ni = p.locator("#du-wz-noninclusi tbody tr[data-du-noninc]").count()
+    verifica("motivo" not in intest and "gesto di" not in nonincl and (righe_ni == 0 or "deciso " in nonincl), "i non inclusi del wizard: %s · %s" % (intest, nonincl))
     g = du.perdi_la_risposta()
     p.route("**/motore-a/bom/conferma", g)
     try:
@@ -796,9 +816,10 @@ def fase_f12(b):
     conferma); poi il worker vero (lo avvia lo script, il test l'ha fermato) analizza il documento: N2 o N5 su A."""
     import subprocess
     p = b.page
-    # A: la revisione dalla BOM confermata, una modifica (la quantità di un pezzo), il wizard
+    # A: la revisione dalla BOM confermata, una modifica (la quantità di un pezzo), il wizard. Senza bozza la Revisione
+    # mostra la BOM confermata in sola lettura (messaggio 47 [U])
     b.passo("revisione")
-    expect(p.locator("#du-nessuna-bozza")).to_be_visible(timeout=T_LUNGO)
+    expect(p.locator("#du-working")).to_be_visible(timeout=T_LUNGO)
     i = b.segna()
     p.click("#du-da-conferma")
     b.salvata(1)

@@ -373,11 +373,12 @@ func TestA1aValidaRegoleDelContratto(t *testing.T) {
 // TestA1aConfineAlnumASCIIOTrattino (addendum D-05 del 17/10, LS-03 A): la quinta classe di confine è
 // nell'elenco chiuso, in fondo, e vale ai due lati, nella base e nella forma; un nome vicino resta fuori elenco
 // (contratto.enum_ignoto), senza ripieghi. È anche ciò che vede un binario di prima, che ha solo le quattro
-// classi: per lui la classe nuova è un nome vicino.
+// classi: per lui la classe nuova è un nome vicino. Riscritta per l'addendum D-05 del 21/10 (D-G48-01 B):
+// l'elenco chiuso intero lo fissa ora TestA1aConfineParolaASCIISpazioOTrattino; qui resta la posizione della
+// quinta.
 func TestA1aConfineAlnumASCIIOTrattino(t *testing.T) {
-	atteso := "alnum_ascii,parola_ascii,alnum_ascii_o_spazio,parola_ascii_o_punto_cifra,alnum_ascii_o_trattino"
-	if got := strings.Join(classiConfine, ","); got != atteso {
-		t.Fatalf("classi di confine %s, attese %s: l'elenco è chiuso e una classe nuova è un addendum del contratto", got, atteso)
+	if len(classiConfine) < 5 || classiConfine[4] != string(ConfineAlnumASCIIOTrattino) {
+		t.Fatalf("classi di confine %s: alnum_ascii_o_trattino è la quinta", strings.Join(classiConfine, ","))
 	}
 	if in(string(ConfineAlnumASCIIOTrattino), classiSoloADestra) {
 		t.Fatal("alnum_ascii_o_trattino vale ai due lati, non solo a destra")
@@ -407,6 +408,55 @@ func TestA1aConfineAlnumASCIIOTrattino(t *testing.T) {
 				t.Fatalf("%s con gravità %s, atteso errore", d.Codice, d.Gravita)
 			}
 		})
+	}
+}
+
+// TestA1aConfineParolaASCIISpazioOTrattino (addendum D-05 del 21/10, D-G48-01 B): la sesta classe di confine
+// è nell'elenco chiuso, in fondo, dopo le cinque di prima nello stesso ordine, e vale ai due lati, nella base e
+// nella forma; i nomi vicini restano fuori elenco (contratto.enum_ignoto), senza ripieghi. Un binario di prima,
+// con le cinque classi, vede la classe nuova come un nome vicino: la grammatica che la usa non è valida.
+func TestA1aConfineParolaASCIISpazioOTrattino(t *testing.T) {
+	atteso := "alnum_ascii,parola_ascii,alnum_ascii_o_spazio,parola_ascii_o_punto_cifra,alnum_ascii_o_trattino," +
+		"parola_ascii_spazio_o_trattino"
+	if got := strings.Join(classiConfine, ","); got != atteso {
+		t.Fatalf("classi di confine %s, attese %s: l'elenco è chiuso e una classe nuova è un addendum del contratto", got, atteso)
+	}
+	if in(string(ConfineParolaASCIISpazioOTrattino), classiSoloADestra) || len(classiSoloADestra) != 1 {
+		t.Fatalf("parola_ascii_spazio_o_trattino vale ai due lati; solo a destra: %v", classiSoloADestra)
+	}
+	const nuova = "parola_ascii_spazio_o_trattino"
+	validi := []struct {
+		nome         string
+		sostituzioni []string
+	}{
+		{"a sinistra nella base", []string{`"confine_prima": "parola_ascii"`, `"confine_prima": "` + nuova + `"`}},
+		{"a destra nella base", []string{`"confine_dopo": "parola_ascii"}`, `"confine_dopo": "` + nuova + `"}`}},
+		{"a destra nella forma", []string{`"confine_dopo": "parola_ascii_o_punto_cifra"`, `"confine_dopo": "` + nuova + `"`}},
+		{"a sinistra nella forma", []string{`"confine_dopo": "parola_ascii_o_punto_cifra"`,
+			`"confine_prima": "` + nuova + `", "confine_dopo": "parola_ascii_o_punto_cifra"`}},
+		{"ai due lati nella forma", []string{`"confine_dopo": "parola_ascii_o_punto_cifra"`,
+			`"confine_prima": "` + nuova + `", "confine_dopo": "` + nuova + `"`}},
+	}
+	for _, c := range validi {
+		t.Run(c.nome, func(t *testing.T) {
+			if e := errori(diagnosiDi(t, variante(t, c.sostituzioni...), limitiACME())); len(e) > 0 {
+				t.Fatalf("errori inattesi:%s", elenca(e))
+			}
+		})
+	}
+	for _, nome := range []string{"parola_ascii_spazio_o_trattini", "Parola_ascii_spazio_o_trattino", "parola_ascii_o_spazio_o_trattino",
+		"alnum_ascii_spazio_o_trattino", "parola_ascii_spazio_trattino", "parola_ascii_spazio_o_trattino ", "parola-ascii-spazio-o-trattino"} {
+		for _, lato := range []struct{ prima, dopo, percorso string }{
+			{`"confine_prima": "parola_ascii"`, `"confine_prima": "` + nome + `"`, "famiglie_codice[acme-punti].base.confine_prima"},
+			{`"confine_dopo": "parola_ascii_o_punto_cifra"`, `"confine_dopo": "` + nome + `"`, "famiglie_codice[acme-punti].forme[parziale].confine_dopo"},
+		} {
+			t.Run("fuori elenco "+nome+" in "+lato.percorso, func(t *testing.T) {
+				d := richiedi(t, diagnosiDi(t, variante(t, lato.prima, lato.dopo), limitiACME()), CodiceEnumIgnoto, lato.percorso)
+				if d.Gravita != evidenze.GravitaErrore {
+					t.Fatalf("%s con gravità %s, atteso errore", d.Codice, d.Gravita)
+				}
+			})
+		}
 	}
 }
 

@@ -67,9 +67,9 @@ func bozza2V1(t *testing.T, b *bancoWeb, s *scenaBozzaV1, codice string) (uuid.U
 	return prodotto, bz.BozzaID
 }
 
-// converti_da via HTTP: il motivo obbligatorio (422 MOTIVO_OBBLIGATORIO, niente scritto), la conversione (200 con lo
-// snapshot formato 3 e le tracce), il reinvio con la stessa chiave e lo stesso corpo (200 riproposto, niente scritto), la
-// stessa chiave con un altro corpo (409 CHIAVE_RIUSATA); R1 legge la bozza formato 3 nuova.
+// converti_da via HTTP: la conversione senza motivo (messaggio 46 [U]; 200 con lo snapshot formato 3 e le tracce), il
+// reinvio con la stessa chiave e lo stesso corpo (200 riproposto, niente scritto), la stessa chiave con un altro corpo (il
+// motivo di un client di prima: 409 CHIAVE_RIUSATA); R1 legge la bozza formato 3 nuova.
 func TestBozzaV1C3ConvertiViaHTTP(t *testing.T) {
 	b, s := bancoBozzaV1(t)
 	ad := b.browser("10.0.0.8")
@@ -78,20 +78,15 @@ func TestBozzaV1C3ConvertiViaHTTP(t *testing.T) {
 	prodotto, b2 := bozza2V1(t, b, s, "7120002")
 	chiave := uuid.New()
 	corpo := func(motivo string) string {
+		cd := map[string]any{"bozza_id": b2, "versione_attesa": 1}
+		if motivo != "" {
+			cd["motivo"] = motivo
+		}
 		raw, _ := json.Marshal(map[string]any{"bozza_id": nil, "versione_attesa": 0, "prodotto_id": prodotto, "vocabolario": 2,
-			"chiave_salvataggio": chiave, "converti_da": map[string]any{"bozza_id": b2, "versione_attesa": 1, "motivo": motivo}})
+			"chiave_salvataggio": chiave, "converti_da": cd})
 		return string(raw)
 	}
-	prima := fotoDelDatabase(t, b)
-	resp, testo := ad.chiediJSON(http.MethodPost, base+"/bozza", corpo(" "))
-	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(testo, `"codice":"MOTIVO_OBBLIGATORIO"`) ||
-		!strings.Contains(testo, `"campo":"converti_da.motivo"`) {
-		t.Fatalf("senza motivo: %d %s", resp.StatusCode, testo)
-	}
-	if d := differenze(prima, fotoDelDatabase(t, b)); d != "" {
-		t.Errorf("il rifiuto ha scritto in: %s", d)
-	}
-	resp, testo = ad.chiediJSON(http.MethodPost, base+"/bozza", corpo("si lavora nel formato nuovo"))
+	resp, testo := ad.chiediJSON(http.MethodPost, base+"/bozza", corpo(""))
 	controllaSenzaPercorsi(t, "R2 converti_da", testo)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("conversione: %d %s", resp.StatusCode, testo)
@@ -108,7 +103,7 @@ func TestBozzaV1C3ConvertiViaHTTP(t *testing.T) {
 		t.Fatalf("risposta della conversione: %v %s", err, testo)
 	}
 	dopo := fotoDelDatabase(t, b)
-	resp, testo = ad.chiediJSON(http.MethodPost, base+"/bozza", corpo("si lavora nel formato nuovo"))
+	resp, testo = ad.chiediJSON(http.MethodPost, base+"/bozza", corpo(""))
 	if resp.StatusCode != http.StatusOK || !strings.Contains(testo, `"riproposto":true`) || !strings.Contains(testo, `"bozza_id":"`+esito.BozzaID.String()+`"`) {
 		t.Fatalf("reinvio: %d %s", resp.StatusCode, testo)
 	}
@@ -241,9 +236,9 @@ func TestBozzaV1C3RiallineaViaHTTP(t *testing.T) {
 	}
 }
 
-// cambia_sorgente via HTTP, senza le regole del motore nel banco: il motivo e' obbligatorio (422 MOTIVO_OBBLIGATORIO prima di
-// ogni calcolo); con il corpo giusto il calcolo non parte (503 NON_CONFIGURATO); niente scritto. Il cambio della fonte con i
-// registri e' provato nella L4 del core.
+// cambia_sorgente via HTTP, senza le regole del motore nel banco: senza motivo (messaggio 46 [U]) e con il motivo di un client
+// di prima il calcolo non parte (503 NON_CONFIGURATO); niente scritto. Il cambio della fonte con i registri, e la traccia del
+// gesto al posto del motivo, sono provati nella L4 del core.
 func TestBozzaV1C3CambiaSorgenteViaHTTP(t *testing.T) {
 	b, s := bancoBozzaV1(t)
 	ad := b.browser("10.0.0.8")
@@ -258,7 +253,7 @@ func TestBozzaV1C3CambiaSorgenteViaHTTP(t *testing.T) {
 	}
 	prima := fotoDelDatabase(t, b)
 	resp, testo := ad.chiediJSON(http.MethodPost, base+"/bozza", corpo(""))
-	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(testo, `"codice":"MOTIVO_OBBLIGATORIO"`) {
+	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(testo, `"codice":"NON_CONFIGURATO"`) {
 		t.Fatalf("senza motivo: %d %s", resp.StatusCode, testo)
 	}
 	resp, testo = ad.chiediJSON(http.MethodPost, base+"/bozza", corpo("revisione CAD"))

@@ -97,13 +97,13 @@ func (a *analisiR4) canonici() {
 				parti = append(parti, parteRegistrata(c, IdentitaRegistrataDi(c, a.in.cert, a.in.cliente)))
 			}
 			a.blocca(Rilievo{Codice: BloccoCanonicoAmbiguo, ChiaveBozza: k, ChiaveWorking: ck, Parti: parti,
-				Testo:  "Il codice " + n.Identita.Codice + " ha lo stesso canonico del cliente (" + ck + ") di piu' componenti registrati: la conferma non sa a quale corrisponde.",
+				Testo:  "Il codice " + n.Identita.Codice + " ha lo stesso canonico del cliente (" + ck + ") di più componenti registrati: la conferma non sa a quale corrisponde.",
 				Rimedi: []string{"ricodifica o archivia prima i componenti registrati con lo stesso canonico", "cambia il codice del nodo, con il motivo"}})
 		case len(altri) == 1 && (!conRiuso || scelto != altri[0].ID):
 			c := altri[0]
 			a.blocca(Rilievo{Codice: BloccoCanonicoCollide, ChiaveBozza: k, ComponenteID: uid(c.ID), ChiaveWorking: ck,
 				Parti: []ParteIdentita{parteNodo(k, n), parteRegistrata(c, IdentitaRegistrataDi(c, a.in.cert, a.in.cliente))},
-				Testo: "Il codice " + n.Identita.Codice + " e' lo stesso pezzo di " + c.CodiceLetterale + " per le regole del cliente (canonico " + ck +
+				Testo: "Il codice " + n.Identita.Codice + " è lo stesso pezzo di " + c.CodiceLetterale + " per le regole del cliente (canonico " + ck +
 					"): riusalo, oppure cambia il codice.",
 				Rimedi: []string{"«Riusa per canonico» il componente registrato (riusa_per_canonico)", "cambia il codice del nodo, con il motivo"}})
 		}
