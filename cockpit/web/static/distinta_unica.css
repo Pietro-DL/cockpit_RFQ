@@ -512,3 +512,62 @@
   .du .du-sg-cella-gesto { grid-column: 2; justify-self: start; }
   .du .du-sg-cerca { flex-basis: 100%; max-width: none; }
 }
+
+/* ---------------------------------------------------------------- Guida e aiuti (frontend del 22/10 [U]; du_guida.mjs)
+   Le icone «(?)», il loro fumetto e la guida stanno in strati fissi figli di <body> (.du-aiuti, .du-aiuto-fumetto,
+   .du-guida): sopra la pagina, mai nel suo flusso, così nessuna riga cambia altezza e niente si sposta quando compaiono.
+   L'interruttore e il pulsante «Guida» stanno nella testata (.du .du-guida-testa), sulla stessa riga delle azioni. */
+.du-aiuti, .du-aiuto-fumetto, .du-guida {
+  --du-g-acc: #0F4C5C; --du-g-acc2: #1B7F95; --du-g-glow: rgba(56, 189, 214, .55); --du-g-ink: #141A21; --du-g-ink2: #4F5966;
+  --du-g-surf: #FFFFFF; --du-g-line: #CBD2DA; --du-g-scrim: rgba(12, 20, 28, .52);
+  --du-g-f: "IBM Plex Sans", system-ui, "Segoe UI", sans-serif; --du-g-fc: "IBM Plex Sans Condensed", "Bahnschrift SemiCondensed", "Arial Narrow", sans-serif;
+}
+.du .du-guida-testa { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-left: auto; }
+.du .du-guida-apri::before { content: "✦"; margin-right: 5px; color: var(--du-acc); font-size: .85em; }
+.du .du-aiuti-interr { display: inline-flex; gap: 6px; align-items: center; font-size: var(--du-t-sm); color: var(--du-ink2); white-space: nowrap; cursor: pointer; user-select: none; }
+.du .du-aiuti-interr input { margin: 0; accent-color: var(--du-acc); }
+.du-aiuti { position: fixed; inset: 0; pointer-events: none; z-index: 80; }
+.du-aiuti[hidden] { display: none; }
+.du-aiuto { position: fixed; left: 0; top: 0; width: 16px; height: 16px; box-sizing: border-box; pointer-events: auto; cursor: help;
+  display: grid; place-items: center; border-radius: 999px; border: 1px solid var(--du-g-acc2); background: var(--du-g-surf); color: var(--du-g-acc);
+  box-shadow: 0 1px 3px rgba(15, 76, 92, .25); font: 700 10px/1 var(--du-g-f); opacity: .82; }
+.du-aiuto::before { content: "?"; }
+.du-aiuto[hidden] { display: none; }
+.du-aiuto:hover, .du-aiuto:focus-visible { opacity: 1; background: var(--du-g-acc); color: #FFFFFF; border-color: var(--du-g-acc); box-shadow: 0 0 0 3px var(--du-g-glow); outline: none; }
+.du-aiuto-fumetto { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; display: grid; gap: 4px; box-sizing: border-box;
+  width: max-content; max-width: min(320px, calc(100vw - 16px)); padding: 10px 12px; border-radius: 10px;
+  background: linear-gradient(160deg, #13232C 0%, #0F3440 100%); color: #EAF6F9; border: 1px solid rgba(56, 189, 214, .45);
+  box-shadow: 0 10px 30px rgba(10, 20, 28, .32), 0 0 0 1px rgba(255, 255, 255, .04) inset; font: 400 12.5px/1.45 var(--du-g-f); }
+.du-aiuto-fumetto[hidden] { display: none; }
+.du-aiuto-fumetto .du-aiuto-fumetto-t { font: 700 12.5px/1.3 var(--du-g-fc); letter-spacing: .02em; color: #FFFFFF; }
+.du-guida { position: fixed; inset: 0; z-index: 100; font: 400 14px/1.5 var(--du-g-f); color: var(--du-g-ink); }
+.du-guida-blocco { position: absolute; inset: 0; background: transparent; }
+.du-guida[data-evidenzia="0"] .du-guida-blocco { background: var(--du-g-scrim); }
+.du-guida-anello { position: fixed; box-sizing: border-box; pointer-events: none; border-radius: 10px; border: 2px solid #38BDD6;
+  box-shadow: 0 0 0 9999px var(--du-g-scrim), 0 0 0 4px var(--du-g-glow), 0 0 24px 6px var(--du-g-glow); }
+.du-guida-anello[hidden] { display: none; }
+.du-guida-fumetto { position: fixed; left: 0; top: 0; box-sizing: border-box; width: min(380px, calc(100vw - 16px)); display: grid; gap: 8px;
+  padding: 16px 18px 14px; border-radius: 14px; background: var(--du-g-surf); border: 1px solid var(--du-g-line);
+  box-shadow: 0 18px 48px rgba(10, 20, 28, .32); }
+.du-guida-fumetto::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; border-radius: 14px 14px 0 0; background: linear-gradient(90deg, var(--du-g-acc), #38BDD6); }
+.du-guida-conta { font: 600 11px/1.3 var(--du-g-fc); letter-spacing: .08em; text-transform: uppercase; color: var(--du-g-acc2); }
+.du-guida-t { margin: 0; font: 700 17px/1.3 var(--du-g-fc); color: var(--du-g-ink); }
+.du-guida-s { margin: 0; color: var(--du-g-ink2); }
+.du-guida-manca { margin: 0; padding: 8px 10px; border-radius: 8px; background: #FAF0DA; border: 1px solid #DEC48C; color: #6B4600; font-size: 13px; }
+.du-guida-piede { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.du-guida-punti { display: inline-flex; gap: 4px; margin-right: auto; margin-left: 4px; }
+.du-guida-punto { width: 6px; height: 6px; border-radius: 999px; background: var(--du-g-line); }
+.du-guida-punto--att { width: 16px; background: var(--du-g-acc2); }
+.du-guida-btn { min-height: 30px; padding: 3px 12px; border-radius: 8px; border: 1px solid var(--du-g-line); background: var(--du-g-surf); color: var(--du-g-ink);
+  font: 600 13px/1.2 var(--du-g-f); cursor: pointer; }
+.du-guida-btn:hover:not(:disabled) { border-color: var(--du-g-acc2); }
+.du-guida-btn:disabled { opacity: .45; cursor: default; }
+.du-guida-btn:focus-visible { outline: 2px solid #38BDD6; outline-offset: 2px; }
+.du-guida-btn--pri { background: var(--du-g-acc); border-color: var(--du-g-acc); color: #FFFFFF; }
+.du-guida-btn--pri:hover:not(:disabled) { background: #0B3C49; }
+.du-guida-btn--ghost { border-color: transparent; color: var(--du-g-ink2); }
+@media (prefers-reduced-motion: no-preference) {
+  .du-aiuto { transition: background-color .12s, color .12s, box-shadow .12s, opacity .12s; }
+  .du-guida-anello { transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease; }
+  .du-guida-fumetto { transition: left .18s ease, top .18s ease; }
+}

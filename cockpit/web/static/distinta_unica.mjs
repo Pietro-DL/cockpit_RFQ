@@ -18,6 +18,8 @@
 // che V1 non ha restano visibili e spente, con il motivo scritto accanto (MAT §6.1).
 
 import * as P from "./distinta_unica_ponte.mjs";
+// la guida interattiva e gli aiuti «(?)» (frontend del 22/10 [U]): solo presentazione, nessuna chiamata al server
+import { avviaGuida } from "./du_guida.mjs";
 
 // ---------------------------------------------------------------- utilità del DOM
 
@@ -10753,6 +10755,7 @@ async function avvio() {
   leggiIndirizzo();
   installaAscoltatori();
   renderTestaAzioni();
+  avviaGuida();
   await leggiTutto(true);
   await verificaSospesi();
 }
