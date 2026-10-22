@@ -559,17 +559,33 @@
 }
 
 /* ---- Browser ad albero (richiesta del 22/10, frontend). L'albero degli assiemi come il browser di SolidWorks o di
-   Fusion 360, SOPRA l'organigramma e largo quanto la sua zona (seconda richiesta del 22/10 [U]: «il browser va sopra,
-   non al fianco»): righe compatte e rientrate, il triangolo apri/chiudi, l'icona del tipo, codice e descrizione, la
-   quantità del legame, lo stato e i documenti come foglie. Alto 260 px, scorre per conto suo e si allunga o si accorcia
-   con la maniglia in basso a destra; richiuso resta una linguetta di una riga nell'angolo in alto a sinistra della tela,
-   sopra di lei e fuori dal flusso: chiuso non toglie altezza alla tela, che sta dove stava prima del browser (le prove di
-   stabilità misurano quelle posizioni). La tela tiene tutta la larghezza. Tutte le regole sotto .du. */
-.du .du-orgbr { position: relative; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+   Fusion 360, SOTTO l'organigramma e largo quanto la sua zona (terza richiesta del 22/10 [U]: «la vista ad albero sotto,
+   non sopra l'organigramma»): righe compatte e rientrate, il triangolo apri/chiudi, l'icona del tipo, codice e
+   descrizione, la quantità del legame, lo stato e i documenti come foglie. Alto 260 px, scorre per conto suo e si allunga
+   o si accorcia con la maniglia in alto; richiuso resta una barra sottile «Browser» sotto la tela, larga quanto lei. La
+   tela viene prima nel flusso e sta dove stava prima del browser: aprirlo, chiuderlo o allungarlo non la sposta e non le
+   cambia misura (le prove di stabilità misurano quelle posizioni). Tutte le regole sotto .du. */
+.du .du-orgbr { position: relative; display: grid; gap: var(--du-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .du .du-orgbr > * { min-width: 0; }
+/* nelle finestre basse (sotto i 760 px, dove il browser parte richiuso) la barra «Browser» richiusa non allunga la
+   pagina: sta sul bordo basso della tela, a sinistra, come la maniglia di un cassetto che si apre sotto (le prove di
+   stabilità misurano anche fin dove la pagina scorre). Aperto, il browser torna sotto la tela, nel flusso. */
+@media (max-height: 759.98px) {
+  .du .du-orgbr { gap: 8px; }
+  .du .du-orgbr--chiuso > .du-br--chiuso { position: absolute; left: 1px; bottom: 1px; z-index: 6; max-width: calc(100% - 2px);
+    border-width: 1px 1px 0 0; border-radius: 0 var(--du-r2) 0 var(--du-r3); box-shadow: var(--du-sh-hover); }
+  .du .du-orgbr--chiuso > .du-br--chiuso .du-br-chiudi { min-height: 30px; }
+}
 .du .du-br { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-width: 0;
-  height: 260px; min-height: 140px; max-height: 70vh; resize: vertical;
+  height: 260px; min-height: 140px; max-height: 70vh; padding-top: 8px;
   background: var(--du-surf); border: 1px solid var(--du-line); border-radius: var(--du-r2); box-shadow: var(--du-sh1); overflow: hidden; }
+/* la maniglia: una fascia di 8 px sul bordo alto (fuori dal pulsante «Browser», che non copre), con il segno al centro;
+   trascinata in su allunga il browser */
+.du .du-br-maniglia { position: absolute; left: 0; right: 0; top: 0; z-index: 3; height: 8px; cursor: ns-resize; touch-action: none; outline-offset: -2px; }
+.du .du-br-maniglia[hidden] { display: none; }
+.du .du-br-maniglia::after { content: ""; position: absolute; left: 50%; top: 2px; width: 44px; height: 4px; margin-left: -22px; border-radius: var(--du-r-pill); background: var(--du-line2); }
+.du .du-br-maniglia:hover::after, .du .du-br-maniglia--attiva::after { background: var(--du-acc); }
+.du .du-br-maniglia:focus-visible { outline: 2px solid var(--du-acc); }
 .du .du-br-chiudi { grid-column: 1; grid-row: 1; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 var(--du-s3); border: 0; border-bottom: 1px solid var(--du-line);
   border-right: 1px solid var(--du-line); background: var(--du-surf2); color: var(--du-ink2); cursor: pointer; text-align: left; white-space: nowrap;
   font: 700 var(--du-t-xs)/1.2 var(--du-f-cond); letter-spacing: .09em; text-transform: uppercase; }
@@ -577,11 +593,10 @@
 .du .du-br-chiudi-v { display: inline-grid; place-items: center; width: 16px; height: 16px; }
 .du .du-br-chiudi-v .du-br-ico { width: 12px; height: 12px; stroke-width: 2; transform: rotate(90deg); }
 .du .du-br-chiudi-n { font: 500 var(--du-t-xs)/1.2 var(--du-f-body); letter-spacing: 0; text-transform: none; color: var(--du-ink3); }
-.du .du-br--chiuso { position: absolute; left: 0; top: 0; z-index: 6; grid-template-columns: auto; grid-template-rows: auto; height: auto !important; min-height: 0; resize: none;
-  border-radius: var(--du-r3) 0 var(--du-r2) 0; box-shadow: var(--du-sh-hover); }
-.du .du-br--chiuso .du-br-chiudi { grid-column: 1 / -1; min-height: 34px; border-bottom: 0; border-right: 0; }
+.du .du-br--chiuso { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; height: auto !important; min-height: 0; padding-top: 0; box-shadow: none; }
+.du .du-br--chiuso .du-br-chiudi { grid-column: 1 / -1; min-height: 32px; border-bottom: 0; border-right: 0; }
 .du .du-br--chiuso .du-br-chiudi-v .du-br-ico { transform: none; }
-/* il corpo non fa una scatola sua: la testa sta sulla prima riga accanto alla linguetta, le righe sotto per tutta la larghezza */
+/* il corpo non fa una scatola sua: la testa sta sulla prima riga accanto al pulsante «Browser», le righe sotto per tutta la larghezza */
 .du .du-br-corpo { display: contents; }
 .du .du-br-corpo[hidden] { display: none; }
 .du .du-br-testa { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: var(--du-s2) var(--du-s3); min-width: 0; padding: 6px var(--du-s3); border-bottom: 1px solid var(--du-line); }

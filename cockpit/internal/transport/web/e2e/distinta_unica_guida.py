@@ -382,8 +382,10 @@ def g5(b):
     nessuna_copre(p)
     fumetto_al_mouse(b, "vista-org", "Organigramma", "albero")
     fumetto_al_mouse(b, "tela", "Organigramma della bozza", "pannello del nodo")
-    # il browser ad albero (integrazione frontend): l'aiuto sulla linguetta; aperto, gli aiuti su gesti, filtro e righe;
-    # poi si richiude com'era
+    # il browser ad albero (integrazione frontend): l'aiuto sul pulsante «Browser»; aperto, gli aiuti su gesti, filtro e
+    # righe; poi si richiude com'era. Sta sotto la tela (terza richiesta del 22/10): lo si porta in vista
+    p.locator("#du-br").scroll_into_view_if_needed()
+    p.wait_for_timeout(300)
     attendi_icona(b, "br")
     fumetto_al_mouse(b, "br", "Browser della distinta", "browser degli assiemi")
     era_chiuso = p.locator("#du-br-chiudi").get_attribute("aria-expanded") == "false"

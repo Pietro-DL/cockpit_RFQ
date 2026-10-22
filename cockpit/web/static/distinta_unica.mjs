@@ -122,15 +122,14 @@ const { creaBrowser, browserChiuso } = (() => {
   }
   // salva: la memoria sta già in MEM, per tutta la vita della pagina
   function salva() {}
-  // browserChiuso: la scelta di chi guarda (ricordata finché la pagina resta aperta); senza scelta, aperto solo nelle
-  // finestre alte almeno 1200 px. Il browser sta sopra la tela (seconda richiesta del 22/10 [U]) e aperto le toglie
-  // 270 px d'altezza: nelle finestre più basse l'organigramma deve aprirsi intero come prima del browser (a 1600 × 1000
-  // si vede tutto), quindi il browser parte come una linguetta nell'angolo della tela, che si apre con un clic e da lì
-  // resta aperto.
+  // browserChiuso: la scelta di chi guarda (ricordata finché la pagina resta aperta); senza scelta, aperto. Il browser
+  // sta SOTTO la tela (terza richiesta del 22/10 [U]: «la vista ad albero sotto, non sopra l'organigramma»): aperto o
+  // chiuso non sposta la tela né le toglie altezza, quindi parte aperto in ogni finestra alta almeno 760 px; nelle più
+  // basse parte richiuso (la barra «Browser» sul bordo basso della tela), così la pagina non si allunga dove lo spazio manca.
   let sceltaChiuso = null;
   function browserChiuso() {
     if (sceltaChiuso !== null) return sceltaChiuso;
-    return window.innerHeight < 1200;
+    return window.innerHeight < 760;
   }
   function segnaChiuso(si) {
     sceltaChiuso = !!si;
@@ -445,30 +444,61 @@ const { creaBrowser, browserChiuso } = (() => {
       const ora = !pannello.classList.contains("du-br--chiuso");
       segnaChiuso(ora);
       pannello.classList.toggle("du-br--chiuso", ora);
-      pannello.parentElement && pannello.parentElement.classList.toggle("du-orgbr--chiuso", ora);
+      const orgbr = pannello.closest(".du-orgbr");
+      if (orgbr) orgbr.classList.toggle("du-orgbr--chiuso", ora);
       corpo.hidden = ora;
+      maniglia.hidden = ora;
       chiudi.setAttribute("aria-expanded", ora ? "false" : "true");
       chiudi.title = ora ? "Apri il browser della distinta" : "Richiudi il browser della distinta";
-      // la tela sotto si è spostata: la vista si riadatta alla parte che si vede, senza scorrere la pagina
-      if (o.telaCambiata) o.telaCambiata();
+      // il browser sta sotto la tela: aprirlo o chiuderlo non la sposta, e la vista resta quella che è
     });
-    // la maniglia: l'altezza scelta resta per i ridisegni della pagina; la tela sotto si riadatta se la vista è quella di partenza
-    if (typeof ResizeObserver === "function") {
-      let h0 = 0;
-      new ResizeObserver(() => {
-        if (pannello.classList.contains("du-br--chiuso") || !pannello.isConnected) return;
-        const hh = Math.round(pannello.getBoundingClientRect().height);
-        if (!h0) {
-          h0 = hh;
-          return;
-        }
-        if (Math.abs(hh - h0) < 1) return;
-        h0 = hh;
-        if (pannello.style.height) altezzaScelta = parseInt(pannello.style.height, 10) || altezzaScelta;
-        if (o.telaCambiata) o.telaCambiata();
-      }).observe(pannello);
-    }
-    pannello.append(chiudi, corpo);
+    // la maniglia in alto (terza richiesta del 22/10): trascinata in su allunga il browser, in giù lo accorcia; la tela
+    // sopra resta dov'è e alta com'è, la pagina scorre di quanto il browser cresce perché la maniglia resti sotto il
+    // puntatore. Da tastiera: frecce su e giù (20 px), Home e Fine (minimo e massimo). L'altezza scelta resta per i
+    // ridisegni della pagina.
+    const ALTO_MIN = 140;
+    const altoMax = () => Math.max(ALTO_MIN, Math.round(window.innerHeight * 0.7));
+    const maniglia = el("div", { class: "du-br-maniglia", id: "du-br-maniglia", role: "separator", tabindex: "0", hidden: chiuso,
+      "aria-orientation": "horizontal", "aria-controls": "du-br", "aria-label": "Altezza del browser: trascina in su o in giù, oppure frecce su e giù",
+      title: "Trascina per allungare o accorciare il browser" });
+    const altezza = (hh) => {
+      const n = Math.round(Math.min(altoMax(), Math.max(ALTO_MIN, hh)));
+      pannello.style.height = n + "px";
+      altezzaScelta = n;
+      return n;
+    };
+    maniglia.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const h0 = pannello.getBoundingClientRect().height, y0 = e.clientY, sy0 = window.scrollY;
+      try {
+        maniglia.setPointerCapture(e.pointerId);
+      } catch (err) {
+        /* senza cattura il trascinamento vale finché il puntatore resta sulla maniglia */
+      }
+      maniglia.classList.add("du-br-maniglia--attiva");
+      const muovi = (ev) => {
+        const n = altezza(h0 + (y0 - ev.clientY));
+        window.scrollTo({ top: sy0 + (n - h0), left: window.scrollX, behavior: "instant" });
+      };
+      const fine = () => {
+        maniglia.classList.remove("du-br-maniglia--attiva");
+        maniglia.removeEventListener("pointermove", muovi);
+        maniglia.removeEventListener("pointerup", fine);
+        maniglia.removeEventListener("pointercancel", fine);
+      };
+      maniglia.addEventListener("pointermove", muovi);
+      maniglia.addEventListener("pointerup", fine);
+      maniglia.addEventListener("pointercancel", fine);
+    });
+    maniglia.addEventListener("keydown", (e) => {
+      const hh = pannello.getBoundingClientRect().height;
+      const passi = { ArrowUp: hh + 20, ArrowDown: hh - 20, Home: ALTO_MIN, End: altoMax() };
+      if (!(e.key in passi)) return;
+      e.preventDefault();
+      altezza(passi[e.key]);
+    });
+    pannello.append(maniglia, chiudi, corpo);
     return pannello;
   }
   return { creaBrowser, browserChiuso };
@@ -2193,34 +2223,17 @@ function documentiBrowser(g, v) {
   }
   return out;
 }
-// conBrowser: il browser sopra la tela, largo quanto lei (seconda richiesta del 22/10 [U]); richiuso, resta la sua striscia
+// conBrowser: il browser SOTTO la tela, largo quanto lei (terza richiesta del 22/10 [U]: «la vista ad albero sotto, non
+// sopra l'organigramma»); richiuso, resta la sua barra sotto la tela. La tela sta dove stava prima del browser: aprirlo,
+// chiuderlo o allungarlo non la sposta e non le cambia altezza (le prove di stabilità misurano la sua posizione). Nelle
+// finestre basse la barra richiusa sta sul bordo basso della tela, come la maniglia di un cassetto (distinta_unica.css).
 function conBrowser(g, vp) {
   const br = creaBrowser({ g, chiave: chiaveBrowser(), scelto: S.nodo, scegli, icona: iconaBrowser, statoDi: statoBrowser, documenti: (v) => documentiBrowser(g, v),
     centra: (k) => {
       if (S.nodo !== k) scegli(k);
       centraSel();
-    }, telaCambiata });
-  return h("div", { class: "du-orgbr" + (browserChiuso() ? " du-orgbr--chiuso" : "") }, br, vp);
-}
-// telaCambiata: il browser sopra la tela si è aperto, richiuso o allungato, e la tela si è spostata in giù o in su
-// (revisione di design del 22/10: la vista restava quella di prima). Se la vista è ancora quella di partenza o di
-// «Mostra tutto» (auto), la si rifà per la parte di tela che si vede adesso; se chi guarda l'ha spostata o ingrandita, resta
-// sua. Cambia solo la trasformazione del mondo: niente ridisegno, niente scorrimento della pagina.
-function telaCambiata() {
-  if (!L || !L.vp || !document.body.contains(L.vp)) return;
-  const c = cam();
-  if (c && c.auto) setCam(c.tutto ? vistaTutto() : vistaRiadattata());
-}
-// vistaRiadattata: la vista di partenza per la tela spostata. Se adattato alla parte che si vede l'albero non si
-// leggerebbe più (vistaIniziale lo aprirebbe al 60 % sul prodotto, con schede fuori dai bordi), lo si adatta alla tela
-// intera: tutte le schede restano dentro la tela, e la pagina non scorre.
-function vistaRiadattata() {
-  const a = vistaAdatta();
-  if (a.k >= 0.35) return Object.assign(vistaIniziale(), { auto: true });
-  const d = vpDim();
-  const l = L.lay;
-  const k = clamp(Math.min((d.w - 24) / l.W, (d.h - 24) / l.H), KMIN, 1);
-  return { k, tx: (d.w - l.W * k) / 2, ty: 12, auto: true };
+    } });
+  return h("div", { class: "du-orgbr" + (browserChiuso() ? " du-orgbr--chiuso" : "") }, vp, br);
 }
 // legendaOrg: la legenda sotto l'organigramma, come nella pagina di prima (messaggio 46, D07): i tratti dei legami, le
 // schede, i segni e il trascinamento.
@@ -2297,7 +2310,7 @@ function vistaAdatta() {
 // vistaTutto: «Mostra tutto» (seconda richiesta del 22/10 [U]: «centra l'albero e lo scala perché sia visibile per
 // intero»): lo zoom di vistaAdatta (la parte di tela che si vede, F3-I5) e l'albero al centro di quella parte, in larghezza
 // e in altezza. Prende il posto di «Adatta» (stesso pulsante, stesso tasto 0): una funzione sola, non due con nomi diversi.
-// auto: la vista resta «tutto» finché chi guarda non la sposta (telaCambiata la rifà se la tela cambia posto o misura).
+// auto: la vista resta «tutto» finché chi guarda non la sposta.
 function vistaTutto() {
   const d = vpDim();
   const l = L.lay;

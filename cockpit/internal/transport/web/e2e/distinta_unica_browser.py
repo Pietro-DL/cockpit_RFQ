@@ -7,8 +7,8 @@ browser`) sul banco finto di distinta_unica_banco_test.go, con `python -I`. Rius
 classe Banco).
 
 Che cosa prova:
-  BR0  senza una scelta nella pagina il browser parte richiuso (una linguetta nell'angolo della tela) nelle finestre alte meno di
-       1200 px, aperto da lì in su (seconda richiesta del 22/10: il browser sta sopra l'organigramma)
+  BR0  senza una scelta nella pagina il browser parte aperto nelle finestre alte almeno 760 px, richiuso (la barra
+       «Browser» sul bordo basso della tela) in quelle più basse (terza richiesta del 22/10: il browser sta sotto l'organigramma)
   BR1  le righe annidate: il prodotto, i suoi figli, sotto i pezzi i loro documenti come foglie (PDF, STEP…), con
        l'icona del tipo, il codice, la quantità del legame e lo stato; ruoli ARIA tree/treeitem con aria-level e
        aria-expanded; nessuna chiave interna (k-…), UUID o nome tecnico a schermo
@@ -24,8 +24,9 @@ Che cosa prova:
        orizzontale della pagina
   BR7  le schermate dell'insieme a 1600 × 1000 e 1366 × 768 (Sorgente, anteprima, Revisione con il browser, aiuto «(?)»,
        guida al passo del browser, elenco, wizard), senza scorrimento orizzontale
-  BR8  (seconda richiesta del 22/10 [U]) il browser sta SOPRA la tela e largo quanto lei; a 1600 × 1000 l'organigramma si
-       apre intero; aprirlo e chiuderlo non fa saltare la pagina (±1 px) e la vista della tela si riadatta
+  BR8  (terza richiesta del 22/10 [U]) il browser sta SOTTO la tela e largo quanto lei, anche richiuso (una barra
+       sottile); a 1600 × 1000 l'organigramma si apre intero; aprirlo, chiuderlo e allungarlo con la maniglia in alto
+       (mouse e frecce) non sposta la tela, non le cambia misura e non cambia la sua vista
   BR9  «Mostra tutto» (il pulsante che era «Adatta», e il tasto 0): l'albero intero e al centro della tela
   BR10 lo schermo intero: tutta la finestra, «Cerca» che evidenzia e centra (Invio al seguente), il clic su una scheda
        che la sceglie ed evidenzia padri, figli e documenti, Esc che rimette la pagina dov'era; nessuna richiesta
@@ -78,7 +79,7 @@ def revisione(b):
         b.passo("revisione")
         b.salvata(1)
     expect(p.locator("#du-vp .du-nc[data-k]").first).to_be_visible(timeout=T_LUNGO)
-    # sotto i 1200 px d'altezza, senza una scelta nella pagina, il browser parte richiuso (la linguetta): lo si apre
+    # se il browser è richiuso (una scelta di prima, o una finestra bassa) lo si apre
     expect(p.locator("#du-br-chiudi")).to_be_visible(timeout=T_LUNGO)
     if p.locator("#du-br-chiudi").get_attribute("aria-expanded") == "false":
         p.click("#du-br-chiudi")
@@ -99,12 +100,12 @@ def testo_browser(p):
     return p.locator("#du-br").inner_text()
 
 
-@prova("BR0", "senza una scelta nella pagina: richiuso (una linguetta) sotto i 1200 px d'altezza, aperto da lì in su")
+@prova("BR0", "senza una scelta nella pagina: aperto dai 760 px d'altezza in su, richiuso (la barra sul bordo basso della tela) sotto")
 def br0(b):
     p = b.page
     p.evaluate("() => { try { sessionStorage.removeItem('du-br-chiuso'); } catch (e) {} }")
-    # il browser sta sopra la tela (seconda richiesta del 22/10): conta l'altezza della finestra, non la larghezza
-    for w, hh, atteso in ((1600, 1000, "false"), (1440, 900, "false"), (1600, 1200, "true")):
+    # il browser sta sotto la tela (terza richiesta del 22/10): conta l'altezza della finestra, non la larghezza
+    for w, hh, atteso in ((1600, 1000, "true"), (1366, 768, "true"), (1440, 680, "false"), (1600, 1200, "true")):
         p.set_viewport_size({"width": w, "height": hh})
         b.apri()
         b.passo("revisione")
@@ -151,9 +152,9 @@ def br1(b):
     verifica(not CHIAVE_RE.search(t), "chiavi interne a schermo nel browser: %r" % CHIAVE_RE.findall(t))
     verifica(not UUID_RE.search(t), "UUID a schermo nel browser")
     verifica(not SNAKE_RE.search(t), "nomi tecnici a schermo nel browser: %r" % SNAKE_RE.findall(t))
-    # il browser sta prima dell'organigramma (a sinistra o sopra)
-    pos = p.evaluate("() => { const a = document.querySelector('#du-br').getBoundingClientRect(), v = document.querySelector('#du-vp').getBoundingClientRect(); return {a: [a.left, a.top, a.right], v: [v.left, v.top]}; }")
-    verifica(pos["a"][2] <= pos["v"][0] + 1 or pos["a"][1] < pos["v"][1], "il browser non sta prima dell'organigramma: %r" % pos)
+    # il browser sta sotto l'organigramma (terza richiesta del 22/10)
+    pos = p.evaluate("() => { const a = document.querySelector('#du-br').getBoundingClientRect(), v = document.querySelector('#du-vp').getBoundingClientRect(); return {a: [a.left, a.top, a.right], v: [v.left, v.bottom]}; }")
+    verifica(pos["a"][1] >= pos["v"][1] - 1, "il browser non sta sotto l'organigramma: %r" % pos)
     b.foto("BR1_righe.png")
 
 
@@ -287,18 +288,18 @@ def br5(b):
     b.passo("revisione")
     expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_LUNGO)
     expect(p.locator("#du-br-corpo")).to_be_hidden(timeout=T_BREVE)
-    # aperto, resta aperto fra le schede; ricaricando, si riparte dalla scelta di partenza (richiuso sotto i 1200 px d'altezza)
+    # aperto, resta aperto fra le schede; ricaricando, si riparte dalla scelta di partenza (aperto a 1440 × 900)
     p.click("#du-br-chiudi")
     b.passo("sorgente")
     b.passo("revisione")
     expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_LUNGO)
+    p.click("#du-br-chiudi")
+    expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
     p.reload()
     b.pronta()
     b.passo("revisione")
-    expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_LUNGO)
-    p.click("#du-br-chiudi")
+    expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_LUNGO)
     expect(p.locator("#du-br-corpo")).to_be_visible(timeout=T_BREVE)
-    expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_BREVE)
 
 
 @prova("BR6", "1600 × 1000 e 1366 × 768: browser e tela nella finestra, niente scorrimento orizzontale")
@@ -315,7 +316,7 @@ def br6(b):
         verifica(m["sw"] <= m["iw"] + 1, "scorrimento orizzontale a %dx%d: %r" % (w, hh, m))
         verifica(m["a"][2] >= 240 and m["v"][2] >= 360, "browser o tela troppo stretti a %dx%d: %r" % (w, hh, m))
         verifica(m["v"][1] <= m["iw"] + 1, "la tela esce dalla finestra a %dx%d" % (w, hh))
-        # il browser sta sopra la tela, largo quanto lei (seconda richiesta del 22/10)
+        # il browser sta sotto la tela, largo quanto lei (terza richiesta del 22/10)
         verifica(abs(m["a"][0] - m["v"][0]) <= 1 and abs(m["a"][2] - m["v"][2]) <= 1, "il browser non è largo quanto la tela a %dx%d: %r" % (w, hh, m))
         b.foto("BR6_%dx%d.png" % (w, hh))
     p.set_viewport_size({"width": 1440, "height": 900})
@@ -381,7 +382,7 @@ def br7(b):
     b.apri()
 
 
-# ---- seconda richiesta del 22/10 [U] (Stefano): il browser SOPRA l'organigramma, «Mostra tutto» e lo schermo intero
+# ---- richieste del 22/10 [U] (Stefano): il browser SOTTO l'organigramma, «Mostra tutto» e lo schermo intero
 
 TELA = r"""() => { const v = document.getElementById('du-vp'); if (!v) return null; const R = v.getBoundingClientRect();
   const alto = Math.max(R.top, 0), basso = Math.min(R.bottom, innerHeight);
@@ -414,53 +415,100 @@ def revisione_da_capo(b, w, hh):
     p.wait_for_timeout(500)
 
 
-@prova("BR8", "il browser sta SOPRA l'organigramma, largo quanto la tela; a 1600 × 1000 l'albero si apre intero; aprire e chiudere non fa saltare la pagina e la vista si riadatta")
+@prova("BR8", "il browser sta SOTTO l'organigramma, largo quanto la tela; a 1600 × 1000 l'albero si apre intero; aprire, chiudere e allungare il browser non sposta la tela né la sua vista")
 def br8(b):
     p = b.page
+
+    def ferma(m0, m1, cosa):
+        """La tela non si è mossa: stessa posizione nella pagina, stessa misura, stessa vista."""
+        verifica(abs((m1["vp"][1] + m1["sy"]) - (m0["vp"][1] + m0["sy"])) <= 1 and abs(m1["vp"][3] - m0["vp"][3]) <= 1 and abs(m1["vp"][2] - m0["vp"][2]) <= 1,
+                 "%s: la tela si è spostata o ha cambiato misura: %r → %r" % (cosa, m0["vp"], m1["vp"]))
+        verifica(m1["mondo"] == m0["mondo"], "%s: la vista della tela è cambiata: %r → %r" % (cosa, m0["mondo"], m1["mondo"]))
+
+    def sotto(m, cosa):
+        verifica(m["br"][1] >= m["vp"][5] - 1 and m["br"][1] - m["vp"][5] <= 16, "%s: il browser non sta subito sotto la tela: %r / %r" % (cosa, m["br"], m["vp"]))
+        verifica(abs(m["br"][0] - m["vp"][0]) <= 1 and abs(m["br"][2] - m["vp"][2]) <= 1, "%s: il browser non è largo quanto la tela: %r / %r" % (cosa, m["br"], m["vp"]))
+
     try:
         revisione_da_capo(b, 1600, 1000)
-        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false")
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true")
         m0 = tela(p)
         print("      1600x1000 all'apertura: %r" % {k: m0[k] for k in ("vp", "scala", "fuori", "fuoriVisibile", "br")})
         verifica(m0["n"] >= 6 and not m0["fuori"] and not m0["fuoriVisibile"], "a 1600 × 1000 l'organigramma non si apre intero: %r" % m0)
-        # richiuso, il browser è una linguetta nell'angolo in alto a sinistra della tela: non le toglie altezza
-        verifica(abs(m0["br"][0] - m0["vp"][0]) <= 1 and abs(m0["br"][1] - m0["vp"][1]) <= 1 and m0["br"][3] <= 40 and m0["br"][2] < m0["vp"][2] / 2,
-                 "la linguetta del browser non sta nell'angolo della tela: %r" % m0)
-        # aperto: sopra la tela, largo quanto lei; la pagina e la striscia non si spostano, la tela non cambia larghezza
+        sotto(m0, "aperto")
+        verifica(m0["br"][3] >= 240, "il browser aperto è troppo basso: %r" % m0["br"])
+        senza_scorrimento_orizzontale(p, "browser sotto 1600")
+        b.foto("BR8_1600x1000_aperto.png")
+        # richiuso: una barra sottile sotto la tela, larga quanto lei; la tela non si muove
         p.click("#du-br-chiudi")
-        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_BREVE)
-        expect(p.locator("#du-br-albero .du-br-riga").first).to_be_visible(timeout=T_BREVE)
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
+        expect(p.locator("#du-br-corpo")).to_be_hidden(timeout=T_BREVE)
         p.wait_for_timeout(300)
         m1 = tela(p)
-        print("      aperto: %r" % {k: m1[k] for k in ("vp", "scala", "br", "sy")})
-        verifica(m1["br"][3] >= 200, "il browser aperto è troppo basso: %r" % m1["br"])
-        verifica(m1["br"][5] <= m1["vp"][1] + 1, "il browser aperto non sta sopra la tela: %r / %r" % (m1["br"], m1["vp"]))
-        verifica(abs(m1["br"][0] - m1["vp"][0]) <= 1 and abs(m1["br"][2] - m1["vp"][2]) <= 1, "il browser non è largo quanto la tela: %r / %r" % (m1["br"], m1["vp"]))
-        verifica(abs(m1["vp"][2] - m0["vp"][2]) <= 1, "aprendo il browser la tela ha cambiato larghezza: %r → %r" % (m0["vp"][2], m1["vp"][2]))
-        verifica(abs(m1["sy"] - m0["sy"]) <= 1 and abs(m1["striscia"] - m0["striscia"]) <= 1, "aprendo il browser la pagina è saltata: %r → %r" % ((m0["sy"], m0["striscia"]), (m1["sy"], m1["striscia"])))
-        verifica(abs(m1["br"][1] - m0["vp"][1]) <= 1, "il browser aperto non comincia dove cominciava la tela: %r / %r" % (m1["br"], m0["vp"]))
-        verifica(not m1["fuori"], "aperto il browser, schede fuori dalla tela: %r" % m1["fuori"])
-        senza_scorrimento_orizzontale(p, "browser sopra 1600")
-        b.foto("BR8_1600x1000_aperto.png")
-        # richiuso: di nuovo la vista di partenza (riadattata), niente salti
+        verifica(m1["br"][3] <= 40, "richiuso, il browser non è una barra sottile: %r" % m1["br"])
+        sotto(m1, "richiuso")
+        ferma(m0, m1, "richiudendo il browser")
+        b.foto("BR8_1600x1000_chiuso.png")
+        # riaperto: di nuovo come all'apertura
+        p.click("#du-br-chiudi")
+        expect(p.locator("#du-br-albero .du-br-riga").first).to_be_visible(timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        m2 = tela(p)
+        ferma(m0, m2, "riaprendo il browser")
+        # la maniglia in alto: trascinata in su di 80 px allunga il browser di 80 px; la tela resta dov'è e la sua vista non cambia
+        g = p.locator("#du-br-maniglia")
+        g.scroll_into_view_if_needed()
+        p.wait_for_timeout(200)
+        m3 = tela(p)
+        gb = g.bounding_box()
+        x, y = gb["x"] + gb["width"] / 2, gb["y"] + gb["height"] / 2
+        p.mouse.move(x, y)
+        p.mouse.down()
+        p.mouse.move(x, y - 80, steps=8)
+        p.mouse.up()
+        p.wait_for_timeout(300)
+        m4 = tela(p)
+        print("      maniglia: %r → %r" % (m3["br"][3], m4["br"][3]))
+        verifica(abs(m4["br"][3] - m3["br"][3] - 80) <= 3, "la maniglia non allunga il browser di quanto la si trascina: %r → %r" % (m3["br"][3], m4["br"][3]))
+        ferma(m3, m4, "allungando il browser con la maniglia")
+        sotto(m4, "allungato")
+        # da tastiera: freccia giù accorcia di 20 px, la tela resta ferma
+        g.focus()
+        p.keyboard.press("ArrowDown")
+        p.wait_for_timeout(200)
+        m5 = tela(p)
+        verifica(abs(m4["br"][3] - m5["br"][3] - 20) <= 2, "la freccia giù sulla maniglia non accorcia il browser: %r → %r" % (m4["br"][3], m5["br"][3]))
+        ferma(m4, m5, "accorciando il browser da tastiera")
+        # a 1366 × 768: aperto, sotto e largo quanto la tela, niente scorrimento di lato
+        revisione_da_capo(b, 1366, 768)
+        expect(p.locator("#du-br-corpo")).to_be_visible(timeout=T_BREVE)
+        p.wait_for_timeout(300)
+        m6 = tela(p)
+        sotto(m6, "1366 × 768")
+        # (a 1366 × 768 la vista di partenza resta quella di prima del browser: l'albero del banco, adattato, starebbe
+        # sotto il 35 % e si apre al 60 % sul prodotto; il browser sotto la tela non la cambia)
         p.click("#du-br-chiudi")
         expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
         p.wait_for_timeout(300)
-        m2 = tela(p)
-        verifica(abs(m2["sy"] - m0["sy"]) <= 1 and abs(m2["striscia"] - m0["striscia"]) <= 1 and abs(m2["vp"][1] - m0["vp"][1]) <= 1,
-                 "richiudendo il browser la pagina è saltata: %r → %r" % (m0, m2))
-        verifica(not m2["fuori"] and not m2["fuoriVisibile"] and abs(int(m2["scala"]) - int(m0["scala"])) <= 1,
-                 "richiuso il browser la vista non è tornata intera: %r (all'apertura %r)" % (m2, m0))
-        # a 1366 × 768: aperto, sopra e largo quanto la tela, niente scorrimento di lato
-        revisione_da_capo(b, 1366, 768)
+        ferma(m6, tela(p), "a 1366 × 768, richiudendo il browser")
+        p.click("#du-br-chiudi")
+        expect(p.locator("#du-br-corpo")).to_be_visible(timeout=T_BREVE)
+        senza_scorrimento_orizzontale(p, "browser sotto 1366")
+        b.foto("BR8_1366x768_aperto.png")
+        # a 1440 × 680 (finestra bassa): parte richiuso, e la barra sta sul bordo basso della tela, a sinistra, senza
+        # allungare la pagina; aperto, il browser va sotto la tela e la tela resta ferma
+        revisione_da_capo(b, 1440, 680)
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
+        m7 = tela(p)
+        verifica(abs(m7["br"][5] - m7["vp"][5]) <= 2 and abs(m7["br"][0] - m7["vp"][0]) <= 2 and m7["br"][3] <= 40 and m7["br"][2] < m7["vp"][2] / 2,
+                 "a 1440 × 680 la barra richiusa non sta sul bordo basso della tela: %r / %r" % (m7["br"], m7["vp"]))
+        b.foto("BR8_1440x680_chiuso.png")
         p.click("#du-br-chiudi")
         expect(p.locator("#du-br-corpo")).to_be_visible(timeout=T_BREVE)
         p.wait_for_timeout(300)
-        m3 = tela(p)
-        verifica(m3["br"][5] <= m3["vp"][1] + 1 and abs(m3["br"][2] - m3["vp"][2]) <= 1, "a 1366 × 768 il browser non sta sopra la tela: %r" % m3)
-        verifica(not m3["fuori"], "a 1366 × 768, aperto il browser, schede fuori dalla tela: %r" % m3["fuori"])
-        senza_scorrimento_orizzontale(p, "browser sopra 1366")
-        b.foto("BR8_1366x768_aperto.png")
+        m8 = tela(p)
+        sotto(m8, "1440 × 680 aperto")
+        ferma(m7, m8, "a 1440 × 680, aprendo il browser")
     finally:
         p.set_viewport_size({"width": 1440, "height": 900})
 
@@ -495,13 +543,17 @@ def br9(b):
         p.wait_for_timeout(200)
         m2 = tela(p)
         verifica(m2["mondo"] == m1["mondo"], "il tasto 0 non dà la stessa vista di «Mostra tutto»: %r / %r" % (m2["mondo"], m1["mondo"]))
-        # e col browser aperto sopra: tutte le schede dentro la tela
+        # aperto o chiuso, il browser sta sotto la tela e non cambia «Mostra tutto»
         p.click("#du-br-chiudi")
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "false", timeout=T_BREVE)
         p.wait_for_timeout(300)
         p.click("#du-zoom-adatta")
         p.wait_for_timeout(300)
         m3 = tela(p)
-        verifica(not m3["fuori"], "col browser aperto «Mostra tutto» lascia schede fuori: %r" % m3["fuori"])
+        verifica(not m3["fuori"] and not m3["fuoriVisibile"], "col browser richiuso «Mostra tutto» lascia schede fuori: %r" % m3)
+        verifica(m3["mondo"] == m1["mondo"], "col browser richiuso «Mostra tutto» dà un'altra vista: %r / %r" % (m3["mondo"], m1["mondo"]))
+        p.click("#du-br-chiudi")
+        expect(p.locator("#du-br-chiudi")).to_have_attribute("aria-expanded", "true", timeout=T_BREVE)
     finally:
         p.set_viewport_size({"width": 1440, "height": 900})
 
